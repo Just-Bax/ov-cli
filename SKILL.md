@@ -146,12 +146,16 @@ endpoint was just added.
 | 3 | not logged in, or the session expired | Ask the user to run `ov login`. |
 | 4 | no such operation, record or instance | Re-run `ov api list` or `ov instances` and pick a real one. |
 | 5 | the API returned an error | Read `status` and `error`; the body is in `body`. |
-| 6 | authenticated, but no privilege | Tell the user which module they need. |
+| 6 | the server answered 403 | Tell the user which module they need. |
 
 Exit 4 on an operation ref lists near-misses. Correct your own ref before asking the user.
 
 Exit 6 is not a bug to work around. The account lacks a OneVizion module privilege; say
 which call failed and stop.
+
+**Exit 5 can also mean "no privilege".** OneVizion returns HTTP 500 for field-level
+privilege failures, with the reason in the message ("You don't have R priv..."). Read the
+`error` string before deciding a 500 is a server fault; retrying will not help.
 
 ## Never
 

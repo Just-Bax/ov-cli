@@ -81,9 +81,11 @@ def build_table(title: str | None, columns: list[dict[str, Any]], rows: list[lis
 
 def rows_from(payload: Any, limit: int = 200) -> Table | None:
     """Render a list of flat objects as a table, or give up so the caller falls
-    back to JSON."""
-    if not isinstance(payload, list) or not payload:
+    back to JSON. An empty list is still a table, just an empty one."""
+    if not isinstance(payload, list):
         return None
+    if not payload:
+        return build_table(None, [{"header": "no rows"}], [])
     if not all(isinstance(item, dict) for item in payload):
         return None
 

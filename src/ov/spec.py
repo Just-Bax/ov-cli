@@ -18,6 +18,15 @@ METHODS = ("get", "put", "post", "delete", "patch", "head", "options", "trace")
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _JAVA_SIGNATURE = re.compile(r"([A-Za-z_$][\w$]*)\s*\(")
 _PATH_PARAM = re.compile(r"\{([^}]+)\}")
+_TAG = re.compile(r"<[^>]+>")
+
+
+def plain(text: str) -> str:
+    """Strip the markup OneVizion puts in its API descriptions."""
+    if not text:
+        return ""
+    cleaned = _TAG.sub("", text.replace("<br>", " ").replace("<br/>", " "))
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 @dataclass(slots=True)
@@ -280,8 +289,8 @@ def _operation(
         tag=tag,
         method=method.upper(),
         path=path,
-        summary=(raw.get("summary") or "").strip(),
-        description=(raw.get("description") or "").strip(),
+        summary=plain(raw.get("summary") or ""),
+        description=plain(raw.get("description") or ""),
         operation_id=operation_id,
         deprecated=bool(raw.get("deprecated")),
         params=params,
@@ -320,7 +329,7 @@ def _params(raw: Any, document: dict[str, Any]) -> list[Param]:
                 location=str(entry.get("in") or "query"),
                 required=bool(entry.get("required")),
                 type=_type_of(schema),
-                description=(entry.get("description") or "").strip(),
+                description=plain(entry.get("description") or ""),
                 enum=[str(v) for v in (schema.get("enum") or [])],
                 default=schema.get("default"),
             )
@@ -340,12 +349,33 @@ def _body(raw: Any, document: dict[str, Any]) -> Body | None:
     # one a --data payload can satisfy.
     chosen = next((c for c in content if "json" in c), next(iter(content)))
     media = content.get(chosen) or {}
-    schema = resolve(media.get("schema") or {}, document)
+    schema = expand(media.get("schema") or {}, document)
     return Body(
         content_type=chosen,
         required=bool(raw.get("required")),
         schema=schema if isinstance(schema, dict) else {},
     )
+
+
+def expand(node: Any, document: dict[str, Any], depth: int = 0, seen: tuple = ()) -> Any:
+    """Resolve every $ref inside a schema, not just the one at its root.
+
+    A body whose top level is {"fields": {"$ref": ...}} tells the caller
+    nothing about what to send. Recursive models are cut off at the point they
+    repeat rather than unrolled forever.
+    """
+    if depth > 6 or not isinstance(node, (dict, list)):
+        return node
+    if isinstance(node, list):
+        return [expand(item, document, depth + 1, seen) for item in node]
+
+    ref = node.get("$ref")
+    if isinstance(ref, str):
+        if ref in seen:
+            return {"$ref": ref, "description": "recursive, see above"}
+        return expand(resolve(node, document), document, depth + 1, seen + (ref,))
+
+    return {key: expand(value, document, depth + 1, seen) for key, value in node.items()}
 
 
 def _type_of(schema: dict[str, Any]) -> str:

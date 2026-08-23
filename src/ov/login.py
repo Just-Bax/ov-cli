@@ -127,6 +127,7 @@ def interactive_login(
                 ) from exc
             minted = _await_token(context, base_url, host, timeout_ms, report, verify)
             cookies = cookies_from_playwright(context.cookies())
+            report("signed in, closing the browser")
         finally:
             _close(context)
 
@@ -141,8 +142,9 @@ def _await_token(
     report: Progress,
     verify: bool = True,
 ) -> dict[str, Any]:
-    deadline = time.monotonic() + timeout_ms / 1000
-    next_report = time.monotonic() + PROGRESS_EVERY_SECONDS
+    started = time.monotonic()
+    deadline = started + timeout_ms / 1000
+    next_report = started + PROGRESS_EVERY_SECONDS
     refused = 0
     last_error = ""
     seen: list[str] = []
@@ -175,7 +177,8 @@ def _await_token(
 
         if time.monotonic() >= next_report:
             next_report = time.monotonic() + PROGRESS_EVERY_SECONDS
-            report(f"waiting: {last_error} [{', '.join(seen) or 'no tabs'}]")
+            waited = int(time.monotonic() - started)
+            report(f"waiting {waited}s: {last_error} [{', '.join(seen) or 'no tabs'}]")
 
         _pause(pages)
 

@@ -190,3 +190,12 @@ def test_writes_are_never_cached(capsys, logged_in, server):
     for _ in range(2):
         run(capsys, "request", "POST", "/v3/users", "-d", '{"a": 1}', "--json")
     assert len(server.requests) == 2
+
+
+def test_table_renders_an_empty_list_rather_than_failing(capsys, logged_in, server):
+    """An empty result is a flat list; --table used to call it unrenderable."""
+    server.route("GET", "/api/v3/users", 200, [])
+    code, out = run(capsys, "request", "GET", "/v3/users", "--table")
+
+    assert code == 0
+    assert "no rows" in out

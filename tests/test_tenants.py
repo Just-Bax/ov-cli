@@ -274,3 +274,29 @@ def test_two_hosts_still_disambiguate_normally(ov_home):
     seed_session("https://acme-test.onevizion.test")
     with pytest.raises(Ambiguous):
         session_store.load("acme")
+
+
+def test_a_tenant_login_is_stored_under_a_tenant_alias(capsys, ov_home, tenant_server, monkeypatch):
+    """The mint persists the session, so the alias has to be settled first.
+
+    Getting the order wrong stored a tenant session under the plain host alias,
+    where nothing later could tell the two apart.
+    """
+    from ov.session import Session as S
+
+    monkeypatch.setattr(
+        "ov.cli.commands.auth._browser_login",
+        lambda ctx, base_url: S(base_url=base_url, cookies={"JSESSIONID": "abc"},
+                                bearer_token="SIGNIN:KEY"),
+    )
+
+    code, data = payload(
+        capsys, "login", BASE_URL, "--tenant", "mTRAC", "--no-spec", "--json"
+    )
+
+    assert code == 0
+    assert data["alias"] == "acme/mtrac"
+    assert data["tenant"] == "mTRAC"
+    assert sorted(session_store.all_sessions()) == ["acme/mtrac"]
+    # and the token is the one minted after the switch, not the sign-in token
+    assert session_store.load("acme/mtrac").bearer_token == "TENANT:KEY"

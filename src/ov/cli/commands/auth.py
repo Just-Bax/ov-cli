@@ -105,13 +105,20 @@ def cmd_login(ctx: Context) -> int:
 
     session = _token_login(ctx, base_url) if args.token else _browser_login(ctx, base_url)
     if args.tenant:
-        _enter_tenant(ctx, session, args.tenant)
-    # The browser can land on a different host than the one we opened, so the
-    # alias is settled only once the real base URL is known.
+        _choose_tenant(ctx, session, args.tenant)
+
+    # The browser can land on a different host than the one we opened, and the
+    # tenant is only known once it has been looked up, so the alias is settled
+    # here. It has to happen before the mint, which persists the session under
+    # whatever alias it finds.
     session.alias = session_store.unique_alias(
         session.base_url, args.alias or "", session.tenant, session.tenant_id
     )
+    if args.tenant:
+        note(ctx, f"Switching to tenant [cyan]{session.tenant}[/cyan]...")
+        _mint_in_tenant(ctx, session)
 
+    note(ctx, "Checking the credentials...")
     with build_client(ctx.config, session) as client:
         try:
             client.api("GET", "/authorize", accept="text/plain")
@@ -126,12 +133,16 @@ def cmd_login(ctx: Context) -> int:
     reset_cache()
     ctx.cache.clear()
 
-    fetched = 0 if args.no_spec else _prefetch_spec(ctx, session)
+    fetched = 0
+    if not args.no_spec:
+        note(ctx, "Downloading the API schema...")
+        fetched = _prefetch_spec(ctx, session)
 
     data = {
         "status": "logged_in",
         "alias": session.alias,
         "base_url": session.base_url,
+        "tenant": session.tenant or None,
         "mode": session.mode,
         "access_key": session.access_key,
         "expires": session.expires_text or None,
@@ -143,21 +154,25 @@ def cmd_login(ctx: Context) -> int:
     return 0
 
 
-def _enter_tenant(ctx: Context, session: Session, wanted: str) -> None:
-    """Move the session into another tenant and re-mint there.
-
-    Sign-in always lands in the account's own tenant, and the token that came
-    with it is scoped to that one, so the token has to be replaced rather than
-    reused.
-    """
+def _choose_tenant(ctx: Context, session: Session, wanted: str) -> None:
+    """Look the tenant up without committing anything yet."""
     if session.is_static:
         raise OvError(
             "--tenant needs a browser sign-in. An API token is already tied to one tenant."
         )
 
+    note(ctx, "Reading the tenant list...")
     with build_client(ctx.config, session) as client:
-        available = client.tenants()
-        session.tenant_id, session.tenant = resolve_tenant(available, wanted)
+        session.tenant_id, session.tenant = resolve_tenant(client.tenants(), wanted)
+
+
+def _mint_in_tenant(ctx: Context, session: Session) -> None:
+    """Replace the sign-in token with one issued inside the chosen tenant.
+
+    Sign-in always lands in the account's own tenant, and a token is scoped to
+    the tenant it was minted in, so the original cannot simply be kept.
+    """
+    with build_client(ctx.config, session) as client:
         client.refresh_token()
 
 
@@ -215,7 +230,9 @@ def _progress(ctx: Context) -> Callable[[str], None]:
         if ctx.args.verbose:
             warn(ctx, f"[dim]{message}[/dim]")
         else:
-            warn(ctx, "[dim]Waiting for the instance to accept the sign-in...[/dim]")
+            # Keep the elapsed seconds even in the quiet form. A line that never
+            # changes cannot be told apart from a stopped process.
+            warn(ctx, f"[dim]{message.split(':')[0]}, still waiting for sign-in[/dim]")
 
     return report
 

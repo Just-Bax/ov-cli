@@ -4,7 +4,7 @@ import pytest
 from conftest import OPENAPI, signature
 
 from ov.errors import Ambiguous, NotFound
-from ov.spec import kebab, operation_name, parse
+from ov.spec import kebab, operation_name, parse, plain
 
 
 @pytest.fixture
@@ -86,3 +86,70 @@ def test_find_reports_a_miss(spec):
 def test_search_covers_path_and_summary(spec):
     assert spec.search("trackor_types")
     assert spec.search("Read Trackor Types")
+
+
+def test_nested_refs_are_expanded_not_left_as_pointers():
+    """A body of {"fields": {"$ref": ...}} tells the caller nothing."""
+    document = {
+        "openapi": "3.1.0",
+        "paths": {
+            "/v3/x": {
+                "post": {
+                    "tags": ["x"],
+                    "operationId": "createX",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {"fields": {"$ref": "#/components/schemas/F"}},
+                                }
+                            }
+                        }
+                    },
+                    "responses": {},
+                }
+            }
+        },
+        "components": {
+            "schemas": {"F": {"type": "object", "properties": {"cf1": {"type": "string"}}}}
+        },
+    }
+    body = parse(document, "v3").find("x:create-x").body
+    assert body.schema["properties"]["fields"]["properties"]["cf1"]["type"] == "string"
+
+
+def test_a_recursive_model_is_cut_off_rather_than_unrolled():
+    document = {
+        "openapi": "3.1.0",
+        "paths": {
+            "/v3/y": {
+                "post": {
+                    "tags": ["y"],
+                    "operationId": "createY",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/Node"}}
+                        }
+                    },
+                    "responses": {},
+                }
+            }
+        },
+        "components": {
+            "schemas": {
+                "Node": {
+                    "type": "object",
+                    "properties": {"child": {"$ref": "#/components/schemas/Node"}},
+                }
+            }
+        },
+    }
+    body = parse(document, "v3").find("y:create-y").body
+    assert body.schema["properties"]["child"]["description"] == "recursive, see above"
+
+
+def test_markup_is_stripped_from_descriptions():
+    """OneVizion writes <b> and <br> into its API descriptions."""
+    assert plain("Use <b>[filter]</b><br>or trackor_id") == "Use [filter] or trackor_id"
+    assert plain("") == ""

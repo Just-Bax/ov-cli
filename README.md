@@ -358,7 +358,7 @@ enforced the way it is on Linux and macOS.
 | 3 | not logged in, or the session expired |
 | 4 | no such operation, record or instance |
 | 5 | the API returned an error, or the schema could not be read |
-| 6 | authenticated, but the account lacks a privilege |
+| 6 | authenticated, but the server answered 403 |
 
 ## Privileges
 
@@ -372,6 +372,10 @@ The CLI can only reach what your account can. Three matter for the CLI itself:
 
 Without **API Docs** you still get `ov request`. Without **Widget** you can still sign in
 with `--token`.
+
+Note that OneVizion does not answer 403 for every privilege failure. A missing field-level
+privilege comes back as HTTP 500 with an explanatory message, so it surfaces as exit 5
+rather than exit 6. Read the message, not the exit code, when a call is refused.
 
 ## Use from an AI agent
 
