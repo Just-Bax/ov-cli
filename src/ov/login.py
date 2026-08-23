@@ -21,18 +21,13 @@ LOGIN_WAIT_MS = 5 * 60 * 1000
 POLL_INTERVAL_SECONDS = 1.0
 PROGRESS_EVERY_SECONDS = 5.0
 
-# How many consecutive rounds an already-signed-in tab may keep being refused
-# before this stops waiting. Long enough to ride out a session that is still
-# settling, short enough that a permanent refusal does not cost the whole
-# timeout. Counted in rounds, not seconds, so the rule does not change with how
-# fast the loop happens to spin.
+# Rounds, not seconds, so the threshold does not shift with loop speed. Long
+# enough to ride out a session that is still settling.
 STUCK_AFTER_ROUNDS = 20
 
 AJAX_HEADERS = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"}
 
-# Pages on the instance itself that mean "not signed in yet": the two login
-# forms, the SAML handshake, the MFA prompt, and the forced password change that
-# can follow a successful password.
+# Pages on the instance itself that still mean "not signed in yet".
 PENDING_PATHS = (
     "/login.do",
     "/loginfull.do",
@@ -51,8 +46,7 @@ NO_WIDGET_PRIV = (
 )
 
 # Run in the signed-in page so the exchange carries the same origin, referer and
-# cookies a widget's own call would. The context's request API is tried as well,
-# because a page script dies whenever the page navigates.
+# cookies a widget's own call would.
 MINT_SCRIPT = """
 async (paths) => {
   const port = location.port ? ':' + location.port : '';
@@ -102,13 +96,12 @@ def interactive_login(
     """Open a real browser at the OneVizion login page and come back with a
     bearer token once the user has signed in.
 
-    The credentials never pass through this process: the user types them into
-    the genuine page, which is what makes SSO and MFA work unchanged.
+    Credentials never pass through this process; the user types them into the
+    genuine page, which is what makes SSO and MFA work unchanged.
 
     Being signed in is decided by asking the instance for a token, not by
-    reading the address bar. With an external identity provider the browser
-    spends most of the login on someone else's domain, and comes back through a
-    redirect chain whose intermediate URLs are not ours to recognise.
+    reading the address bar: with an external identity provider the redirect
+    chain runs through domains that are not ours to recognise.
     """
     playwright = _import_playwright()
     base_url = base_url.rstrip("/")
@@ -155,8 +148,8 @@ def _await_token(
             raise LoginFailed("The browser window was closed before sign-in finished.")
 
         seen = [_url_of(page) for page in pages]
-        # Any tab will do. Single sign-on often hands the app to a new one and
-        # leaves the tab we opened parked on the provider's page.
+        # Single sign-on often hands the app to a new tab and leaves the one we
+        # opened parked on the provider's page.
         ready = [page for page, url in zip(pages, seen) if _looks_signed_in(url, host)]
 
         for page in ready:
@@ -165,9 +158,8 @@ def _await_token(
                 return minted
 
         if ready:
-            # The user is through and the instance is still refusing. Waiting out
-            # the rest of the timeout only delays a failure that will not fix
-            # itself, so allow a short grace period and then say why.
+            # Signed in and still refused: a grace period covers a session that
+            # is settling, beyond that the refusal will not fix itself.
             refused += 1
             if refused >= STUCK_AFTER_ROUNDS:
                 raise LoginFailed(_stuck_message(base_url, last_error, seen))
@@ -208,9 +200,8 @@ def _pause(pages: list[Any]) -> None:
 
     The sync API only delivers browser events while the caller is inside one of
     its calls. A plain time.sleep never yields to it, so page.url keeps
-    reporting whatever was true at the last real call: a sign-in that completes
-    after goto() would never be seen, and the wait would run to its timeout with
-    the browser sitting on the finished app the whole time.
+    reporting whatever was true at the last real call and a sign-in completing
+    after goto() is never seen.
     """
     for page in pages:
         try:
@@ -241,11 +232,8 @@ def _url_of(page: Any) -> str:
 
 
 def _looks_signed_in(url: str, host: str) -> bool:
-    """Only ever mint against the host the user named.
-
-    An identity provider's domain is not somewhere to send a token request,
-    however the redirect chain happens to be shaped.
-    """
+    """Only ever mint against the host the user named: an identity provider's
+    domain is not somewhere to send a token request."""
     parts = urlsplit(url)
     if not parts.hostname or parts.hostname.lower() != host.lower():
         return False
@@ -258,9 +246,8 @@ def _mint(
     """One round of the widget token exchange, tried three ways.
 
     The page's own fetch is what the product itself does; the context's request
-    API survives the navigation that kills a page script; and plain HTTP with the
-    browser's cookies is the same code that later refreshes the token, so a login
-    that works here is one that keeps working. Any of the three is enough.
+    API survives the navigation that kills a page script; plain HTTP over the
+    browser's cookies is the same path that later refreshes the token.
     """
     minted, page_error = _mint_from_page(page)
     if minted is not None:

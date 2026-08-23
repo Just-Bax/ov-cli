@@ -18,10 +18,8 @@ USER_AGENT = "ov-cli"
 class Client:
     """HTTP access to one OneVizion instance as one user.
 
-    Two doors into the same server, and they must not be confused: /api/** is
-    reached with the bearer token and rejects cookies, while the OpenAPI schema
-    and the token-minting endpoint are served by the web UI chain, which reads
-    cookies and refuses a request carrying an Authorization header.
+    Two doors into the same server that must not be confused: /api/** takes the
+    bearer token, everything else takes the cookies.
     """
 
     def __init__(
@@ -160,12 +158,8 @@ class Client:
 
 @contextmanager
 def _reachable(base_url: str) -> Iterator[None]:
-    """Turn a transport failure into a reportable error.
-
-    Without this a VPN-only instance, a typo in a URL or an expired certificate
-    ends the process in an httpx traceback rather than a message and an exit
-    code.
-    """
+    """httpx transport failures are not OvError, so unwrapped they end the
+    process in a traceback instead of a message and an exit code."""
     try:
         yield
     except httpx.TimeoutException as exc:

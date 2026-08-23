@@ -53,9 +53,8 @@ def build_common() -> argparse.ArgumentParser:
 class RootParser(argparse.ArgumentParser):
     """Adds one line of context to 'invalid choice'.
 
-    The generated groups differ per instance, so a name that works against one
-    system is genuinely not a command against another. Argparse alone cannot say
-    that, and the difference is invisible from the error it prints.
+    Generated groups differ per instance, so a name that works against one
+    system is genuinely not a command against another. Argparse cannot say that.
     """
 
     hint: str = ""
@@ -98,10 +97,8 @@ def _register_dynamic(
 ) -> None:
     """Expand the schema tag being invoked into real commands.
 
-    Every tag of every instance could be registered up front, but that means
-    parsing whole OpenAPI documents on every run, including 'ov login'. Only the
-    one tag named on the command line, for the one instance being targeted, is
-    built.
+    Registering every tag up front would parse a whole OpenAPI document on every
+    run, including 'ov login', so only the tag named on the command line is built.
     """
     wanted = _first_positional(argv)
     if not wanted or wanted in BUILTIN_NAMES:

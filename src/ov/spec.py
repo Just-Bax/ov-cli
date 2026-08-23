@@ -360,9 +360,8 @@ def _body(raw: Any, document: dict[str, Any]) -> Body | None:
 def expand(node: Any, document: dict[str, Any], depth: int = 0, seen: tuple = ()) -> Any:
     """Resolve every $ref inside a schema, not just the one at its root.
 
-    A body whose top level is {"fields": {"$ref": ...}} tells the caller
-    nothing about what to send. Recursive models are cut off at the point they
-    repeat rather than unrolled forever.
+    A body of {"fields": {"$ref": ...}} tells the caller nothing about what to
+    send. Recursive models are cut off where they repeat.
     """
     if depth > 6 or not isinstance(node, (dict, list)):
         return node

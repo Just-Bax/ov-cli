@@ -19,10 +19,9 @@ _cached: dict[str, Spec | None] = {}
 def cached_spec(config: Config, instance: str | None = None) -> Spec | None:
     """The schema of one instance as it sits on disk, ignoring its age.
 
-    Help text and command names have to exist before any request happens, so an
-    expired cache is still the right thing to build the parser from; refreshing
-    it is 'ov spec fetch'. Each instance has its own schema, so an unknown
-    instance yields no generated commands rather than another instance's.
+    Command names must exist before any request happens, so an expired cache is
+    still the right thing to build the parser from; refreshing is 'ov spec
+    fetch'. An unknown instance yields no commands rather than another's.
     """
     key = instance or ""
     if key in _cached:

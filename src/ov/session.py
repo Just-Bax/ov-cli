@@ -107,9 +107,9 @@ class Session:
 def default_alias(base_url: str, tenant: str = "") -> str:
     """Name a connection after its hostname, and its tenant when it has one.
 
-    https://acme.onevizion.com -> acme, and the mTRAC tenant on that host ->
-    acme/mtrac. A bare host alias always means the tenant the account signs in
-    to, so 'ov -i acme' keeps meaning what it did before tenants existed.
+    https://acme.onevizion.com -> acme; its mTRAC tenant -> acme/mtrac. A bare
+    host alias keeps meaning the tenant the account signs in to, as it did
+    before tenants existed.
     """
     host = urlsplit(base_url).hostname or base_url
     label = _slug(host.split(".")[0]) or "default"
@@ -268,11 +268,8 @@ def resolve(ref: str) -> str:
 
 
 def _prefer_default_tenant(matches: list[str], sessions: dict[str, Session]) -> str | None:
-    """Settle a host that is signed in to several of its tenants.
-
-    Naming the host means the host, so it resolves to the tenant the account
-    signs in to. Reaching another one is what its own alias is for.
-    """
+    """Settle a host signed in to several of its tenants: naming the host
+    resolves to the tenant the account signs in to."""
     if len(matches) == 1:
         return matches[0]
     if not matches or len({sessions[a].base_url for a in matches}) != 1:
@@ -285,9 +282,8 @@ def save(session: Session, make_current: bool = True) -> Session:
     session.saved_at = time.time()
     sessions = _read_all()
 
-    # The alias defaults to the hostname's first label, which two different
-    # systems can share. Only the store knows that, so uniqueness is settled
-    # here rather than trusted from the caller.
+    # Two systems can share a hostname's first label. Only the store knows
+    # that, so uniqueness is settled here rather than trusted from the caller.
     taken = sessions.get(session.alias)
     if taken is not None and not is_same_target(taken, session.base_url, session.tenant_id):
         session.alias = unique_alias(session.base_url, tenant=session.tenant,

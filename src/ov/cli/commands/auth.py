@@ -107,10 +107,8 @@ def cmd_login(ctx: Context) -> int:
     if args.tenant:
         _choose_tenant(ctx, session, args.tenant)
 
-    # The browser can land on a different host than the one we opened, and the
-    # tenant is only known once it has been looked up, so the alias is settled
-    # here. It has to happen before the mint, which persists the session under
-    # whatever alias it finds.
+    # Must precede the mint, which persists the session under whatever alias it
+    # finds. The host can also differ from the one we opened, after a redirect.
     session.alias = session_store.unique_alias(
         session.base_url, args.alias or "", session.tenant, session.tenant_id
     )
@@ -169,8 +167,8 @@ def _choose_tenant(ctx: Context, session: Session, wanted: str) -> None:
 def _mint_in_tenant(ctx: Context, session: Session) -> None:
     """Replace the sign-in token with one issued inside the chosen tenant.
 
-    Sign-in always lands in the account's own tenant, and a token is scoped to
-    the tenant it was minted in, so the original cannot simply be kept.
+    A token is scoped to the tenant it was minted in, and sign-in always lands
+    in the account's own.
     """
     with build_client(ctx.config, session) as client:
         client.refresh_token()
@@ -220,11 +218,8 @@ def _browser_login(ctx: Context, base_url: str) -> Session:
 
 
 def _progress(ctx: Context) -> Callable[[str], None]:
-    """Say what the wait is doing.
-
-    A five minute block with no output reads as a hang, and the reason a login
-    never completes is only visible from inside the poll.
-    """
+    """Say what the wait is doing: a five minute block with no output reads as
+    a hang."""
 
     def report(message: str) -> None:
         if ctx.args.verbose:
