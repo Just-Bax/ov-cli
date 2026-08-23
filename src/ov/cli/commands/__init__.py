@@ -10,6 +10,7 @@ BUILTIN_NAMES = frozenset(
         "logout",
         "whoami",
         "instances",
+        "tenants",
         "use",
         "api",
         "request",

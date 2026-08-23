@@ -10,6 +10,7 @@ from ...errors import LoginFailed, NotConfigured, NotLoggedIn, OvError, SessionE
 from ...login import install_chromium, interactive_login
 from ...paths import config_file
 from ...session import Session
+from ...tenants import NO_TENANTS, resolve_tenant, tenant_rows
 from ..context import Context, build_client
 from ..dynamic import reset_cache
 from ..output import build_table, emit, note, warn
@@ -44,6 +45,12 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
         "--no-spec", action="store_true", help="do not download the OpenAPI schema after signing in"
     )
     login.add_argument(
+        "--tenant",
+        metavar="NAME",
+        help="sign in to this tenant instead of your default one (name or pid); "
+        "needs a user with your email address in it",
+    )
+    login.add_argument(
         "--verbose",
         action="store_true",
         help="print every sign-in poll, for diagnosing a login that never completes",
@@ -76,6 +83,13 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     )
     instances.set_defaults(func=cmd_instances)
 
+    tenants = subparsers.add_parser(
+        "tenants",
+        parents=[common],
+        help="list the tenants your account can reach on an instance",
+    )
+    tenants.set_defaults(func=cmd_tenants)
+
     use = subparsers.add_parser(
         "use", parents=[common], help="make one instance the default for later commands"
     )
@@ -90,9 +104,13 @@ def cmd_login(ctx: Context) -> int:
     session_store.unique_alias(base_url, args.alias or "")
 
     session = _token_login(ctx, base_url) if args.token else _browser_login(ctx, base_url)
+    if args.tenant:
+        _enter_tenant(ctx, session, args.tenant)
     # The browser can land on a different host than the one we opened, so the
     # alias is settled only once the real base URL is known.
-    session.alias = session_store.unique_alias(session.base_url, args.alias or "")
+    session.alias = session_store.unique_alias(
+        session.base_url, args.alias or "", session.tenant, session.tenant_id
+    )
 
     with build_client(ctx.config, session) as client:
         try:
@@ -125,9 +143,30 @@ def cmd_login(ctx: Context) -> int:
     return 0
 
 
+def _enter_tenant(ctx: Context, session: Session, wanted: str) -> None:
+    """Move the session into another tenant and re-mint there.
+
+    Sign-in always lands in the account's own tenant, and the token that came
+    with it is scoped to that one, so the token has to be replaced rather than
+    reused.
+    """
+    if session.is_static:
+        raise OvError(
+            "--tenant needs a browser sign-in. An API token is already tied to one tenant."
+        )
+
+    with build_client(ctx.config, session) as client:
+        available = client.tenants()
+        session.tenant_id, session.tenant = resolve_tenant(available, wanted)
+        client.refresh_token()
+
+
 def _login_text(session: Session, fetched: int, current: bool) -> str:
+    where = session.base_url
+    if session.tenant:
+        where += f" tenant [cyan]{session.tenant}[/cyan]"
     lines = [
-        f"[green]Logged in[/green] to {session.base_url} "
+        f"[green]Logged in[/green] to {where} "
         f"as [cyan]{session.alias}[/cyan] ({session.mode} credential)."
     ]
     if session.expires_text:
@@ -393,6 +432,29 @@ def _authorized(ctx: Context, session: Session) -> bool:
     except OvError:
         return False
     return True
+
+
+def cmd_tenants(ctx: Context) -> int:
+    session = ctx.session
+    if session.is_static:
+        raise OvError("Listing tenants needs a browser sign-in; an API token cannot switch.")
+
+    available = ctx.client.tenants()
+    rows = tenant_rows(available, session.tenant_id)
+
+    def table():
+        return build_table(
+            f"Tenants on {session.base_url}",
+            [
+                {"header": "", "style": "green"},
+                {"header": "Tenant", "style": "cyan"},
+                {"header": "pid"},
+            ],
+            [["*" if r["current"] else "", r["name"], r["tenant_id"]] for r in rows],
+        )
+
+    emit(ctx, rows, table, empty=NO_TENANTS)
+    return 0
 
 
 def cmd_use(ctx: Context) -> int:

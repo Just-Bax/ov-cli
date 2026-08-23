@@ -38,6 +38,8 @@ class Session:
     base_url: str
     alias: str = ""
     mode: str = "session"
+    tenant: str = ""
+    tenant_id: str = ""
     cookies: dict[str, str] = field(default_factory=dict)
     bearer_token: str = ""
     expires_at: float = 0.0
@@ -47,7 +49,7 @@ class Session:
     def __post_init__(self) -> None:
         self.base_url = self.base_url.rstrip("/")
         if not self.alias:
-            self.alias = default_alias(self.base_url)
+            self.alias = default_alias(self.base_url, self.tenant)
 
     @property
     def host(self) -> str:
@@ -80,6 +82,8 @@ class Session:
             "base_url": self.base_url,
             "alias": self.alias,
             "mode": self.mode,
+            "tenant": self.tenant,
+            "tenant_id": self.tenant_id,
             "cookies": self.cookies,
             "bearer_token": self.bearer_token,
             "expires_at": self.expires_at,
@@ -92,6 +96,7 @@ class Session:
         return {
             "alias": self.alias,
             "base_url": self.base_url,
+            "tenant": self.tenant or None,
             "mode": self.mode,
             "access_key": self.access_key,
             "expires": self.expires_text or None,
@@ -99,20 +104,26 @@ class Session:
         }
 
 
-def default_alias(base_url: str) -> str:
-    """Name an instance after its first hostname label.
+def default_alias(base_url: str, tenant: str = "") -> str:
+    """Name a connection after its hostname, and its tenant when it has one.
 
-    https://acme.onevizion.com -> acme, which is short enough to type as
-    'ov -i acme ...' and is what people already call the system.
+    https://acme.onevizion.com -> acme, and the mTRAC tenant on that host ->
+    acme/mtrac. A bare host alias always means the tenant the account signs in
+    to, so 'ov -i acme' keeps meaning what it did before tenants existed.
     """
     host = urlsplit(base_url).hostname or base_url
-    label = host.split(".")[0]
-    return _UNSAFE_ALIAS.sub("-", label.lower()).strip("-") or "default"
+    label = _slug(host.split(".")[0]) or "default"
+    return f"{label}/{_slug(tenant)}" if tenant else label
 
 
-def host_alias(base_url: str) -> str:
+def _slug(value: str) -> str:
+    return _UNSAFE_ALIAS.sub("-", (value or "").lower()).strip("-")
+
+
+def host_alias(base_url: str, tenant: str = "") -> str:
     host = urlsplit(base_url).hostname or base_url
-    return _UNSAFE_ALIAS.sub("-", host.lower()).strip("-") or "default"
+    label = _slug(host) or "default"
+    return f"{label}/{_slug(tenant)}" if tenant else label
 
 
 def _from_dict(data: dict[str, Any], alias: str = "") -> Session:
@@ -121,6 +132,8 @@ def _from_dict(data: dict[str, Any], alias: str = "") -> Session:
         base_url=data.get("base_url") or "",
         alias=data.get("alias") or alias,
         mode=data.get("mode") or "session",
+        tenant=data.get("tenant") or "",
+        tenant_id=str(data.get("tenant_id") or ""),
         cookies=cookies if isinstance(cookies, dict) else {},
         bearer_token=data.get("bearer_token") or "",
         expires_at=float(data.get("expires_at") or 0),
@@ -164,8 +177,14 @@ def current_alias() -> str | None:
     return next(iter(sessions))
 
 
-def unique_alias(base_url: str, preferred: str = "") -> str:
-    """Pick a free alias, keeping the one an instance already owns.
+def is_same_target(session: Session, base_url: str, tenant_id: str) -> bool:
+    """One stored credential per (host, tenant), since that pair is what a
+    bearer token is actually scoped to."""
+    return session.base_url == base_url.rstrip("/") and session.tenant_id == (tenant_id or "")
+
+
+def unique_alias(base_url: str, preferred: str = "", tenant: str = "", tenant_id: str = "") -> str:
+    """Pick a free alias, keeping the one a connection already owns.
 
     Two hosts can share a first label ('acme.onevizion.com' and 'acme.eu.dev'),
     so a taken name falls back to the whole host rather than a counter, which
@@ -174,19 +193,19 @@ def unique_alias(base_url: str, preferred: str = "") -> str:
     base_url = base_url.rstrip("/")
     sessions = _read_all()
     for alias, session in sessions.items():
-        if session.base_url == base_url and not preferred:
+        if is_same_target(session, base_url, tenant_id) and not preferred:
             return alias
 
-    candidate = preferred or default_alias(base_url)
+    candidate = preferred or default_alias(base_url, tenant)
     taken = sessions.get(candidate)
-    if taken is None or taken.base_url == base_url:
+    if taken is None or is_same_target(taken, base_url, tenant_id):
         return candidate
     if preferred:
         raise Ambiguous(f"Alias {preferred!r} already points at {taken.base_url}.")
 
-    candidate = host_alias(base_url)
+    candidate = host_alias(base_url, tenant)
     taken = sessions.get(candidate)
-    if taken is None or taken.base_url == base_url:
+    if taken is None or is_same_target(taken, base_url, tenant_id):
         return candidate
 
     suffix = 2
@@ -198,9 +217,10 @@ def unique_alias(base_url: str, preferred: str = "") -> str:
 def resolve(ref: str) -> str:
     """Turn what the user typed into one stored alias.
 
-    Accepts the alias, the full base URL, the hostname, or an unambiguous
-    prefix of either, so 'ov -i acme', 'ov -i acme.onevizion.com' and
-    'ov -i https://acme.onevizion.com' all land on the same instance.
+    Accepts the alias, the full base URL, the hostname, the tenant name, or an
+    unambiguous prefix of any of them, so 'ov -i acme', 'ov -i acme.onevizion.com'
+    and 'ov -i https://acme.onevizion.com' all land on the same instance, and
+    'ov -i mtrac' finds sandbox/mtrac without spelling out the host.
     """
     sessions = _read_all()
     if not sessions:
@@ -219,24 +239,46 @@ def resolve(ref: str) -> str:
     exact = [
         alias
         for alias, session in sessions.items()
-        if session.base_url.lower() == lowered or session.host.lower() == stripped
+        if session.base_url.lower() == lowered
+        or session.host.lower() == stripped
+        or session.tenant.lower() == lowered
+        or alias.rpartition("/")[2] == lowered
     ]
-    if len(exact) == 1:
-        return exact[0]
+    picked = _prefer_default_tenant(exact, sessions)
+    if picked:
+        return picked
 
     partial = [
         alias
         for alias, session in sessions.items()
-        if alias.startswith(lowered) or session.host.lower().startswith(stripped)
+        if alias.startswith(lowered)
+        or session.host.lower().startswith(stripped)
+        or session.tenant.lower().startswith(lowered)
+        or alias.rpartition("/")[2].startswith(lowered)
     ]
-    if len(partial) == 1:
-        return partial[0]
+    picked = _prefer_default_tenant(partial, sessions)
+    if picked:
+        return picked
     if len(partial) > 1:
         listed = "\n".join(f"  {a}  {sessions[a].base_url}" for a in sorted(partial))
         raise Ambiguous(f"{ref!r} matches {len(partial)} instances:\n{listed}")
 
     known = ", ".join(sorted(sessions)) or "none"
     raise NotFound(f"No instance matches {ref!r}. Signed in to: {known}.")
+
+
+def _prefer_default_tenant(matches: list[str], sessions: dict[str, Session]) -> str | None:
+    """Settle a host that is signed in to several of its tenants.
+
+    Naming the host means the host, so it resolves to the tenant the account
+    signs in to. Reaching another one is what its own alias is for.
+    """
+    if len(matches) == 1:
+        return matches[0]
+    if not matches or len({sessions[a].base_url for a in matches}) != 1:
+        return None
+    plain = [a for a in matches if not sessions[a].tenant]
+    return plain[0] if len(plain) == 1 else None
 
 
 def save(session: Session, make_current: bool = True) -> Session:
@@ -247,8 +289,9 @@ def save(session: Session, make_current: bool = True) -> Session:
     # systems can share. Only the store knows that, so uniqueness is settled
     # here rather than trusted from the caller.
     taken = sessions.get(session.alias)
-    if taken is not None and taken.base_url != session.base_url:
-        session.alias = unique_alias(session.base_url)
+    if taken is not None and not is_same_target(taken, session.base_url, session.tenant_id):
+        session.alias = unique_alias(session.base_url, tenant=session.tenant,
+                                     tenant_id=session.tenant_id)
 
     sessions[session.alias] = session
     _write_all(sessions, session.alias if make_current else None)

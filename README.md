@@ -169,11 +169,43 @@ system you are actually pointed at. A group that exists on one and not another i
 reported as such rather than as a bare "invalid choice".
 
 ```bash
+ov tenants               # tenants reachable on the current instance
 ov instances --check     # call each one to see whose token still works
 ov whoami qa             # detail for one instance
 ov logout acme           # revoke and forget one
 ov logout --all          # all of them
 ```
+
+### Instances with several tenants
+
+A OneVizion host can run many tenants, and a tenant is a Program. Your account
+belongs to exactly one of them; what spans tenants is your **email**, with a separate user
+in each. Signing in always lands you in your own tenant, and the token you get is scoped
+to it, so the others are only reachable by switching first.
+
+```bash
+ov tenants                                        # what this account can reach here
+ov login https://sandbox-2022.onevizion.com --tenant mTRAC
+ov -i sandbox-2022/mtrac api tags
+```
+
+Each tenant is stored separately and aliased `host/tenant`. The bare host alias keeps
+meaning the tenant you sign in to, so nothing changes on single-tenant instances:
+
+```console
+$ ov instances
+┏━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
+┃   ┃ Alias              ┃ URL                               ┃ Mode    ┃
+┡━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
+│ * │ sandbox-2022       │ https://sandbox-2022.onevizion.com │ session │
+│   │ sandbox-2022/mtrac │ https://sandbox-2022.onevizion.com │ session │
+└───┴────────────────────┴───────────────────────────────────┴─────────┘
+```
+
+`-i` takes the tenant name on its own too, so `-i mtrac` is enough when it is unambiguous.
+
+`--tenant` only works where a user with your email already exists in the target tenant,
+and only with a browser sign-in: an API token is issued inside one tenant and cannot move.
 
 ### Without a browser
 

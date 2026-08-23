@@ -6,6 +6,7 @@ import httpx
 
 from .errors import Forbidden, SessionExpired
 from .session import Session, expiry_to_epoch
+from .tenants import DEFAULT_PATH, SWITCH_PATH, parse_program_menu
 
 LOGIN_PATH = "/Login.do"
 CSRF_PATH = "/CsrfToken.do"
@@ -27,6 +28,9 @@ def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
     signed-in user's privileges and dies with their session, so nothing
     longer-lived than the login ever reaches disk.
     """
+    if session.tenant_id:
+        switch_tenant(http, session.tenant_id)
+
     csrf = _csrf_token(http)
     headers = dict(AJAX_HEADERS)
     headers[csrf["headerName"]] = csrf["token"]
@@ -49,6 +53,37 @@ def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
     session.expires_at = expiry_to_epoch(expires_text)
     session.cookies = _cookies_of(http, session.cookies)
     return session
+
+
+def switch_tenant(http: httpx.Client, tenant_id: str) -> None:
+    """Point the web session at the caller's account in another tenant.
+
+    Re-asserted before every mint rather than done once at login. The switch
+    lives in the session, and a token that was minted in the wrong tenant looks
+    entirely valid while returning another tenant's data, which is the kind of
+    wrong that is hard to notice.
+    """
+    csrf = _csrf_token(http)
+    headers = dict(AJAX_HEADERS)
+    headers[csrf["headerName"]] = csrf["token"]
+
+    response = http.post(SWITCH_PATH, params={"pid": tenant_id}, headers=headers)
+    _guard(response)
+    if response.status_code == 403:
+        raise Forbidden(
+            f"Not allowed into tenant {tenant_id}. It needs a user with your email address."
+        )
+    if response.status_code >= 400:
+        raise SessionExpired(f"tenant switch returned {response.status_code}")
+
+
+def list_tenants(http: httpx.Client) -> dict[str, str]:
+    """Read the tenant list off the rendered app page, the only place it exists."""
+    response = http.get(DEFAULT_PATH, headers={"Accept": "text/html"})
+    _guard(response)
+    if response.status_code >= 400:
+        raise SessionExpired(f"{DEFAULT_PATH} returned {response.status_code}")
+    return parse_program_menu(response.text)
 
 
 def _csrf_token(http: httpx.Client) -> dict[str, str]:

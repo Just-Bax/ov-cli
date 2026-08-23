@@ -8,7 +8,7 @@ import httpx
 
 from . import API_PREFIX
 from . import session as session_store
-from .auth import LOGIN_PATH, mint_web_session_token
+from .auth import LOGIN_PATH, list_tenants, mint_web_session_token
 from .errors import ApiError, Forbidden, NotFound, SessionExpired, Unreachable
 from .session import Session
 
@@ -125,6 +125,12 @@ class Client:
         if LOGIN_PATH.lower() in str(response.url).lower():
             raise SessionExpired("redirected to the login page")
         return self._checked(response)
+
+    def tenants(self) -> dict[str, str]:
+        """Which tenants this account can reach here, keyed by pid."""
+        if self.session.is_static or not self.session.cookies:
+            raise SessionExpired("no web session cookies stored")
+        return list_tenants(self._http)
 
     def refresh_token(self) -> None:
         if self.session.is_static:
