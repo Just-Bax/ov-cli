@@ -93,10 +93,24 @@ def test_a_bare_host_alias_still_means_the_default_tenant():
 
 def test_tenants_on_one_host_are_separate_sessions(ov_home):
     seed_session(BASE_URL)
-    session_store.save(Session(base_url=BASE_URL, tenant="mTRAC", tenant_id="100",
-                               cookies={"JSESSIONID": "a"}, bearer_token="M:K"))
-    session_store.save(Session(base_url=BASE_URL, tenant="Boldyn", tenant_id="200",
-                               cookies={"JSESSIONID": "b"}, bearer_token="B:K"))
+    session_store.save(
+        Session(
+            base_url=BASE_URL,
+            tenant="mTRAC",
+            tenant_id="100",
+            cookies={"JSESSIONID": "a"},
+            bearer_token="M:K",
+        )
+    )
+    session_store.save(
+        Session(
+            base_url=BASE_URL,
+            tenant="Boldyn",
+            tenant_id="200",
+            cookies={"JSESSIONID": "b"},
+            bearer_token="B:K",
+        )
+    )
 
     assert sorted(session_store.all_sessions()) == ["acme", "acme/boldyn", "acme/mtrac"]
     assert session_store.load("acme").tenant == ""
@@ -105,8 +119,15 @@ def test_tenants_on_one_host_are_separate_sessions(ov_home):
 
 def test_a_tenant_can_be_named_on_its_own(ov_home):
     seed_session(BASE_URL)
-    session_store.save(Session(base_url=BASE_URL, tenant="mTRAC", tenant_id="100",
-                               cookies={"JSESSIONID": "a"}, bearer_token="M:K"))
+    session_store.save(
+        Session(
+            base_url=BASE_URL,
+            tenant="mTRAC",
+            tenant_id="100",
+            cookies={"JSESSIONID": "a"},
+            bearer_token="M:K",
+        )
+    )
 
     assert session_store.load("mtrac").tenant_id == "100"
     assert session_store.load("mtra").tenant_id == "100"
@@ -114,8 +135,15 @@ def test_a_tenant_can_be_named_on_its_own(ov_home):
 
 def test_signing_in_again_to_a_tenant_replaces_that_tenant_only(ov_home):
     for token in ("FIRST:K", "SECOND:K"):
-        session_store.save(Session(base_url=BASE_URL, tenant="mTRAC", tenant_id="100",
-                                   cookies={"JSESSIONID": "a"}, bearer_token=token))
+        session_store.save(
+            Session(
+                base_url=BASE_URL,
+                tenant="mTRAC",
+                tenant_id="100",
+                cookies={"JSESSIONID": "a"},
+                bearer_token=token,
+            )
+        )
 
     assert list(session_store.all_sessions()) == ["acme/mtrac"]
     assert session_store.load("acme/mtrac").bearer_token == "SECOND:K"
@@ -259,10 +287,24 @@ def test_login_with_a_tenant_is_refused_for_an_api_token(capsys, ov_home, tenant
 def test_naming_the_host_means_its_default_tenant(ov_home):
     """Before tenants, -i <host> was unambiguous; it has to stay that way."""
     seed_session(BASE_URL)
-    session_store.save(Session(base_url=BASE_URL, tenant="mTRAC", tenant_id="100",
-                               cookies={"JSESSIONID": "a"}, bearer_token="M:K"))
-    session_store.save(Session(base_url=BASE_URL, tenant="Boldyn", tenant_id="200",
-                               cookies={"JSESSIONID": "b"}, bearer_token="B:K"))
+    session_store.save(
+        Session(
+            base_url=BASE_URL,
+            tenant="mTRAC",
+            tenant_id="100",
+            cookies={"JSESSIONID": "a"},
+            bearer_token="M:K",
+        )
+    )
+    session_store.save(
+        Session(
+            base_url=BASE_URL,
+            tenant="Boldyn",
+            tenant_id="200",
+            cookies={"JSESSIONID": "b"},
+            bearer_token="B:K",
+        )
+    )
 
     for ref in ("acme", "acme.onevizion.test", BASE_URL, f"{BASE_URL}/"):
         assert session_store.load(ref).tenant == ""
@@ -286,13 +328,12 @@ def test_a_tenant_login_is_stored_under_a_tenant_alias(capsys, ov_home, tenant_s
 
     monkeypatch.setattr(
         "ov.cli.commands.auth._browser_login",
-        lambda ctx, base_url: S(base_url=base_url, cookies={"JSESSIONID": "abc"},
-                                bearer_token="SIGNIN:KEY"),
+        lambda ctx, base_url: S(
+            base_url=base_url, cookies={"JSESSIONID": "abc"}, bearer_token="SIGNIN:KEY"
+        ),
     )
 
-    code, data = payload(
-        capsys, "login", BASE_URL, "--tenant", "mTRAC", "--no-spec", "--json"
-    )
+    code, data = payload(capsys, "login", BASE_URL, "--tenant", "mTRAC", "--no-spec", "--json")
 
     assert code == 0
     assert data["alias"] == "acme/mtrac"

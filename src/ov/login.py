@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -109,7 +110,7 @@ def interactive_login(
     report: Progress = on_progress or (lambda _message: None)
 
     with playwright() as p:
-        context = _launch(p, headless)
+        context = _launch(p, headless, report)
         try:
             page = context.pages[0] if context.pages else context.new_page()
             try:
@@ -368,19 +369,38 @@ def _import_playwright() -> Any:
     return sync_playwright
 
 
-def _launch(p: Any, headless: bool = False) -> Any:
+def _launch(p: Any, headless: bool = False, report: Progress | None = None) -> Any:
+    options = {
+        "user_data_dir": str(browser_profile_dir()),
+        "headless": headless,
+        "args": ["--no-first-run", "--no-default-browser-check"],
+    }
     try:
-        return p.chromium.launch_persistent_context(
-            user_data_dir=str(browser_profile_dir()),
-            headless=headless,
-            args=["--no-first-run", "--no-default-browser-check"],
-        )
+        return p.chromium.launch_persistent_context(**options)
     except Exception as exc:
-        if _looks_like_missing_browser(exc):
-            raise LoginFailed(
-                "Chromium is not installed for Playwright.\nRun: playwright install chromium"
-            ) from exc
+        if not _looks_like_missing_browser(exc):
+            raise LoginFailed(f"Could not start the browser: {exc}") from exc
+        _fetch_browser(report)
+
+    try:
+        return p.chromium.launch_persistent_context(**options)
+    except Exception as exc:
         raise LoginFailed(f"Could not start the browser: {exc}") from exc
+
+
+def _fetch_browser(report: Progress | None) -> None:
+    """Download the browser mid-login, rather than sending the user away.
+
+    The old advice, "playwright install chromium", names a command the user does
+    not have: the tool install exposes the ov entry point and nothing else.
+    """
+    if report:
+        report("sign-in browser missing, downloading it once (about 150MB)")
+    if not install_chromium():
+        raise LoginFailed(
+            "The sign-in browser could not be downloaded.\n"
+            "Check your connection, then run: ov setup"
+        )
 
 
 def _close(context: Any) -> None:
@@ -415,8 +435,36 @@ def _browsers_root() -> Path:
     return Path.home() / ".cache" / "ms-playwright"
 
 
+def _pinned_builds() -> list[str]:
+    """The browser directories this Playwright expects, from its own manifest.
+
+    Playwright pins a build number per version, and the marker file is written
+    only once a download finishes.
+    """
+    import playwright
+
+    manifest = Path(playwright.__file__).parent / "driver" / "package" / "browsers.json"
+    entries = json.loads(manifest.read_text(encoding="utf-8"))["browsers"]
+    return [
+        f"{entry['name'].replace('-', '_')}-{entry['revision']}"
+        for entry in entries
+        if entry["name"].startswith("chromium") and entry.get("installByDefault")
+    ]
+
+
 def browser_is_installed() -> bool:
-    """Look for the unpacked browser on disk. Asking Playwright itself would
-    start its driver, which prints teardown noise on a plain status check."""
+    """Whether every browser build this Playwright pins is on disk and complete.
+
+    Matching the directory name alone accepts a chromium left behind by some
+    other project, which sits in the same place under a different build number
+    and cannot launch. That reported ready here while the launch failed, so
+    'ov setup' sent the user to 'ov setup'. An unreadable manifest counts as
+    missing: installing again is harmless, claiming a browser that will not
+    start is not.
+    """
     root = _browsers_root()
-    return root.is_dir() and any(root.glob("chromium*"))
+    try:
+        wanted = _pinned_builds()
+    except Exception:
+        return False
+    return bool(wanted) and all((root / name / "INSTALLATION_COMPLETE").exists() for name in wanted)

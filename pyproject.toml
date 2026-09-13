@@ -1,6 +1,6 @@
 [project]
 name = "ov-cli"
-version = "1.0.0"
+version = "1.0.1"
 description = "ov CLI: command line client for the OneVizion API"
 readme = "README.md"
 requires-python = ">=3.11"

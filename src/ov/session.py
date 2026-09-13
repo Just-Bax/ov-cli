@@ -286,8 +286,9 @@ def save(session: Session, make_current: bool = True) -> Session:
     # that, so uniqueness is settled here rather than trusted from the caller.
     taken = sessions.get(session.alias)
     if taken is not None and not is_same_target(taken, session.base_url, session.tenant_id):
-        session.alias = unique_alias(session.base_url, tenant=session.tenant,
-                                     tenant_id=session.tenant_id)
+        session.alias = unique_alias(
+            session.base_url, tenant=session.tenant, tenant_id=session.tenant_id
+        )
 
     sessions[session.alias] = session
     _write_all(sessions, session.alias if make_current else None)
