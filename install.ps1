@@ -44,7 +44,10 @@ $Source = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
 uv tool install --force --python 3.12 "ov-cli @ $Source"
 if ($LASTEXITCODE -ne 0) { throw 'Install failed.' }
 
-uv tool update-shell 2>&1 | Out-Null
+# uv writes to stderr when the directory is already on PATH, and PowerShell 5.1
+# turns a redirected native stderr into a terminating error. Without the child
+# scope that aborts the install before the browser is ever downloaded.
+& { $ErrorActionPreference = 'Continue'; uv tool update-shell 2>&1 | Out-Null }
 Add-LocalBinToPath
 
 Write-Step 'Downloading the sign-in browser (about 150MB, one time)'
