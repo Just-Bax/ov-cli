@@ -1,27 +1,68 @@
 from __future__ import annotations
 
+import os
+import posixpath
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 
 from . import API_PREFIX
 from . import session as session_store
 from .auth import LOGIN_PATH, list_tenants, mint_web_session_token
-from .errors import ApiError, Forbidden, NotFound, SessionExpired, Unreachable
+from .errors import ApiError, Forbidden, NotFound, ReadOnlyBlocked, SessionExpired, Unreachable
 from .session import Session
 
 USER_AGENT = "ov-cli"
 
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+READ_ONLY_POSTS = (
+    re.compile(r"^/api/v3/trackor_types/[^/]+/trackors/search$"),
+    re.compile(r"^/api/v3/sql/test$"),
+    re.compile(r"^/api/v3/components/exports/run$"),
+)
+
+# Web UI actions are plain GETs, so read-only mode allows only these by path.
+READ_ONLY_WEB_PATHS = (
+    re.compile(r"^/api/docs/"),
+    re.compile(r"^/logoff\.do$", re.IGNORECASE),
+)
+
+
+def read_only_enabled() -> bool:
+    return os.environ.get("OV_READONLY", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def guard_read_only(method: str, path: str) -> None:
+    if not read_only_enabled():
+        return
+    verb = method.upper()
+    if verb in SAFE_METHODS:
+        return
+    cleaned = api_path(path).split("?", 1)[0]
+    if verb == "POST" and any(rule.match(cleaned) for rule in READ_ONLY_POSTS):
+        return
+    raise ReadOnlyBlocked(
+        f"Read-only mode (OV_READONLY) blocks {verb} {cleaned}. "
+        "Only GET, searches, SQL test and component export are allowed."
+    )
+
+
+def guard_web_read_only(path: str) -> None:
+    if not read_only_enabled():
+        return
+    raw = unquote(path.strip().split("?", 1)[0])
+    cleaned = posixpath.normpath("/" + raw.lstrip("/"))
+    allowed = ".." not in raw.split("/") and any(r.match(cleaned) for r in READ_ONLY_WEB_PATHS)
+    if not allowed:
+        raise ReadOnlyBlocked(f"Read-only mode (OV_READONLY) blocks web request {cleaned}.")
+
 
 class Client:
-    """HTTP access to one OneVizion instance as one user.
-
-    Two doors into the same server that must not be confused: /api/** takes the
-    bearer token, everything else takes the cookies.
-    """
-
     def __init__(
         self,
         session: Session,
@@ -40,9 +81,7 @@ class Client:
             headers={"User-Agent": USER_AGENT},
             transport=transport,
         )
-        # Seeded without a domain these land under "", and the server's own
-        # Set-Cookie then adds a second entry under the host, leaving two
-        # cookies of the same name in the jar.
+        # Without a domain the server's Set-Cookie adds a duplicate under the host.
         for name, value in session.cookies.items():
             self._http.cookies.set(name, value, domain=self.host, path="/")
 
@@ -66,8 +105,7 @@ class Client:
         headers: dict[str, str] | None = None,
         accept: str = "application/json",
     ) -> httpx.Response:
-        """Call an /api endpoint with the bearer token, refreshing it if the
-        server says it is no longer good."""
+        guard_read_only(method, path)
         if self.session.needs_refresh():
             self.refresh_token()
 
@@ -105,13 +143,9 @@ class Client:
                 headers=request_headers,
             )
 
+    # No Authorization header: the token chain rejects web-session tokens as the wrong type.
     def web_get(self, path: str, accept: str = "application/json") -> httpx.Response:
-        """Fetch a web UI URL with cookies only.
-
-        No Authorization header: adding one would route the request to the
-        stateless token chain, which rejects a web-session token as the wrong
-        type instead of serving the page.
-        """
+        guard_web_read_only(path)
         if self.session.is_static or not self.session.cookies:
             raise SessionExpired("no web session cookies stored")
 
@@ -125,7 +159,6 @@ class Client:
         return self._checked(response)
 
     def tenants(self) -> dict[str, str]:
-        """Which tenants this account can reach here, keyed by pid."""
         if self.session.is_static or not self.session.cookies:
             raise SessionExpired("no web session cookies stored")
         return list_tenants(self._http)
@@ -135,7 +168,6 @@ class Client:
             raise SessionExpired("the stored API token was rejected")
         if not self.session.cookies:
             raise SessionExpired("no web session cookies stored")
-
         mint_web_session_token(self._http, self.session)
         session_store.save(self.session)
 
@@ -156,10 +188,9 @@ class Client:
         )
 
 
+# httpx transport errors are not OvError; unwrapped they end in a traceback, not an exit code.
 @contextmanager
 def _reachable(base_url: str) -> Iterator[None]:
-    """httpx transport failures are not OvError, so unwrapped they end the
-    process in a traceback instead of a message and an exit code."""
     try:
         yield
     except httpx.TimeoutException as exc:
@@ -171,7 +202,6 @@ def _reachable(base_url: str) -> Iterator[None]:
 
 
 def api_path(path: str) -> str:
-    """Accept '/v3/users', 'v3/users' and '/api/v3/users' as the same thing."""
     cleaned = "/" + path.strip().lstrip("/")
     if cleaned.startswith(f"{API_PREFIX}/"):
         return cleaned
@@ -185,9 +215,8 @@ def _body(response: httpx.Response) -> Any:
         return response.text[:2000]
 
 
+# API errors come back as text/plain unless a handler happened to answer with JSON.
 def _detail(response: httpx.Response) -> str:
-    """API errors come back as text/plain, so the body is the message itself
-    unless a handler happened to answer with JSON."""
     content_type = (response.headers.get("content-type") or "").lower()
     if "json" in content_type:
         payload = _body(response)

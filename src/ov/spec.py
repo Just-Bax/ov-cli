@@ -22,7 +22,6 @@ _TAG = re.compile(r"<[^>]+>")
 
 
 def plain(text: str) -> str:
-    """Strip the markup OneVizion puts in its API descriptions."""
     if not text:
         return ""
     cleaned = _TAG.sub("", text.replace("<br>", " ").replace("<br/>", " "))
@@ -143,7 +142,6 @@ class Spec:
         return [o for o in self.operations if o.tag == tag]
 
     def find(self, ref: str) -> Operation:
-        """Resolve 'tag:name', a bare name, or 'METHOD /path' to one operation."""
         needle = ref.strip()
         if not needle:
             raise NotFound("No operation given.")
@@ -203,18 +201,12 @@ def _ambiguous(ref: str, matches: list[Operation]) -> str:
 
 
 def kebab(value: str) -> str:
-    """user_id -> user-id, getUserById -> get-user-by-id."""
     spaced = _CAMEL_BOUNDARY.sub("-", value.replace("_", "-").replace(" ", "-"))
     return re.sub(r"-+", "-", spaced).strip("-").lower()
 
 
+# OneVizion's operationId is the Java handler's full signature; only the method name is usable.
 def operation_name(operation_id: str, method: str, path: str) -> str:
-    """Derive a typeable command name.
-
-    OneVizion sets operationId to the Java handler's full signature (see
-    OwnOpenApiCustomizer.populateOperationId), so the usable part is the method
-    name buried in it. Anything else falls back to the verb and path.
-    """
     match = _JAVA_SIGNATURE.search(operation_id or "")
     if match:
         return kebab(match.group(1))
@@ -268,8 +260,7 @@ def _operation(
     operation_id = raw.get("operationId") or ""
 
     name = operation_name(operation_id, method, path)
-    # Two handlers in one tag can reduce to the same name: a Java overload, or a
-    # fallback name built from a path that differs only in its parameters.
+    # Java overloads, or fallback names from paths differing only in params, can collide.
     if f"{tag}:{name}" in used:
         name = f"{name}-{method.lower()}"
     suffix = 2
@@ -345,8 +336,6 @@ def _body(raw: Any, document: dict[str, Any]) -> Body | None:
     if not content:
         return None
 
-    # Prefer JSON when a handler accepts several encodings, since that is the
-    # one a --data payload can satisfy.
     chosen = next((c for c in content if "json" in c), next(iter(content)))
     media = content.get(chosen) or {}
     schema = expand(media.get("schema") or {}, document)
@@ -358,11 +347,6 @@ def _body(raw: Any, document: dict[str, Any]) -> Body | None:
 
 
 def expand(node: Any, document: dict[str, Any], depth: int = 0, seen: tuple = ()) -> Any:
-    """Resolve every $ref inside a schema, not just the one at its root.
-
-    A body of {"fields": {"$ref": ...}} tells the caller nothing about what to
-    send. Recursive models are cut off where they repeat.
-    """
     if depth > 6 or not isinstance(node, (dict, list)):
         return node
     if isinstance(node, list):
@@ -388,8 +372,6 @@ def _type_of(schema: dict[str, Any]) -> str:
 
 
 def resolve(node: Any, document: dict[str, Any], depth: int = 0) -> Any:
-    """Follow $ref far enough to describe a schema, without unrolling recursive
-    models forever."""
     if depth > 8 or not isinstance(node, dict):
         return node
     ref = node.get("$ref")

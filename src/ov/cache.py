@@ -9,13 +9,8 @@ from typing import Any
 from .paths import cache_dir
 
 
+# ttl 0 disables reads but still writes, so --refresh replaces stale entries.
 class Cache:
-    """TTL cache for API responses.
-
-    A ttl of 0 disables reads but still writes, so --refresh replaces stale
-    entries rather than leaving them.
-    """
-
     def __init__(self, root: Path | None = None, ttl_seconds: int = 600) -> None:
         self._root = root
         self.ttl_seconds = ttl_seconds

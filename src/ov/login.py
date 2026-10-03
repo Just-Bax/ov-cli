@@ -22,13 +22,10 @@ LOGIN_WAIT_MS = 5 * 60 * 1000
 POLL_INTERVAL_SECONDS = 1.0
 PROGRESS_EVERY_SECONDS = 5.0
 
-# Rounds, not seconds, so the threshold does not shift with loop speed. Long
-# enough to ride out a session that is still settling.
 STUCK_AFTER_ROUNDS = 20
 
 AJAX_HEADERS = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"}
 
-# Pages on the instance itself that still mean "not signed in yet".
 PENDING_PATHS = (
     "/login.do",
     "/loginfull.do",
@@ -46,8 +43,7 @@ NO_WIDGET_PRIV = (
     "Admin > Auth Tokens."
 )
 
-# Run in the signed-in page so the exchange carries the same origin, referer and
-# cookies a widget's own call would.
+# Runs in-page so the exchange carries the origin, referer and cookies a widget's call would.
 MINT_SCRIPT = """
 async (paths) => {
   const port = location.port ? ':' + location.port : '';
@@ -94,16 +90,6 @@ def interactive_login(
     verify: bool = True,
     headless: bool = False,
 ) -> Session:
-    """Open a real browser at the OneVizion login page and come back with a
-    bearer token once the user has signed in.
-
-    Credentials never pass through this process; the user types them into the
-    genuine page, which is what makes SSO and MFA work unchanged.
-
-    Being signed in is decided by asking the instance for a token, not by
-    reading the address bar: with an external identity provider the redirect
-    chain runs through domains that are not ours to recognise.
-    """
     playwright = _import_playwright()
     base_url = base_url.rstrip("/")
     host = urlsplit(base_url).hostname or ""
@@ -149,8 +135,7 @@ def _await_token(
             raise LoginFailed("The browser window was closed before sign-in finished.")
 
         seen = [_url_of(page) for page in pages]
-        # Single sign-on often hands the app to a new tab and leaves the one we
-        # opened parked on the provider's page.
+        # SSO often opens the app in a new tab and leaves ours parked on the provider's page.
         ready = [page for page, url in zip(pages, seen) if _looks_signed_in(url, host)]
 
         for page in ready:
@@ -159,8 +144,6 @@ def _await_token(
                 return minted
 
         if ready:
-            # Signed in and still refused: a grace period covers a session that
-            # is settling, beyond that the refusal will not fix itself.
             refused += 1
             if refused >= STUCK_AFTER_ROUNDS:
                 raise LoginFailed(_stuck_message(base_url, last_error, seen))
@@ -196,14 +179,8 @@ def _stuck_message(base_url: str, last_error: str, seen: list[str]) -> str:
     )
 
 
+# Sync Playwright only delivers events inside its calls; time.sleep would leave page.url stale.
 def _pause(pages: list[Any]) -> None:
-    """Wait a beat between rounds, through Playwright rather than around it.
-
-    The sync API only delivers browser events while the caller is inside one of
-    its calls. A plain time.sleep never yields to it, so page.url keeps
-    reporting whatever was true at the last real call and a sign-in completing
-    after goto() is never seen.
-    """
     for page in pages:
         try:
             page.wait_for_timeout(POLL_INTERVAL_SECONDS * 1000)
@@ -225,7 +202,6 @@ def _open_pages(context: Any) -> list[Any]:
 
 
 def _url_of(page: Any) -> str:
-    """page.url can be unreadable mid-redirect, which means 'keep waiting'."""
     try:
         return page.url
     except Exception:
@@ -233,23 +209,16 @@ def _url_of(page: Any) -> str:
 
 
 def _looks_signed_in(url: str, host: str) -> bool:
-    """Only ever mint against the host the user named: an identity provider's
-    domain is not somewhere to send a token request."""
     parts = urlsplit(url)
     if not parts.hostname or parts.hostname.lower() != host.lower():
         return False
     return not any(parts.path.lower().startswith(p) for p in PENDING_PATHS)
 
 
+# Page fetch mirrors the product, context request survives navigation, HTTP mirrors refresh.
 def _mint(
     context: Any, page: Any, base_url: str, verify: bool = True
 ) -> tuple[dict[str, Any] | None, str]:
-    """One round of the widget token exchange, tried three ways.
-
-    The page's own fetch is what the product itself does; the context's request
-    API survives the navigation that kills a page script; plain HTTP over the
-    browser's cookies is the same path that later refreshes the token.
-    """
     minted, page_error = _mint_from_page(page)
     if minted is not None:
         return minted, ""
@@ -266,7 +235,6 @@ def _mint(
 
 
 def _mint_over_http(context: Any, base_url: str, verify: bool) -> tuple[dict[str, Any] | None, str]:
-    """Mint from this process using the browser's cookies."""
     import httpx
 
     from .auth import mint_web_session_token
@@ -362,10 +330,7 @@ def _import_playwright() -> Any:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        raise LoginFailed(
-            "Playwright is not installed.\n"
-            "Run: pip install playwright && playwright install chromium"
-        ) from None
+        raise LoginFailed("Playwright is missing from this install. Reinstall ov.") from None
     return sync_playwright
 
 
@@ -388,12 +353,8 @@ def _launch(p: Any, headless: bool = False, report: Progress | None = None) -> A
         raise LoginFailed(f"Could not start the browser: {exc}") from exc
 
 
+# The tool install exposes only `ov`, so users cannot run `playwright install` themselves.
 def _fetch_browser(report: Progress | None) -> None:
-    """Download the browser mid-login, rather than sending the user away.
-
-    The old advice, "playwright install chromium", names a command the user does
-    not have: the tool install exposes the ov entry point and nothing else.
-    """
     if report:
         report("sign-in browser missing, downloading it once (about 150MB)")
     if not install_chromium():
@@ -436,11 +397,6 @@ def _browsers_root() -> Path:
 
 
 def _pinned_builds() -> list[str]:
-    """The browser directories this Playwright expects, from its own manifest.
-
-    Playwright pins a build number per version, and the marker file is written
-    only once a download finishes.
-    """
     import playwright
 
     manifest = Path(playwright.__file__).parent / "driver" / "package" / "browsers.json"
@@ -452,16 +408,8 @@ def _pinned_builds() -> list[str]:
     ]
 
 
+# Match pinned builds: another project's chromium can sit in the same dir and fail to launch.
 def browser_is_installed() -> bool:
-    """Whether every browser build this Playwright pins is on disk and complete.
-
-    Matching the directory name alone accepts a chromium left behind by some
-    other project, which sits in the same place under a different build number
-    and cannot launch. That reported ready here while the launch failed, so
-    'ov setup' sent the user to 'ov setup'. An unreadable manifest counts as
-    missing: installing again is harmless, claiming a browser that will not
-    start is not.
-    """
     root = _browsers_root()
     try:
         wanted = _pinned_builds()

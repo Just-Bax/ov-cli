@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+from typing import Any
 
 from .. import __version__
 from .. import config as config_module
@@ -18,18 +19,12 @@ DESCRIPTION = "Command line client for the OneVizion API."
 
 INSTANCE_HELP = "which signed-in instance to use (alias, hostname or URL)"
 
-# The only flag that takes a value before the subcommand, so scanning argv has
-# to know to step over what follows it.
+# The only pre-subcommand flag that takes a value, so argv scans must skip its argument.
 _INSTANCE_FLAGS = ("-i", "--instance")
 
 
+# SUPPRESS keeps the subparser default from overwriting a root-level -i value.
 def add_instance_flag(parser: argparse.ArgumentParser) -> None:
-    """Accepted both before and after the subcommand.
-
-    SUPPRESS matters: without it the subparser's own default would overwrite a
-    value given at the root, so 'ov -i acme users ...' would silently target the
-    current instance instead.
-    """
     parser.add_argument(
         "-i",
         "--instance",
@@ -40,8 +35,6 @@ def add_instance_flag(parser: argparse.ArgumentParser) -> None:
 
 
 def build_common() -> argparse.ArgumentParser:
-    """Flags every leaf command shares, so they appear in each command's own
-    help rather than only at the root."""
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--json", action="store_true", help="machine readable output")
     common.add_argument("--no-color", action="store_true", help="disable coloured output")
@@ -50,14 +43,14 @@ def build_common() -> argparse.ArgumentParser:
     return common
 
 
+# Generated groups differ per instance, so an unknown name may still exist on another one.
 class RootParser(argparse.ArgumentParser):
-    """Adds one line of context to 'invalid choice'.
-
-    Generated groups differ per instance, so a name that works against one
-    system is genuinely not a command against another. Argparse cannot say that.
-    """
-
     hint: str = ""
+
+    # Subparsers inherit this class; prefixes like --ou would let callers dodge argv checks.
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
 
     def error(self, message: str) -> None:  # type: ignore[override]
         if self.hint and "invalid choice" in message:
@@ -73,7 +66,7 @@ def build_parser(argv: list[str]) -> argparse.ArgumentParser:
     parser = RootParser(
         prog="ov",
         description=DESCRIPTION,
-        epilog=_epilog(config, _instance_in(argv)),
+        epilog=_epilog(config, argv),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.hint = _unknown_group_hint(config, argv)
@@ -89,17 +82,13 @@ def build_parser(argv: list[str]) -> argparse.ArgumentParser:
     return parser
 
 
+# Only the invoked tag is built, so runs like 'ov login' never parse the whole schema.
 def _register_dynamic(
     subparsers: argparse._SubParsersAction,
     common: argparse.ArgumentParser,
     config: config_module.Config,
     argv: list[str],
 ) -> None:
-    """Expand the schema tag being invoked into real commands.
-
-    Registering every tag up front would parse a whole OpenAPI document on every
-    run, including 'ov login', so only the tag named on the command line is built.
-    """
     wanted = _first_positional(argv)
     if not wanted or wanted in BUILTIN_NAMES:
         return
@@ -127,8 +116,6 @@ def _first_positional(argv: list[str]) -> str | None:
 
 
 def _instance_in(argv: list[str]) -> str | None:
-    """Read -i out of argv before argparse runs, so the generated commands can
-    be built from the right instance's schema."""
     for index, token in enumerate(argv):
         if token in _INSTANCE_FLAGS:
             return argv[index + 1] if index + 1 < len(argv) else None
@@ -158,8 +145,9 @@ def _unknown_group_hint(config: config_module.Config, argv: list[str]) -> str:
     return f"'{wanted}' is not a group on {named}. Groups: {', '.join(spec.tags)}."
 
 
-def _epilog(config: config_module.Config, instance: str | None) -> str:
-    spec = cached_spec(config, instance)
+def _epilog(config: config_module.Config, argv: list[str]) -> str:
+    # Only root help shows the epilog, so skip parsing the spec for anything else.
+    spec = None if _first_positional(argv) else cached_spec(config, _instance_in(argv))
     if spec is None or not spec.tags:
         return (
             "Every API operation is also reachable as 'ov <tag> <operation>' once an "
@@ -173,9 +161,8 @@ def _epilog(config: config_module.Config, instance: str | None) -> str:
     )
 
 
+# Windows consoles and pipes default to a legacy codepage that aborts on non-ASCII output.
 def force_utf8_output() -> None:
-    """Windows consoles and redirected pipes default to a legacy codepage, so a
-    single non-ASCII value would otherwise abort a render part-written."""
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is None:

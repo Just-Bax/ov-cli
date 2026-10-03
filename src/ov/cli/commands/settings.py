@@ -28,11 +28,9 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
 
 
 def _payload(ctx: Context) -> dict[str, object]:
-    # Declared settings only, so the token and cookies sharing this file are
-    # never echoed here.
     data = ctx.config.to_dict()
     data["current_instance"] = session.current_alias()
-    data["instances"] = sorted(session.all_sessions())
+    data["instances"] = session.aliases()
     data["paths"] = {
         "home": str(home()),
         "config": str(config_file()),

@@ -129,3 +129,63 @@ def test_a_file_upload_becomes_multipart(spec, tmp_path):
     operation = spec.find("users:create-user")
     plan = build_plan(operation, {}, files=[f"file=@{path}"])
     assert plan.files["file"][0] == "data.csv"
+
+
+def test_a_non_json_content_type_sends_data_verbatim():
+    from ov.spec import Operation
+
+    operation = Operation(name="request", tag="raw", method="POST", path="/v3/x/search")
+    condition = 'greater(C_CREATED_AT, "2026-04-01T00:00:00")'
+    plan = build_plan(operation, {}, headers=["Content-Type: text/plain"], data=condition)
+    assert plan.content == condition.encode("utf-8")
+    assert plan.json_body is None
+
+
+def test_a_raw_body_is_read_from_a_file(tmp_path):
+    from ov.spec import Operation
+
+    path = tmp_path / "q.txt"
+    path.write_text('equal(A, "x")', encoding="utf-8")
+    operation = Operation(name="request", tag="raw", method="POST", path="/v3/x/search")
+    plan = build_plan(operation, {}, headers=["Content-Type: text/plain"], data=f"@{path}")
+    assert plan.content == b'equal(A, "x")'
+
+
+def test_json_is_still_parsed_without_a_content_type():
+    from ov.spec import Operation
+
+    operation = Operation(name="request", tag="raw", method="POST", path="/v3/x")
+    with pytest.raises(OvError, match="not valid JSON"):
+        build_plan(operation, {}, data="equal(A, 1)")
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "allowed"),
+    [
+        ("GET", "/v3/trackors/1", True),
+        ("POST", "/v3/trackor_types/Cases/trackors/search", True),
+        ("POST", "/api/v3/sql/test", True),
+        ("POST", "/v3/components/exports/run", True),
+        ("PUT", "/v3/trackors/1", False),
+        ("POST", "/v3/trackor_types/Cases/trackors", False),
+        ("DELETE", "/v3/trackor_types/Cases/trackors", False),
+        ("POST", "/v3/components/imports/run", False),
+    ],
+)
+def test_read_only_guard(monkeypatch, method, path, allowed):
+    from ov.client import guard_read_only
+    from ov.errors import ReadOnlyBlocked
+
+    monkeypatch.setenv("OV_READONLY", "1")
+    if allowed:
+        guard_read_only(method, path)
+    else:
+        with pytest.raises(ReadOnlyBlocked):
+            guard_read_only(method, path)
+
+
+def test_read_only_guard_is_off_by_default(monkeypatch):
+    from ov.client import guard_read_only
+
+    monkeypatch.delenv("OV_READONLY", raising=False)
+    guard_read_only("DELETE", "/v3/trackors/1")

@@ -10,12 +10,8 @@ from .context import Context
 from .output import emit, emit_payload, note, rows_from
 
 
+# Kept even beside per-param flags: a param named like ours (--json, --out) cannot get one.
 def add_invocation_flags(parser: argparse.ArgumentParser, with_path: bool = True) -> None:
-    """The escape hatches every generated command shares.
-
-    They stay available even where a parameter also has its own flag, because a
-    parameter named like one of ours (--json, --out) cannot get one.
-    """
     if with_path:
         parser.add_argument(
             "-p", "--param", action="append", metavar="NAME=VALUE", help="path parameter"
@@ -53,7 +49,6 @@ def add_invocation_flags(parser: argparse.ArgumentParser, with_path: bool = True
 
 
 def add_param_flags(parser: argparse.ArgumentParser, operation: Operation) -> None:
-    """Give the operation's own parameters real flags, so --help documents them."""
     for param in operation.path_params:
         parser.add_argument(
             dest_name(param),

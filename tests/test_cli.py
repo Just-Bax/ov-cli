@@ -24,6 +24,15 @@ def test_no_arguments_prints_help(capsys):
     assert "Command line client for the OneVizion API" in out
 
 
+def test_builtin_commands_do_not_parse_the_spec(with_spec, capsys, monkeypatch):
+    def refuse(*_):
+        raise AssertionError("spec parsed")
+
+    monkeypatch.setattr("ov.cli.main.cached_spec", refuse)
+    code, _ = run(capsys, "instances", "--json")
+    assert code == 0
+
+
 def test_config_needs_no_session(capsys):
     code, data = payload(capsys, "config", "show", "--json")
     assert code == 0
@@ -126,6 +135,13 @@ def test_a_forbidden_call_has_its_own_exit_code(capsys, logged_in, server):
     server.route("GET", "/api/v3/users", 403, "No privilege")
     code, _ = run(capsys, "request", "GET", "/v3/users", "--json")
     assert code == 6
+
+
+def test_a_read_only_block_has_its_own_exit_code(capsys, logged_in, server, monkeypatch):
+    monkeypatch.setenv("OV_READONLY", "1")
+    code, _ = run(capsys, "request", "DELETE", "/v3/users/1", "--json")
+    assert code == 7
+    assert not server.requests
 
 
 def test_login_with_a_token_stores_a_static_session(capsys, ov_home, server, monkeypatch):

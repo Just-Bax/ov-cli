@@ -7,10 +7,12 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from . import store
+from . import credentials, store
 from .errors import Ambiguous, NotFound, NotLoggedIn
 
 SESSION_COOKIE = "JSESSIONID"
+
+SECRET_FIELDS = ("cookies", "bearer_token")
 
 # Re-mint this far ahead of the recorded expiry rather than waiting for a 401,
 # so a long-running command does not fail halfway through a page loop.
@@ -25,16 +27,9 @@ ASSUMED_TTL_SECONDS = 900
 _UNSAFE_ALIAS = re.compile(r"[^a-z0-9._-]+")
 
 
+# Cookies drive the web UI (token minting, schema); only the bearer token works on /api.
 @dataclass
 class Session:
-    """What the CLI needs to speak to one instance as one user.
-
-    Two credentials, deliberately: the cookies authenticate the web UI (which is
-    what mints tokens and serves the OpenAPI schema), and the bearer token is the
-    only thing /api/v3 accepts. Session mode holds both; token mode holds only
-    the bearer.
-    """
-
     base_url: str
     alias: str = ""
     mode: str = "session"
@@ -61,8 +56,11 @@ class Session:
 
     @property
     def is_static(self) -> bool:
-        """Token mode has no cookies, so nothing can be re-minted without the user."""
         return self.mode == "token"
+
+    @property
+    def credential_key(self) -> str:
+        return f"{self.base_url}|{self.tenant_id}"
 
     def seconds_left(self) -> float | None:
         if not self.expires_at:
@@ -84,12 +82,13 @@ class Session:
             "mode": self.mode,
             "tenant": self.tenant,
             "tenant_id": self.tenant_id,
-            "cookies": self.cookies,
-            "bearer_token": self.bearer_token,
             "expires_at": self.expires_at,
             "expires_text": self.expires_text,
             "saved_at": self.saved_at,
         }
+
+    def secrets(self) -> dict[str, Any]:
+        return {"cookies": self.cookies, "bearer_token": self.bearer_token}
 
     def redacted(self) -> dict[str, Any]:
         left = self.seconds_left()
@@ -104,13 +103,8 @@ class Session:
         }
 
 
+# https://acme.onevizion.com -> acme; its mTRAC tenant -> acme/mtrac.
 def default_alias(base_url: str, tenant: str = "") -> str:
-    """Name a connection after its hostname, and its tenant when it has one.
-
-    https://acme.onevizion.com -> acme; its mTRAC tenant -> acme/mtrac. A bare
-    host alias keeps meaning the tenant the account signs in to, as it did
-    before tenants existed.
-    """
     host = urlsplit(base_url).hostname or base_url
     label = _slug(host.split(".")[0]) or "default"
     return f"{label}/{_slug(tenant)}" if tenant else label
@@ -142,28 +136,57 @@ def _from_dict(data: dict[str, Any], alias: str = "") -> Session:
     )
 
 
+def _entries(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    raw = data.get(store.SESSIONS_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    return {a: e for a, e in raw.items() if isinstance(e, dict) and e.get("base_url")}
+
+
+def _has_secrets(entry: dict[str, Any]) -> bool:
+    return any(name in entry for name in SECRET_FIELDS)
+
+
+# Configs written before 1.1 held tokens and cookies in plain text.
+def _move_secrets_out(data: dict[str, Any]) -> None:
+    for alias, entry in _entries(data).items():
+        if not _has_secrets(entry):
+            continue
+        session = _from_dict(entry, alias)
+        credentials.put(session.credential_key, session.secrets())
+        for name in SECRET_FIELDS:
+            entry.pop(name, None)
+
+
 def _read_all() -> dict[str, Session]:
     data = store.read()
-    raw = data.get(store.SESSIONS_KEY)
-    sessions = {}
-    if isinstance(raw, dict):
-        for alias, entry in raw.items():
-            if isinstance(entry, dict) and entry.get("base_url"):
-                sessions[alias] = _from_dict(entry, alias)
-    return sessions
+    if any(_has_secrets(entry) for entry in _entries(data).values()):
+        data = store.mutate(_move_secrets_out)
+    return _from_entries(data)
+
+
+def _from_entries(data: dict[str, Any]) -> dict[str, Session]:
+    return {alias: _from_dict(entry, alias) for alias, entry in _entries(data).items()}
+
+
+def _with_secrets(session: Session) -> Session:
+    secrets = credentials.get(session.credential_key) or {}
+    cookies = secrets.get("cookies")
+    session.cookies = cookies if isinstance(cookies, dict) else {}
+    session.bearer_token = secrets.get("bearer_token") or ""
+    return session
 
 
 def all_sessions() -> dict[str, Session]:
+    return {alias: _with_secrets(session) for alias, session in _read_all().items()}
+
+
+def aliases() -> list[str]:
+    return sorted(_read_all())
+
+
+def listed() -> dict[str, Session]:
     return _read_all()
-
-
-def _write_all(sessions: dict[str, Session], current: str | None = None) -> None:
-    changes: dict[str, Any] = {
-        store.SESSIONS_KEY: {a: s.to_dict() for a, s in sessions.items()} or None
-    }
-    if current is not None:
-        changes[store.CURRENT_KEY] = current or None
-    store.update(**changes)
 
 
 def current_alias() -> str | None:
@@ -173,23 +196,16 @@ def current_alias() -> str | None:
     alias = store.read().get(store.CURRENT_KEY)
     if isinstance(alias, str) and alias in sessions:
         return alias
-    # A stale pointer, from a logout that removed the current instance.
     return next(iter(sessions))
 
 
+# One stored credential per (host, tenant): that pair is what a bearer token is scoped to.
 def is_same_target(session: Session, base_url: str, tenant_id: str) -> bool:
-    """One stored credential per (host, tenant), since that pair is what a
-    bearer token is actually scoped to."""
     return session.base_url == base_url.rstrip("/") and session.tenant_id == (tenant_id or "")
 
 
+# A taken first label falls back to the whole host, which stays recognisable.
 def unique_alias(base_url: str, preferred: str = "", tenant: str = "", tenant_id: str = "") -> str:
-    """Pick a free alias, keeping the one a connection already owns.
-
-    Two hosts can share a first label ('acme.onevizion.com' and 'acme.eu.dev'),
-    so a taken name falls back to the whole host rather than a counter, which
-    stays recognisable.
-    """
     base_url = base_url.rstrip("/")
     sessions = _read_all()
     for alias, session in sessions.items():
@@ -214,14 +230,8 @@ def unique_alias(base_url: str, preferred: str = "", tenant: str = "", tenant_id
     return f"{candidate}-{suffix}"
 
 
+# Accepts the alias, URL, hostname, tenant name, or an unambiguous prefix of any of them.
 def resolve(ref: str) -> str:
-    """Turn what the user typed into one stored alias.
-
-    Accepts the alias, the full base URL, the hostname, the tenant name, or an
-    unambiguous prefix of any of them, so 'ov -i acme', 'ov -i acme.onevizion.com'
-    and 'ov -i https://acme.onevizion.com' all land on the same instance, and
-    'ov -i mtrac' finds sandbox/mtrac without spelling out the host.
-    """
     sessions = _read_all()
     if not sessions:
         raise NotLoggedIn
@@ -267,9 +277,8 @@ def resolve(ref: str) -> str:
     raise NotFound(f"No instance matches {ref!r}. Signed in to: {known}.")
 
 
+# Naming a host signed in to several tenants means the tenant the account signs in to.
 def _prefer_default_tenant(matches: list[str], sessions: dict[str, Session]) -> str | None:
-    """Settle a host signed in to several of its tenants: naming the host
-    resolves to the tenant the account signs in to."""
     if len(matches) == 1:
         return matches[0]
     if not matches or len({sessions[a].base_url for a in matches}) != 1:
@@ -280,23 +289,25 @@ def _prefer_default_tenant(matches: list[str], sessions: dict[str, Session]) -> 
 
 def save(session: Session, make_current: bool = True) -> Session:
     session.saved_at = time.time()
-    sessions = _read_all()
+    with store.lock():
+        # Only the store knows which aliases are taken, so the caller's is not trusted.
+        taken = _read_all().get(session.alias)
+        if taken is not None and not is_same_target(taken, session.base_url, session.tenant_id):
+            session.alias = unique_alias(
+                session.base_url, tenant=session.tenant, tenant_id=session.tenant_id
+            )
+        credentials.put(session.credential_key, session.secrets())
 
-    # Two systems can share a hostname's first label. Only the store knows
-    # that, so uniqueness is settled here rather than trusted from the caller.
-    taken = sessions.get(session.alias)
-    if taken is not None and not is_same_target(taken, session.base_url, session.tenant_id):
-        session.alias = unique_alias(
-            session.base_url, tenant=session.tenant, tenant_id=session.tenant_id
-        )
+        def change(data: dict[str, Any]) -> None:
+            data[store.SESSIONS_KEY] = {**_entries(data), session.alias: session.to_dict()}
+            if make_current:
+                data[store.CURRENT_KEY] = session.alias
 
-    sessions[session.alias] = session
-    _write_all(sessions, session.alias if make_current else None)
+        store.mutate(change)
     return session
 
 
-def load(ref: str | None = None) -> Session:
-    """The session for `ref`, or the current instance when nothing is asked for."""
+def find(ref: str | None = None) -> Session:
     sessions = _read_all()
     if not sessions:
         raise NotLoggedIn
@@ -304,18 +315,21 @@ def load(ref: str | None = None) -> Session:
     alias = resolve(ref) if ref else current_alias()
     if not alias or alias not in sessions:
         raise NotLoggedIn
+    return sessions[alias]
 
-    session = sessions[alias]
+
+def load(ref: str | None = None) -> Session:
+    session = _with_secrets(find(ref))
     if not session.bearer_token and not session.cookies:
         raise NotLoggedIn
     return session
 
 
 def use(ref: str) -> Session:
-    alias = resolve(ref)
-    sessions = _read_all()
-    _write_all(sessions, alias)
-    return sessions[alias]
+    with store.lock():
+        alias = resolve(ref)
+        store.update(**{store.CURRENT_KEY: alias})
+    return _read_all()[alias]
 
 
 def exists(ref: str | None = None) -> bool:
@@ -327,28 +341,38 @@ def exists(ref: str | None = None) -> bool:
 
 
 def remove(ref: str) -> Session:
-    alias = resolve(ref)
-    sessions = _read_all()
-    removed = sessions.pop(alias)
-    remaining = next(iter(sessions), "")
-    _write_all(sessions, remaining)
+    with store.lock():
+        alias = resolve(ref)
+        removed = _read_all()[alias]
+
+        def change(data: dict[str, Any]) -> None:
+            entries = _entries(data)
+            entries.pop(alias, None)
+            data[store.SESSIONS_KEY] = entries
+            if data.get(store.CURRENT_KEY) not in entries:
+                data[store.CURRENT_KEY] = next(iter(entries), None)
+            if not entries:
+                data.pop(store.SESSIONS_KEY, None)
+                data.pop(store.CURRENT_KEY, None)
+
+        remaining = _from_entries(store.mutate(change))
+        if not any(s.credential_key == removed.credential_key for s in remaining.values()):
+            credentials.delete(removed.credential_key)
     return removed
 
 
 def clear() -> int:
-    count = len(_read_all())
-    _write_all({}, "")
-    return count
+    with store.lock():
+        sessions = _read_all()
+        store.update(**{store.SESSIONS_KEY: None, store.CURRENT_KEY: None})
+        for key in {s.credential_key for s in sessions.values()}:
+            credentials.delete(key)
+    return len(sessions)
 
 
+# The server stamps expiry in its own unstated timezone; an implausible guess gets a
+# short fixed TTL, and a 401 still triggers a re-mint either way.
 def expiry_to_epoch(text: str) -> float:
-    """Turn the server's 'yyyy-MM-ddTHH:mm:ss' into a local deadline.
-
-    It carries no timezone and is stamped in the server's zone, so a wrong guess
-    would either expire the token early or trust it past its death. An
-    implausible result is replaced by a short fixed TTL; either way a 401 still
-    triggers a re-mint, which is what actually keeps this correct.
-    """
     if not text:
         return time.time() + ASSUMED_TTL_SECONDS
     try:

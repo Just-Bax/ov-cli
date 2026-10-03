@@ -7,11 +7,10 @@ EXIT_AUTH = 3
 EXIT_NOT_FOUND = 4
 EXIT_API = 5
 EXIT_FORBIDDEN = 6
+EXIT_READ_ONLY = 7
 
 
 class OvError(Exception):
-    """Base class for errors the CLI knows how to report."""
-
     exit_code = EXIT_ERROR
 
 
@@ -50,14 +49,14 @@ class Ambiguous(OvError):
 
 
 class Forbidden(OvError):
-    """The user authenticated but lacks a privilege the endpoint requires."""
-
     exit_code = EXIT_FORBIDDEN
 
 
-class ApiError(OvError):
-    """Non-2xx from the OneVizion API, carrying whatever the server explained."""
+class ReadOnlyBlocked(OvError):
+    exit_code = EXIT_READ_ONLY
 
+
+class ApiError(OvError):
     exit_code = EXIT_API
 
     def __init__(self, status: int, message: str, body: object = None, url: str = "") -> None:
@@ -77,10 +76,8 @@ class ApiError(OvError):
 
 
 class Unreachable(OvError):
-    """The instance did not answer at all: DNS, TLS, timeout or a closed port."""
+    pass
 
 
 class SpecUnavailable(OvError):
-    """The OpenAPI schema could not be fetched, so the generated commands are unknown."""
-
     exit_code = EXIT_API

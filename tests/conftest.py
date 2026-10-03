@@ -134,6 +134,7 @@ def ov_home(tmp_path, monkeypatch):
     """Autouse, because anything that refreshes a token persists it: a test
     without this would rewrite the developer's own ~/.ov/config.json."""
     monkeypatch.setenv("OV_HOME", str(tmp_path))
+    monkeypatch.setenv("OV_CREDENTIALS", "file")
     return tmp_path
 
 

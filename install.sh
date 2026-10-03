@@ -49,4 +49,5 @@ printf '\n'
 ok "Installed."
 printf '\n  Open a NEW terminal, then run:\n'
 printf '    ov login https://yours.onevizion.com\n'
-printf '    ov api tags\n\n'
+printf '    ov api tags\n'
+printf '    ov agent          # the AI agent in your browser\n\n'

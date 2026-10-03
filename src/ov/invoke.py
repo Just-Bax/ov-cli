@@ -9,8 +9,7 @@ from typing import Any
 from .errors import OvError
 from .spec import Operation, Param, path_param_names
 
-# Flags the CLI owns. A spec parameter with the same name keeps its place in the
-# request but loses its generated flag, so -q/-p stays the way to set it.
+# A spec parameter named like one of these loses its generated flag; -q/-p still reach it.
 RESERVED_FLAGS = {
     "json",
     "no-color",
@@ -77,17 +76,10 @@ def build_plan(
     files: list[str] | None = None,
     accept: str | None = None,
 ) -> RequestPlan:
-    """Turn parsed CLI input into one HTTP request.
-
-    `values` carries whatever the generated per-parameter flags collected;
-    `query`, `path_values` and `headers` are the k=v escape hatches that also
-    reach parameters whose names collide with the CLI's own flags.
-    """
     supplied = {p.name: values.get(dest_name(p)) for p in operation.params}
     supplied = {k: v for k, v in supplied.items() if v is not None}
     supplied.update(_pairs(path_values, "-p"))
 
-    by_name = {p.name: p for p in operation.params}
     extra_query = _pairs(query, "-q")
 
     path = _fill_path(operation, supplied)
@@ -119,7 +111,7 @@ def build_plan(
         headers=request_headers,
         accept=accept or _accept_for(operation),
     )
-    _attach_body(plan, operation, data, fields, files, by_name)
+    _attach_body(plan, operation, data, fields, files)
     return plan
 
 
@@ -174,16 +166,15 @@ def _attach_body(
     data: str | None,
     fields: list[str] | None,
     files: list[str] | None,
-    by_name: dict[str, Param],
 ) -> None:
     uploads = _uploads(files)
-    body = _read_data(data)
+    raw_body = _wants_raw_body(plan, operation)
+    body = _read_data(data, parse_json=not raw_body)
     built = _build_fields(fields)
 
     if uploads:
         plan.files = uploads
-        # A multipart part named like a declared parameter is a form field, not
-        # a file, so the flat --field values ride along beside the uploads.
+        # A multipart part named like a declared parameter is a form field, not a file.
         if built:
             plan.files.update(
                 {
@@ -207,13 +198,24 @@ def _attach_body(
             )
         return
 
-    if operation.body and not operation.body.is_json:
+    if raw_body:
+        if isinstance(payload, dict):
+            raise OvError("This body is not JSON, so --field cannot build it; use --data.")
         plan.content = payload if isinstance(payload, bytes) else str(payload).encode("utf-8")
-        plan.headers.setdefault("Content-Type", operation.body.content_type)
+        if operation.body and not operation.body.is_json:
+            plan.headers.setdefault("Content-Type", operation.body.content_type)
         return
 
     plan.json_body = payload
-    _ = by_name
+
+
+def _wants_raw_body(plan: RequestPlan, operation: Operation) -> bool:
+    if operation.body and not operation.body.is_json:
+        return True
+    for name, value in plan.headers.items():
+        if name.lower() == "content-type":
+            return "json" not in value.lower()
+    return False
 
 
 def _uploads(files: list[str] | None) -> dict[str, Any]:
@@ -229,7 +231,7 @@ def _uploads(files: list[str] | None) -> dict[str, Any]:
     return uploads
 
 
-def _read_data(data: str | None) -> Any:
+def _read_data(data: str | None, parse_json: bool = True) -> Any:
     if data is None:
         return None
     if data == "-":
@@ -245,6 +247,8 @@ def _read_data(data: str | None) -> Any:
     raw = raw.strip()
     if not raw:
         return None
+    if not parse_json:
+        return raw
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -252,11 +256,6 @@ def _read_data(data: str | None) -> Any:
 
 
 def _build_fields(fields: list[str] | None) -> dict[str, Any]:
-    """Assemble a JSON object from k=v pairs.
-
-    'name=v' stores a string, 'name:=v' parses v as JSON, and a dotted name
-    nests, which is what trackor field payloads mostly need.
-    """
     payload: dict[str, Any] = {}
     for entry in fields or []:
         raw_key, found, raw_value = entry.partition("=")

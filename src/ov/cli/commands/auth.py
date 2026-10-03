@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from collections.abc import Callable
 
 from ... import session as session_store
 from ...config import normalize_base_url
-from ...errors import LoginFailed, NotConfigured, NotLoggedIn, OvError, SessionExpired
-from ...login import install_chromium, interactive_login
+from ...errors import EXIT_AUTH, LoginFailed, NotConfigured, NotLoggedIn, OvError, SessionExpired
+from ...login import interactive_login
 from ...paths import config_file
 from ...session import Session
 from ...tenants import NO_TENANTS, resolve_tenant, tenant_rows
@@ -107,8 +106,7 @@ def cmd_login(ctx: Context) -> int:
     if args.tenant:
         _choose_tenant(ctx, session, args.tenant)
 
-    # Must precede the mint, which persists the session under whatever alias it
-    # finds. The host can also differ from the one we opened, after a redirect.
+    # Must precede the mint, which persists under this alias; the host may differ after a redirect.
     session.alias = session_store.unique_alias(
         session.base_url, args.alias or "", session.tenant, session.tenant_id
     )
@@ -123,8 +121,7 @@ def cmd_login(ctx: Context) -> int:
         except SessionExpired as exc:
             raise LoginFailed(f"The credentials were not accepted: {exc}") from None
         except OvError as exc:
-            # /authorize needs Web Services at Read. Anything else the account
-            # can reach is still worth having, so this is a warning, not a stop.
+            # /authorize needs Web Services at Read; other access is still useful, so only warn.
             warn(ctx, f"[yellow]Signed in, but /api/authorize said:[/yellow] {exc}")
 
     session_store.save(session, make_current=not args.keep_current)
@@ -153,7 +150,6 @@ def cmd_login(ctx: Context) -> int:
 
 
 def _choose_tenant(ctx: Context, session: Session, wanted: str) -> None:
-    """Look the tenant up without committing anything yet."""
     if session.is_static:
         raise OvError(
             "--tenant needs a browser sign-in. An API token is already tied to one tenant."
@@ -164,12 +160,8 @@ def _choose_tenant(ctx: Context, session: Session, wanted: str) -> None:
         session.tenant_id, session.tenant = resolve_tenant(client.tenants(), wanted)
 
 
+# Tokens are tenant-scoped, and sign-in always lands in the account's own tenant.
 def _mint_in_tenant(ctx: Context, session: Session) -> None:
-    """Replace the sign-in token with one issued inside the chosen tenant.
-
-    A token is scoped to the tenant it was minted in, and sign-in always lands
-    in the account's own.
-    """
     with build_client(ctx.config, session) as client:
         client.refresh_token()
 
@@ -214,54 +206,24 @@ def _browser_login(ctx: Context, base_url: str) -> Session:
         "[dim]Your password goes into the real login page, never through this tool. "
         "Only the resulting session token is stored.[/dim]",
     )
-    return _login_installing_browser_if_needed(ctx, base_url, ctx.args.timeout * 1000)
+    return interactive_login(
+        base_url,
+        timeout_ms=ctx.args.timeout * 1000,
+        on_progress=_progress(ctx),
+        verify=ctx.config.verify_tls,
+    )
 
 
+# A five minute wait with no output reads as a hang.
 def _progress(ctx: Context) -> Callable[[str], None]:
-    """Say what the wait is doing: a five minute block with no output reads as
-    a hang."""
-
     def report(message: str) -> None:
         if ctx.args.verbose:
             warn(ctx, f"[dim]{message}[/dim]")
         else:
-            # Keep the elapsed seconds even in the quiet form. A line that never
-            # changes cannot be told apart from a stopped process.
+            # Keep the elapsed seconds: a line that never changes looks like a stopped process.
             warn(ctx, f"[dim]{message.split(':')[0]}, still waiting for sign-in[/dim]")
 
     return report
-
-
-def _login_installing_browser_if_needed(ctx: Context, base_url: str, timeout_ms: int) -> Session:
-    report = _progress(ctx)
-    try:
-        return interactive_login(
-            base_url,
-            timeout_ms=timeout_ms,
-            on_progress=report,
-            verify=ctx.config.verify_tls,
-        )
-    except LoginFailed as exc:
-        if "Chromium is not installed" not in str(exc):
-            raise
-
-    note(
-        ctx,
-        "\n[yellow]The browser used for signing in is not downloaded yet[/yellow] "
-        "(about 150MB, one time).",
-    )
-    if not sys.stdin.isatty():
-        raise OvError("Run 'ov setup' first.")
-    if input("Download it now? [Y/n] ").strip().lower() not in ("", "y", "yes"):
-        raise OvError("Cancelled. Run 'ov setup' when you are ready.")
-    if not install_chromium():
-        raise OvError("Download failed. Run 'ov setup' by hand.")
-    return interactive_login(
-        base_url,
-        timeout_ms=timeout_ms,
-        on_progress=report,
-        verify=ctx.config.verify_tls,
-    )
 
 
 def _token_login(ctx: Context, base_url: str) -> Session:
@@ -359,9 +321,8 @@ def _logout_all(ctx: Context) -> int:
     return 0
 
 
+# Ending the web session invalidates every token it minted, so this is a real revocation.
 def _revoke(ctx: Context, session: Session) -> bool:
-    """Ending the web session invalidates every token it minted, so this is a
-    real revocation rather than just forgetting the string."""
     if session.is_static:
         return False
     try:
@@ -393,7 +354,7 @@ def cmd_whoami(ctx: Context) -> int:
         )
 
     emit(ctx, data, table)
-    return 0 if data["authorized"] else 3
+    return 0 if data["authorized"] else EXIT_AUTH
 
 
 def cmd_instances(ctx: Context) -> int:

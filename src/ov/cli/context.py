@@ -16,8 +16,6 @@ INSTANCE_ENV = "OV_INSTANCE"
 
 
 def build_client(config: Config, session: Session) -> Client:
-    """The one place a Client is constructed, so settings apply uniformly and
-    tests have a single seam to substitute a transport."""
     return Client(
         session,
         timeout=float(config.timeout_seconds),
@@ -26,18 +24,12 @@ def build_client(config: Config, session: Session) -> Client:
 
 
 def instance_ref(args: argparse.Namespace | None = None) -> str | None:
-    """Which instance this invocation targets, or None for the current one."""
     explicit = getattr(args, "instance", None) if args is not None else None
     return explicit or os.environ.get(INSTANCE_ENV) or None
 
 
+# API access is lazy so offline commands (config, help) need no stored session.
 class Context:
-    """Per-invocation state: settings, output mode and lazily built API access.
-
-    Built lazily so commands that never touch the network (config, help, the
-    spec-driven help text) do not require a stored session.
-    """
-
     def __init__(self, args: argparse.Namespace, config: Config | None = None) -> None:
         self.args = args
         self.config = config if config is not None else config_module.load()

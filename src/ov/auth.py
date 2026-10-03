@@ -21,13 +21,8 @@ NO_WIDGET_PRIV = (
 )
 
 
+# The token dies with the web session, so nothing longer-lived than the login reaches disk.
 def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
-    """Trade the web session cookies for a WEB_SESSION_API bearer token.
-
-    This is the same exchange the in-app widgets perform: the token inherits the
-    signed-in user's privileges and dies with their session, so nothing
-    longer-lived than the login ever reaches disk.
-    """
     if session.tenant_id:
         switch_tenant(http, session.tenant_id)
 
@@ -55,14 +50,8 @@ def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
     return session
 
 
+# Re-run before every mint: a wrong-tenant token looks valid but returns another tenant's data.
 def switch_tenant(http: httpx.Client, tenant_id: str) -> None:
-    """Point the web session at the caller's account in another tenant.
-
-    Re-asserted before every mint rather than done once at login. The switch
-    lives in the session, and a token that was minted in the wrong tenant looks
-    entirely valid while returning another tenant's data, which is the kind of
-    wrong that is hard to notice.
-    """
     csrf = _csrf_token(http)
     headers = dict(AJAX_HEADERS)
     headers[csrf["headerName"]] = csrf["token"]
@@ -78,7 +67,6 @@ def switch_tenant(http: httpx.Client, tenant_id: str) -> None:
 
 
 def list_tenants(http: httpx.Client) -> dict[str, str]:
-    """Read the tenant list off the rendered app page, the only place it exists."""
     response = http.get(DEFAULT_PATH, headers={"Accept": "text/html"})
     _guard(response)
     if response.status_code >= 400:
@@ -100,9 +88,8 @@ def _csrf_token(http: httpx.Client) -> dict[str, str]:
     return {"headerName": header, "token": token}
 
 
+# An expired web session redirects to the login page instead of answering 401.
 def _guard(response: httpx.Response) -> None:
-    """An expired web session redirects to the login page rather than answering
-    401, so an unchecked call would parse the login HTML as data."""
     if LOGIN_PATH.lower() in str(response.url).lower():
         raise SessionExpired("redirected to the login page")
 
@@ -117,9 +104,8 @@ def _json(response: httpx.Response, path: str) -> dict[str, Any]:
     return payload
 
 
+# Not Cookies.get(): it raises CookieConflict when a redirect chain set a name under two domains.
 def _cookies_of(http: httpx.Client, previous: dict[str, str]) -> dict[str, str]:
-    """Cookies.get() raises CookieConflict when one name exists under several
-    domains, which a redirect chain can produce."""
     current = dict(previous)
     for cookie in http.cookies.jar:
         if cookie.value:

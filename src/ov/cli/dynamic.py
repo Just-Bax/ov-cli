@@ -16,20 +16,15 @@ from .opargs import add_invocation_flags, add_param_flags, run_operation
 _cached: dict[str, Spec | None] = {}
 
 
+# An expired cache still names the commands; refreshing is 'ov spec fetch'.
 def cached_spec(config: Config, instance: str | None = None) -> Spec | None:
-    """The schema of one instance as it sits on disk, ignoring its age.
-
-    Command names must exist before any request happens, so an expired cache is
-    still the right thing to build the parser from; refreshing is 'ov spec
-    fetch'. An unknown instance yields no commands rather than another's.
-    """
     key = instance or ""
     if key in _cached:
         return _cached[key]
 
     spec: Spec | None = None
     try:
-        base_url = session_store.load(instance).base_url
+        base_url = session_store.find(instance).base_url
     except OvError:
         base_url = ""
     if base_url:

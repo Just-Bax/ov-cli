@@ -220,3 +220,7 @@ __marimo__/
 .streamlit/secrets.toml
 # ov-cli
 .ovtest/
+
+# web UI (the Python template above ignores every lib/)
+node_modules/
+!web/src/lib/

@@ -60,4 +60,5 @@ Write-Host ''
 Write-Host '  Open a NEW terminal, then run:' -ForegroundColor White
 Write-Host '    ov login https://yours.onevizion.com'
 Write-Host '    ov api tags'
+Write-Host '    ov agent          # the AI agent in your browser'
 Write-Host ''

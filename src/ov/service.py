@@ -18,9 +18,6 @@ SERVER_INFO_PATH = "/v3/server_info"
 
 
 class OvService:
-    """Everything the commands are allowed to know about OneVizion: they go
-    through here rather than touching httpx or the OpenAPI document."""
-
     def __init__(
         self,
         client: Client,
@@ -39,7 +36,6 @@ class OvService:
         return self.client.base_url
 
     def authorize(self) -> bool:
-        """GET /api/authorize is the cheapest proof that the token still works."""
         self.client.api("GET", AUTHORIZE_PATH, accept="text/plain")
         return True
 
@@ -59,9 +55,8 @@ class OvService:
         self._spec = self.fetch_spec()
         return self._spec
 
+    # Any age is fine: this feeds help text, which must not depend on the network.
     def cached_spec(self) -> Spec | None:
-        """The spec as it is on disk, however old, for building help text
-        without making the parser depend on the network."""
         if self._spec is not None:
             return self._spec
         return spec_module.load_cached(self.base_url, self.spec_group, ttl_seconds=0)
@@ -100,9 +95,8 @@ class OvService:
         paths.append(SPEC_PATH)
         return paths
 
+    # The schema lives on the cookie-based web chain; only an API token goes through /api.
     def _get_spec(self, path: str) -> httpx.Response:
-        """The schema lives on the web UI chain, which reads cookies; an API
-        token instead has to present itself as one, which that chain accepts."""
         if self.client.session.is_static:
             return self.client.api("GET", path)
         return self.client.web_get(path)
@@ -142,12 +136,8 @@ class OvService:
             self.cache.set(key, _record(response))
         return response
 
+    # Base URL is in the key: the same path means different data on each instance.
     def _cache_key(self, plan: RequestPlan) -> str | None:
-        """Only bodiless reads are cacheable, and only within one instance.
-
-        The base URL is part of the key because the same path means different
-        data on every OneVizion system signed in.
-        """
         if self.cache.ttl_seconds <= 0 or plan.method != "GET":
             return None
         if plan.json_body is not None or plan.content or plan.files:
@@ -185,13 +175,8 @@ def _replay(record: dict[str, Any]) -> httpx.Response:
     )
 
 
+# Several endpoints answer text/plain or an empty body on success, so JSON is not required.
 def payload_of(response: httpx.Response) -> Any:
-    """Give back parsed JSON when the server sent JSON, and the text otherwise.
-
-    Several endpoints answer text/plain on success, and /authorize answers with
-    an empty body, so insisting on JSON here would turn working calls into
-    errors.
-    """
     if response.status_code == 204 or not response.content:
         return None
     content_type = (response.headers.get("content-type") or "").lower()

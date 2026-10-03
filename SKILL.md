@@ -147,11 +147,13 @@ endpoint was just added.
 | 4 | no such operation, record or instance | Re-run `ov api list` or `ov instances` and pick a real one. |
 | 5 | the API returned an error | Read `status` and `error`; the body is in `body`. |
 | 6 | the server answered 403 | Tell the user which module they need. |
+| 7 | `OV_READONLY` blocked a write | Tell the user read-only mode is on; never unset it yourself. |
 
 Exit 4 on an operation ref lists near-misses. Correct your own ref before asking the user.
 
-Exit 6 is not a bug to work around. The account lacks a OneVizion module privilege; say
-which call failed and stop.
+Exit 6 and 7 are not bugs to work around. Exit 6 means the account lacks a OneVizion module
+privilege; exit 7 means `OV_READONLY=1` is set and the call could change data. Say which
+call failed and stop.
 
 **Exit 5 can also mean "no privilege".** OneVizion returns HTTP 500 for field-level
 privilege failures, with the reason in the message ("You don't have R priv..."). Read the
@@ -160,14 +162,16 @@ privilege failures, with the reason in the message ("You don't have R priv...").
 ## Never
 
 - Run `ov login`. It blocks on a human in a browser window.
-- Read, print or copy `~/.ov/config.json`. It holds the live bearer token and session
-  cookies. `ov config show --json` omits them deliberately.
+- Read, print or copy the stored credentials: the OS keyring entries under `ov-cli` or
+  `~/.ov/credentials.json`. `ov config show --json` omits them deliberately.
 - Run a write operation without showing the user a `--dry-run` first.
 - Run `ov login --tenant` yourself: it opens a browser like any other sign-in.
 - Assume two tenants on one host hold the same data. `sandbox-2022` and
   `sandbox-2022/mtrac` are different systems; check which one the user means.
 - Run `ov logout`, `ov use`, `ov config set` or `ov setup` unasked. All four change state
   that outlives the conversation; `ov use` silently repoints the user's own shell.
+- Run `ov agent` (or `ov ui`). It starts a long-running web server for the user; if they
+  want the built-in agent, tell them to run it.
 - Assume the current instance is the one the user means when they named a system. Resolve
   it against `ov instances` and pass `-i`.
 - Guess an endpoint path. Look it up with `ov api list` or `ov api show`; a wrong path on

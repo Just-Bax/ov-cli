@@ -1,0 +1,177 @@
+@import 'tailwindcss';
+
+@theme inline {
+  --font-sans: 'Inter', Arial, Helvetica, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
+
+  --color-canvas: #eceff1;
+  --color-panel: #ffffff;
+  --color-raised: #f4f6f7;
+  --color-line: #eceff1;
+  --color-line-strong: #cfd8dc;
+  --color-fg: #263238;
+  --color-text: #455a64;
+  --color-muted: #607d8b;
+  --color-faint: #90a4ae;
+
+  --color-brand: #42a5f5;
+  --color-brand-strong: #1e88e5;
+  --color-brand-soft: #e1f5fe;
+  --color-brand-chip: #bbdefb;
+  --color-on-brand: #ffffff;
+
+  --color-ok: #2e7d32;
+  --color-ok-soft: #e3f4e5;
+  --color-warn: #e46b00;
+  --color-warn-soft: #ffe4cc;
+  --color-danger: #ce2605;
+  --color-danger-soft: #f5d3cd;
+  --color-info: #1e88e5;
+  --color-info-soft: #e1f5fe;
+
+  --shadow-thin: 0 0 1px 0.5px rgba(0, 0, 0, 0.1);
+  --shadow-medium: 0 3px 10px 0 rgba(0, 0, 0, 0.1);
+  --shadow-large: 0 10px 20px 0 rgba(0, 0, 0, 0.1);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-fg font-sans text-[13px] antialiased;
+  }
+
+  ::selection {
+    background: #bbdefb;
+  }
+
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: default;
+  }
+
+  :focus-visible {
+    outline: 2px solid #42a5f5;
+    outline-offset: 1px;
+  }
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #cfd8dc transparent;
+}
+
+@layer components {
+  .skeleton {
+    background-color: #eef1f3;
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.65) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    background-size: 220px 100%;
+    background-repeat: no-repeat;
+    background-position: -220px 0;
+    animation: shimmer 1.6s ease-in-out infinite;
+    border-radius: 6px;
+  }
+  /* On the gray sidebar the light base disappears; use a darker tint. */
+  .skeleton-dim {
+    background-color: rgba(38, 50, 56, 0.07);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.45) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+  }
+
+  .ov-spinner {
+    animation: ov-spin 1s linear infinite;
+  }
+  .ov-spinner circle {
+    stroke-dasharray: 1, 200;
+    stroke-dashoffset: 0;
+    animation: ov-dash 1.6s ease-in-out infinite;
+  }
+
+  .md {
+    @apply text-[13.5px] leading-relaxed;
+  }
+  .md p {
+    @apply my-1.5;
+  }
+  .md p:first-child {
+    @apply mt-0;
+  }
+  .md p:last-child {
+    @apply mb-0;
+  }
+  .md ul {
+    @apply my-1.5 list-disc pl-5;
+  }
+  .md ol {
+    @apply my-1.5 list-decimal pl-5;
+  }
+  .md code {
+    @apply bg-raised text-fg rounded px-1 py-0.5 font-mono text-[12px];
+  }
+  .md pre {
+    @apply bg-raised my-2 scrollbar-thin overflow-x-auto rounded-lg p-3;
+  }
+  .md pre code {
+    @apply bg-transparent p-0;
+  }
+  .md a {
+    @apply text-brand-strong hover:underline;
+  }
+  .md strong {
+    @apply text-fg font-semibold;
+  }
+  .md table {
+    @apply my-2 w-full border-collapse text-[12.5px];
+  }
+  .md th,
+  .md td {
+    @apply border-line-strong border px-2 py-1 text-left;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -220px 0;
+  }
+  100% {
+    background-position: calc(100% + 220px) 0;
+  }
+}
+
+@keyframes ov-spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ov-dash {
+  0% {
+    stroke-dasharray: 1, 200;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 60, 200;
+    stroke-dashoffset: -20;
+  }
+  100% {
+    stroke-dasharray: 60, 200;
+    stroke-dashoffset: -80;
+  }
+}

@@ -24,8 +24,6 @@ def emit(
     empty: str = "",
     text: str | None = None,
 ) -> None:
-    """Single decision point for how a command's result reaches the user:
-    commands build data and describe how to show it, nothing else prints."""
     if ctx.as_json:
         print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
         return
@@ -44,11 +42,6 @@ def emit(
 
 
 def emit_payload(ctx: Context, payload: Any) -> None:
-    """Print an API response.
-
-    Both modes print JSON: --json stays byte-for-byte pipeable, while the human
-    mode adds highlighting. A response that was never JSON is printed as it came.
-    """
     rendered = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
     if ctx.as_json:
         print(rendered)
@@ -60,7 +53,6 @@ def emit_payload(ctx: Context, payload: Any) -> None:
 
 
 def note(ctx: Context, message: str) -> None:
-    """Human-facing progress or status text, suppressed in JSON mode."""
     if not ctx.as_json:
         console(ctx).print(message)
 
@@ -80,8 +72,6 @@ def build_table(title: str | None, columns: list[dict[str, Any]], rows: list[lis
 
 
 def rows_from(payload: Any, limit: int = 200) -> Table | None:
-    """Render a list of flat objects as a table, or give up so the caller falls
-    back to JSON. An empty list is still a table, just an empty one."""
     if not isinstance(payload, list):
         return None
     if not payload:

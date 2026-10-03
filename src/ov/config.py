@@ -67,8 +67,6 @@ def set_value(config: Config, key: str, raw: str) -> Config:
 
 
 def normalize_base_url(raw: str) -> str:
-    """Accept a bare hostname as well as a URL, since that is what people paste
-    out of the address bar."""
     value = raw.strip().rstrip("/")
     if not value:
         return ""

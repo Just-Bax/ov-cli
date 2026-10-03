@@ -54,7 +54,8 @@ irm https://raw.githubusercontent.com/Just-Bax/ov-cli/master/install.ps1 | iex
 curl -fsSL https://raw.githubusercontent.com/Just-Bax/ov-cli/master/install.sh | sh
 ```
 
-Then open a **new** terminal and run `ov login https://yours.onevizion.com`.
+Then open a **new** terminal and run `ov login https://yours.onevizion.com`, or `ov agent`
+to do everything from the browser.
 
 The installer fetches [uv](https://docs.astral.sh/uv/), which supplies its own Python, then
 installs `ov` into an isolated environment and downloads the browser used for signing in
@@ -333,23 +334,82 @@ request. Turn it on with `ov config set cache_ttl_seconds 600`; only bodiless GE
 cached, and entries are keyed per instance. Pass `--refresh` to any command to ignore both
 the response cache and the schema cache for that run.
 
+## Read-only mode
+
+Set `OV_READONLY=1` to make `ov` refuse anything that could change data:
+
+```bash
+OV_READONLY=1 ov request GET /v3/server_info      # allowed
+OV_READONLY=1 ov request DELETE /v3/users/7       # exit 7
+```
+
+Allowed: every GET, trackor searches, `POST /v3/sql/test` (SELECT only) and component
+exports. Web UI requests are limited to the API schema and sign-out. Everything else stops
+with exit 7 before a request is sent. Useful when handing `ov` to an AI agent.
+
+## The agent
+
+```bash
+ov agent          # or: ov ui
+```
+
+Starts a local web app at http://127.0.0.1:5180 and opens it in your browser: a chat with
+an AI agent that works on your OneVizion instances through `ov`. Ask it anything ("why did
+this rule fail last night?", "which imports load Sites?"), paste errors, attach screenshots,
+emails or logs. It shows each API call and SQL query it makes, proposes changes as diffs,
+and ends an investigation with findings and the evidence it checked.
+
+The first screen walks you through setup:
+
+1. Sign in to GitHub. The agent runs on GitHub Copilot, so the account needs a Copilot
+   subscription; you pick the model.
+2. Sign in to at least one instance (the same browser sign-in as `ov login`).
+3. Pick a default model and instance. Both can be changed per run.
+
+Read-only by default: every call runs with `OV_READONLY=1`. Turn on **Allow changes** for
+a run and the agent may apply changes, but each one shows you the exact `ov` command and
+waits for your **Approve**.
+
+In **Settings**:
+
+- **Skills** are instructions added to every run. Three ship with `ov` (how to work, how to
+  use `ov`, what OneVizion is). Edit them, switch any off, or write your own, e.g. your
+  team's reply style or knowledge of a customer's configuration.
+- **Sources** are code and docs the agent can search: a local folder (a checkout of
+  platform code, a docs export) or a git URL it clones for you. Describe each one so the
+  agent knows when to look.
+- **Instances** lists your `ov` sign-ins and signs in to new ones.
+
+Nothing leaves your machine except calls to your instances and to GitHub Copilot. The
+server listens on 127.0.0.1 only. History, uploads and clones live in `~/.ov/agent`; the
+GitHub token is kept in the OS keyring with your other credentials.
+
+`ov agent --port 5181` picks another port; `--no-open` skips opening the browser.
+
 ## Files on disk
 
 Everything lives in `~/.ov` (`ov --home` prints the path, `OV_HOME` overrides it):
 
 ```
 ~/.ov/
-  config.json      settings, plus every instance's cookies and bearer token
+  config.json      settings and the list of signed-in instances, no secrets
   browser/         Playwright profile, so login remembers you
   spec/            cached OpenAPI schema, one file per instance and group
   cache/           cached API responses
   downloads/       files written by --out
+  agent/           agent history (agent.db), run workspaces, uploads, cloned sources
 ```
 
-`config.json` holds live tokens for every instance, so it is treated as credentials:
-written owner-readable only, and `ov config show` lists instance names but never their
-tokens. On Windows that owner-only permission is not
-enforced the way it is on Linux and macOS.
+Bearer tokens, session cookies and the agent's GitHub token go to the OS keyring: Windows
+Credential Manager, macOS Keychain, or the Secret Service on Linux. Where no keyring is
+available (a headless Linux box, for example) they go to `~/.ov/credentials.json` instead,
+written owner-only, and `ov` says so once. `OV_CREDENTIALS=file` forces that file. Configs
+from older versions that kept tokens in `config.json` are moved over the first time they
+are read.
+
+Directories are created owner-only and files are replaced atomically under a lock, so two
+`ov` processes refreshing tokens at once cannot corrupt the config. On Windows the
+permission bits are not enforced; your profile's ACL is what protects `~/.ov` there.
 
 ## Exit codes
 
@@ -362,6 +422,7 @@ enforced the way it is on Linux and macOS.
 | 4 | no such operation, record or instance |
 | 5 | the API returned an error, or the schema could not be read |
 | 6 | authenticated, but the server answered 403 |
+| 7 | blocked by read-only mode (`OV_READONLY`) |
 
 ## Privileges
 
@@ -382,12 +443,13 @@ rather than exit 6. Read the message, not the exit code, when a call is refused.
 
 ## Use from an AI agent
 
-Every command speaks `--json` and maps failures onto distinct exit codes, so `ov` works as
-a tool for an AI agent. [`SKILL.md`](SKILL.md) is the brief: auth model, how to discover
+`ov agent` is the built-in one. To use `ov` from another agent (Claude Code, Copilot CLI,
+your own): every command speaks `--json` and maps failures onto distinct exit codes, so `ov`
+works as a tool. [`SKILL.md`](SKILL.md) is the brief: auth model, how to discover
 endpoints, JSON shapes, exit codes, and the operations the agent should leave to you.
 
-It is told not to run `ov login`, which waits on a browser window, and not to read
-`~/.ov/config.json`, which holds the token.
+It is told not to run `ov login`, which waits on a browser window, and not to read the
+stored credentials. Run the agent with `OV_READONLY=1` if it should only look.
 
 ## Contributing
 
@@ -396,11 +458,26 @@ Issues and pull requests are welcome.
 ```bash
 git clone https://github.com/Just-Bax/ov-cli
 cd ov-cli
-pip install -e ".[dev]"
 
-pytest tests -q
-ruff check src tests
+uv run --extra dev pytest -q
+uv run --extra dev ruff check src tests
+uv run --extra dev ruff format --check src tests
 ```
+
+CI runs the same on Windows, Linux and macOS with Python 3.11 to 3.13.
+
+The agent's UI is React in `web/`. Its build is committed to `src/ov/agent/static`, so
+installing `ov` never needs Node. After changing it:
+
+```bash
+cd web
+pnpm install
+pnpm dev          # http://localhost:5179, proxies /api to a running `ov agent`
+pnpm check        # typecheck + prettier
+pnpm build        # writes src/ov/agent/static; commit the result
+```
+
+CI fails if the committed build does not match `web/`.
 
 The layout follows the request path: `client.py` speaks HTTP and owns the two auth
 schemes, `auth.py` mints tokens, `session.py` keeps one credential set per instance and
@@ -408,6 +485,9 @@ resolves what `-i` names, `spec.py` turns the OpenAPI document into the `Operati
 objects everything else works from, `invoke.py` maps command line input onto one HTTP
 request, `service.py` is the only API access the commands get, and `cli/commands/` holds
 one module per command group. `cli/dynamic.py` is what turns a schema tag into commands.
+`agent/` is the agent server: `server.py` (HTTP API and the built UI), `run.py` (the
+model loop), `tools.py` (what the model may call, each `ov` call a read-only subprocess),
+`copilot.py`, `skills.py` and `sources.py`. `agent/state.py` mirrors `web/shared/reduce.ts`.
 
 Tests use a recorded OpenAPI document and a mock transport, so `pytest` never touches the
 network. `test_login_browser.py` is the exception: it starts a real headless Chromium

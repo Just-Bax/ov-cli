@@ -6,15 +6,11 @@ from typing import Any
 
 from .errors import Ambiguous, NotFound, OvError
 
-# Switching tenants is a web session operation: it swaps which user the session
-# is authenticated as. There is no API for it, and no way to pick a tenant at
-# the login step.
+# Tenant switching swaps the web session's user; there is no API for it.
 SWITCH_PATH = "/program/FormProg.do"
 DEFAULT_PATH = "/Default.do"
 
-# The only place the tenant list is exposed. Default.jsp writes it into the page
-# as JSON, and only when the account exists in more than one tenant; a
-# single-tenant account gets `var programMenu = null`.
+# Only source of the tenant list; single-tenant accounts get `var programMenu = null`.
 _PROGRAM_MENU = re.compile(r"var\s+programMenu\s*=\s*(null|\{.*?\})\s*;", re.S)
 
 NO_TENANTS = (
@@ -24,7 +20,6 @@ NO_TENANTS = (
 
 
 def parse_program_menu(page: str) -> dict[str, str]:
-    """Pull {pid: name} out of a rendered Default.do."""
     match = _PROGRAM_MENU.search(page or "")
     if not match:
         return {}
@@ -41,7 +36,6 @@ def parse_program_menu(page: str) -> dict[str, str]:
 
 
 def resolve_tenant(tenants: dict[str, str], ref: str) -> tuple[str, str]:
-    """Turn a tenant name, id or unambiguous prefix into (pid, name)."""
     needle = (ref or "").strip()
     if not needle:
         raise NotFound("No tenant given.")

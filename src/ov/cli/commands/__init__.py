@@ -1,9 +1,8 @@
-from . import api, auth, request, schema, settings, setup
+from . import agent, api, auth, request, schema, settings, setup
 
-GROUPS = (auth, api, request, schema, settings, setup)
+GROUPS = (auth, api, request, schema, settings, setup, agent)
 
-# Names the generated per-tag groups must not take over. A schema tag called
-# "config" would otherwise shadow the settings command.
+# Reserved so a schema tag such as "config" cannot shadow a built-in command.
 BUILTIN_NAMES = frozenset(
     {
         "login",
@@ -17,6 +16,8 @@ BUILTIN_NAMES = frozenset(
         "spec",
         "config",
         "setup",
+        "agent",
+        "ui",
     }
 )
 
