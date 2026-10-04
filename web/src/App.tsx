@@ -66,7 +66,7 @@ export function App() {
         >
           {isSidebarCollapsed() ? (
             <div className="flex h-16 items-center justify-center">
-              <img src={mark} alt="OV Agent" className="h-[22px] w-auto" />
+              <img src={mark} alt="OV Agent" className="h-[26px] w-auto" />
             </div>
           ) : (
             <div className="flex h-16 items-center px-5">

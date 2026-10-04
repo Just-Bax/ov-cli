@@ -298,7 +298,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
       >
         <a href="#/" aria-label="OV Agent home">
           {collapsed ? (
-            <img src={mark} alt="OV Agent" className="h-[22px] w-auto" />
+            <img src={mark} alt="OV Agent" className="h-[26px] w-auto" />
           ) : (
             <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto max-w-none" />
           )}
