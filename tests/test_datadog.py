@@ -82,6 +82,15 @@ class FakeDatadog:
                     ]
                 },
             )
+        if (
+            path == "/api/v2/spans/analytics/aggregate"
+            and "@span.kind:server" in request.content.decode()
+        ):
+            points = [{"time": "2026-10-04T10:00:00Z", "value": 2_000_000_000}]
+            return httpx.Response(
+                200,
+                json={"data": [{"attributes": {"compute": {"c0": points, "c1": points}}}]},
+            )
         if path == "/api/v2/spans/analytics/aggregate":
             return httpx.Response(
                 200,
@@ -310,10 +319,19 @@ def test_health_report(linked):
     assert report["onevizion"] == [{"type": "Import", "count": 2}]
     assert {m["title"] for m in report["metrics"]} >= {"CPU", "JVM heap"}
     assert "slowEndpoints" in report and not report["errors"]
+    assert report["traffic"]["p95Ms"][0]["v"] == 2000.0
+
     # Cached: a second call makes no requests.
     before = len(linked.requests)
     datadog.health("acme", "24h")
     assert len(linked.requests) == before
+
+
+def test_long_series_are_averaged_into_buckets():
+    points = [{"t": i, "v": float(i % 2)} for i in range(600)]
+    out = datadog.downsample(points, 60)
+    assert len(out) == 60 and all(p["v"] == 0.5 for p in out)
+    assert datadog.downsample(points[:10], 60) == points[:10]
 
 
 def test_the_api_never_returns_keys(linked):

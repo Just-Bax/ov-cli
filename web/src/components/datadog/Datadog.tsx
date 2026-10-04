@@ -345,7 +345,7 @@ function formatCount(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n)
 }
 
-type Row = { alias: string; host: string; tenant?: string }
+type Row = { alias: string; host: string }
 
 export function DatadogMatches({
   status,
@@ -369,16 +369,19 @@ export function DatadogMatches({
 
   useEffect(() => setDraft(status.matches), [status.matches])
 
-  const rows: Row[] = useMemo(
-    () =>
-      (instances ?? [])
-        .filter((i: Instance) => !only || i.alias === only)
-        .map((i) => ({ alias: i.alias, host: i.host, tenant: i.tenant ?? undefined }))
-        .sort(
-          (a, b) => a.host.localeCompare(b.host) || (a.tenant ?? '').localeCompare(b.tenant ?? ''),
-        ),
-    [instances, only],
-  )
+  // Datadog sees servers, not tenants: one row per host, stored under its main sign-in.
+  const rows: Row[] = useMemo(() => {
+    const list = instances ?? []
+    const wanted = only ? list.find((i: Instance) => i.alias === only)?.host : undefined
+    const byHost = new Map<string, Row>()
+    for (const i of [...list].sort(
+      (a, b) => Number(Boolean(a.tenant)) - Number(Boolean(b.tenant)),
+    )) {
+      if (wanted && i.host !== wanted) continue
+      if (!byHost.has(i.host)) byHost.set(i.host, { alias: i.alias, host: i.host })
+    }
+    return [...byHost.values()].sort((a, b) => a.host.localeCompare(b.host))
+  }, [instances, only])
 
   const preview = (alias: string, filter: string) => {
     clearTimeout(timers.current[alias])
@@ -476,7 +479,6 @@ export function DatadogMatches({
             <div key={r.alias} className="flex flex-wrap items-center gap-2.5 px-5 py-2.5">
               <div className="flex w-[260px] min-w-0 items-center gap-2">
                 <span className="text-fg truncate text-[13px] font-medium">{r.host}</span>
-                {r.tenant ? <Chip tone="brand">{r.tenant}</Chip> : null}
               </div>
               <input
                 value={value}
@@ -486,7 +488,7 @@ export function DatadogMatches({
                   setWhy((w) => ({ ...w, [r.alias]: '' }))
                   preview(r.alias, e.target.value)
                 }}
-                placeholder={r.tenant ? 'Same as the host' : 'host:name* or service:name'}
+                placeholder="host:name* or service:name"
                 spellCheck={false}
                 className="border-line-strong focus:border-brand placeholder:text-faint h-9 min-w-[200px] flex-1 rounded-full border bg-white px-3.5 font-mono text-[12px] outline-none"
               />

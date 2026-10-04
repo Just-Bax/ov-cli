@@ -16,6 +16,7 @@ import { ModelPicker } from '@/components/ModelPicker'
 import { WriteSwitch } from '@/components/WriteSwitch'
 import { Page } from '@/components/ui'
 import { api } from '@/lib/api'
+import { takeDraft } from '@/lib/draft'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
 
@@ -90,6 +91,19 @@ export function Home({ settings }: { settings: Settings }) {
   const [error, setError] = useState<string>()
   const [starting, setStarting] = useState(false)
   const [totals, setTotals] = useState<SavedTotals>()
+  const [draft, setDraft] = useState<{ text: string; at: number }>()
+
+  useEffect(() => {
+    const load = () => {
+      const found = takeDraft()
+      if (!found) return
+      setDraft({ text: found.prompt, at: Date.now() })
+      if (found.instance) setInstance(found.instance)
+    }
+    load()
+    window.addEventListener('ov-agent:draft', load)
+    return () => window.removeEventListener('ov-agent:draft', load)
+  }, [])
 
   useEffect(() => {
     api
@@ -131,6 +145,7 @@ export function Home({ settings }: { settings: Settings }) {
             busy={starting}
             placeholder="Case number or trackor link, or describe the problem and paste errors"
             onSend={submit}
+            draft={draft}
             extras={
               <>
                 {instances?.length ? (
@@ -169,7 +184,7 @@ export function Home({ settings }: { settings: Settings }) {
                 type="button"
                 title={prompt}
                 disabled={starting}
-                onClick={() => void submit(prompt, [])}
+                onClick={() => setDraft({ text: prompt, at: Date.now() })}
                 className="border-line-strong/70 text-text hover:bg-raised hover:border-line-strong flex h-9 items-center gap-2 rounded-full border bg-white px-4 text-[13px] transition-colors"
               >
                 <Icon className="text-brand size-4" />

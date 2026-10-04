@@ -15,6 +15,7 @@ export function Composer({
   autoFocus,
   size = 'md',
   queueWhileBusy,
+  draft,
 }: {
   placeholder: string
   onSend: (text: string, files: File[]) => void | Promise<void>
@@ -27,6 +28,8 @@ export function Composer({
   size?: 'md' | 'lg'
   /** Allow sending while busy; the message is queued as a follow-up. */
   queueWhileBusy?: boolean
+  /** Text to put in the box for the user to edit; a new `at` replaces it again. */
+  draft?: { text: string; at: number }
 }) {
   const [text, setText] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -44,6 +47,18 @@ export function Composer({
   }
 
   const textRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (!draft) return
+    setText(draft.text)
+    requestAnimationFrame(() => {
+      const el = textRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(el.value.length, el.value.length)
+      el.scrollTop = el.scrollHeight
+    })
+  }, [draft?.at])
   const addFiles = (list: FileList | File[] | null) => {
     if (allowFiles && list?.length) setFiles((f) => [...f, ...Array.from(list)])
   }

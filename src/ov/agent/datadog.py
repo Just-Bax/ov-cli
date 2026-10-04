@@ -21,6 +21,7 @@ TIMEOUT_SECONDS = 30
 MAX_LOG_LINES = 50
 MESSAGE_CHARS = 400
 HEALTH_TTL_SECONDS = 60
+CHART_POINTS = 60
 
 # Site id -> (API host, app host). The site is the domain users log in at.
 SITES: dict[str, tuple[str, str]] = {
@@ -553,17 +554,7 @@ def log_timeseries(query: str, start: int, end: int, interval: str) -> list[dict
             },
         )
     buckets = (data.get("data") or {}).get("buckets") or []
-    points = (buckets[0].get("computes") or {}).get("c0") if buckets else []
-    out = []
-    for point in points or []:
-        stamp = point.get("time")
-        ms = (
-            to_ms(stamp, "now")
-            if isinstance(stamp, str) and not stamp.isdigit()
-            else int(stamp or 0)
-        )
-        out.append({"t": ms, "v": float(point.get("value") or 0)})
-    return out
+    return _series((buckets[0].get("computes") or {}).get("c0") if buckets else [])
 
 
 def metric_scope(scope: str) -> str:
@@ -844,6 +835,7 @@ def health(alias: str, range_key: str, ov_side: Any = None) -> dict[str, Any]:
         jobs.append(("events", lambda: events_for(scope, start, end, 15)))
     if allowed["apm"]:
         jobs.append(("slowEndpoints", lambda: slow_endpoints(scope, start, end, 8)))
+        jobs.append(("traffic", lambda: traffic(scope, start, end, interval)))
     if allowed["metrics"]:
         tags = metric_scope(scope)
         for name, title, template, unit in METRICS:
@@ -859,10 +851,9 @@ def health(alias: str, range_key: str, ov_side: Any = None) -> dict[str, Any]:
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda job: run(*job), jobs))
 
-    report["metrics"] = [
-        report.pop(name) for name in [k for k in list(report) if k.startswith("metric:")]
-    ]
-    report["metrics"] = [m for m in report["metrics"] if m and m["points"]]
+    # Fixed order: jobs finish in any order.
+    cards = [report.pop(f"metric:{name}", None) for name, *_ in METRICS]
+    report["metrics"] = [m for m in cards if m and m["points"]]
     for name in [k for k in list(report["errors"]) if k.startswith("metric:")]:
         report["errors"].pop(name)
     _health_cache[key] = (time.time(), report)
@@ -878,7 +869,84 @@ def _metric_card(title: str, query: str, unit: str, start: int, end: int) -> dic
     merged = [{"t": t, "v": sum(v) / len(v)} for t, v in sorted(points.items())]
     if not merged:
         return None
-    return {"title": title, "query": query, "unit": unit, "points": merged, "hosts": len(series)}
+    return {
+        "title": title,
+        "query": query,
+        "unit": unit,
+        "points": downsample(merged),
+        "max": max(p["v"] for p in merged),
+        "hosts": len(series),
+    }
+
+
+# Charts read better as averaged buckets than as hundreds of raw points.
+def downsample(
+    points: list[dict[str, float]], buckets: int = CHART_POINTS
+) -> list[dict[str, float]]:
+    if len(points) <= buckets:
+        return points
+    size = len(points) / buckets
+    out = []
+    for i in range(buckets):
+        chunk = points[int(i * size) : int((i + 1) * size)] or [points[-1]]
+        out.append({"t": chunk[0]["t"], "v": sum(p["v"] for p in chunk) / len(chunk)})
+    return out
+
+
+def _series(compute: Any) -> list[dict[str, float]]:
+    out = []
+    for point in compute if isinstance(compute, list) else []:
+        stamp = point.get("time")
+        ms = (
+            to_ms(stamp, "now")
+            if isinstance(stamp, str) and not stamp.isdigit()
+            else int(stamp or 0)
+        )
+        out.append({"t": ms, "v": float(point.get("value") or 0)})
+    return out
+
+
+# Requests and p95 latency per interval, from the instance's server (entry) spans.
+def traffic(query: str, start: int, end: int, interval: str) -> dict[str, Any]:
+    def read(scope: str) -> dict[str, Any]:
+        with client() as dd:
+            data = dd.call(
+                "POST",
+                "/api/v2/spans/analytics/aggregate",
+                "apm",
+                json={
+                    "data": {
+                        "type": "aggregate_request",
+                        "attributes": {
+                            "compute": [
+                                {
+                                    "aggregation": "count",
+                                    "type": "timeseries",
+                                    "interval": interval,
+                                },
+                                {
+                                    "aggregation": "pc95",
+                                    "metric": "@duration",
+                                    "type": "timeseries",
+                                    "interval": interval,
+                                },
+                            ],
+                            "filter": {"from": str(start), "to": str(end), "query": scope},
+                        },
+                    }
+                },
+            )
+        buckets = data.get("data") or []
+        attrs = (buckets[0].get("attributes") or buckets[0]) if buckets else {}
+        compute = attrs.get("compute") or attrs.get("computes") or {}
+        requests = _series(compute.get("c0"))
+        latency = [{"t": p["t"], "v": p["v"] / 1e6} for p in _series(compute.get("c1"))]
+        return {"requests": requests, "p95Ms": latency}
+
+    found = read(combine(query, "@span.kind:server"))
+    if not any(p["v"] for p in found["requests"]):
+        found = read(query or "*")
+    return found
 
 
 def resolve_scope(instance: str | None, fallback: str) -> tuple[str, str]:

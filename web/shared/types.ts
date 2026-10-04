@@ -351,6 +351,14 @@ export interface InstanceHealth {
   topErrors?: { pattern: string; count: number; example: string; service: string; last: string }[]
   events?: { time: string; title: string; message: string; source: string; status: string }[]
   slowEndpoints?: { resource: string; p95Ms: number; count: number }[]
-  metrics?: { title: string; query: string; unit: string; points: HealthPoint[]; hosts: number }[]
+  metrics?: {
+    title: string
+    query: string
+    unit: string
+    points: HealthPoint[]
+    max: number
+    hosts: number
+  }[]
+  traffic?: { requests: HealthPoint[]; p95Ms: HealthPoint[] }
   onevizion?: { type: string; count: number; last?: string }[]
 }

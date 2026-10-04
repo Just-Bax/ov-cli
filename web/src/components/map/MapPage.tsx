@@ -45,9 +45,8 @@ import {
   Spinner,
   timeAgo,
 } from '@/components/ui'
-import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { go } from '@/lib/route'
+import { openDraft } from '@/lib/draft'
 import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 
 const EXPAND_LIMIT = 40
@@ -304,7 +303,6 @@ function Details({
   onExpand: (id: string) => void
   onClose: () => void
 }) {
-  const [asking, setAsking] = useState(false)
   const [open, setOpen] = useState<string>()
   const meta = TYPES[node.type]
   const links = idx.links.get(node.id) ?? []
@@ -324,18 +322,11 @@ function Details({
         ? { label: 'Enabled', dot: 'bg-ok' }
         : undefined
 
-  const ask = async () => {
-    setAsking(true)
-    try {
-      const { id } = await api.startRun({
-        prompt: `Explain the ${meta.label.toLowerCase()} "${node.name}" (id ${node.ref}) on ${host}: what it does, what triggers or feeds it, and what depends on it. Start with graph_query, then confirm on the instance.`,
-        instance: alias,
-      })
-      go({ page: 'run', id })
-    } finally {
-      setAsking(false)
-    }
-  }
+  const ask = () =>
+    openDraft({
+      prompt: `Explain the ${meta.label.toLowerCase()} "${node.name}" (id ${node.ref}) on ${host}: what it does, what triggers or feeds it, and what depends on it. Start with graph_query, then confirm on the instance.`,
+      instance: alias,
+    })
 
   return (
     <aside className="border-line-strong/60 flex w-[340px] shrink-0 flex-col border-l bg-white">
@@ -385,8 +376,8 @@ function Details({
         </dd>
       </dl>
       <div className="grid grid-cols-2 gap-2 px-4 pt-3 pb-4">
-        <Button className="min-w-0" variant="primary" disabled={asking} onClick={() => void ask()}>
-          {asking ? <Spinner className="size-3.5" /> : <SparklesIcon className="size-3.5" />}
+        <Button className="min-w-0" variant="primary" onClick={ask}>
+          <SparklesIcon className="size-3.5" />
           <span className="truncate">Ask the agent</span>
         </Button>
         <a

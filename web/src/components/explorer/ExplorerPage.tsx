@@ -44,6 +44,7 @@ import {
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { refIndex } from '@/lib/references'
+import { openDraft } from '@/lib/draft'
 import { go } from '@/lib/route'
 import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 
@@ -326,7 +327,6 @@ function Inspector({
   onOpen: (id: string) => void
   onReveal: (section: number, line: number) => void
 }) {
-  const [busy, setBusy] = useState<string>()
   const [openGroup, setOpenGroup] = useState<string>()
   const meta = TYPES[node.type]
   const status = statusOf(node)
@@ -342,15 +342,7 @@ function Inspector({
       ? sections.value.flatMap((s, i) => s.hints.map((h) => ({ ...h, section: i, title: h.title })))
       : []
 
-  const start = async (kind: string, prompt: string) => {
-    setBusy(kind)
-    try {
-      const { id } = await api.startRun({ prompt, instance: alias })
-      go({ page: 'run', id })
-    } finally {
-      setBusy(undefined)
-    }
-  }
+  const start = (_kind: string, prompt: string) => openDraft({ prompt, instance: alias })
   const subject = `the ${meta.label.toLowerCase()} "${node.name}" (id ${node.ref}) on ${host}`
   const review = () =>
     start(
@@ -408,27 +400,12 @@ function Inspector({
       </dl>
       <div className="grid grid-cols-2 gap-2 px-4 pt-3 pb-4">
         {WITH_CODE.has(node.type) && !(sections?.state === 'ready' && !sections.value.length) ? (
-          <Button
-            className="col-span-2"
-            variant="primary"
-            disabled={Boolean(busy)}
-            onClick={() => void review()}
-          >
-            {busy === 'review' ? (
-              <Spinner className="size-3.5" />
-            ) : (
-              <SparklesIcon className="size-3.5" />
-            )}{' '}
-            Review with AI
+          <Button className="col-span-2" variant="primary" onClick={review}>
+            <SparklesIcon className="size-3.5" /> Review with AI
           </Button>
         ) : null}
-        <Button variant="secondary" disabled={Boolean(busy)} onClick={() => void ask()}>
-          {busy === 'ask' ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <SparklesIcon className="size-3.5" />
-          )}{' '}
-          Ask the agent
+        <Button variant="secondary" onClick={ask}>
+          <SparklesIcon className="size-3.5" /> Ask the agent
         </Button>
         <Button
           variant="secondary"
