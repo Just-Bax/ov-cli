@@ -172,7 +172,6 @@ export interface RunState {
 
 export interface Settings {
   defaultModel: string
-  defaultInstance: string
   maxSteps: number
 }
 

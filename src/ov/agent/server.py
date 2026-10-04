@@ -79,6 +79,7 @@ def route(method: str, pattern: str) -> Callable[[Callable[..., Any]], Callable[
 class Handler(BaseHTTPRequestHandler):
     server_version = APP_ID
     server: AgentServer
+    _unread = 0
 
     def log_message(self, format: str, *args: Any) -> None:
         pass
@@ -101,10 +102,20 @@ class Handler(BaseHTTPRequestHandler):
         return {k: v[-1] for k, v in parsed.items()}
 
     def body(self) -> bytes:
-        length = int(self.headers.get("Content-Length") or 0)
+        length = self._unread
         if length > MAX_UPLOAD_BYTES:
             raise HttpError(413, "File is larger than 50MB.")
+        self._unread = 0
         return self.rfile.read(length) if length else b""
+
+    # Replying with the body still unread makes Windows reset the connection, so the client
+    # sees an aborted request instead of the error.
+    def _drain(self) -> None:
+        if self._unread > MAX_UPLOAD_BYTES:
+            self.close_connection = True
+        elif self._unread:
+            self.rfile.read(self._unread)
+        self._unread = 0
 
     def json(self) -> dict[str, Any]:
         raw = self.body()
@@ -124,6 +135,7 @@ class Handler(BaseHTTPRequestHandler):
         cache: str = "no-store",
         extra: dict[str, str] | None = None,
     ) -> None:
+        self._drain()
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -158,6 +170,7 @@ class Handler(BaseHTTPRequestHandler):
         return {f"http://{host}:{port}" for host in ("127.0.0.1", "localhost") for port in ports}
 
     def _dispatch(self, method: str) -> None:
+        self._unread = int(self.headers.get("Content-Length") or 0)
         path = urlsplit(self.path).path
         try:
             if not path.startswith("/api/"):
@@ -374,9 +387,7 @@ def start_run(h: Handler) -> dict[str, str]:
     if not model:
         raise HttpError(400, "Pick a model first (Settings).")
 
-    instance = str(data.get("instance") or settings["defaultInstance"] or "")
-    if not instance:
-        instance = next((i["alias"] for i in instances() if i["current"]), "")
+    instance = str(data.get("instance") or "").strip()
     run = runs.create(
         {
             "prompt": prompt,

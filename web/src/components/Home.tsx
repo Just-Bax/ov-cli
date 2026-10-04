@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { formatMinutes } from '@shared/estimate.ts'
 import type { SavedTotals, Settings } from '@shared/types.ts'
 import { Composer } from '@/components/Composer'
-import { defaultInstance, InstancePicker, useInstances } from '@/components/InstancePicker'
+import { InstancePicker, useInstances } from '@/components/InstancePicker'
 import { ModelPicker } from '@/components/ModelPicker'
 import { WriteSwitch } from '@/components/WriteSwitch'
 import { Page } from '@/components/ui'
@@ -68,9 +68,6 @@ export function Home({ settings }: { settings: Settings }) {
       .then(setTotals)
       .catch(() => undefined)
   }, [])
-  useEffect(() => {
-    if (instances && !instance) setInstance(defaultInstance(instances, settings.defaultInstance))
-  }, [instances])
 
   const submit = async (text: string, files: File[]) => {
     setStarting(true)

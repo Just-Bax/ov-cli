@@ -5,6 +5,11 @@ import datetime
 from . import skills, sources
 from .ovproc import instances
 
+NO_INSTANCE = (
+    "not chosen. Work it out from context (a case's C_WEBSITE, a host or name in the "
+    "message); if it is still unclear, ask the user which instance with ask_user"
+)
+
 
 def system_prompt(write_access: bool, instance: str) -> str:
     today = datetime.date.today().isoformat()
@@ -30,7 +35,7 @@ waits for their approval. Write access is currently {"ON" if write_access else "
 - Never read or print stored credentials, passwords or tokens.
 - ASCII only. No em dashes.
 
-Default instance for this run: {instance or "none; ask which instance if it matters"}
+Instance for this run: {instance or NO_INSTANCE}
 
 Signed-in instances:
 {signed_in or "none"}

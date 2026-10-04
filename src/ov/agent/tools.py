@@ -129,7 +129,7 @@ def _output(result: OvResult) -> str:
 def _target(instance: str | None, ctx: ToolContext) -> str:
     target = (instance or ctx.instance or "").strip()
     if not target:
-        raise ToolError("No instance given and the run has no default. Pass instance.")
+        raise ToolError("No instance given. Pass instance, or ask the user which one.")
     return target
 
 
@@ -469,7 +469,7 @@ def _ov_label(a: dict[str, Any]) -> str:
     return f"ov {' '.join(str(x) for x in (a.get('args') or [])[:4])}{at}"
 
 
-INSTANCE = _str("Instance alias or host. Defaults to the run's instance.")
+INSTANCE = _str("Instance alias or host. Defaults to the run's instance, if one is set.")
 
 TOOLS = [
     Tool(

@@ -1,7 +1,6 @@
 import { ArrowRight, Check, ExternalLink, Server, SlidersHorizontal } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { ModelInfo, Status } from '@shared/types.ts'
-import { defaultInstance, useInstances } from '@/components/InstancePicker'
 import { Button, CopyButton, GithubMark, Input, Label, Select, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -161,8 +160,6 @@ function InstanceSignIn({ onDone }: { onDone: () => void }) {
 export function Setup({ status, onDone }: { status: Status; onDone: () => void }) {
   const [models, setModels] = useState<ModelInfo[]>([])
   const [model, setModel] = useState(status.settings.defaultModel)
-  const { instances } = useInstances()
-  const [instance, setInstance] = useState(status.settings.defaultInstance)
   const [saving, setSaving] = useState(false)
 
   const copilotOk = status.copilot.signedIn
@@ -178,9 +175,6 @@ export function Setup({ status, onDone }: { status: Status; onDone: () => void }
       })
       .catch(() => undefined)
   }, [copilotOk])
-  useEffect(() => {
-    if (instances && !instance) setInstance(defaultInstance(instances, ''))
-  }, [instances])
 
   const current = !copilotOk ? 1 : !instancesOk ? 2 : 3
 
@@ -222,8 +216,8 @@ export function Setup({ status, onDone }: { status: Status; onDone: () => void }
             done={false}
             active={current === 3}
             icon={<SlidersHorizontal className="size-4" />}
-            title="Defaults"
-            subtitle="Model and instance for new runs; both can be changed per run"
+            title="Model"
+            subtitle="Default model for new runs; you can switch it per run"
           >
             <div className="grid gap-3">
               <div>
@@ -237,22 +231,12 @@ export function Setup({ status, onDone }: { status: Status; onDone: () => void }
                 />
               </div>
               <div>
-                <Label>Default instance</Label>
-                <Select
-                  className="w-full"
-                  value={instance}
-                  onChange={setInstance}
-                  placeholder="The current ov instance"
-                  options={(instances ?? []).map((i) => ({ value: i.alias, label: i.alias }))}
-                />
-              </div>
-              <div>
                 <Button
                   variant="primary"
                   disabled={!model || saving}
                   onClick={async () => {
                     setSaving(true)
-                    await api.saveSettings({ defaultModel: model, defaultInstance: instance })
+                    await api.saveSettings({ defaultModel: model })
                     setSaving(false)
                     onDone()
                   }}

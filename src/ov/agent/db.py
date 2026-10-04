@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS sources (
 );
 """
 
-DEFAULT_SETTINGS: dict[str, Any] = {"defaultModel": "", "defaultInstance": "", "maxSteps": 80}
+DEFAULT_SETTINGS: dict[str, Any] = {"defaultModel": "", "maxSteps": 80}
 
 ACTIVE = ("queued", "running", "waiting")
 

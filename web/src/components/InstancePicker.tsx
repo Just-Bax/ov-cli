@@ -16,11 +16,7 @@ export function useInstances(): { instances?: Instance[]; reload: () => void } {
   return { instances, reload: () => void load() }
 }
 
-export function defaultInstance(instances: Instance[], preferred: string): string {
-  if (preferred && instances.some((i) => i.alias === preferred)) return preferred
-  return instances.find((i) => i.current)?.alias ?? instances[0]?.alias ?? ''
-}
-
+// Signed-in instances first; an empty value lets the agent pick from context.
 export function InstancePicker({
   value,
   onChange,
@@ -30,18 +26,23 @@ export function InstancePicker({
   onChange: (v: string) => void
   instances: Instance[]
 }) {
+  const sorted = [...instances].sort(
+    (a, b) => Number(b.valid) - Number(a.valid) || a.host.localeCompare(b.host),
+  )
   return (
     <Dropdown
       value={value}
       onChange={onChange}
       variant="plain"
-      placeholder="No instance"
       prefix={<span className="text-faint font-normal">Instance</span>}
-      options={instances.map((i) => ({
-        value: i.alias,
-        label: i.alias,
-        hint: i.valid ? i.host : 'expired',
-      }))}
+      options={[
+        { value: '', label: 'Auto', hint: 'from context' },
+        ...sorted.map((i) => ({
+          value: i.alias,
+          label: i.tenant ? `${i.host} / ${i.tenant}` : i.host,
+          hint: i.valid ? '' : 'expired',
+        })),
+      ]}
     />
   )
 }

@@ -53,7 +53,6 @@ function Section({
 
 function Preferences({ onChange }: { onChange: () => void }) {
   const [settings, setSettings] = useState<Settings>()
-  const [instances, setInstances] = useState<Instance[]>([])
   const [saving, setSaving] = useState(false)
   const models = useModels()
 
@@ -61,10 +60,6 @@ function Preferences({ onChange }: { onChange: () => void }) {
     api
       .settings()
       .then(setSettings)
-      .catch(() => undefined)
-    api
-      .instances()
-      .then(setInstances)
       .catch(() => undefined)
   }, [])
 
@@ -80,7 +75,7 @@ function Preferences({ onChange }: { onChange: () => void }) {
 
   return (
     <Card className="grid gap-4 p-5">
-      <div className="grid gap-4 sm:grid-cols-[1fr_1fr_120px]">
+      <div className="grid gap-4 sm:grid-cols-[1fr_120px]">
         <div>
           <Label>Default model</Label>
           <Select
@@ -91,19 +86,6 @@ function Preferences({ onChange }: { onChange: () => void }) {
               value: m.id,
               label: `${m.name}${m.premium ? ` (x${m.premium})` : ''}`,
             }))}
-          />
-        </div>
-        <div>
-          <Label>Default instance</Label>
-          <Select
-            className="w-full"
-            value={settings.defaultInstance}
-            onChange={(v) => set({ defaultInstance: v })}
-            placeholder="The current ov instance"
-            options={[
-              { value: '', label: 'The current ov instance' },
-              ...instances.map((i) => ({ value: i.alias, label: i.alias, hint: i.host })),
-            ]}
           />
         </div>
         <div>
@@ -202,8 +184,8 @@ function Instances() {
               <div key={i.alias} className="flex items-center gap-2.5 px-4 py-2.5">
                 <span className="text-fg min-w-0 truncate text-[13px] font-medium">{i.host}</span>
                 {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
-                <Chip tone={i.valid ? 'ok' : 'neutral'}>{i.valid ? 'Signed in' : 'Expired'}</Chip>
                 <div className="flex-1" />
+                <Chip tone={i.valid ? 'ok' : 'neutral'}>{i.valid ? 'Signed in' : 'Expired'}</Chip>
                 <Button
                   size="sm"
                   variant={i.valid ? 'ghost' : 'secondary'}
@@ -359,7 +341,7 @@ function Skills() {
 
   return (
     <Card className="grid overflow-hidden md:grid-cols-[220px_1fr]">
-      <div className="border-line border-b p-2 md:border-r md:border-b-0">
+      <div className="border-line scrollbar-thin border-b p-2 md:max-h-[560px] md:overflow-y-auto md:border-r md:border-b-0">
         {skills.map((s) => (
           <div
             key={s.name}
@@ -410,7 +392,7 @@ function Skills() {
         </button>
       </div>
       {creating || current ? (
-        <div className="flex flex-col gap-3 p-4">
+        <div className="flex h-[560px] flex-col gap-3 p-4">
           {editable ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
@@ -434,9 +416,8 @@ function Skills() {
           <Textarea
             value={draft.content}
             onChange={(e) => setDraft({ ...draft, content: e.target.value })}
-            rows={18}
             placeholder="Instructions in Markdown. They are added to the agent's system prompt."
-            className="font-mono text-[12.5px] leading-relaxed"
+            className="min-h-0 flex-1 resize-none font-mono text-[12.5px] leading-relaxed"
           />
           {error ? <div className="text-danger text-[12px]">{error}</div> : null}
           <div className="flex items-center gap-2">
