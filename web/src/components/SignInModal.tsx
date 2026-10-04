@@ -1,4 +1,11 @@
-import { Check, Globe, KeyRound, LockKeyhole, RefreshCw, X } from 'lucide-react'
+import {
+  ArrowPathIcon,
+  CheckIcon,
+  GlobeAltIcon,
+  KeyIcon,
+  LockClosedIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, Input, Spinner } from '@/components/ui'
@@ -158,7 +165,7 @@ export function SignInModal({
                   : 'bg-brand-soft text-brand-strong',
             )}
           >
-            {phase === 'done' ? <Check className="size-5" /> : <KeyRound className="size-5" />}
+            {phase === 'done' ? <CheckIcon className="size-5" /> : <KeyIcon className="size-5" />}
           </span>
           <div className="min-w-0 flex-1 pt-0.5">
             <div className="text-fg text-[15px] font-semibold">
@@ -170,7 +177,7 @@ export function SignInModal({
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <span className="bg-raised text-text inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium">
-                <Globe className="text-muted size-3" />
+                <GlobeAltIcon className="text-muted size-3" />
                 {host}
               </span>
               {tenant ? (
@@ -186,7 +193,7 @@ export function SignInModal({
             onClick={onClose}
             className="text-faint hover:text-fg hover:bg-raised -mt-1 -mr-1 flex size-8 items-center justify-center rounded-full transition-colors"
           >
-            <X className="size-4" />
+            <XMarkIcon className="size-4" />
           </button>
         </div>
 
@@ -210,7 +217,7 @@ export function SignInModal({
               </Step>
             </ol>
             <div className="bg-raised text-muted mx-5 mt-4 flex gap-2.5 rounded-2xl px-3.5 py-3 text-[12px] leading-relaxed">
-              <LockKeyhole className="mt-0.5 size-3.5 shrink-0" />
+              <LockClosedIcon className="mt-0.5 size-3.5 shrink-0" />
               <span>
                 Your password only goes into the instance's own page. ov keeps just a session token,
                 with your privileges.
@@ -251,7 +258,7 @@ export function SignInModal({
                 Cancel
               </Button>
               <Button variant="primary" size="lg" onClick={() => void start()}>
-                <KeyRound className="size-4" /> Open sign-in window
+                <KeyIcon className="size-4" /> Open sign-in window
               </Button>
             </>
           ) : phase === 'waiting' ? (
@@ -277,7 +284,7 @@ export function SignInModal({
                 Close
               </Button>
               <Button variant="primary" size="lg" onClick={() => void start()}>
-                <RefreshCw className="size-4" /> Try again
+                <ArrowPathIcon className="size-4" /> Try again
               </Button>
             </>
           )}

@@ -1,4 +1,12 @@
-import { Boxes, Clock, FileUp, type LucideIcon, MailX, TriangleAlert, Workflow } from 'lucide-react'
+import {
+  ClockIcon,
+  DocumentArrowUpIcon,
+  EnvelopeIcon,
+  ExclamationTriangleIcon,
+  RectangleStackIcon,
+  ShareIcon,
+} from '@heroicons/react/24/outline'
+import type { Icon } from '@/components/ui'
 import { useEffect, useState } from 'react'
 import { formatMinutes } from '@shared/estimate.ts'
 import type { SavedTotals, Settings } from '@shared/types.ts'
@@ -11,30 +19,30 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
 
-const EXAMPLES: { label: string; icon: LucideIcon; prompt: string }[] = [
+const EXAMPLES: { label: string; icon: Icon; prompt: string }[] = [
   {
     label: 'Failed rules',
-    icon: Workflow,
+    icon: ShareIcon,
     prompt: 'Which rules failed in the last 24 hours, and why?',
   },
   {
     label: 'Import errors',
-    icon: FileUp,
+    icon: DocumentArrowUpIcon,
     prompt: 'Why did the last run of the import fail? Show the row errors.',
   },
   {
     label: 'Module failures',
-    icon: Boxes,
+    icon: RectangleStackIcon,
     prompt: 'Which Vizion Hub modules failed this week? Read their logs.',
   },
   {
     label: 'Email failures',
-    icon: MailX,
+    icon: EnvelopeIcon,
     prompt: 'Which emails failed to send today, and what was the error?',
   },
   {
     label: 'Recent errors',
-    icon: TriangleAlert,
+    icon: ExclamationTriangleIcon,
     prompt: 'What errors did users hit in the last 24 hours, and what caused them?',
   },
 ]
@@ -142,7 +150,7 @@ export function Home({ settings }: { settings: Settings }) {
 
           {settings.showTimeSaved && totals?.all.minutes ? (
             <div className="text-muted mt-8 flex items-center justify-center gap-2 text-[12.5px]">
-              <Clock className="text-ok size-3.5" />
+              <ClockIcon className="text-ok size-3.5" />
               <span>
                 <span className="text-ok font-semibold">~{formatMinutes(totals.week.minutes)}</span>{' '}
                 saved this week across {totals.week.runs} run{totals.week.runs === 1 ? '' : 's'}
@@ -164,7 +172,7 @@ export function Home({ settings }: { settings: Settings }) {
                 onClick={() => void submit(prompt, [])}
                 className="border-line-strong/70 text-text hover:bg-raised hover:border-line-strong flex h-9 items-center gap-2 rounded-full border bg-white px-4 text-[13px] transition-colors"
               >
-                <Icon className="text-brand size-4" strokeWidth={1.75} />
+                <Icon className="text-brand size-4" />
                 {label}
               </button>
             ))}

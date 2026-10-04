@@ -1,4 +1,4 @@
-import { ArrowUpRight, Network } from 'lucide-react'
+import { ArrowUpRightIcon, MapIcon } from '@heroicons/react/24/outline'
 import { useEffect, useRef, useState } from 'react'
 import type { CodeHint, GraphNode, GraphNodeType } from '@shared/types.ts'
 import { TypeDot, TYPES } from '@/components/map/meta'
@@ -321,10 +321,10 @@ function RefCard({
       ) : null}
       <div className="mt-3 flex gap-2">
         <Button size="sm" variant="primary" onClick={onOpen}>
-          <ArrowUpRight className="size-3.5" /> Open
+          <ArrowUpRightIcon className="size-3.5" /> Open
         </Button>
         <Button size="sm" variant="secondary" onClick={onShowOnMap}>
-          <Network className="size-3.5" /> Show on map
+          <MapIcon className="size-3.5" /> Show on map
         </Button>
       </div>
     </div>

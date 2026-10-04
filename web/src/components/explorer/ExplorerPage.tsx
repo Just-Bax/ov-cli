@@ -1,14 +1,13 @@
 import {
-  ChevronRight,
-  Code2,
-  ExternalLink,
-  Network,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Wand2,
-  X,
-} from 'lucide-react'
+  ArrowPathIcon,
+  ArrowTopRightOnSquareIcon,
+  ChevronRightIcon,
+  CodeBracketIcon,
+  MagnifyingGlassIcon,
+  MapIcon,
+  SparklesIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   CodeHint,
@@ -33,6 +32,8 @@ import {
 import {
   Button,
   Card,
+  EmptyState,
+  IconBadge,
   Page,
   Select,
   Skeleton,
@@ -43,7 +44,7 @@ import {
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { refIndex } from '@/lib/references'
-import { go, href } from '@/lib/route'
+import { go } from '@/lib/route'
 import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 
 const TREE_ORDER: GraphNodeType[] = [
@@ -140,7 +141,7 @@ function GroupHeader({
       style={{ paddingLeft: 6 + depth * 14 }}
       className="text-text hover:bg-raised flex h-8 w-full items-center gap-2 rounded-full pr-3 text-left text-[12.5px] font-medium transition-colors"
     >
-      <ChevronRight
+      <ChevronRightIcon
         className={cn('text-faint size-3.5 shrink-0 transition-transform', open && 'rotate-90')}
       />
       {type ? <TypeDot type={type} /> : null}
@@ -198,7 +199,7 @@ function Tree({
     <aside className="border-line-strong/60 flex w-[300px] shrink-0 flex-col border-r bg-white">
       <div className="p-3">
         <label className="border-line-strong focus-within:border-brand flex h-9 items-center gap-2 rounded-full border bg-white px-3.5">
-          <Search className="text-faint size-3.5 shrink-0" />
+          <MagnifyingGlassIcon className="text-faint size-3.5 shrink-0" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -207,7 +208,7 @@ function Tree({
           />
           {query ? (
             <button type="button" onClick={() => setQuery('')} className="text-faint hover:text-fg">
-              <X className="size-3.5" />
+              <XMarkIcon className="size-3.5" />
             </button>
           ) : null}
         </label>
@@ -265,7 +266,7 @@ function Tree({
                                 className="text-faint hover:text-fg flex size-6 shrink-0 items-center justify-center rounded-full"
                                 style={{ marginLeft: 6 + 14 }}
                               >
-                                <ChevronRight
+                                <ChevronRightIcon
                                   className={cn(
                                     'size-3.5 transition-transform',
                                     ttOpen && 'rotate-90',
@@ -413,12 +414,20 @@ function Inspector({
             disabled={Boolean(busy)}
             onClick={() => void review()}
           >
-            {busy === 'review' ? <Spinner className="size-3.5" /> : <Wand2 className="size-3.5" />}{' '}
+            {busy === 'review' ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <SparklesIcon className="size-3.5" />
+            )}{' '}
             Review with AI
           </Button>
         ) : null}
         <Button variant="secondary" disabled={Boolean(busy)} onClick={() => void ask()}>
-          {busy === 'ask' ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5" />}{' '}
+          {busy === 'ask' ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <SparklesIcon className="size-3.5" />
+          )}{' '}
           Ask the agent
         </Button>
         <Button
@@ -428,7 +437,7 @@ function Inspector({
             go({ page: 'map' })
           }}
         >
-          <Network className="size-3.5" /> Show on map
+          <MapIcon className="size-3.5" /> Show on map
         </Button>
         <a
           href={`https://${host}${FORMS[node.type]}${node.ref}`}
@@ -437,7 +446,7 @@ function Inspector({
           className="contents"
         >
           <Button className="col-span-2" variant="ghost">
-            <ExternalLink className="size-3.5" /> Open link
+            <ArrowTopRightOnSquareIcon className="size-3.5" /> Open link
           </Button>
         </a>
       </div>
@@ -609,7 +618,7 @@ function Tabs({
               >
                 {(() => {
                   const Icon = TYPES[node.type].icon
-                  return <Icon className="size-3" strokeWidth={2} />
+                  return <Icon className="size-3" />
                 })()}
               </span>
               <span className="truncate">{node.name}</span>
@@ -623,7 +632,7 @@ function Tabs({
                 on ? 'opacity-100' : 'opacity-0 group-hover/tab:opacity-100',
               )}
             >
-              <X className="size-3" />
+              <XMarkIcon className="size-3" />
             </button>
           </div>
         )
@@ -776,7 +785,7 @@ export function ExplorerPage() {
         />
       </div>
       <Button variant="primary" disabled={!alias || building} onClick={() => void build()}>
-        {building ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+        {building ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
         {graph ? 'Refresh' : 'Build map'}
       </Button>
     </>
@@ -830,16 +839,10 @@ export function ExplorerPage() {
             <div className="relative min-h-0 flex-1">
               {!node ? (
                 <div className="flex h-full items-center justify-center p-6">
-                  <div className="max-w-[420px] text-center">
-                    <span className="bg-brand-soft text-brand-strong mx-auto flex size-12 items-center justify-center rounded-full">
-                      <Code2 className="size-5" />
-                    </span>
-                    <div className="text-fg mt-4 text-[15px] font-semibold">Open something</div>
-                    <div className="text-muted mt-1 text-[13px] leading-relaxed">
-                      Pick a rule, package or trackor type on the left. Names in the code are links:
-                      click a field, trackor type or package to open it.
-                    </div>
-                  </div>
+                  <EmptyState icon={CodeBracketIcon} title="Open something">
+                    Pick a rule, package or trackor type on the left. References in the code are
+                    links: hover one for details, click it to open.
+                  </EmptyState>
                 </div>
               ) : !WITH_CODE.has(node.type) ? (
                 <NoCode node={node} idx={idx} onOpen={open} />
@@ -890,40 +893,31 @@ export function ExplorerPage() {
           {loading ? (
             <Spinner className="text-brand size-6" />
           ) : (
-            <Card className="w-full max-w-[460px] p-6 text-center">
-              <span className="bg-brand-soft text-brand-strong mx-auto flex size-12 items-center justify-center rounded-full">
-                {building ? <Spinner className="size-5" /> : <Code2 className="size-5" />}
-              </span>
-              <div className="text-fg mt-4 text-[15px] font-semibold">
-                {building ? 'Reading the configuration' : 'Build the map first'}
-              </div>
-              <div className="text-muted mt-1 text-[13px] leading-relaxed">
-                {building
-                  ? `${status?.step ?? 'Starting'}. Large instances take about a minute.`
-                  : 'The Explorer lists objects from the instance map. Building it reads the configuration with read-only SQL and needs the Test SQL privilege.'}
-              </div>
-              {error || status?.error ? (
-                <div className="text-danger mt-3 text-[12.5px]">{error ?? status?.error}</div>
-              ) : null}
-              {!building ? (
-                <Button
-                  className="mt-5"
-                  variant="primary"
-                  disabled={!alias}
-                  onClick={() => void build()}
-                >
-                  <Network className="size-3.5" /> Build map
-                </Button>
-              ) : null}
-              <div className="mt-3">
-                <a
-                  href={href({ page: 'map' })}
-                  className="text-brand-strong text-[12.5px] hover:underline"
-                >
-                  Open Instance map
-                </a>
-              </div>
-            </Card>
+            <EmptyState
+              badge={
+                <IconBadge icon={CodeBracketIcon} size="lg">
+                  {building ? <Spinner className="size-6" /> : undefined}
+                </IconBadge>
+              }
+              title={building ? 'Reading the configuration' : 'Build the map first'}
+              error={error ?? status?.error}
+              action={
+                !building ? (
+                  <>
+                    <Button variant="primary" disabled={!alias} onClick={() => void build()}>
+                      <MapIcon className="size-3.5" /> Build map
+                    </Button>
+                    <Button variant="ghost" onClick={() => go({ page: 'map' })}>
+                      Open Instance map
+                    </Button>
+                  </>
+                ) : null
+              }
+            >
+              {building
+                ? `${status?.step ?? 'Starting'}. Large instances take about a minute.`
+                : 'The Explorer lists objects from the instance map. Building it reads the configuration with read-only SQL and needs the Test SQL privilege.'}
+            </EmptyState>
           )}
         </div>
       )}

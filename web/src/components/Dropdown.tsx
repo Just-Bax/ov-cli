@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Search } from 'lucide-react'
+import { CheckIcon, ChevronDownIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/cn'
@@ -143,7 +143,7 @@ export function Dropdown({
         >
           {current?.label ?? placeholder}
         </span>
-        <ChevronDown
+        <ChevronDownIcon
           className={cn('size-3.5 shrink-0 opacity-70 transition-transform', open && 'rotate-180')}
         />
       </button>
@@ -162,7 +162,7 @@ export function Dropdown({
             >
               {showSearch ? (
                 <div className="border-line-strong mb-1 flex h-8 items-center gap-1.5 rounded-full border bg-white px-3">
-                  <Search className="text-faint size-3.5" />
+                  <MagnifyingGlassIcon className="text-faint size-3.5" />
                   <input
                     autoFocus
                     value={query}
@@ -192,7 +192,7 @@ export function Dropdown({
                     {o.hint ? (
                       <span className="text-faint shrink-0 text-[11px]">{o.hint}</span>
                     ) : null}
-                    <Check
+                    <CheckIcon
                       className={cn(
                         'text-brand size-3.5 shrink-0',
                         o.value !== value && 'invisible',

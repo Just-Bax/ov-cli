@@ -1,4 +1,4 @@
-import { Clock, KeyRound, Send } from 'lucide-react'
+import { ClockIcon, KeyIcon, PaperAirplaneIcon } from '@heroicons/react/24/outline'
 import { formatMinutes } from '@shared/estimate.ts'
 import { useState } from 'react'
 import type { LoginPrompt, Outcome, Question, Verdict } from '@shared/types.ts'
@@ -119,7 +119,7 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
       ) : null}
       {settings.showTimeSaved && outcome.timeSaved?.minutes ? (
         <div className="text-muted flex items-start gap-1.5 px-1 text-[12px]">
-          <Clock className="text-ok mt-0.5 size-3.5 shrink-0" />
+          <ClockIcon className="text-ok mt-0.5 size-3.5 shrink-0" />
           <span>
             <span className="text-ok font-medium">
               ~{formatMinutes(outcome.timeSaved.minutes)} saved.
@@ -148,7 +148,7 @@ function ApprovalCard({ runId, question }: { runId: string; question: Question }
       )}
     >
       <div className="flex items-center gap-2 px-4 pt-3">
-        <KeyRound className={cn('size-4', answered ? 'text-faint' : 'text-warn')} />
+        <KeyIcon className={cn('size-4', answered ? 'text-faint' : 'text-warn')} />
         <span className="text-fg flex-1 text-[13.5px] font-medium">{question.question}</span>
         {answered ? (
           <span className={cn('text-[12px] font-medium', approved ? 'text-ok' : 'text-danger')}>
@@ -240,7 +240,7 @@ export function QuestionCard({ runId, question }: { runId: string; question: Que
           variant="primary"
           disabled={sending || (!other.trim() && !picked.length)}
         >
-          {sending ? <Spinner className="size-3.5" /> : <Send className="size-3.5" />}
+          {sending ? <Spinner className="size-3.5" /> : <PaperAirplaneIcon className="size-3.5" />}
         </Button>
       </form>
     </div>
@@ -258,7 +258,7 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
   }
   return (
     <div className="border-warn/50 bg-warn-soft/40 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3">
-      <KeyRound className="text-warn size-4" />
+      <KeyIcon className="text-warn size-4" />
       <div className="min-w-0 flex-1">
         <div className="text-fg flex flex-wrap items-center gap-1.5 text-[13.5px] font-medium">
           Sign in to {login.instance}

@@ -1,17 +1,17 @@
 import {
-  Activity,
-  AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
-  BellRing,
-  ExternalLink,
-  Gauge,
-  HeartPulse,
-  RefreshCw,
-  ScrollText,
-  Sparkles,
-  Timer,
-} from 'lucide-react'
+  ArrowDownRightIcon,
+  ArrowPathIcon,
+  ArrowTopRightOnSquareIcon,
+  ArrowUpRightIcon,
+  BellAlertIcon,
+  ChartBarIcon,
+  ClockIcon,
+  DocumentTextIcon,
+  ExclamationTriangleIcon,
+  HeartIcon,
+  PresentationChartLineIcon,
+  SparklesIcon,
+} from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { DatadogStatus, HealthPoint, InstanceHealth } from '@shared/types.ts'
 import {
@@ -22,7 +22,16 @@ import {
   useDatadog,
 } from '@/components/datadog/Datadog'
 import { useInstances } from '@/components/InstancePicker'
-import { Button, Card, Page, Select, Skeleton, Spinner } from '@/components/ui'
+import {
+  Button,
+  Card,
+  EmptyState,
+  IconBadge,
+  Page,
+  Select,
+  Skeleton,
+  Spinner,
+} from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go, href } from '@/lib/route'
@@ -96,31 +105,21 @@ function Tile({
   children,
   href,
 }: {
-  icon: typeof Activity
+  icon: typeof ChartBarIcon
   title: string
   tone?: 'brand' | 'danger' | 'warn' | 'ok' | 'dd'
   children: ReactNode
   href?: string
 }) {
-  const tones = {
-    brand: 'bg-brand-soft text-brand-strong',
-    danger: 'bg-danger-soft text-danger',
-    warn: 'bg-warn-soft text-warn',
-    ok: 'bg-ok-soft text-ok',
-    dd: '',
-  }
   return (
     <Card className="flex min-w-0 flex-col p-4">
       <div className="flex items-center gap-2.5">
-        <span
-          className={cn(
-            'flex size-8 shrink-0 items-center justify-center rounded-full',
-            tones[tone],
-          )}
-          style={tone === 'dd' ? { background: `${DATADOG_PURPLE}14`, color: DATADOG_PURPLE } : {}}
-        >
-          <Icon className="size-4" />
-        </span>
+        <IconBadge
+          icon={Icon}
+          size="sm"
+          tone={tone === 'dd' ? 'brand' : tone}
+          color={tone === 'dd' ? DATADOG_PURPLE : undefined}
+        />
         <span className="text-fg min-w-0 flex-1 truncate text-[13px] font-semibold">{title}</span>
         {href ? (
           <a
@@ -130,7 +129,7 @@ function Tile({
             aria-label={`Open ${title} in Datadog`}
             className="text-faint hover:text-brand-strong hover:bg-raised flex size-7 items-center justify-center rounded-full"
           >
-            <ExternalLink className="size-3.5" />
+            <ArrowTopRightOnSquareIcon className="size-3.5" />
           </a>
         ) : null}
       </div>
@@ -165,7 +164,7 @@ function Report({ report, status }: { report: InstanceHealth; status: DatadogSta
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Tile
-          icon={BellRing}
+          icon={BellAlertIcon}
           title="Monitors"
           tone={count('Alert') ? 'danger' : count('Warn') ? 'warn' : 'ok'}
           href={report.links.monitors}
@@ -190,7 +189,7 @@ function Report({ report, status }: { report: InstanceHealth; status: DatadogSta
           )}
         </Tile>
         <Tile
-          icon={AlertTriangle}
+          icon={ExclamationTriangleIcon}
           title="Error logs"
           tone={change !== null && change > 50 ? 'danger' : 'brand'}
           href={report.links.logs}
@@ -209,9 +208,9 @@ function Report({ report, status }: { report: InstanceHealth; status: DatadogSta
                     )}
                   >
                     {change > 0 ? (
-                      <ArrowUpRight className="size-3" />
+                      <ArrowUpRightIcon className="size-3" />
                     ) : (
-                      <ArrowDownRight className="size-3" />
+                      <ArrowDownRightIcon className="size-3" />
                     )}
                     {Math.abs(change)}%
                   </span>
@@ -226,7 +225,7 @@ function Report({ report, status }: { report: InstanceHealth; status: DatadogSta
           )}
         </Tile>
         <Tile
-          icon={ScrollText}
+          icon={DocumentTextIcon}
           title="Log volume"
           href={report.links.logs.replace('status%3Aerror', '')}
         >
@@ -241,7 +240,7 @@ function Report({ report, status }: { report: InstanceHealth; status: DatadogSta
             <Missing />
           )}
         </Tile>
-        <Tile icon={Timer} title="Slowest endpoint" tone="dd" href={report.links.apm}>
+        <Tile icon={ClockIcon} title="Slowest endpoint" tone="dd" href={report.links.apm}>
           {!status.permissions.apm ? (
             <Missing text="The key cannot read APM (apm_read)." />
           ) : slowest ? (
@@ -272,7 +271,7 @@ function Report({ report, status }: { report: InstanceHealth; status: DatadogSta
               rel="noreferrer"
               className="text-brand-strong inline-flex items-center gap-1 text-[12px] font-medium hover:underline"
             >
-              Open in Datadog <ExternalLink className="size-3" />
+              Open in Datadog <ArrowTopRightOnSquareIcon className="size-3" />
             </a>
           </div>
           {report.topErrors?.length ? (
@@ -342,7 +341,7 @@ function Report({ report, status }: { report: InstanceHealth; status: DatadogSta
             return (
               <Card key={m.title} className="p-4">
                 <div className="text-muted flex items-center gap-1.5 text-[12px] font-medium">
-                  <Gauge className="size-3.5" /> {m.title}
+                  <PresentationChartLineIcon className="size-3.5" /> {m.title}
                 </div>
                 <div className="text-fg mt-1.5 text-[19px] font-semibold">
                   {fmt(latest, m.unit)}
@@ -395,7 +394,7 @@ function Report({ report, status }: { report: InstanceHealth; status: DatadogSta
               aria-label="Open events in Datadog"
               className="text-faint hover:text-brand-strong"
             >
-              <ExternalLink className="size-3.5" />
+              <ArrowTopRightOnSquareIcon className="size-3.5" />
             </a>
           </div>
           {report.events?.length ? (
@@ -423,7 +422,7 @@ function Report({ report, status }: { report: InstanceHealth; status: DatadogSta
         </Card>
         <Card className="p-4">
           <div className="text-fg flex items-center gap-2 pb-2 text-[13px] font-semibold">
-            <HeartPulse className="text-brand-strong size-3.5" /> OneVizion failures
+            <HeartIcon className="text-brand-strong size-3.5" /> OneVizion failures
           </div>
           {failures.length ? (
             <div className="space-y-0.5">
@@ -542,10 +541,10 @@ export function HealthPage() {
         disabled={loading || !alias}
         onClick={() => setTick((t) => t + 1)}
       >
-        {loading ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+        {loading ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
       </Button>
       <Button variant="primary" disabled={!alias || asking} onClick={() => void ask()}>
-        {asking ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5" />} Ask the
+        {asking ? <Spinner className="size-3.5" /> : <SparklesIcon className="size-3.5" />} Ask the
         agent
       </Button>
     </>
@@ -582,20 +581,19 @@ export function HealthPage() {
   } else if (!status.connected) {
     body = (
       <div className="flex h-full items-center justify-center p-6">
-        <Card className="w-full max-w-[480px] p-6 text-center">
-          <div className="flex justify-center">
-            <DatadogBadge size="lg" />
-          </div>
-          <div className="text-fg mt-4 text-[15px] font-semibold">Connect Datadog</div>
-          <div className="text-muted mt-1 text-[13px] leading-relaxed">
-            See each instance's alerting monitors, error logs, slow endpoints and server metrics
-            next to its failed OneVizion processes. The agent can then read Datadog in runs too.
-            Read-only, with your own keys.
-          </div>
-          <Button className="mt-5" variant="primary" size="lg" onClick={() => setConnecting(true)}>
-            Connect Datadog
-          </Button>
-        </Card>
+        <EmptyState
+          badge={<DatadogBadge size="lg" />}
+          title="Connect Datadog"
+          action={
+            <Button variant="primary" onClick={() => setConnecting(true)}>
+              Connect Datadog
+            </Button>
+          }
+        >
+          See each instance's alerting monitors, error logs, slow endpoints and server metrics next
+          to its failed OneVizion processes. The agent can then read Datadog in runs too. Read-only,
+          with your own keys.
+        </EmptyState>
       </div>
     )
   } else if (!alias) {

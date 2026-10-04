@@ -1,4 +1,4 @@
-import { ExternalLink } from 'lucide-react'
+import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline'
 import type { Change } from '@shared/types.ts'
 import { Button, Chip, CopyButton } from '@/components/ui'
 import { Diff } from './Diff'
@@ -25,7 +25,8 @@ export function ChangeCard({ change }: { change: Change }) {
           {change.link ? (
             <a href={change.link} target="_blank" rel="noreferrer">
               <Button size="sm" variant="ghost">
-                <ExternalLink className="size-3.5" /> Open {change.entityType.split(' ')[0]}
+                <ArrowTopRightOnSquareIcon className="size-3.5" /> Open{' '}
+                {change.entityType.split(' ')[0]}
               </Button>
             </a>
           ) : null}

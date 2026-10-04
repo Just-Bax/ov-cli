@@ -12,16 +12,16 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import {
-  Check,
-  ChevronDown,
-  ExternalLink,
-  Network,
-  RefreshCw,
-  RotateCcw,
-  Search,
-  Sparkles,
-  X,
-} from 'lucide-react'
+  ArrowPathIcon,
+  ArrowTopRightOnSquareIcon,
+  ArrowUturnLeftIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  MagnifyingGlassIcon,
+  MapIcon,
+  SparklesIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GraphEdge, GraphNode, GraphNodeType, InstanceGraph } from '@shared/types.ts'
 import {
@@ -35,7 +35,16 @@ import {
   TypeDot,
   TYPES,
 } from '@/components/map/meta'
-import { Button, Card, Page, Select, Spinner, timeAgo } from '@/components/ui'
+import {
+  Button,
+  Card,
+  EmptyState,
+  IconBadge,
+  Page,
+  Select,
+  Spinner,
+  timeAgo,
+} from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
@@ -84,7 +93,7 @@ function MapNode({ data, selected }: NodeProps<Node<MapNodeData>>) {
         className="flex size-8 shrink-0 items-center justify-center rounded-full"
         style={{ background: `${meta.color}1a`, color: meta.color }}
       >
-        <Icon className="size-4" strokeWidth={1.9} />
+        <Icon className="size-4" />
       </span>
       <span className="min-w-0 flex-1 leading-tight">
         <span className="text-fg block truncate text-[12.5px] font-medium">{data.node.name}</span>
@@ -346,7 +355,7 @@ function Details({
           onClick={onClose}
           className="text-muted hover:bg-raised hover:text-fg flex size-8 shrink-0 items-center justify-center rounded-full"
         >
-          <X className="size-4" />
+          <XMarkIcon className="size-4" />
         </button>
       </div>
       <dl className="bg-raised mx-4 grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 rounded-2xl px-4 py-3 text-[12.5px]">
@@ -377,7 +386,7 @@ function Details({
       </dl>
       <div className="grid grid-cols-2 gap-2 px-4 pt-3 pb-4">
         <Button className="min-w-0" variant="primary" disabled={asking} onClick={() => void ask()}>
-          {asking ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5" />}
+          {asking ? <Spinner className="size-3.5" /> : <SparklesIcon className="size-3.5" />}
           <span className="truncate">Ask the agent</span>
         </Button>
         <a
@@ -387,13 +396,13 @@ function Details({
           className="contents"
         >
           <Button className="min-w-0" variant="secondary">
-            <ExternalLink className="size-3.5" />
+            <ArrowTopRightOnSquareIcon className="size-3.5" />
             <span className="truncate">Open link</span>
           </Button>
         </a>
         {hidden ? (
           <Button className="col-span-2" variant="ghost" onClick={() => onExpand(node.id)}>
-            <Network className="size-3.5" /> Show {Math.min(hidden, EXPAND_LIMIT)} more linked
+            <MapIcon className="size-3.5" /> Show {Math.min(hidden, EXPAND_LIMIT)} more linked
           </Button>
         ) : null}
       </div>
@@ -460,7 +469,7 @@ function SearchBox({ graph, onPick }: { graph: InstanceGraph; onPick: (id: strin
   return (
     <div className="relative w-[320px]">
       <label className="border-line-strong focus-within:border-brand flex h-9 items-center gap-2 rounded-full border bg-white px-3.5">
-        <Search className="text-faint size-4 shrink-0" />
+        <MagnifyingGlassIcon className="text-faint size-4 shrink-0" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -469,7 +478,7 @@ function SearchBox({ graph, onPick }: { graph: InstanceGraph; onPick: (id: strin
         />
         {query ? (
           <button type="button" onClick={() => setQuery('')} className="text-faint hover:text-fg">
-            <X className="size-3.5" />
+            <XMarkIcon className="size-3.5" />
           </button>
         ) : null}
       </label>
@@ -544,7 +553,7 @@ function TypeMenu({
           ))}
         </span>
         {shown === types.length ? 'All types' : `${shown} of ${types.length} types`}
-        <ChevronDown
+        <ChevronDownIcon
           className={cn('size-3.5 opacity-70 transition-transform', open && 'rotate-180')}
         />
       </button>
@@ -566,7 +575,7 @@ function TypeMenu({
                     background: on ? TYPES[t].color : 'white',
                   }}
                 >
-                  {on ? <Check className="size-3 text-white" strokeWidth={3} /> : null}
+                  {on ? <CheckIcon className="size-3 text-white" /> : null}
                 </span>
                 <span className={cn('flex-1 text-left text-[13px]', on ? 'text-fg' : 'text-faint')}>
                   {TYPES[t].plural}
@@ -661,7 +670,7 @@ export function MapPage() {
         />
       </div>
       <Button variant="primary" disabled={!alias || building} onClick={() => void build()}>
-        {building ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+        {building ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
         {graph ? 'Refresh' : 'Build map'}
       </Button>
     </>
@@ -700,7 +709,7 @@ export function MapPage() {
                     setSelected(undefined)
                   }}
                 >
-                  <RotateCcw className="size-3.5" /> Clear map
+                  <ArrowUturnLeftIcon className="size-3.5" /> Clear map
                 </Button>
               </div>
               <div className="relative min-h-0 flex-1">
@@ -726,32 +735,26 @@ export function MapPage() {
               {loading ? (
                 <Spinner className="text-brand size-6" />
               ) : (
-                <Card className="w-full max-w-[460px] p-6 text-center">
-                  <span className="bg-brand-soft text-brand-strong mx-auto flex size-12 items-center justify-center rounded-full">
-                    {building ? <Spinner className="size-5" /> : <Network className="size-5" />}
-                  </span>
-                  <div className="text-fg mt-4 text-[15px] font-semibold">
-                    {building ? 'Reading the configuration' : 'No map yet'}
-                  </div>
-                  <div className="text-muted mt-1 text-[13px] leading-relaxed">
-                    {building
-                      ? `${status?.step ?? 'Starting'}. Large instances take about a minute.`
-                      : 'Build a map to see how trackor types, fields, rules, automations, imports, reports and workflows link together. It reads the configuration with read-only SQL and needs the Test SQL privilege.'}
-                  </div>
-                  {error || status?.error ? (
-                    <div className="text-danger mt-3 text-[12.5px]">{error ?? status?.error}</div>
-                  ) : null}
-                  {!building && !status?.builtAt ? (
-                    <Button
-                      className="mt-5"
-                      variant="primary"
-                      disabled={!alias}
-                      onClick={() => void build()}
-                    >
-                      <Network className="size-3.5" /> Build map
-                    </Button>
-                  ) : null}
-                </Card>
+                <EmptyState
+                  badge={
+                    <IconBadge icon={MapIcon} size="lg">
+                      {building ? <Spinner className="size-6" /> : undefined}
+                    </IconBadge>
+                  }
+                  title={building ? 'Reading the configuration' : 'No map yet'}
+                  error={error ?? status?.error}
+                  action={
+                    !building && !status?.builtAt ? (
+                      <Button variant="primary" disabled={!alias} onClick={() => void build()}>
+                        <MapIcon className="size-3.5" /> Build map
+                      </Button>
+                    ) : null
+                  }
+                >
+                  {building
+                    ? `${status?.step ?? 'Starting'}. Large instances take about a minute.`
+                    : 'Build a map to see how trackor types, fields, rules, automations, imports, reports and workflows link together. It reads the configuration with read-only SQL and needs the Test SQL privilege.'}
+                </EmptyState>
               )}
             </div>
           )}

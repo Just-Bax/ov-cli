@@ -1,17 +1,17 @@
 import {
-  CircleAlert,
-  CircleCheck,
-  ChevronLeft,
-  ChevronRight,
-  CircleSlash,
-  Code2,
-  HeartPulse,
-  type LucideIcon,
-  Network,
-  Plus,
-  Settings,
-  Trash2,
-} from 'lucide-react'
+  CheckCircleIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CodeBracketIcon,
+  Cog6ToothIcon,
+  ExclamationCircleIcon,
+  HeartIcon,
+  MapIcon,
+  NoSymbolIcon,
+  PlusIcon,
+  TrashIcon,
+} from '@heroicons/react/24/outline'
+import type { Icon } from '@/components/ui'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RunStatus, RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
@@ -38,11 +38,11 @@ export function StatusIcon({
   if (status === 'running' || status === 'queued')
     return <Spinner className={cn('text-brand size-3', className)} />
   if (detailed && status === 'done')
-    return <CircleCheck className={cn('text-ok size-3.5', className)} />
+    return <CheckCircleIcon className={cn('text-ok size-3.5', className)} />
   if (detailed && status === 'cancelled')
-    return <CircleSlash className={cn('text-faint size-3.5', className)} />
+    return <NoSymbolIcon className={cn('text-faint size-3.5', className)} />
   if (detailed && status === 'error')
-    return <CircleAlert className={cn('text-danger size-3.5', className)} />
+    return <ExclamationCircleIcon className={cn('text-danger size-3.5', className)} />
   const dot: Record<string, string> = {
     waiting: 'bg-warn',
     error: 'bg-danger',
@@ -200,7 +200,7 @@ function RunItem({
         onClick={(e) => void remove(e)}
         className="text-faint hover:text-danger flex size-7 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover/run:opacity-100 hover:bg-black/[0.06] focus-visible:opacity-100"
       >
-        <Trash2 className="size-3.5" />
+        <TrashIcon className="size-3.5" />
       </button>
     </div>
   )
@@ -229,7 +229,7 @@ function NavRow({
   collapsed,
 }: {
   to: string
-  icon: LucideIcon
+  icon: Icon
   label: string
   active: boolean
   collapsed: boolean
@@ -252,7 +252,7 @@ function NavRow({
           active ? 'bg-brand text-white' : 'bg-brand-soft text-brand-strong',
         )}
       >
-        <Icon className="size-3.5" strokeWidth={2.25} />
+        <Icon className="size-3.5" />
       </span>
       {collapsed ? <RailTip label={label} /> : <span className="truncate">{label}</span>}
     </a>
@@ -286,9 +286,9 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
         className="border-line-strong text-muted hover:text-brand-strong hover:border-brand/50 absolute top-1/2 -right-3.5 z-30 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border bg-white shadow-[0_2px_8px_rgba(38,50,56,0.10)] transition-colors"
       >
         {collapsed ? (
-          <ChevronRight className="size-3.5" strokeWidth={2.25} />
+          <ChevronRightIcon className="size-3.5" />
         ) : (
-          <ChevronLeft className="size-3.5" strokeWidth={2.25} />
+          <ChevronLeftIcon className="size-3.5" />
         )}
       </button>
       <div
@@ -308,28 +308,28 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
       <nav className="space-y-0.5 px-3 pb-2">
         <NavRow
           to="#/"
-          icon={Plus}
+          icon={PlusIcon}
           label="New run"
           active={route.page === 'home'}
           collapsed={collapsed}
         />
         <NavRow
           to={href({ page: 'map' })}
-          icon={Network}
+          icon={MapIcon}
           label="Instance map"
           active={route.page === 'map'}
           collapsed={collapsed}
         />
         <NavRow
           to={href({ page: 'explorer' })}
-          icon={Code2}
+          icon={CodeBracketIcon}
           label="Explorer"
           active={route.page === 'explorer'}
           collapsed={collapsed}
         />
         <NavRow
           to={href({ page: 'health' })}
-          icon={HeartPulse}
+          icon={HeartIcon}
           label="Health"
           active={route.page === 'health'}
           collapsed={collapsed}
@@ -421,7 +421,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 : 'text-muted hover:bg-canvas hover:text-fg',
             )}
           >
-            <Settings className="size-[18px]" strokeWidth={1.75} />
+            <Cog6ToothIcon className="size-[18px]" />
           </a>
         </div>
       )}

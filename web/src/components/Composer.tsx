@@ -1,4 +1,4 @@
-import { ArrowUp, Paperclip, Square, X } from 'lucide-react'
+import { ArrowUpIcon, PaperClipIcon, StopIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
 
@@ -125,7 +125,7 @@ export function Composer({
                   onClick={() => setFiles(files.filter((_, j) => j !== i))}
                   className="bg-fg absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full text-white opacity-0 shadow transition-opacity group-hover/thumb:opacity-100"
                 >
-                  <X className="size-3" />
+                  <XMarkIcon className="size-3" />
                 </button>
               </div>
             ) : (
@@ -133,14 +133,14 @@ export function Composer({
                 key={i}
                 className="bg-canvas text-text inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px]"
               >
-                <Paperclip className="size-3" />
+                <PaperClipIcon className="size-3" />
                 <span className="max-w-[180px] truncate">{f.name}</span>
                 <button
                   type="button"
                   onClick={() => setFiles(files.filter((_, j) => j !== i))}
                   className="text-faint hover:text-fg"
                 >
-                  <X className="size-3" />
+                  <XMarkIcon className="size-3" />
                 </button>
               </span>
             ),
@@ -179,7 +179,7 @@ export function Composer({
               onClick={() => fileRef.current?.click()}
               className="text-muted bg-raised hover:bg-line hover:text-fg flex size-8 items-center justify-center rounded-full"
             >
-              <Paperclip className="size-4" />
+              <PaperClipIcon className="size-4" />
             </button>
             <input
               ref={fileRef}
@@ -199,7 +199,7 @@ export function Composer({
             onClick={onStop}
             className="bg-fg flex size-8 items-center justify-center rounded-full text-white hover:opacity-85"
           >
-            <Square className="size-3 fill-current" />
+            <StopIcon className="size-3 fill-current" />
           </button>
         ) : (
           <button
@@ -209,7 +209,7 @@ export function Composer({
             onClick={() => void send()}
             className="bg-brand hover:bg-brand-strong disabled:bg-line-strong flex size-8 items-center justify-center rounded-full text-white transition-colors"
           >
-            <ArrowUp className="size-4" />
+            <ArrowUpIcon className="size-4" />
           </button>
         )}
       </div>

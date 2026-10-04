@@ -1,32 +1,47 @@
 import {
-  Bell,
-  Bot,
-  Boxes,
-  Database,
-  FileSpreadsheet,
-  FileUp,
-  GitBranch,
-  type LucideIcon,
-  Package,
-  TextCursorInput,
-  Zap,
-} from 'lucide-react'
+  Bars3BottomLeftIcon,
+  BellIcon,
+  BoltIcon,
+  CircleStackIcon,
+  CpuChipIcon,
+  CubeIcon,
+  DocumentArrowUpIcon,
+  RectangleStackIcon,
+  ShareIcon,
+  TableCellsIcon,
+} from '@heroicons/react/24/outline'
+import type { Icon } from '@/components/ui'
 import type { GraphNode, GraphNodeType, InstanceGraph } from '@shared/types.ts'
 
 export const TYPES: Record<
   GraphNodeType,
-  { label: string; plural: string; icon: LucideIcon; color: string }
+  { label: string; plural: string; icon: Icon; color: string }
 > = {
-  trackor_type: { label: 'Trackor type', plural: 'Trackor types', icon: Boxes, color: '#1e88e5' },
-  field: { label: 'Field', plural: 'Fields', icon: TextCursorInput, color: '#bf8f00' },
-  rule: { label: 'Rule', plural: 'Rules', icon: Zap, color: '#7e57c2' },
-  automation: { label: 'Automation', plural: 'Automations', icon: Bot, color: '#00897b' },
-  import: { label: 'Import', plural: 'Imports', icon: FileUp, color: '#ef6c00' },
-  report: { label: 'Report', plural: 'Reports', icon: FileSpreadsheet, color: '#d81b60' },
-  notification: { label: 'Notification', plural: 'Notifications', icon: Bell, color: '#3949ab' },
-  workflow: { label: 'Workflow', plural: 'Workflows', icon: GitBranch, color: '#43a047' },
-  module: { label: 'Module', plural: 'Modules', icon: Package, color: '#6d4c41' },
-  db_package: { label: 'DB package', plural: 'DB packages', icon: Database, color: '#00838f' },
+  trackor_type: {
+    label: 'Trackor type',
+    plural: 'Trackor types',
+    icon: RectangleStackIcon,
+    color: '#1e88e5',
+  },
+  field: { label: 'Field', plural: 'Fields', icon: Bars3BottomLeftIcon, color: '#bf8f00' },
+  rule: { label: 'Rule', plural: 'Rules', icon: BoltIcon, color: '#7e57c2' },
+  automation: { label: 'Automation', plural: 'Automations', icon: CpuChipIcon, color: '#00897b' },
+  import: { label: 'Import', plural: 'Imports', icon: DocumentArrowUpIcon, color: '#ef6c00' },
+  report: { label: 'Report', plural: 'Reports', icon: TableCellsIcon, color: '#d81b60' },
+  notification: {
+    label: 'Notification',
+    plural: 'Notifications',
+    icon: BellIcon,
+    color: '#3949ab',
+  },
+  workflow: { label: 'Workflow', plural: 'Workflows', icon: ShareIcon, color: '#43a047' },
+  module: { label: 'Module', plural: 'Modules', icon: CubeIcon, color: '#6d4c41' },
+  db_package: {
+    label: 'DB package',
+    plural: 'DB packages',
+    icon: CircleStackIcon,
+    color: '#00838f',
+  },
 }
 
 // Admin edit forms; keep in sync with FORMS in src/ov/agent/graph.py.
@@ -97,7 +112,7 @@ export function TypeDot({ type }: { type: GraphNodeType }) {
       className="flex size-6 shrink-0 items-center justify-center rounded-full"
       style={{ background: `${meta.color}1a`, color: meta.color }}
     >
-      <Icon className="size-3.5" strokeWidth={1.9} />
+      <Icon className="size-3.5" />
     </span>
   )
 }

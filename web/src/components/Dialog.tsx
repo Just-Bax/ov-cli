@@ -1,4 +1,8 @@
-import { AlertTriangle, Info, ShieldAlert } from 'lucide-react'
+import {
+  ExclamationTriangleIcon,
+  InformationCircleIcon,
+  ShieldExclamationIcon,
+} from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui'
@@ -32,9 +36,9 @@ export const dialog = {
 }
 
 const ICON: Record<Tone, ReactNode> = {
-  default: <Info className="text-brand size-5" />,
-  warn: <ShieldAlert className="text-warn size-5" />,
-  danger: <AlertTriangle className="text-danger size-5" />,
+  default: <InformationCircleIcon className="text-brand size-5" />,
+  warn: <ShieldExclamationIcon className="text-warn size-5" />,
+  danger: <ExclamationTriangleIcon className="text-danger size-5" />,
 }
 
 const ICON_BG: Record<Tone, string> = {

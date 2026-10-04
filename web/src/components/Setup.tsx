@@ -1,4 +1,10 @@
-import { ArrowRight, Check, ExternalLink, Server, SlidersHorizontal } from 'lucide-react'
+import {
+  AdjustmentsHorizontalIcon,
+  ArrowRightIcon,
+  ArrowTopRightOnSquareIcon,
+  CheckIcon,
+  ServerIcon,
+} from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { ModelInfo, Status } from '@shared/types.ts'
 import { Button, CopyButton, GithubMark, Label, Select, Spinner } from '@/components/ui'
@@ -41,7 +47,7 @@ function StepRow({
                 : 'bg-canvas text-faint',
           )}
         >
-          {done ? <Check className="size-4" /> : icon}
+          {done ? <CheckIcon className="size-4" /> : icon}
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-fg text-[13.5px] font-semibold">
@@ -97,7 +103,7 @@ function CopilotSignIn({ onDone }: { onDone: () => void }) {
       <CopyButton text={code.userCode} label="Copy code" />
       <a href={code.verificationUri} target="_blank" rel="noreferrer">
         <Button size="sm" variant="primary">
-          <ExternalLink className="size-3.5" /> Open GitHub
+          <ArrowTopRightOnSquareIcon className="size-3.5" /> Open GitHub
         </Button>
       </a>
       <span className="text-muted flex items-center gap-1.5 text-[12px]">
@@ -183,7 +189,7 @@ export function Setup({ status, onDone }: { status: Status; onDone: () => void }
             n={2}
             done={instancesOk}
             active={current === 2}
-            icon={<Server className="size-4" />}
+            icon={<ServerIcon className="size-4" />}
             title="A OneVizion instance"
             subtitle={
               instancesOk
@@ -197,7 +203,7 @@ export function Setup({ status, onDone }: { status: Status; onDone: () => void }
             n={3}
             done={false}
             active={current === 3}
-            icon={<SlidersHorizontal className="size-4" />}
+            icon={<AdjustmentsHorizontalIcon className="size-4" />}
             title="Model"
             subtitle="Default model for new runs; you can switch it per run"
           >
@@ -224,7 +230,7 @@ export function Setup({ status, onDone }: { status: Status; onDone: () => void }
                   }}
                 >
                   {saving ? <Spinner className="size-3.5" /> : null} Continue{' '}
-                  <ArrowRight className="size-4" />
+                  <ArrowRightIcon className="size-4" />
                 </Button>
               </div>
             </div>

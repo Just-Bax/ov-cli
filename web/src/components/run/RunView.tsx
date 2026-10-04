@@ -1,4 +1,9 @@
-import { Clock, ExternalLink, RotateCcw, Trash2 } from 'lucide-react'
+import {
+  ArrowTopRightOnSquareIcon,
+  ArrowUturnLeftIcon,
+  ClockIcon,
+  TrashIcon,
+} from '@heroicons/react/24/outline'
 import { formatMinutes, savedMinutes } from '@shared/estimate.ts'
 import { Composer } from '@/components/Composer'
 import { EditableTitle } from '@/components/EditableTitle'
@@ -305,7 +310,7 @@ export function RunView({ id }: { id: string }) {
             rel="noreferrer"
             className="text-brand-strong inline-flex items-center gap-1 hover:underline"
           >
-            Case {summary.caseKey} <ExternalLink className="size-3" />
+            Case {summary.caseKey} <ArrowTopRightOnSquareIcon className="size-3" />
           </a>
         </>
       ) : null}
@@ -319,7 +324,7 @@ export function RunView({ id }: { id: string }) {
               savedMinutes(state) ? 'text-ok' : 'text-faint line-through',
             )}
           >
-            <Clock className="size-3" />~{formatMinutes(state.outcome.timeSaved.minutes)} saved
+            <ClockIcon className="size-3" />~{formatMinutes(state.outcome.timeSaved.minutes)} saved
           </span>
         </>
       ) : null}
@@ -335,7 +340,7 @@ export function RunView({ id }: { id: string }) {
     <>
       {!busy ? (
         <Button variant="ghost" onClick={() => void rerun()} title={`Model: ${summary.model}`}>
-          <RotateCcw className="size-3.5" /> Run again
+          <ArrowUturnLeftIcon className="size-3.5" /> Run again
         </Button>
       ) : null}
       <IconButton
@@ -354,7 +359,7 @@ export function RunView({ id }: { id: string }) {
           go({ page: 'home' })
         }}
       >
-        <Trash2 className="size-3.5" />
+        <TrashIcon className="size-3.5" />
       </IconButton>
     </>
   )

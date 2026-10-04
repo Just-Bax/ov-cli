@@ -1,5 +1,5 @@
 import { diffLines, diffWordsWithSpace } from 'diff'
-import { ChevronsUpDown } from 'lucide-react'
+import { ChevronUpDownIcon } from '@heroicons/react/24/outline'
 import { type ReactNode, useMemo, useState } from 'react'
 import { cn } from '@/lib/cn'
 
@@ -148,7 +148,8 @@ export function Diff({ before, after }: { before: string; after: string }) {
                       }
                       className="text-brand-strong hover:bg-brand-soft sticky left-0 flex w-full items-center gap-2 bg-[#f3f8fd] px-3 py-1 text-left font-sans text-[11.5px]"
                     >
-                      <ChevronsUpDown className="size-3" /> Show {row.rows.length} unchanged lines
+                      <ChevronUpDownIcon className="size-3" /> Show {row.rows.length} unchanged
+                      lines
                     </button>
                   </td>
                 </tr>

@@ -1,23 +1,22 @@
 import {
-  Check,
-  Copy,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  LockKeyhole,
-  RefreshCw,
-  Save,
-  Sparkles,
-  Unplug,
-  X,
-} from 'lucide-react'
+  ArrowPathIcon,
+  ArrowTopRightOnSquareIcon,
+  CheckIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  LinkSlashIcon,
+  LockClosedIcon,
+  SparklesIcon,
+  Square2StackIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { DatadogArea, DatadogDiscovery, DatadogStatus, Instance } from '@shared/types.ts'
 import datadogMark from '@/assets/datadog.svg'
 import { dialog } from '@/components/Dialog'
 import { useInstances } from '@/components/InstancePicker'
-import { Button, Card, Chip, Select, Skeleton, Spinner, timeAgo } from '@/components/ui'
+import { Button, Card, Chip, IconBadge, Select, Skeleton, Spinner, timeAgo } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 
@@ -41,15 +40,9 @@ export function DatadogMark({ className }: { className?: string }) {
 
 export function DatadogBadge({ size = 'md' }: { size?: 'md' | 'lg' }) {
   return (
-    <span
-      className={cn(
-        'flex shrink-0 items-center justify-center rounded-full',
-        size === 'lg' ? 'size-12' : 'size-10',
-      )}
-      style={{ background: `${DATADOG_PURPLE}14` }}
-    >
+    <IconBadge size={size} color={DATADOG_PURPLE}>
       <DatadogMark className={size === 'lg' ? 'size-7' : 'size-6'} />
-    </span>
+    </IconBadge>
   )
 }
 
@@ -97,7 +90,7 @@ function KeyField({
           rel="noreferrer"
           className="text-brand-strong ml-auto inline-flex items-center gap-1 text-[12px] font-medium hover:underline"
         >
-          {linkLabel} <ExternalLink className="size-3" />
+          {linkLabel} <ArrowTopRightOnSquareIcon className="size-3" />
         </a>
       </div>
       <div className="border-line-strong focus-within:border-brand mt-1.5 flex h-10 items-center rounded-full border bg-white pr-1 pl-4">
@@ -117,7 +110,7 @@ function KeyField({
           onClick={() => setShown((s) => !s)}
           className="text-faint hover:text-fg hover:bg-raised flex size-8 items-center justify-center rounded-full"
         >
-          {shown ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          {shown ? <EyeSlashIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
         </button>
       </div>
       <div className="text-muted mt-1.5 px-1 text-[11.5px] leading-relaxed">{hint}</div>
@@ -210,7 +203,7 @@ export function DatadogConnectModal({
             disabled={busy}
             className="text-faint hover:text-fg hover:bg-raised -mt-1 -mr-1 flex size-8 items-center justify-center rounded-full transition-colors"
           >
-            <X className="size-4" />
+            <XMarkIcon className="size-4" />
           </button>
         </div>
 
@@ -271,7 +264,11 @@ export function DatadogConnectModal({
                 }}
                 className="text-brand-strong hover:bg-brand-soft ml-auto inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11.5px] font-medium"
               >
-                {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                {copied ? (
+                  <CheckIcon className="size-3" />
+                ) : (
+                  <Square2StackIcon className="size-3" />
+                )}
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
@@ -291,7 +288,7 @@ export function DatadogConnectModal({
           </div>
 
           <div className="text-muted flex gap-2.5 px-1 text-[11.5px] leading-relaxed">
-            <LockKeyhole className="mt-0.5 size-3.5 shrink-0" />
+            <LockClosedIcon className="mt-0.5 size-3.5 shrink-0" />
             <span>
               Keys stay in this computer's credential store and are only sent to Datadog. Your
               Datadog admins can see application keys and may audit their use. Logs the agent reads
@@ -315,7 +312,7 @@ export function DatadogConnectModal({
               size="lg"
               disabled={!apiKey.trim() || !appKey.trim() || busy}
             >
-              {busy ? <Spinner className="size-4" /> : <Check className="size-4" />}
+              {busy ? <Spinner className="size-4" /> : <CheckIcon className="size-4" />}
               {busy ? 'Checking keys' : 'Test and connect'}
             </Button>
           </div>
@@ -332,7 +329,7 @@ function Permissions({ status }: { status: DatadogStatus }) {
       {(Object.keys(AREA_LABELS) as DatadogArea[]).map((area) =>
         status.permissions[area] ? (
           <Chip key={area} tone="ok">
-            <Check className="size-3" /> {AREA_LABELS[area]}
+            <CheckIcon className="size-3" /> {AREA_LABELS[area]}
           </Chip>
         ) : (
           <Chip key={area} tone="neutral" className="text-faint">
@@ -451,11 +448,11 @@ export function DatadogMatches({
           disabled={discovering || !status.permissions.logs}
           onClick={() => void discover()}
         >
-          {discovering ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5" />}
+          {discovering ? <Spinner className="size-3.5" /> : <SparklesIcon className="size-3.5" />}
           Suggest matches
         </Button>
         <Button size="sm" variant="primary" disabled={!dirty || saving} onClick={() => void save()}>
-          {saving ? <Spinner className="size-3.5" /> : <Save className="size-3.5" />} Save
+          {saving ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />} Save
         </Button>
       </div>
       <datalist id={listId}>
@@ -570,14 +567,15 @@ export function DatadogCard({
               setStatus(await api.datadogTest().finally(() => setTesting(false)))
             }}
           >
-            {testing ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" />} Test
+            {testing ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}{' '}
+            Test
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setConnecting(true)}>
             Change keys
           </Button>
         </div>
       ) : (
-        <Button variant="primary" onClick={() => setConnecting(true)}>
+        <Button variant="secondary" onClick={() => setConnecting(true)}>
           Connect
         </Button>
       )}
@@ -674,7 +672,7 @@ export function DatadogAccountRow({
                 if (ok) setStatus(await api.datadogDisconnect())
               }}
             >
-              <Unplug className="size-3.5" /> Disconnect
+              <LinkSlashIcon className="size-3.5" /> Disconnect
             </Button>
           ) : status ? (
             <Button size="sm" variant="secondary" onClick={() => setConnecting(true)}>

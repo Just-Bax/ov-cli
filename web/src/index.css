@@ -231,3 +231,12 @@
 .monaco-editor .ov-ref-text {
   cursor: pointer;
 }
+
+/* Heroicons outline everywhere, with one stroke weight; small sizes get a little more so they stay crisp. */
+svg[data-slot='icon'] {
+  stroke-width: 1.6;
+}
+
+svg[data-slot='icon']:is(.size-3, .size-3\.5) {
+  stroke-width: 1.9;
+}

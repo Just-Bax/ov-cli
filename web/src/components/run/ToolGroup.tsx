@@ -1,32 +1,32 @@
 import {
-  ChevronRight,
-  Database,
-  FileCode,
-  FileText,
-  GitBranch,
-  type LucideIcon,
-  Network,
-  Search,
-  Terminal,
-  Ticket,
-  X,
-} from 'lucide-react'
+  ChevronRightIcon,
+  CircleStackIcon,
+  CodeBracketSquareIcon,
+  CommandLineIcon,
+  DocumentTextIcon,
+  MagnifyingGlassIcon,
+  MapIcon,
+  ShareIcon,
+  TicketIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
+import type { Icon } from '@/components/ui'
 import { useState } from 'react'
 import type { ToolActivity } from '@shared/types.ts'
 import { CopyButton, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
 
-const ICONS: Record<string, LucideIcon> = {
-  sql: Database,
-  ov: Terminal,
-  trackor_search: Search,
-  source_search: Search,
-  source_read: FileCode,
-  read_file: FileText,
-  git_clone: GitBranch,
-  load_case: Ticket,
-  graph_query: Network,
+const ICONS: Record<string, Icon> = {
+  sql: CircleStackIcon,
+  ov: CommandLineIcon,
+  trackor_search: MagnifyingGlassIcon,
+  source_search: MagnifyingGlassIcon,
+  source_read: CodeBracketSquareIcon,
+  read_file: DocumentTextIcon,
+  git_clone: ShareIcon,
+  load_case: TicketIcon,
+  graph_query: MapIcon,
 }
 
 const NOUNS: Record<string, [string, string]> = {
@@ -101,7 +101,7 @@ function Block({ title, text, error }: { title: string; text: string; error?: bo
 
 function ToolRow({ tool }: { tool: ToolActivity }) {
   const [open, setOpen] = useState(false)
-  const Icon = ICONS[tool.name] ?? Terminal
+  const Icon = ICONS[tool.name] ?? CommandLineIcon
   const input = readableInput(tool)
   return (
     <div>
@@ -110,13 +110,13 @@ function ToolRow({ tool }: { tool: ToolActivity }) {
         onClick={() => setOpen(!open)}
         className="hover:bg-raised flex w-full items-center gap-2 rounded-full px-2.5 py-1 text-left"
       >
-        <ChevronRight
+        <ChevronRightIcon
           className={cn('text-faint size-3 shrink-0 transition-transform', open && 'rotate-90')}
         />
         {tool.status === 'running' ? (
           <Spinner className="text-brand size-3.5 shrink-0" />
         ) : tool.status === 'error' ? (
-          <X className="text-danger size-3.5 shrink-0" />
+          <XMarkIcon className="text-danger size-3.5 shrink-0" />
         ) : (
           <Icon className="text-muted size-3.5 shrink-0" />
         )}
@@ -161,7 +161,7 @@ export function ToolGroup({ tools }: { tools: ToolActivity[] }) {
         onClick={() => setOpen(!open)}
         className="text-muted hover:text-fg hover:bg-raised -ml-2 flex max-w-full items-center gap-1.5 rounded-full px-2 py-1 text-left"
       >
-        <ChevronRight
+        <ChevronRightIcon
           className={cn('text-faint size-3.5 shrink-0 transition-transform', open && 'rotate-90')}
         />
         {running ? <Spinner className="text-brand size-3.5 shrink-0" /> : null}

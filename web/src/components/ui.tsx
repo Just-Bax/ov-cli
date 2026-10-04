@@ -1,4 +1,4 @@
-import { Check, Copy } from 'lucide-react'
+import { CheckIcon, Square2StackIcon } from '@heroicons/react/24/outline'
 import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
@@ -6,6 +6,7 @@ import {
   type TextareaHTMLAttributes,
   useState,
 } from 'react'
+import type { SparklesIcon } from '@heroicons/react/24/outline'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Dropdown } from '@/components/Dropdown'
@@ -28,6 +29,8 @@ const SIZES: Record<Size, string> = {
   lg: 'h-10 gap-2 rounded-full px-5 text-[13px]',
 }
 
+// Every icon comes from Heroicons outline, so they all share this type.
+export type Icon = typeof SparklesIcon
 export function Button({
   variant = 'secondary',
   size = 'md',
@@ -179,7 +182,7 @@ export function CopyButton({
         setTimeout(() => setDone(false), 1400)
       }}
     >
-      {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      {done ? <CheckIcon className="size-3.5" /> : <Square2StackIcon className="size-3.5" />}
       {done ? 'Copied' : label}
     </Button>
   )
@@ -306,4 +309,81 @@ export function Page({
 
 export function Dot() {
   return <span className="bg-line-strong size-1 shrink-0 rounded-full" />
+}
+
+export type BadgeTone = 'brand' | 'ok' | 'warn' | 'danger' | 'neutral'
+
+const BADGE_TONES: Record<BadgeTone, string> = {
+  brand: 'bg-brand-soft text-brand-strong',
+  ok: 'bg-ok-soft text-ok',
+  warn: 'bg-warn-soft text-warn',
+  danger: 'bg-danger-soft text-danger',
+  neutral: 'bg-raised text-fg',
+}
+
+const BADGE_SIZES = {
+  sm: ['size-8', 'size-4'],
+  md: ['size-10', 'size-5'],
+  lg: ['size-12', 'size-6'],
+} as const
+
+/** The one tinted circle used for icons in headers, account rows, tiles and empty states. */
+export function IconBadge({
+  icon: Glyph,
+  tone = 'brand',
+  size = 'md',
+  color,
+  className,
+  children,
+}: {
+  icon?: Icon
+  tone?: BadgeTone
+  size?: keyof typeof BADGE_SIZES
+  color?: string
+  className?: string
+  children?: ReactNode
+}) {
+  const [box, glyph] = BADGE_SIZES[size]
+  return (
+    <span
+      className={cn(
+        'flex shrink-0 items-center justify-center rounded-full',
+        box,
+        !color && BADGE_TONES[tone],
+        className,
+      )}
+      style={color ? { background: `${color}14`, color } : undefined}
+    >
+      {children ?? (Glyph ? <Glyph className={glyph} /> : null)}
+    </span>
+  )
+}
+
+/** Centered card for pages with nothing to show yet: badge, title, one line, actions. */
+export function EmptyState({
+  icon,
+  badge,
+  title,
+  children,
+  error,
+  action,
+}: {
+  icon?: Icon
+  badge?: ReactNode
+  title: ReactNode
+  children?: ReactNode
+  error?: ReactNode
+  action?: ReactNode
+}) {
+  return (
+    <Card className="w-full max-w-[480px] p-6 text-center">
+      <div className="flex justify-center">{badge ?? <IconBadge icon={icon} size="lg" />}</div>
+      <div className="text-fg mt-4 text-[15px] font-semibold">{title}</div>
+      {children ? (
+        <div className="text-muted mt-1 text-[13px] leading-relaxed">{children}</div>
+      ) : null}
+      {error ? <div className="text-danger mt-3 text-[12.5px]">{error}</div> : null}
+      {action ? <div className="mt-5 flex justify-center gap-2">{action}</div> : null}
+    </Card>
+  )
 }

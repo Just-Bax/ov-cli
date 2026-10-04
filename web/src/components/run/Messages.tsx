@@ -1,4 +1,12 @@
-import { Check, Copy, FileText, RotateCcw, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import {
+  ArrowUturnLeftIcon,
+  CheckIcon,
+  DocumentTextIcon,
+  HandThumbDownIcon,
+  HandThumbUpIcon,
+  Square2StackIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
 import { type ReactNode, useState } from 'react'
 import type { ChatMessage, MessageFile, Rating } from '@shared/types.ts'
 import { Spinner } from '@/components/ui'
@@ -50,7 +58,11 @@ function CopyAction({ text }: { text: string }) {
         setTimeout(() => setDone(false), 1200)
       }}
     >
-      {done ? <Check className="text-ok size-3.5" /> : <Copy className="size-3.5" />}
+      {done ? (
+        <CheckIcon className="text-ok size-3.5" />
+      ) : (
+        <Square2StackIcon className="size-3.5" />
+      )}
     </ActionButton>
   )
 }
@@ -92,7 +104,7 @@ export function FileChips({
             rel="noreferrer"
             className="border-line text-text hover:bg-raised inline-flex h-9 items-center gap-2 rounded-full border bg-white px-3 text-[12.5px]"
           >
-            <FileText className="text-muted size-4" />
+            <DocumentTextIcon className="text-muted size-4" />
             <span className="max-w-[200px] truncate">{f.name}</span>
           </a>
         ),
@@ -129,7 +141,11 @@ export function UserMessage({
               void api.retry(runId, message.id).finally(() => setRetrying(false))
             }}
           >
-            {retrying ? <Spinner className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+            {retrying ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <ArrowUturnLeftIcon className="size-3.5" />
+            )}
           </ActionButton>
         ) : null}
         <CopyAction text={message.text} />
@@ -153,7 +169,7 @@ export function QueuedMessage({ runId, message }: { runId: string; message: Chat
           onClick={() => void api.removeQueued(runId, message.id)}
           className="hover:bg-raised hover:text-fg flex size-6 items-center justify-center rounded-full"
         >
-          <X className="size-3.5" />
+          <XMarkIcon className="size-3.5" />
         </button>
       </div>
     </div>
@@ -193,10 +209,10 @@ export function AssistantActions({
     <div className="flex flex-wrap items-center gap-0.5">
       <CopyAction text={text} />
       <ActionButton label="Good response" active={current === 'good'} onClick={() => rate('good')}>
-        <ThumbsUp className="size-3.5" />
+        <HandThumbUpIcon className="size-3.5" />
       </ActionButton>
       <ActionButton label="Bad response" active={current === 'wrong'} onClick={() => rate('wrong')}>
-        <ThumbsDown className="size-3.5" />
+        <HandThumbDownIcon className="size-3.5" />
       </ActionButton>
       {canRetry ? (
         <ActionButton
@@ -206,7 +222,11 @@ export function AssistantActions({
             void api.retry(runId, turnId).finally(() => setRetrying(false))
           }}
         >
-          {retrying ? <Spinner className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+          {retrying ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <ArrowUturnLeftIcon className="size-3.5" />
+          )}
         </ActionButton>
       ) : null}
       {ts ? <span className="text-faint ml-1.5 text-[11.5px]">{formatTime(ts)}</span> : null}
@@ -228,7 +248,7 @@ export function AssistantActions({
             className="placeholder:text-faint text-fg min-w-0 flex-1 bg-transparent text-[12px] outline-none"
           />
           {note.trim() && note.trim() === sentNote ? (
-            <Check className="text-ok mr-1.5 size-3.5" />
+            <CheckIcon className="text-ok mr-1.5 size-3.5" />
           ) : (
             <button
               type="submit"

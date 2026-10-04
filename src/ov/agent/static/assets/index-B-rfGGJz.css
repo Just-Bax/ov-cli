@@ -1299,9 +1299,6 @@ svg.react-flow__connectionline {
   .max-w-\[420px\] {
     max-width: 420px;
   }
-  .max-w-\[460px\] {
-    max-width: 460px;
-  }
   .max-w-\[480px\] {
     max-width: 480px;
   }
@@ -2626,6 +2623,12 @@ svg.react-flow__connectionline {
 }
 .monaco-editor .ov-ref-text {
   cursor: pointer;
+}
+svg[data-slot='icon'] {
+  stroke-width: 1.6;
+}
+svg[data-slot='icon']:is(.size-3, .size-3\.5) {
+  stroke-width: 1.9;
 }
 @property --tw-translate-x {
   syntax: "*";

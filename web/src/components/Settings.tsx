@@ -1,14 +1,14 @@
 import {
-  FolderGit2,
-  KeyRound,
-  LogOut,
-  Plus,
-  RefreshCw,
-  RotateCcw,
-  Save,
-  Search,
-  Trash2,
-} from 'lucide-react'
+  ArrowPathIcon,
+  ArrowRightStartOnRectangleIcon,
+  ArrowUturnLeftIcon,
+  CheckIcon,
+  FolderIcon,
+  KeyIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  TrashIcon,
+} from '@heroicons/react/24/outline'
 import { useEffect, useState } from 'react'
 import type { Instance, SkillInfo, SourceInfo } from '@shared/types.ts'
 import {
@@ -30,6 +30,7 @@ import {
   Card,
   Chip,
   GithubMark,
+  IconBadge,
   IconButton,
   Input,
   Label,
@@ -236,7 +237,7 @@ function Instances() {
     <Card className="overflow-hidden">
       <div className="border-line flex items-center gap-2 border-b px-5 py-2.5">
         <label className="border-line-strong focus-within:border-brand flex h-9 flex-1 items-center gap-2 rounded-full border bg-white px-3.5">
-          <Search className="text-faint size-3.5" />
+          <MagnifyingGlassIcon className="text-faint size-3.5" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -275,7 +276,7 @@ function Instances() {
                     variant={i.valid ? 'ghost' : 'secondary'}
                     onClick={() => setTarget(row)}
                   >
-                    {busy ? <Spinner className="size-3.5" /> : <KeyRound className="size-3.5" />}
+                    {busy ? <Spinner className="size-3.5" /> : <KeyIcon className="size-3.5" />}
                     {busy ? 'Signing in' : i.valid ? 'Refresh' : 'Sign in'}
                   </Button>
                   <IconButton
@@ -297,7 +298,7 @@ function Instances() {
                       }
                     }}
                   >
-                    <Trash2 className="size-3.5" />
+                    <TrashIcon className="size-3.5" />
                   </IconButton>
                 </div>
               )
@@ -475,7 +476,7 @@ function Skills() {
               creating ? 'bg-brand-soft' : 'hover:bg-canvas',
             )}
           >
-            <Plus className="size-3.5" /> New skill
+            <PlusIcon className="size-3.5" /> New skill
           </button>
         </div>
       </div>
@@ -539,17 +540,17 @@ function Skills() {
               disabled={!dirty || saving}
               onClick={() => void save()}
             >
-              {saving ? <Spinner className="size-3.5" /> : <Save className="size-3.5" />}
+              {saving ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />}
               {creating ? 'Create' : 'Save'}
             </Button>
             {current?.builtin && current.customized ? (
               <Button size="sm" variant="ghost" onClick={() => void remove()}>
-                <RotateCcw className="size-3.5" /> Reset to default
+                <ArrowUturnLeftIcon className="size-3.5" /> Reset to default
               </Button>
             ) : null}
             {current && !current.builtin ? (
               <Button size="sm" variant="ghost" onClick={() => void remove()}>
-                <Trash2 className="size-3.5" /> Delete
+                <TrashIcon className="size-3.5" /> Delete
               </Button>
             ) : null}
             <span className="text-faint ml-auto text-[12px]">Applies to new runs</span>
@@ -614,7 +615,7 @@ function Sources() {
       <div className="divide-line divide-y">
         {sources.map((s) => (
           <div key={s.name} className="flex items-center gap-3 px-5 py-2.5">
-            <FolderGit2 className={cn('size-4 shrink-0', s.ready ? 'text-muted' : 'text-danger')} />
+            <FolderIcon className={cn('size-4 shrink-0', s.ready ? 'text-muted' : 'text-danger')} />
             <div className="min-w-0 flex-1">
               <div className="text-fg text-[13px] font-medium">
                 {s.name}
@@ -635,7 +636,7 @@ function Sources() {
                 {busy === s.name ? (
                   <Spinner className="size-3.5" />
                 ) : (
-                  <RefreshCw className="size-3.5" />
+                  <ArrowPathIcon className="size-3.5" />
                 )}
               </IconButton>
             ) : null}
@@ -664,7 +665,7 @@ function Sources() {
                 if (ok) void act(s.name, () => api.deleteSource(s.name))
               }}
             >
-              <Trash2 className="size-3.5" />
+              <TrashIcon className="size-3.5" />
             </IconButton>
           </div>
         ))}
@@ -709,7 +710,7 @@ function Sources() {
             size="sm"
             disabled={!draft.name.trim() || !draft.location.trim() || busy === 'save'}
           >
-            {busy === 'save' ? <Spinner className="size-3.5" /> : <Plus className="size-3.5" />}
+            {busy === 'save' ? <Spinner className="size-3.5" /> : <PlusIcon className="size-3.5" />}
             {editing ? 'Save' : 'Add'}
           </Button>
           {editing ? (
@@ -785,9 +786,9 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           <Card className="divide-line divide-y overflow-hidden">
             <AccountRow
               badge={
-                <span className="bg-raised text-fg flex size-10 shrink-0 items-center justify-center rounded-full">
+                <IconBadge tone="neutral">
                   <GithubMark className="size-5" />
-                </span>
+                </IconBadge>
               }
               title="GitHub Copilot"
               detail={user ? `Signed in as ${user}. Runs the agent.` : 'Not signed in'}
@@ -802,7 +803,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
                       onChange()
                     }}
                   >
-                    <LogOut className="size-3.5" /> Sign out
+                    <ArrowRightStartOnRectangleIcon className="size-3.5" /> Sign out
                   </Button>
                 ) : null
               }
