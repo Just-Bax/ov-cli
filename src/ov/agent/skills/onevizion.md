@@ -7,7 +7,11 @@ OneVizion is a configurable platform for tracking projects, assets and processes
 
 ## The instance map
 
-Call graph_query first when you need to know what is connected to an object: which rules are triggered by or use a field, what loads a trackor type, which workflow runs a rule. It answers from a cached map of the whole configuration without SQL; links marked "in code" come from text matching in rule, import and report SQL and can miss dynamic SQL. Confirm anything important on the instance before you rely on it.
+Call graph_query first when you need to know what is connected to an object: which rules are triggered by or use a field, what loads a trackor type, which workflow runs a rule, which rules call a DB package and what the package uses. It answers from a cached map of the whole configuration without SQL; links marked "in code" come from rule, import, report and DB package code, counting only quoted names, config ids, `id.*` object references and `PACKAGE.procedure` calls, so dynamic SQL can be missed. Confirm anything important on the instance before you rely on it.
+
+## Object references (the ID package)
+
+Code can name config objects without hard-coded ids through the generated `ID` package (PKG_OBJREF): `id.<trackor_type>.tt`, `id.<trackor_type>.cf.<field>`, `id.<trackor_type>.rel.<child_type>`, `id.<trackor_type>.class.<class>`, `id.vt.<vtable>.<value>`, `id.vtable.<vtable>`, `id.imp.<import>`, `id.rpt.<report>`, `id.wf.<workflow_template>`, `id.wp_template.<template>`, `id.wp.datepair.<abbr>`. Names are lowercase with spaces as underscores. PL/SQL uses them directly (`util.SetValByID(v_id, id.issue.cf.estim_hours, 200)`); plain SQL wraps them: `id.get('id.site.tt')`. ENTITY_OBJREF_DEPENDENCY (ENTITY_COMPONENT_ID, ENTITY_ID, TABLE_NAME, COLUMN_NAME, OBJREF, OBJECT_COMPONENT_ID, OBJECT_ID) lists which entity code uses which reference. Prefer object references over hard-coded ids in fixes: they survive renumbering and copies between instances.
 
 ## PROCESS: the run log behind reports, imports, exports, modules, rules and automations
 

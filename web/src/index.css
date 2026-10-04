@@ -218,13 +218,16 @@
   }
 }
 
-.monaco-editor .ov-link {
-  cursor: pointer;
-  text-decoration: underline dotted rgba(30, 136, 229, 0.55);
-  text-underline-offset: 3px;
+/* A reference sits on a rounded pill in its type's color; per-type colors come from CodeView. */
+.monaco-editor .lines-content .cdr.ov-ref {
+  top: 3px;
+  height: 16px;
+  border-radius: 6px;
+  outline-width: 2px;
+  outline-style: solid;
+  transition: background-color 120ms;
 }
 
-.monaco-editor .ov-link:hover {
-  text-decoration-style: solid;
-  text-decoration-color: #1e88e5;
+.monaco-editor .ov-ref-text {
+  cursor: pointer;
 }

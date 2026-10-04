@@ -18,7 +18,7 @@ import type {
   InstanceGraph,
   ObjectActivity,
 } from '@shared/types.ts'
-import { CodeView, describeNode } from '@/components/explorer/CodeView'
+import { CodeView } from '@/components/explorer/CodeView'
 import {
   degree,
   FORMS,
@@ -42,6 +42,7 @@ import {
 } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { refIndex } from '@/lib/references'
 import { go, href } from '@/lib/route'
 import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 
@@ -730,40 +731,24 @@ export function ExplorerPage() {
     }
   }, [node?.id, alias])
 
-  // Names in code resolve to objects: field and trackor type names, package names, and ids.
-  const lookup = useMemo(() => {
-    const byName = new Map<string, GraphNode>()
-    const byRef = new Map<number, GraphNode>()
-    const taken = new Set<string>()
-    for (const n of graph?.nodes ?? []) {
-      byRef.set(n.ref, n)
-      if (!['field', 'trackor_type', 'db_package'].includes(n.type)) continue
-      const key = n.name.toUpperCase()
-      if (byName.has(key)) taken.add(key)
-      else byName.set(key, n)
-    }
-    for (const key of taken) byName.delete(key)
-    return { byName, byRef }
-  }, [graph])
-  const resolve = useCallback(
-    (token: string) =>
-      /^\d+$/.test(token)
-        ? lookup.byRef.get(Number(token))
-        : token.length > 3
-          ? lookup.byName.get(token.toUpperCase())
-          : undefined,
-    [lookup],
-  )
-  const describe = useCallback(
+  const refs = useMemo(() => refIndex(graph?.nodes ?? [], idx), [graph, idx])
+  const facts = useCallback(
     (n: GraphNode) => {
       const links = idx?.links.get(n.id) ?? []
+      const count = (kind: string, out: boolean) =>
+        links.filter((l) => l.kind === kind && l.out === out).length
       const owner = links.find((l) => l.kind === 'field_of' && l.out)?.other
-      const usedBy = links.filter((l) => l.kind === 'uses' && !l.out).length
-      const parts = [
+      const usedBy = count('uses', false)
+      const calledBy = count('calls', false)
+      const fields = count('field_of', false)
+      return [
         owner ? `Field of ${owner.name}` : '',
-        usedBy ? `used in code by ${usedBy}` : '',
+        fields ? `${fields.toLocaleString()} fields` : '',
+        usedBy ? `Used in code by ${usedBy.toLocaleString()}` : '',
+        calledBy ? `Called by ${calledBy.toLocaleString()}` : '',
+        n.enabled === false ? 'Disabled' : '',
+        n.invalid ? 'Invalid code' : '',
       ].filter(Boolean)
-      return describeNode(n, parts.join(', '))
     },
     [idx],
   )
@@ -868,9 +853,13 @@ export function ExplorerPage() {
                 <CodeView
                   code={current.code}
                   hints={current.hints}
-                  resolve={resolve}
-                  describe={describe}
+                  refs={refs}
+                  facts={facts}
                   onOpen={(n) => open(n.id)}
+                  onShowOnMap={(n) => {
+                    localStorage.setItem(FOCUS_KEY, n.id)
+                    go({ page: 'map' })
+                  }}
                   revealLine={reveal}
                 />
               ) : (

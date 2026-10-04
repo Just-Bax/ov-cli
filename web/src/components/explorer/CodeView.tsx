@@ -1,38 +1,32 @@
-import { useEffect, useRef } from 'react'
-import type { CodeHint, GraphNode } from '@shared/types.ts'
-import { TYPES } from '@/components/map/meta'
+import { ArrowUpRight, Network } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import type { CodeHint, GraphNode, GraphNodeType } from '@shared/types.ts'
+import { TypeDot, TYPES } from '@/components/map/meta'
+import { Button } from '@/components/ui'
+import { findRefs, type Ref, type RefIndex, REF_KINDS } from '@/lib/references'
 import { monaco } from '@/lib/monaco'
 
-const TOKEN = /\b\d{6,12}\b|\b[A-Za-z][A-Za-z0-9_$#]{2,}\b/g
-const MAX_LINKS = 4000
+const MAX_LINKS = 6000
+const CARD_WIDTH = 320
 
-export type Resolve = (token: string) => GraphNode | undefined
-
-// Hover and click need the resolver of the editor they fire in; models are keyed by uri.
-const resolvers = new Map<string, { resolve: Resolve; describe: (n: GraphNode) => string }>()
-let hoverRegistered = false
-
-function registerHover() {
-  if (hoverRegistered) return
-  hoverRegistered = true
-  monaco.languages.registerHoverProvider('sql', {
-    provideHover(model, position) {
-      const entry = resolvers.get(model.uri.toString())
-      const word = model.getWordAtPosition(position)
-      if (!entry || !word) return null
-      const node = entry.resolve(word.word)
-      if (!node) return null
-      return {
-        range: new monaco.Range(
-          position.lineNumber,
-          word.startColumn,
-          position.lineNumber,
-          word.endColumn,
-        ),
-        contents: [{ value: entry.describe(node) }],
-      }
-    },
-  })
+// Per-type colors for the pill behind a reference and its text, generated once from TYPES.
+let stylesAdded = false
+function addStyles() {
+  if (stylesAdded) return
+  stylesAdded = true
+  const css = (Object.keys(TYPES) as GraphNodeType[])
+    .map((type) => {
+      const color = TYPES[type].color
+      return [
+        `.monaco-editor .ov-ref-${type} { background: ${color}1f; outline-color: ${color}1f; }`,
+        `.monaco-editor .ov-ref-${type}.ov-ref-on { background: ${color}38; outline-color: ${color}38; }`,
+        `.monaco-editor .ov-ref-text-${type} { color: ${color} !important; }`,
+      ].join('\n')
+    })
+    .join('\n')
+  const style = document.createElement('style')
+  style.textContent = css
+  document.head.appendChild(style)
 }
 
 function severity(level: CodeHint['severity']) {
@@ -41,29 +35,44 @@ function severity(level: CodeHint['severity']) {
   return monaco.MarkerSeverity.Info
 }
 
+type Hover = { ref: Ref; line: number; top: number; left: number }
+
 export function CodeView({
   code,
   hints,
-  resolve,
-  describe,
+  refs,
+  facts,
   onOpen,
+  onShowOnMap,
   revealLine,
 }: {
   code: string
   hints: CodeHint[]
-  resolve: Resolve
-  describe: (node: GraphNode) => string
+  refs: RefIndex
+  facts: (node: GraphNode) => string[]
   onOpen: (node: GraphNode) => void
+  onShowOnMap: (node: GraphNode) => void
   revealLine?: { line: number; at: number }
 }) {
+  const frame = useRef<HTMLDivElement>(null)
   const host = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor>(undefined)
   const linksRef = useRef<monaco.editor.IEditorDecorationsCollection>(undefined)
+  const activeRef = useRef<monaco.editor.IEditorDecorationsCollection>(undefined)
+  const byLine = useRef(new Map<number, Ref[]>())
   const openRef = useRef(onOpen)
   openRef.current = onOpen
+  const [hover, setHover] = useState<Hover>()
+  const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  const keep = () => clearTimeout(hideTimer.current)
+  const hideSoon = () => {
+    clearTimeout(hideTimer.current)
+    hideTimer.current = setTimeout(() => setHover(undefined), 180)
+  }
 
   useEffect(() => {
-    registerHover()
+    addStyles()
     const editor = monaco.editor.create(host.current!, {
       readOnly: true,
       theme: 'ov-light',
@@ -71,7 +80,7 @@ export function CodeView({
       automaticLayout: true,
       fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
       fontSize: 12.5,
-      lineHeight: 20,
+      lineHeight: 22,
       minimap: { enabled: true, renderCharacters: false, scale: 1 },
       scrollBeyondLastLine: false,
       smoothScrolling: true,
@@ -86,22 +95,45 @@ export function CodeView({
     })
     editorRef.current = editor
     linksRef.current = editor.createDecorationsCollection()
+    activeRef.current = editor.createDecorationsCollection()
 
-    // A plain click on a linked name opens it, as long as the user is not selecting text.
-    const click = editor.onMouseUp((e) => {
+    const refAt = (position: monaco.Position | null) =>
+      position
+        ? byLine.current
+            .get(position.lineNumber)
+            ?.find((r) => r.start < position.column && position.column <= r.end + 1)
+        : undefined
+
+    const move = editor.onMouseMove((e) => {
       const position = e.target.position
-      if (!position || !editor.getSelection()?.isEmpty()) return
-      const model = editor.getModel()
-      const entry = model && resolvers.get(model.uri.toString())
-      const word = model?.getWordAtPosition(position)
-      const node = entry && word ? entry.resolve(word.word) : undefined
-      if (node) openRef.current(node)
+      const onText = e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT
+      const ref = onText ? refAt(position) : undefined
+      if (!ref || !position) {
+        hideSoon()
+        return
+      }
+      keep()
+      setHover((current) => {
+        if (current?.ref === ref) return current
+        const at = editor.getScrolledVisiblePosition({
+          lineNumber: position.lineNumber,
+          column: ref.start + 1,
+        })
+        if (!at) return current
+        return { ref, line: position.lineNumber, top: at.top + at.height + 6, left: at.left }
+      })
+    })
+    const leave = editor.onMouseLeave(hideSoon)
+    const scroll = editor.onDidScrollChange(() => setHover(undefined))
+    // A plain click on a reference opens it, as long as the user is not selecting text.
+    const click = editor.onMouseUp((e) => {
+      if (!editor.getSelection()?.isEmpty()) return
+      const ref = refAt(e.target.position)
+      if (ref) openRef.current(ref.node)
     })
     return () => {
-      click.dispose()
-      const model = editor.getModel()
-      if (model) resolvers.delete(model.uri.toString())
-      model?.dispose()
+      for (const d of [move, leave, scroll, click]) d.dispose()
+      editor.getModel()?.dispose()
       editor.dispose()
     }
   }, [])
@@ -110,23 +142,26 @@ export function CodeView({
     const editor = editorRef.current
     if (!editor) return
     const previous = editor.getModel()
-    if (previous) resolvers.delete(previous.uri.toString())
     const model = monaco.editor.createModel(code.replace(/\r\n/g, '\n'), 'sql')
-    resolvers.set(model.uri.toString(), { resolve, describe })
     editor.setModel(model)
     previous?.dispose()
+    setHover(undefined)
 
+    byLine.current = new Map()
     const decorations: monaco.editor.IModelDeltaDecoration[] = []
     for (let line = 1; line <= model.getLineCount() && decorations.length < MAX_LINKS; line++) {
-      const text = model.getLineContent(line)
-      for (const match of text.matchAll(TOKEN)) {
-        const node = resolve(match[0])
-        if (!node) continue
+      const found = findRefs(model.getLineContent(line), refs)
+      if (!found.length) continue
+      byLine.current.set(line, found)
+      for (const r of found)
         decorations.push({
-          range: new monaco.Range(line, match.index + 1, line, match.index + 1 + match[0].length),
-          options: { inlineClassName: `ov-link ov-link-${node.type}` },
+          range: new monaco.Range(line, r.start + 1, line, r.end + 1),
+          options: {
+            className: `ov-ref ov-ref-${r.node.type}`,
+            inlineClassName: `ov-ref-text ov-ref-text-${r.node.type}`,
+            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+          },
         })
-      }
     }
     linksRef.current?.set(decorations)
 
@@ -146,7 +181,25 @@ export function CodeView({
       }),
     )
     editor.setScrollTop(0)
-  }, [code, hints, resolve, describe])
+  }, [code, hints, refs])
+
+  useEffect(() => {
+    activeRef.current?.set(
+      hover
+        ? [
+            {
+              range: new monaco.Range(
+                hover.line,
+                hover.ref.start + 1,
+                hover.line,
+                hover.ref.end + 1,
+              ),
+              options: { className: `ov-ref ov-ref-${hover.ref.node.type} ov-ref-on` },
+            },
+          ]
+        : [],
+    )
+  }, [hover])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -156,9 +209,96 @@ export function CodeView({
     editor.focus()
   }, [revealLine])
 
-  return <div ref={host} className="h-full w-full" />
+  const width = frame.current?.clientWidth ?? 0
+  return (
+    <div ref={frame} className="relative h-full w-full">
+      <div ref={host} className="h-full w-full" />
+      {hover ? (
+        <RefCard
+          hover={hover}
+          facts={facts(hover.ref.node)}
+          style={{
+            top: hover.top,
+            left: Math.max(8, Math.min(hover.left - 12, width - CARD_WIDTH - 24)),
+            width: CARD_WIDTH,
+          }}
+          onEnter={keep}
+          onLeave={hideSoon}
+          onOpen={() => {
+            setHover(undefined)
+            onOpen(hover.ref.node)
+          }}
+          onShowOnMap={() => onShowOnMap(hover.ref.node)}
+        />
+      ) : null}
+    </div>
+  )
 }
 
-export function describeNode(node: GraphNode, extra: string): string {
-  return `**${node.name}**  \n${TYPES[node.type].label} - id ${node.ref}${extra ? `  \n${extra}` : ''}  \n\n_Click to open_`
+function RefCard({
+  hover,
+  facts,
+  style,
+  onEnter,
+  onLeave,
+  onOpen,
+  onShowOnMap,
+}: {
+  hover: Hover
+  facts: string[]
+  style: React.CSSProperties
+  onEnter: () => void
+  onLeave: () => void
+  onOpen: () => void
+  onShowOnMap: () => void
+}) {
+  const { node, kind, text } = hover.ref
+  const meta = TYPES[node.type]
+  return (
+    <div
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      style={style}
+      className="border-line absolute z-50 rounded-2xl border bg-white p-3.5 shadow-[0_8px_28px_rgba(38,50,56,0.14)]"
+    >
+      <div className="flex items-start gap-2.5">
+        <TypeDot type={node.type} />
+        <div className="min-w-0 flex-1">
+          <div className="text-fg text-[13px] leading-snug font-semibold break-words">
+            {node.name}
+          </div>
+          <div className="text-muted mt-0.5 text-[11.5px]">
+            {meta.label} - id {node.ref}
+          </div>
+        </div>
+      </div>
+      <div
+        className="mt-3 flex items-center gap-2 rounded-full py-1 pr-3 pl-1"
+        style={{ background: `${meta.color}12` }}
+      >
+        <span
+          className="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium text-white"
+          style={{ background: meta.color }}
+        >
+          {REF_KINDS[kind]}
+        </span>
+        <code className="text-text min-w-0 truncate font-mono text-[11.5px]">{text}</code>
+      </div>
+      {facts.length ? (
+        <div className="text-muted mt-2.5 space-y-1 px-1 text-[12px] leading-relaxed">
+          {facts.map((f) => (
+            <div key={f}>{f}</div>
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-3 flex gap-2">
+        <Button size="sm" variant="primary" onClick={onOpen}>
+          <ArrowUpRight className="size-3.5" /> Open
+        </Button>
+        <Button size="sm" variant="secondary" onClick={onShowOnMap}>
+          <Network className="size-3.5" /> Show on map
+        </Button>
+      </div>
+    </div>
+  )
 }

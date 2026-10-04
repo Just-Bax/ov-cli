@@ -359,8 +359,9 @@ def hints(code: str, node: dict[str, Any], known: set[int] | None = None) -> lis
                     number,
                     "info",
                     "Hard-coded value",
-                    f"{literal.group(1)} is hard-coded. If it is an id or a task number, a "
-                    "lookup by name survives renumbering and copies between instances.",
+                    f"{literal.group(1)} is hard-coded. If it is a config id, an object "
+                    "reference such as id.<type>.cf.<field> survives renumbering and copies "
+                    "between instances.",
                 )
             )
 

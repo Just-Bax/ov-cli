@@ -47,9 +47,16 @@ FORMS = {
     "db_package": "/admin/dbpackage/Form.do?id=",
 }
 
+# Only clean references count as links: config ids, quoted names, id.* object references
+# and package calls. Bare words are too often columns or variables that share a field's name.
 _NUMBER = re.compile(r"\b\d{6,12}\b")
-_WORD = re.compile(r"\b[A-Za-z][A-Za-z0-9_]{2,}\b")
+_QUOTED = re.compile(r"(['\"])([A-Za-z][A-Za-z0-9_$#]{2,})\1")
+# Same pattern PKG_OBJREF_UTIL uses to find references in code.
+_OBJREF = re.compile(r"\bid\.([A-Za-z0-9_.]+)", re.IGNORECASE)
 _CALL = re.compile(r"\b([A-Za-z][A-Za-z0-9_$#]*)\s*\.\s*[A-Za-z]")
+OBJREF_KINDS = {"imp": "import", "rpt": "report", "wf": "workflow"}
+# Package bodies are read in windows of CODE_CHUNKS x 1000 characters.
+PACKAGE_WINDOWS = 40
 
 
 class GraphError(Exception):
@@ -57,9 +64,9 @@ class GraphError(Exception):
 
 
 # 1000-character pieces in separate columns: multi-byte text would pass the 4000-byte SQL limit.
-def _code(column: str) -> str:
+def _code(column: str, start: str = "1") -> str:
     return ", ".join(
-        f"dbms_lob.substr({column}, 1000, {1 + i * 1000}) code{i}" for i in range(CODE_CHUNKS)
+        f"dbms_lob.substr({column}, 1000, {start} + {i * 1000}) code{i}" for i in range(CODE_CHUNKS)
     )
 
 
@@ -95,11 +102,17 @@ QUERIES: dict[str, str] = {
     "where nvl(is_archived, 0) = 0",
     "invalid": "select component_id, entity_id from invalid_object",
     "packages": "select db_package_id, db_package_name from db_package",
+    "package_code": "select p.db_package_id, w.n, "
+    + _code("p.db_package_body", f"1 + w.n * {CODE_CHUNKS * 1000}")
+    + f" from db_package p join (select level - 1 n from dual connect by level <= "
+    f"{PACKAGE_WINDOWS}) w on w.n * {CODE_CHUNKS * 1000} < "
+    "nvl(dbms_lob.getlength(p.db_package_body), 0) order by p.db_package_id, w.n",
 }
 
 # The graph is still useful without these, e.g. on instances without Vizion Hub.
 OPTIONAL = {
     "packages",
+    "package_code",
     "rule_code",
     "import_code",
     "report_code",
@@ -206,20 +219,66 @@ class _Builder:
             self.edges.add((source, target, kind, code))
 
 
-def _uses(
-    builder: _Builder, source: str, text: str, by_id: set[int], by_name: dict, packages: dict
-) -> None:
-    targets = {int(n) for n in _NUMBER.findall(text)} & by_id
-    for word in _WORD.findall(text):
-        found = by_name.get(word.upper())
-        if found is not None:
-            targets.add(found)
-    for ref in targets:
-        builder.edge(source, f"field:{ref}", "uses", code=True)
-    for name in _CALL.findall(text):
-        package = packages.get(name.upper())
-        if package is not None:
-            builder.edge(source, f"db_package:{package}", "calls", code=True)
+def objref_key(name: str) -> str:
+    return name.lower().replace(" ", "_")
+
+
+def objref_target(ref: str, objrefs: dict[str, str]) -> str | None:
+    parts = [p for p in ref.lower().split(".") if p]
+    if len(parts) >= 3 and parts[1] == "cf":
+        return objrefs.get(f"id.{parts[0]}.cf.{parts[2]}")
+    if len(parts) >= 2 and parts[0] in OBJREF_KINDS:
+        return objrefs.get(f"id.{parts[0]}.{parts[1]}")
+    # id.<type>.tt, and the type behind id.<type>.rel.* or id.<type>.class.*.
+    return objrefs.get(f"id.{parts[0]}.tt") if parts else None
+
+
+class _Refs:
+    def __init__(self, nodes: dict[str, dict[str, Any]], edges: set) -> None:
+        ids: dict[int, str | None] = {}
+        for node in nodes.values():
+            ids[node["ref"]] = None if node["ref"] in ids else node["id"]
+        self.ids = {k: v for k, v in ids.items() if v is not None}
+        names: dict[str, str | None] = {}
+        for node in nodes.values():
+            if node["type"] in ("field", "trackor_type", "db_package"):
+                key = node["name"].upper()
+                # A name shared by two objects cannot be resolved from code text.
+                names[key] = None if key in names else node["id"]
+        self.names = {k: v for k, v in names.items() if v is not None and len(k) > 3}
+        self.packages = {
+            n["name"].upper(): n["id"] for n in nodes.values() if n["type"] == "db_package"
+        }
+        owner = {s: t for s, t, k, _ in edges if k == "field_of"}
+        self.objrefs: dict[str, str] = {}
+        for node in nodes.values():
+            name = objref_key(node["name"])
+            if node["type"] == "trackor_type":
+                self.objrefs[f"id.{name}.tt"] = node["id"]
+            elif node["type"] == "field" and owner.get(node["id"]) in nodes:
+                tt = objref_key(nodes[owner[node["id"]]]["name"])
+                self.objrefs[f"id.{tt}.cf.{name}"] = node["id"]
+            else:
+                prefix = next((k for k, v in OBJREF_KINDS.items() if v == node["type"]), None)
+                if prefix:
+                    self.objrefs[f"id.{prefix}.{name}"] = node["id"]
+
+    def link(self, builder: _Builder, source: str, text: str) -> None:
+        targets = {self.ids[int(n)] for n in _NUMBER.findall(text) if int(n) in self.ids}
+        targets |= {
+            self.names[q.upper()] for _, q in _QUOTED.findall(text) if q.upper() in self.names
+        }
+        for ref in _OBJREF.findall(text):
+            found = objref_target(ref, self.objrefs)
+            if found:
+                targets.add(found)
+        for name in _CALL.findall(text):
+            package = self.packages.get(name.upper())
+            if package:
+                targets.add(package)
+        for target in targets:
+            kind = "calls" if target.startswith("db_package:") else "uses"
+            builder.edge(source, target, kind, code=True)
 
 
 def build(
@@ -354,23 +413,21 @@ def _assemble(r: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             "runs",
         )
 
-    field_ids = {n["ref"] for n in b.nodes.values() if n["type"] == "field"}
-    names: dict[str, int | None] = {}
-    for node in b.nodes.values():
-        if node["type"] == "field":
-            key = node["name"].upper()
-            # A name shared by two fields cannot be resolved from code text.
-            names[key] = None if key in names else node["ref"]
-    by_name = {k: v for k, v in names.items() if v is not None and len(k) > 3}
-    packages = {n["name"].upper(): n["ref"] for n in b.nodes.values() if n["type"] == "db_package"}
-
+    refs = _Refs(b.nodes, b.edges)
     for key, kind, column in (
         ("rule_code", "rule", "RULE_ID"),
         ("import_code", "import", "IMP_SPEC_ID"),
         ("report_code", "report", "REPORT_FILE_ID"),
     ):
-        for row in r[key]:
-            _uses(b, f"{kind}:{_num(row[column])}", _code_text(row), field_ids, by_name, packages)
+        for row in r.get(key, []):
+            refs.link(b, f"{kind}:{_num(row[column])}", _code_text(row))
+    bodies: dict[int | None, list[tuple[int, str]]] = {}
+    for row in r.get("package_code", []):
+        bodies.setdefault(_num(row["DB_PACKAGE_ID"]), []).append(
+            (_num(row.get("N")) or 0, _code_text(row))
+        )
+    for package, windows in bodies.items():
+        refs.link(b, f"db_package:{package}", "".join(text for _, text in sorted(windows)))
 
     for row in r["invalid"]:
         kind = INVALID_TYPES.get(_num(row.get("COMPONENT_ID")) or -1)

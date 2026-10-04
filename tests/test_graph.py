@@ -38,11 +38,24 @@ RESULTS = rows(
     ],
     rule_bindings=[{"RULE_ID": "500", "ID_NUM": "100100101"}],
     rule_code=[
-        {"RULE_ID": "500", "CODE0": "v := 100100100/*P_STATUS*/; ", "CODE1": "x := DUPE; p_site"}
+        {
+            "RULE_ID": "500",
+            "CODE0": "v := 100100100/*P_STATUS*/; ",
+            "CODE1": "x := 'DUPE'; y := id.project.cf.p_site; Site",
+        }
     ],
     imports=[{"IMP_SPEC_ID": "7", "NAME": "Project load"}],
     import_entities=[{"IMP_SPEC_ID": "7", "XITOR_TYPE_ID": "1"}],
     invalid=[{"COMPONENT_ID": "4", "ENTITY_ID": "500"}],
+    packages=[
+        {"DB_PACKAGE_ID": "900", "DB_PACKAGE_NAME": "PKG_A"},
+        {"DB_PACKAGE_ID": "901", "DB_PACKAGE_NAME": "PKG_B"},
+    ],
+    package_code=[
+        {"DB_PACKAGE_ID": "900", "N": "1", "CODE0": "B.run; id.get('id.imp.project_load');"},
+        {"DB_PACKAGE_ID": "900", "N": "0", "CODE0": "xitor_type_id = id.site.tt; PKG_"},
+        {"DB_PACKAGE_ID": "901", "N": "0", "CODE0": "v := id.project.rel.site;"},
+    ],
 )
 
 
@@ -56,6 +69,13 @@ def test_links_come_from_keys_and_code():
     assert ("rule:500", "field:100100100", "uses") in edges
     assert ("rule:500", "field:100100101", "uses") in edges
     assert ("import:7", "trackor_type:1", "loads") in edges
+    # Package bodies are joined window by window, so a name split across windows still links.
+    assert ("db_package:900", "trackor_type:2", "uses") in edges
+    assert ("db_package:900", "import:7", "uses") in edges
+    assert ("db_package:900", "db_package:901", "calls") in edges
+    assert ("db_package:901", "trackor_type:1", "uses") in edges
+    # Bare words are not links; only quoted names, ids, id.* references and package calls.
+    assert ("rule:500", "trackor_type:2", "uses") not in edges
     # A name two fields share cannot be resolved from code.
     assert not any(t in ("field:100100102", "field:100100103") for _, t, k in edges if k == "uses")
 

@@ -402,15 +402,18 @@ minute on a large instance, Test SQL privilege needed) and caches it in `~/.ov/a
 Start from a hotspot or search, double-click an object to bring in what it links to, and use
 "Ask the agent" on any object. The agent uses the same map in runs (`graph_query`) to see
 what depends on something before it touches it. Links found in SQL text are best-effort.
-The map also lists DB packages and which rules call them.
+DB packages are objects on the map too: their bodies are read like rule code, so a package
+links to the fields, trackor types and packages it uses and to the rules that call it. Only
+clean references count as links: quoted names (`'P_STATUS'`), config ids, `id.*` object
+references (`id.project.cf.p_status`, `id.get('id.site.tt')`) and `PACKAGE.procedure` calls.
 
 **Explorer** is a read-only code browser over the same map. Pick a rule, DB package,
 trackor type, import, report, workflow, automation or notification in the tree to open its
-code in a tab. Field, trackor type and package names and config ids in the code are links:
-hover for a summary, click to open. The panel on the right shows status and trigger, quick
-static checks (SELECT INTO without a no-data handler, queries inside loops, COMMIT in a
-rule, swallowed errors, unknown hard-coded ids and similar), recent runs and errors, and
-everything the object links to. "Review with AI" starts a run that reads the code, checks
+code in a tab. References in the code sit on a pill in their object's color: hover for a
+card with what it is and how it is referenced, click to open. The panel on the right shows
+status and trigger, quick static checks (SELECT INTO without a no-data handler, queries
+inside loops, COMMIT in a rule, swallowed errors, unknown hard-coded ids and similar),
+recent runs and errors, and everything the object links to. "Review with AI" starts a run that reads the code, checks
 what it touches and proposes fixes; "Show on map" jumps to it on the Instance map.
 
 `ov agent --port 5181` picks another port; `--no-open` skips opening the browser.

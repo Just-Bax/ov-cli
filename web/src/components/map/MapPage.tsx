@@ -221,6 +221,7 @@ function StartPoints({
     (idx.links.get(id) ?? []).filter((l) => l.kind === kind).length
   const typesByFields = top('trackor_type', (n) => count(n.id, 'field_of'))
   const hotFields = top('field', (n) => count(n.id, 'uses') + count(n.id, 'triggered_by'))
+  const packages = top('db_package', (n) => (idx.links.get(n.id) ?? []).length)
   const invalid = graph.nodes.filter((n) => n.invalid).slice(0, 6)
 
   const column = (
@@ -239,7 +240,7 @@ function StartPoints({
           <ObjectRow
             key={n.id}
             node={n}
-            hint={s ? `${s} ${unit}` : undefined}
+            hint={s ? `${s} ${s === 1 ? unit.replace(/s$/, '') : unit}` : undefined}
             onClick={() => onFocus(n.id)}
           />
         ))
@@ -251,15 +252,16 @@ function StartPoints({
 
   return (
     <div className="absolute inset-0 flex items-center justify-center overflow-y-auto p-6">
-      <div className="w-full max-w-[1000px]">
+      <div className="w-full max-w-[1240px]">
         <div className="text-fg text-center text-[18px] font-semibold">Pick a starting point</div>
         <div className="text-muted mt-1 mb-6 text-center text-[13px]">
           Search above, or start from what matters most on this instance. Double-click an object to
           bring in what it is linked to.
         </div>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {column('Core trackor types', 'Most fields', typesByFields, 'fields')}
           {column('Busiest fields', 'Used most by rules, imports and reports', hotFields, 'links')}
+          {column('Shared packages', 'DB packages with the most links', packages, 'links')}
           {column(
             'Broken objects',
             'SQL or code that no longer compiles',

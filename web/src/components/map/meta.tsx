@@ -18,7 +18,7 @@ export const TYPES: Record<
   { label: string; plural: string; icon: LucideIcon; color: string }
 > = {
   trackor_type: { label: 'Trackor type', plural: 'Trackor types', icon: Boxes, color: '#1e88e5' },
-  field: { label: 'Field', plural: 'Fields', icon: TextCursorInput, color: '#607d8b' },
+  field: { label: 'Field', plural: 'Fields', icon: TextCursorInput, color: '#bf8f00' },
   rule: { label: 'Rule', plural: 'Rules', icon: Zap, color: '#7e57c2' },
   automation: { label: 'Automation', plural: 'Automations', icon: Bot, color: '#00897b' },
   import: { label: 'Import', plural: 'Imports', icon: FileUp, color: '#ef6c00' },

@@ -1,6 +1,8 @@
 import {
   CircleAlert,
   CircleCheck,
+  ChevronLeft,
+  ChevronRight,
   CircleSlash,
   Code2,
   type LucideIcon,
@@ -202,22 +204,41 @@ function RunItem({
   )
 }
 
+const COLLAPSED_KEY = 'ov-agent.sidebar-collapsed'
+
+export function isSidebarCollapsed(): boolean {
+  return localStorage.getItem(COLLAPSED_KEY) === '1'
+}
+
+// The label of an icon-only control, shown beside it on hover.
+function RailTip({ label }: { label: string }) {
+  return (
+    <span className="bg-fg pointer-events-none absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2 rounded-full px-3 py-1 text-[12px] font-medium whitespace-nowrap text-white opacity-0 shadow-[0_4px_14px_rgba(38,50,56,0.18)] transition-opacity group-hover/rail:opacity-100">
+      {label}
+    </span>
+  )
+}
+
 function NavRow({
   to,
   icon: Icon,
   label,
   active,
+  collapsed,
 }: {
   to: string
   icon: LucideIcon
   label: string
   active: boolean
+  collapsed: boolean
 }) {
   return (
     <a
       href={to}
+      aria-label={collapsed ? label : undefined}
       className={cn(
-        'flex h-9 items-center gap-2.5 rounded-full pr-3 pl-1.5 text-[13px] font-medium transition-colors',
+        'group/rail relative flex h-9 items-center rounded-full text-[13px] font-medium transition-colors',
+        collapsed ? 'mx-auto w-9 justify-center' : 'gap-2.5 pr-3 pl-1.5',
         active
           ? 'bg-brand-soft text-brand-strong'
           : 'text-text hover:bg-canvas hover:text-brand-strong',
@@ -231,7 +252,7 @@ function NavRow({
       >
         <Icon className="size-3.5" strokeWidth={2.25} />
       </span>
-      {label}
+      {collapsed ? <RailTip label={label} /> : <span className="truncate">{label}</span>}
     </a>
   )
 }
@@ -242,31 +263,76 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const [showAll, setShowAll] = useState(false)
   const shown = showAll ? (runs ?? []) : (runs ?? []).slice(0, RECENT_LIMIT)
   const onSettings = route.page === 'settings'
+  const [collapsed, setCollapsed] = useState(isSidebarCollapsed)
+  const toggle = () =>
+    setCollapsed((c) => {
+      localStorage.setItem(COLLAPSED_KEY, c ? '0' : '1')
+      return !c
+    })
 
   return (
-    <aside className="border-line-strong/60 flex w-[272px] shrink-0 flex-col border-r bg-white">
-      <div className="flex h-16 shrink-0 items-center px-5">
+    <aside
+      className={cn(
+        'border-line-strong/60 relative z-20 flex shrink-0 flex-col border-r bg-white transition-[width] duration-200 ease-out',
+        collapsed ? 'w-[72px]' : 'w-[272px]',
+      )}
+    >
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        className="border-line-strong text-muted hover:text-brand-strong hover:border-brand/50 absolute top-1/2 -right-3.5 z-30 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border bg-white shadow-[0_2px_8px_rgba(38,50,56,0.10)] transition-colors"
+      >
+        {collapsed ? (
+          <ChevronRight className="size-3.5" strokeWidth={2.25} />
+        ) : (
+          <ChevronLeft className="size-3.5" strokeWidth={2.25} />
+        )}
+      </button>
+      <div
+        className={cn(
+          'flex h-16 shrink-0 items-center overflow-hidden',
+          collapsed ? 'justify-center' : 'px-5',
+        )}
+      >
         <a href="#/" aria-label="OV Agent home">
-          <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
+          {collapsed ? (
+            <img src="/favicon.svg" alt="OV Agent" className="size-8" />
+          ) : (
+            <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto max-w-none" />
+          )}
         </a>
       </div>
       <nav className="space-y-0.5 px-3 pb-2">
-        <NavRow to="#/" icon={Plus} label="New run" active={route.page === 'home'} />
+        <NavRow
+          to="#/"
+          icon={Plus}
+          label="New run"
+          active={route.page === 'home'}
+          collapsed={collapsed}
+        />
         <NavRow
           to={href({ page: 'map' })}
           icon={Network}
           label="Instance map"
           active={route.page === 'map'}
+          collapsed={collapsed}
         />
         <NavRow
           to={href({ page: 'explorer' })}
           icon={Code2}
           label="Explorer"
           active={route.page === 'explorer'}
+          collapsed={collapsed}
         />
       </nav>
 
-      <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4">
+      <div
+        className={cn(
+          'min-h-0 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4',
+          collapsed && 'invisible',
+        )}
+      >
         {!runs ? (
           <div className="space-y-4 px-3 pt-3">
             {[0, 1, 2, 3].map((i) => (
@@ -305,35 +371,51 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
         ) : null}
       </div>
 
-      <div className="border-line-strong/60 flex h-16 shrink-0 items-center gap-1 border-t px-3">
-        <a
-          href={href({ page: 'settings' })}
-          className={cn(
-            'flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full pr-3 pl-1.5 transition-colors',
-            onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
-          )}
-        >
-          <Avatar user={user} />
-          <span className="min-w-0">
-            <span className="text-fg block truncate text-[13px] font-medium">
-              {user ?? 'Not signed in'}
+      {collapsed ? (
+        <div className="border-line-strong/60 flex h-16 shrink-0 items-center justify-center border-t">
+          <a
+            href={href({ page: 'settings' })}
+            aria-label="Settings"
+            className={cn(
+              'group/rail relative flex size-11 items-center justify-center rounded-full transition-colors',
+              onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
+            )}
+          >
+            <Avatar user={user} />
+            <RailTip label="Settings" />
+          </a>
+        </div>
+      ) : (
+        <div className="border-line-strong/60 flex h-16 shrink-0 items-center gap-1 border-t px-3">
+          <a
+            href={href({ page: 'settings' })}
+            className={cn(
+              'flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full pr-3 pl-1.5 transition-colors',
+              onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
+            )}
+          >
+            <Avatar user={user} />
+            <span className="min-w-0">
+              <span className="text-fg block truncate text-[13px] font-medium">
+                {user ?? 'Not signed in'}
+              </span>
+              <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
             </span>
-            <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
-          </span>
-        </a>
-        <a
-          href={href({ page: 'settings' })}
-          aria-label="Settings"
-          className={cn(
-            'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors',
-            onSettings
-              ? 'bg-brand-soft text-brand-strong'
-              : 'text-muted hover:bg-canvas hover:text-fg',
-          )}
-        >
-          <Settings className="size-[18px]" strokeWidth={1.75} />
-        </a>
-      </div>
+          </a>
+          <a
+            href={href({ page: 'settings' })}
+            aria-label="Settings"
+            className={cn(
+              'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors',
+              onSettings
+                ? 'bg-brand-soft text-brand-strong'
+                : 'text-muted hover:bg-canvas hover:text-fg',
+            )}
+          >
+            <Settings className="size-[18px]" strokeWidth={1.75} />
+          </a>
+        </div>
+      )}
     </aside>
   )
 }

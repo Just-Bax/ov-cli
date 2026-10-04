@@ -7,7 +7,7 @@ import { RunView } from '@/components/run/RunView'
 import { SettingsPage } from '@/components/Settings'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { Setup } from '@/components/Setup'
-import { Sidebar } from '@/components/Sidebar'
+import { isSidebarCollapsed, Sidebar } from '@/components/Sidebar'
 import { Skeleton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
@@ -60,7 +60,9 @@ export function App() {
   if (!status) {
     return (
       <div className="flex h-full">
-        <aside className="border-line-strong/60 flex w-[272px] shrink-0 flex-col border-r bg-white">
+        <aside
+          className={`border-line-strong/60 flex shrink-0 flex-col overflow-hidden border-r bg-white ${isSidebarCollapsed() ? 'w-[72px]' : 'w-[272px]'}`}
+        >
           <div className="flex h-16 items-center px-5">
             <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
           </div>
