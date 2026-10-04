@@ -65,10 +65,29 @@ export function CodeView({
   const [hover, setHover] = useState<Hover>()
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
+  const switchTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const shown = useRef<Hover>(undefined)
+  shown.current = hover
+  // Monaco throttles mouse moves, so a stale move from the text under the card can arrive after
+  // the pointer is already on the card; the card must win.
+  const overCard = useRef(false)
+
   const keep = () => clearTimeout(hideTimer.current)
   const hideSoon = () => {
+    clearTimeout(switchTimer.current)
     clearTimeout(hideTimer.current)
-    hideTimer.current = setTimeout(() => setHover(undefined), 180)
+    hideTimer.current = setTimeout(() => {
+      if (!overCard.current) setHover(undefined)
+    }, 300)
+  }
+  const enterCard = () => {
+    overCard.current = true
+    clearTimeout(switchTimer.current)
+    keep()
+  }
+  const leaveCard = () => {
+    overCard.current = false
+    hideSoon()
   }
 
   useEffect(() => {
@@ -105,6 +124,7 @@ export function CodeView({
         : undefined
 
     const move = editor.onMouseMove((e) => {
+      if (overCard.current) return
       const position = e.target.position
       const onText = e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT
       const ref = onText ? refAt(position) : undefined
@@ -113,15 +133,20 @@ export function CodeView({
         return
       }
       keep()
-      setHover((current) => {
-        if (current?.ref === ref) return current
-        const at = editor.getScrolledVisiblePosition({
-          lineNumber: position.lineNumber,
-          column: ref.start + 1,
+      const show = () =>
+        setHover((current) => {
+          if (current?.ref === ref) return current
+          const at = editor.getScrolledVisiblePosition({
+            lineNumber: position.lineNumber,
+            column: ref.start + 1,
+          })
+          if (!at) return current
+          return { ref, line: position.lineNumber, top: at.top + at.height + 2, left: at.left }
         })
-        if (!at) return current
-        return { ref, line: position.lineNumber, top: at.top + at.height + 6, left: at.left }
-      })
+      clearTimeout(switchTimer.current)
+      // Crossing another reference on the way to the open card must not replace it at once.
+      if (shown.current && shown.current.ref !== ref) switchTimer.current = setTimeout(show, 250)
+      else show()
     })
     const leave = editor.onMouseLeave(hideSoon)
     const scroll = editor.onDidScrollChange(() => setHover(undefined))
@@ -132,6 +157,8 @@ export function CodeView({
       if (ref) openRef.current(ref.node)
     })
     return () => {
+      clearTimeout(hideTimer.current)
+      clearTimeout(switchTimer.current)
       for (const d of [move, leave, scroll, click]) d.dispose()
       editor.getModel()?.dispose()
       editor.dispose()
@@ -222,9 +249,10 @@ export function CodeView({
             left: Math.max(8, Math.min(hover.left - 12, width - CARD_WIDTH - 24)),
             width: CARD_WIDTH,
           }}
-          onEnter={keep}
-          onLeave={hideSoon}
+          onEnter={enterCard}
+          onLeave={leaveCard}
           onOpen={() => {
+            overCard.current = false
             setHover(undefined)
             onOpen(hover.ref.node)
           }}
