@@ -1,5 +1,5 @@
 import { CircleAlert, CircleCheck, CircleSlash, Plus, Settings, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RunStatus, RunSummary } from '@shared/types.ts'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { dialog } from '@/components/Dialog'
@@ -8,6 +8,7 @@ import { Skeleton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
+import { useSettings } from '@/lib/settings'
 
 const RECENT_LIMIT = 40
 
@@ -77,6 +78,40 @@ function useRuns(): [RunSummary[] | undefined, () => void] {
     return () => clearInterval(timer)
   }, [load])
   return [runs, load]
+}
+
+const BUSY = new Set(['queued', 'running'])
+const NOTICE: Partial<Record<RunStatus, string>> = {
+  done: 'Run finished',
+  error: 'Run failed',
+  waiting: 'Run needs you',
+}
+
+// Only while the tab is in the background; in front, the sidebar already shows it.
+function useRunNotifications(runs: RunSummary[] | undefined, enabled: boolean) {
+  const previous = useRef(new Map<string, RunStatus>())
+  useEffect(() => {
+    if (!runs) return
+    const before = previous.current
+    previous.current = new Map(runs.map((r) => [r.id, r.status]))
+    const allowed =
+      enabled &&
+      before.size > 0 &&
+      document.visibilityState === 'hidden' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    if (!allowed) return
+    for (const run of runs) {
+      const was = before.get(run.id)
+      const title = NOTICE[run.status]
+      if (!was || !BUSY.has(was) || !title) continue
+      const notice = new Notification(title, { body: run.title, icon: '/favicon-32.png' })
+      notice.onclick = () => {
+        window.focus()
+        go({ page: 'run', id: run.id })
+      }
+    }
+  }, [runs, enabled])
 }
 
 function Avatar({ user }: { user?: string }) {
@@ -159,6 +194,7 @@ function RunItem({
 
 export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const [runs, reload] = useRuns()
+  useRunNotifications(runs, useSettings().settings.notify)
   const [showAll, setShowAll] = useState(false)
   const shown = showAll ? (runs ?? []) : (runs ?? []).slice(0, RECENT_LIMIT)
   const onSettings = route.page === 'settings'

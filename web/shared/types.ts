@@ -173,6 +173,9 @@ export interface RunState {
 export interface Settings {
   defaultModel: string
   maxSteps: number
+  notify: boolean
+  showTimeSaved: boolean
+  expandTools: boolean
 }
 
 export interface SavedTotals {

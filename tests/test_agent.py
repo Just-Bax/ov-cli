@@ -353,3 +353,9 @@ def test_a_run_can_be_renamed(agent_server, monkeypatch):
     blank = httpx.post(f"{agent_server}/api/runs/{run.id}/title", json={"title": " "})
     assert blank.status_code == 400
     runs.delete(run.id)
+
+
+def test_boolean_settings_are_stored_as_booleans():
+    saved = db.save_settings({"notify": 1, "showTimeSaved": "", "expandTools": True})
+    assert saved["notify"] is True and saved["showTimeSaved"] is False and saved["expandTools"]
+    assert db.get_settings()["maxSteps"] == 80

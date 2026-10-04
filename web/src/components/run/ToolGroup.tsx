@@ -14,6 +14,7 @@ import { useState } from 'react'
 import type { ToolActivity } from '@shared/types.ts'
 import { CopyButton, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
+import { useSettings } from '@/lib/settings'
 
 const ICONS: Record<string, LucideIcon> = {
   sql: Database,
@@ -147,7 +148,7 @@ function ToolRow({ tool }: { tool: ToolActivity }) {
 export function ToolGroup({ tools }: { tools: ToolActivity[] }) {
   const running = tools.find((t) => t.status === 'running')
   const failed = tools.filter((t) => t.status === 'error').length
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(useSettings().settings.expandTools)
   const total = tools.reduce((s, t) => s + (t.ms ?? 0), 0)
 
   return (

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Status } from '@shared/types.ts'
+import type { Settings, Status } from '@shared/types.ts'
 import { DialogHost } from '@/components/Dialog'
 import { Home } from '@/components/Home'
 import { RunView } from '@/components/run/RunView'
@@ -10,6 +10,7 @@ import { Sidebar } from '@/components/Sidebar'
 import { Skeleton } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
+import { SettingsContext } from '@/lib/settings'
 
 export function App() {
   const route = useRoute()
@@ -27,6 +28,11 @@ export function App() {
   }, [])
 
   useEffect(refresh, [refresh])
+
+  const update = useCallback(async (patch: Partial<Settings>) => {
+    const settings = await api.saveSettings(patch)
+    setStatus((s) => (s ? { ...s, settings } : s))
+  }, [])
 
   if (error && !status) {
     return (
@@ -90,14 +96,16 @@ export function App() {
     )
 
   return (
-    <div className="flex h-full">
-      <Sidebar route={route} user={status.copilot.user} />
-      <main className="min-w-0 flex-1">
-        {route.page === 'home' && <Home settings={status.settings} />}
-        {route.page === 'settings' && <SettingsPage onChange={refresh} />}
-        {route.page === 'run' && <RunView key={route.id} id={route.id} />}
-      </main>
-      <DialogHost />
-    </div>
+    <SettingsContext.Provider value={{ settings: status.settings, update }}>
+      <div className="flex h-full">
+        <Sidebar route={route} user={status.copilot.user} />
+        <main className="min-w-0 flex-1">
+          {route.page === 'home' && <Home settings={status.settings} />}
+          {route.page === 'settings' && <SettingsPage onChange={refresh} />}
+          {route.page === 'run' && <RunView key={route.id} id={route.id} />}
+        </main>
+        <DialogHost />
+      </div>
+    </SettingsContext.Provider>
   )
 }

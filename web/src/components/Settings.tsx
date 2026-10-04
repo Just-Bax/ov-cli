@@ -10,7 +10,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { Instance, Settings, SkillInfo, SourceInfo } from '@shared/types.ts'
+import type { Instance, SkillInfo, SourceInfo } from '@shared/types.ts'
 import { dialog } from '@/components/Dialog'
 import { useModels } from '@/components/ModelPicker'
 import {
@@ -30,6 +30,7 @@ import {
 } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { useSettings } from '@/lib/settings'
 
 function Section({
   title,
@@ -51,68 +52,134 @@ function Section({
   )
 }
 
-function Preferences({ onChange }: { onChange: () => void }) {
-  const [settings, setSettings] = useState<Settings>()
-  const [saving, setSaving] = useState(false)
+const STEP_LIMITS = [40, 80, 150, 300]
+
+function Row({
+  title,
+  hint,
+  children,
+}: {
+  title: string
+  hint: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-6 px-5 py-4">
+      <div className="min-w-0 flex-1">
+        <div className="text-fg text-[13.5px] font-medium">{title}</div>
+        <div className="text-muted mt-0.5 text-[12px] leading-relaxed">{hint}</div>
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  )
+}
+
+function Segmented({
+  value,
+  options,
+  onChange,
+}: {
+  value: number
+  options: number[]
+  onChange: (v: number) => void
+}) {
+  return (
+    <div className="bg-raised flex rounded-full p-1">
+      {options.map((o) => (
+        <button
+          key={o}
+          type="button"
+          onClick={() => onChange(o)}
+          className={cn(
+            'h-7 min-w-11 rounded-full px-3 text-[12.5px] font-medium transition-colors',
+            o === value ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
+          )}
+        >
+          {o}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Preferences() {
+  const { settings, update } = useSettings()
   const models = useModels()
+  const [notice, setNotice] = useState<string>()
 
-  useEffect(() => {
-    api
-      .settings()
-      .then(setSettings)
-      .catch(() => undefined)
-  }, [])
-
-  if (!settings) {
-    return (
-      <Card className="space-y-3 p-5">
-        <Skeleton className="h-7 w-full" />
-        <Skeleton className="h-7 w-2/3" />
-      </Card>
-    )
+  const toggleNotify = async () => {
+    setNotice(undefined)
+    if (settings.notify) return void update({ notify: false })
+    if (!('Notification' in window))
+      return setNotice('This browser does not support notifications.')
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted')
+      return setNotice('Notifications are blocked for this page. Allow them in the browser first.')
+    await update({ notify: true })
   }
-  const set = (patch: Partial<Settings>) => setSettings({ ...settings, ...patch })
 
   return (
-    <Card className="grid gap-4 p-5">
-      <div className="grid gap-4 sm:grid-cols-[1fr_120px]">
-        <div>
-          <Label>Default model</Label>
-          <Select
-            className="w-full"
-            value={settings.defaultModel}
-            onChange={(v) => set({ defaultModel: v })}
-            options={models.map((m) => ({
-              value: m.id,
-              label: `${m.name}${m.premium ? ` (x${m.premium})` : ''}`,
-            }))}
-          />
-        </div>
-        <div>
-          <Label>Max steps</Label>
-          <Input
-            type="number"
-            min={10}
-            max={300}
-            value={settings.maxSteps}
-            onChange={(e) => set({ maxSteps: Number(e.target.value) })}
-          />
-        </div>
-      </div>
-      <div>
-        <Button
-          variant="primary"
-          disabled={saving}
-          onClick={async () => {
-            setSaving(true)
-            setSettings(await api.saveSettings(settings))
-            setSaving(false)
-            onChange()
-          }}
-        >
-          {saving ? <Spinner /> : <Save className="size-4" />} Save
-        </Button>
-      </div>
+    <Card className="divide-line divide-y">
+      <Row title="Default model" hint="Used for new runs. You can switch it per run in the chat.">
+        <Select
+          className="w-[260px]"
+          value={settings.defaultModel}
+          onChange={(v) => void update({ defaultModel: v })}
+          placeholder={models.length ? 'Pick a model' : 'Loading models...'}
+          options={models.map((m) => ({
+            value: m.id,
+            label: m.name,
+            hint: m.premium ? `x${m.premium}` : m.vendor,
+          }))}
+        />
+      </Row>
+      <Row
+        title="Step limit"
+        hint="How many tool steps a run may take before it stops. Big investigations need more."
+      >
+        <Segmented
+          value={settings.maxSteps}
+          options={
+            STEP_LIMITS.includes(settings.maxSteps)
+              ? STEP_LIMITS
+              : [...STEP_LIMITS, settings.maxSteps].sort((a, b) => a - b)
+          }
+          onChange={(v) => void update({ maxSteps: v })}
+        />
+      </Row>
+      <Row
+        title="Desktop notifications"
+        hint={
+          notice ??
+          'Notify me when a run finishes, fails or needs an answer while this tab is in the background.'
+        }
+      >
+        <Switch
+          on={settings.notify}
+          onChange={() => void toggleNotify()}
+          label="Desktop notifications"
+        />
+      </Row>
+      <Row
+        title="Show time saved"
+        hint="The agent's estimate of how long the work would take by hand."
+      >
+        <Switch
+          on={settings.showTimeSaved}
+          onChange={() => void update({ showTimeSaved: !settings.showTimeSaved })}
+          label="Show time saved"
+        />
+      </Row>
+      <Row
+        title="Expand tool calls"
+        hint="Open the API calls and SQL of each step instead of a summary."
+      >
+        <Switch
+          on={settings.expandTools}
+          onChange={() => void update({ expandTools: !settings.expandTools })}
+          label="Expand tool calls"
+        />
+      </Row>
     </Card>
   )
 }
@@ -636,8 +703,11 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
       }
     >
       <div className="divide-line mx-auto max-w-[1040px] divide-y px-6 pb-6">
-        <Section title="Preferences" hint="Defaults for new runs.">
-          <Preferences onChange={onChange} />
+        <Section
+          title="Preferences"
+          hint="How runs start and what you see. Saved as you change them."
+        >
+          <Preferences />
         </Section>
         <Section
           title="Instances"

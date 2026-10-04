@@ -51,7 +51,13 @@ CREATE TABLE IF NOT EXISTS sources (
 );
 """
 
-DEFAULT_SETTINGS: dict[str, Any] = {"defaultModel": "", "maxSteps": 80}
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "defaultModel": "",
+    "maxSteps": 80,
+    "notify": False,
+    "showTimeSaved": True,
+    "expandTools": False,
+}
 
 ACTIVE = ("queued", "running", "waiting")
 
@@ -131,6 +137,8 @@ def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
         except (TypeError, ValueError):
             patch = {k: v for k, v in patch.items() if k != "maxSteps"}
     for key, value in patch.items():
+        if isinstance(DEFAULT_SETTINGS.get(key), bool):
+            value = bool(value)
         if key in DEFAULT_SETTINGS:
             _run(
                 "INSERT INTO settings (key, value) VALUES (?, ?) "

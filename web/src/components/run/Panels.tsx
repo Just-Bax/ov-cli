@@ -5,6 +5,7 @@ import type { LoginPrompt, Outcome, Question, Verdict } from '@shared/types.ts'
 import { Button, Chip, CopyButton, Input, Spinner, type Tone } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { useSettings } from '@/lib/settings'
 
 const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   fix: { label: 'Fix needed', tone: 'warn' },
@@ -22,6 +23,7 @@ const COVERS: Record<string, { label: string; tone: Tone }> = {
 }
 
 export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: string }) {
+  const { settings } = useSettings()
   return (
     <div className="space-y-3">
       <div className="border-line-strong/70 divide-line divide-y overflow-hidden rounded-2xl border">
@@ -115,7 +117,7 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
           </p>
         </div>
       ) : null}
-      {outcome.timeSaved?.minutes ? (
+      {settings.showTimeSaved && outcome.timeSaved?.minutes ? (
         <div className="text-muted flex items-start gap-1.5 px-1 text-[12px]">
           <Clock className="text-ok mt-0.5 size-3.5 shrink-0" />
           <span>

@@ -21,6 +21,7 @@ import {
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
+import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
 import { ChangeCard } from './ChangeCard'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
@@ -204,6 +205,7 @@ function Footer({
   )
 }
 export function RunView({ id }: { id: string }) {
+  const { settings } = useSettings()
   const { state: loaded, error } = useRun(id)
   const [feedback, setFeedback] = useState<{ rating: Rating; note: string }>()
   const state = loaded && feedback ? { ...loaded, feedback } : loaded
@@ -292,7 +294,7 @@ export function RunView({ id }: { id: string }) {
           </a>
         </>
       ) : null}
-      {!busy && state.outcome?.timeSaved ? (
+      {!busy && settings.showTimeSaved && state.outcome?.timeSaved ? (
         <>
           <Dot />
           <span

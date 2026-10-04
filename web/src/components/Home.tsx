@@ -119,7 +119,7 @@ export function Home({ settings }: { settings: Settings }) {
           </div>
           {error ? <div className="text-danger mt-2 text-center text-[12.5px]">{error}</div> : null}
 
-          {totals?.all.minutes ? (
+          {settings.showTimeSaved && totals?.all.minutes ? (
             <div className="text-muted mt-8 flex items-center justify-center gap-2 text-[12.5px]">
               <Clock className="text-ok size-3.5" />
               <span>
