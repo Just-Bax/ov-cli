@@ -652,6 +652,63 @@ function Sources() {
   )
 }
 
+function Body({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto max-w-[1040px] px-6 py-6">{children}</div>
+}
+
+export function InstancesPage() {
+  return (
+    <Page
+      title="Instances"
+      subtitle={
+        <span>
+          OneVizion instances signed in with ov. The agent only reads from them unless you allow
+          changes in a run.
+        </span>
+      }
+    >
+      <Body>
+        <Instances />
+      </Body>
+    </Page>
+  )
+}
+
+export function SkillsPage() {
+  return (
+    <Page
+      title="Skills"
+      subtitle={
+        <span>
+          Instructions added to every run. Edit the built-in ones, switch any off, or write your
+          own. Changes apply to new runs.
+        </span>
+      }
+    >
+      <Body>
+        <Skills />
+      </Body>
+    </Page>
+  )
+}
+
+export function SourcesPage() {
+  return (
+    <Page
+      title="Sources"
+      subtitle={
+        <span>
+          Code and docs the agent can search: a local folder, or a git repo it clones for you.
+        </span>
+      }
+    >
+      <Body>
+        <Sources />
+      </Body>
+    </Page>
+  )
+}
+
 export function SettingsPage({ onChange }: { onChange: () => void }) {
   const [user, setUser] = useState<string>()
   useEffect(() => {
@@ -659,33 +716,10 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
   }, [])
 
   return (
-    <Page
-      title="Settings"
-      subtitle={
-        <span>Defaults, instances, skills, sources and account. Stored on this machine.</span>
-      }
-    >
+    <Page title="Settings" subtitle={<span>Defaults and account. Stored on this machine.</span>}>
       <div className="divide-line mx-auto max-w-[1040px] divide-y px-6 pb-6">
         <Section title="Preferences" hint="Defaults for new runs.">
           <Preferences onChange={onChange} />
-        </Section>
-        <Section
-          title="Instances"
-          hint="OneVizion instances signed in with ov. The agent only reads from them unless you allow changes in a run."
-        >
-          <Instances />
-        </Section>
-        <Section
-          title="Skills"
-          hint="Instructions added to every run. Edit the built-in ones, switch any off, or write your own."
-        >
-          <Skills />
-        </Section>
-        <Section
-          title="Sources"
-          hint="Code and docs the agent can search: a local folder or a git repo it clones for you."
-        >
-          <Sources />
         </Section>
         <Section title="Account" hint="GitHub Copilot powers the agent.">
           <Card className="flex items-center gap-3 p-5">

@@ -3,7 +3,8 @@ import type { Status } from '@shared/types.ts'
 import { DialogHost } from '@/components/Dialog'
 import { Home } from '@/components/Home'
 import { RunView } from '@/components/run/RunView'
-import { SettingsPage } from '@/components/Settings'
+import { InstancesPage, SettingsPage, SkillsPage, SourcesPage } from '@/components/Settings'
+import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { Setup } from '@/components/Setup'
 import { Sidebar } from '@/components/Sidebar'
 import { Skeleton } from '@/components/ui'
@@ -40,9 +41,9 @@ export function App() {
   if (!status) {
     return (
       <div className="flex h-full">
-        <aside className="bg-canvas border-line-strong/40 flex w-[260px] shrink-0 flex-col border-r">
+        <aside className="bg-canvas border-line-strong/40 flex w-[272px] shrink-0 flex-col border-r">
           <div className="flex h-16 items-center px-4">
-            <span className="text-fg text-[15px] font-semibold">OV Agent</span>
+            <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
           </div>
           <div className="space-y-1 px-2">
             {[0, 1].map((i) => (
@@ -96,9 +97,12 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      <Sidebar route={route} user={status.copilot.user} />
+      <Sidebar route={route} user={status.copilot.user} instances={status.instances} />
       <main className="min-w-0 flex-1">
         {route.page === 'home' && <Home settings={status.settings} />}
+        {route.page === 'instances' && <InstancesPage />}
+        {route.page === 'skills' && <SkillsPage />}
+        {route.page === 'sources' && <SourcesPage />}
         {route.page === 'settings' && <SettingsPage onChange={refresh} />}
         {route.page === 'run' && <RunView key={route.id} id={route.id} />}
       </main>

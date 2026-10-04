@@ -269,7 +269,7 @@ export function RunView({ id }: { id: string }) {
   const subtitle = (
     <>
       <span className={cn('inline-flex items-center gap-1.5 font-medium', TONE_TEXT[status.tone])}>
-        <StatusIcon status={summary.status} className="size-3" />
+        <StatusIcon status={summary.status} className="size-3" detailed />
         {status.text}
       </span>
       {state.writeAccess ? (
