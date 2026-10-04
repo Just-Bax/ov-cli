@@ -301,6 +301,16 @@ def login_instance(h: Handler) -> dict[str, Any]:
     return {"ok": result.code == 0, "message": result.message[-400:]}
 
 
+# Signs out (revoking the token when the server still accepts it) and forgets the instance.
+@route("POST", "/api/instances/logout")
+def logout_instance(h: Handler) -> list[dict[str, Any]]:
+    alias = _instance_alias(h, str(h.json().get("alias", "")))
+    result = run_ov(["logout", alias, "--json"], timeout=60, read_only=False)
+    if result.code != 0:
+        raise HttpError(400, result.message[-300:] or "Could not remove the instance.")
+    return instances()
+
+
 # Suggestions for the tenant field: what a live sign-in on the same host can reach.
 @route("GET", "/api/instances/tenants")
 def instance_tenants(h: Handler) -> list[dict[str, Any]]:

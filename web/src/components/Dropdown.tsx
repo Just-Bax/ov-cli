@@ -158,7 +158,7 @@ export function Dropdown({
                 bottom: pos.up ? window.innerHeight - pos.top : undefined,
                 minWidth: Math.max(pos.minWidth, 180),
               }}
-              className="border-line-strong/70 fixed z-50 max-w-[360px] overflow-hidden rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]"
+              className="border-line-strong/70 fixed z-[200] max-w-[360px] overflow-hidden rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]"
             >
               {showSearch ? (
                 <div className="border-line-strong mb-1 flex h-8 items-center gap-1.5 rounded-full border bg-white px-3">

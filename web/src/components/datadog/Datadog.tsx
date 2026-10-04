@@ -23,15 +23,8 @@ import { cn } from '@/lib/cn'
 
 export const DATADOG_PURPLE = '#632CA6'
 
-const SITE_NAMES: Record<string, string> = {
-  'datadoghq.com': 'US1',
-  'us3.datadoghq.com': 'US3',
-  'us5.datadoghq.com': 'US5',
-  'datadoghq.eu': 'EU1',
-  'ap1.datadoghq.com': 'AP1',
-  'ap2.datadoghq.com': 'AP2',
-  'ddog-gov.com': 'US1-FED',
-}
+export const siteAddress = (status: DatadogStatus) =>
+  status.sites.find((s) => s.id === status.site)?.app ?? status.site
 
 export const AREA_LABELS: Record<DatadogArea, string> = {
   logs: 'Logs',
@@ -198,7 +191,7 @@ export function DatadogConnectModal({
         aria-modal="true"
         aria-label="Connect Datadog"
         className={cn(
-          'max-h-[calc(100vh-32px)] w-full max-w-[540px] scrollbar-thin overflow-y-auto rounded-2xl bg-white shadow-[0_20px_60px_rgba(38,50,56,0.25)] transition-transform duration-150',
+          'max-h-[calc(100vh-32px)] w-full max-w-[540px] scrollbar-thin overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-[0_20px_60px_rgba(38,50,56,0.25)] transition-transform duration-150',
           shown ? 'scale-100' : 'scale-95',
         )}
       >
@@ -236,11 +229,12 @@ export function DatadogConnectModal({
               onChange={setSite}
               options={(status?.sites ?? []).map((s) => ({
                 value: s.id,
-                label: `${SITE_NAMES[s.id] ?? s.id}  ${s.app}`,
+                label: s.app,
+                hint: s.id === 'datadoghq.com' ? 'Most accounts' : undefined,
               }))}
             />
             <div className="text-muted mt-1.5 px-1 text-[11.5px]">
-              The address you log in to Datadog at.
+              The address in your browser when you use Datadog. Most accounts use app.datadoghq.com.
             </div>
           </div>
 
@@ -528,8 +522,13 @@ export function DatadogMatches({
   )
 }
 
-export function DatadogCard() {
-  const { status, setStatus } = useDatadog()
+export function DatadogCard({
+  status,
+  setStatus,
+}: {
+  status?: DatadogStatus
+  setStatus: (s: DatadogStatus) => void
+}) {
   const [connecting, setConnecting] = useState(false)
   const [testing, setTesting] = useState(false)
 
@@ -556,7 +555,7 @@ export function DatadogCard() {
         </div>
         <div className="text-muted mt-0.5 text-[12.5px]">
           {status.connected
-            ? `${SITE_NAMES[status.site] ?? status.site} - API key ...${status.apiKeyLast4} - application key ...${status.appKeyLast4}${status.checkedAt ? ` - checked ${timeAgo(status.checkedAt)}` : ''}`
+            ? `${siteAddress(status)} - keys ...${status.apiKeyLast4} and ...${status.appKeyLast4}${status.checkedAt ? ` - checked ${timeAgo(status.checkedAt)}` : ''}`
             : 'Logs, metrics, monitors, events and APM for your instances. The agent uses them in runs, and Health shows them per instance.'}
         </div>
       </div>
@@ -575,21 +574,6 @@ export function DatadogCard() {
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setConnecting(true)}>
             Change keys
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            onClick={async () => {
-              const ok = await dialog.confirm({
-                title: 'Disconnect Datadog?',
-                body: 'The keys are removed from this computer. Instance matches are kept for next time.',
-                confirmLabel: 'Disconnect',
-                tone: 'danger',
-              })
-              if (ok) setStatus(await api.datadogDisconnect())
-            }}
-          >
-            <Unplug className="size-3.5" /> Disconnect
           </Button>
         </div>
       ) : (
@@ -629,5 +613,85 @@ export function DatadogCard() {
         }}
       />
     </Card>
+  )
+}
+
+export function AccountRow({
+  badge,
+  title,
+  detail,
+  action,
+}: {
+  badge: ReactNode
+  title: string
+  detail: ReactNode
+  action?: ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-3.5 px-5 py-4">
+      {badge}
+      <div className="min-w-0 flex-1">
+        <div className="text-fg text-[13.5px] font-semibold">{title}</div>
+        <div className="text-muted truncate text-[12.5px]">{detail}</div>
+      </div>
+      {action}
+    </div>
+  )
+}
+
+export function DatadogAccountRow({
+  status,
+  setStatus,
+}: {
+  status?: DatadogStatus
+  setStatus: (s: DatadogStatus) => void
+}) {
+  const [connecting, setConnecting] = useState(false)
+  return (
+    <>
+      <AccountRow
+        badge={<DatadogBadge />}
+        title="Datadog"
+        detail={
+          !status
+            ? 'Loading...'
+            : status.connected
+              ? `Connected to ${siteAddress(status)} with keys ending ...${status.apiKeyLast4} and ...${status.appKeyLast4}`
+              : 'Not connected'
+        }
+        action={
+          status?.connected ? (
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={async () => {
+                const ok = await dialog.confirm({
+                  title: 'Disconnect Datadog?',
+                  body: 'The keys are removed from this computer. Instance matches are kept for next time.',
+                  confirmLabel: 'Disconnect',
+                  tone: 'danger',
+                })
+                if (ok) setStatus(await api.datadogDisconnect())
+              }}
+            >
+              <Unplug className="size-3.5" /> Disconnect
+            </Button>
+          ) : status ? (
+            <Button size="sm" variant="secondary" onClick={() => setConnecting(true)}>
+              Connect
+            </Button>
+          ) : null
+        }
+      />
+      <DatadogConnectModal
+        open={connecting}
+        status={status}
+        onClose={() => setConnecting(false)}
+        onConnected={(s) => {
+          setStatus(s)
+          setConnecting(false)
+        }}
+      />
+    </>
   )
 }

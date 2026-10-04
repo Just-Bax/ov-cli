@@ -18,7 +18,6 @@ import {
   DATADOG_PURPLE,
   DatadogBadge,
   DatadogConnectModal,
-  DatadogMark,
   DatadogMatches,
   useDatadog,
 } from '@/components/datadog/Datadog'
@@ -554,7 +553,6 @@ export function HealthPage() {
 
   const subtitle = (
     <span className="inline-flex items-center gap-1.5">
-      <DatadogMark className="size-3.5" />
       {report?.scope && label ? (
         <>
           {label} - <span className="font-mono">{report.scope}</span>

@@ -392,3 +392,22 @@ def test_tenant_suggestions_come_from_a_live_sign_in_on_the_host(agent_server, m
     assert seen[-1] == ["-i", "acme", "tenants", "--json"]
     other = httpx.get(f"{agent_server}/api/instances/tenants", params={"host": "nope.test"})
     assert other.json() == []
+
+
+def test_an_instance_can_be_removed(agent_server, monkeypatch):
+    seed_session(BASE_URL)
+    seen: list[list[str]] = []
+
+    def fake(args, **kwargs):
+        seen.append(args)
+        assert kwargs.get("read_only") is False
+        from ov import session as session_store
+
+        session_store.remove(args[1])
+        return OvResult(0, "{}", "")
+
+    monkeypatch.setattr("ov.agent.server.run_ov", fake)
+    rows = httpx.post(f"{agent_server}/api/instances/logout", json={"alias": "acme"}).json()
+    assert seen == [["logout", "acme", "--json"]] and rows == []
+    missing = httpx.post(f"{agent_server}/api/instances/logout", json={"alias": "acme"})
+    assert missing.status_code == 404

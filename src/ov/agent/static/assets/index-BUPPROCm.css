@@ -873,6 +873,9 @@ svg.react-flow__connectionline {
   .z-\[100\] {
     z-index: 100;
   }
+  .z-\[200\] {
+    z-index: 200;
+  }
   .col-span-2 {
     grid-column: span 2 / span 2;
   }
@@ -1567,6 +1570,9 @@ svg.react-flow__connectionline {
   }
   .overflow-x-auto {
     overflow-x: auto;
+  }
+  .overflow-x-hidden {
+    overflow-x: hidden;
   }
   .overflow-y-auto {
     overflow-y: auto;
@@ -2391,8 +2397,8 @@ svg.react-flow__connectionline {
     .md\:grid-cols-\[200px_1fr\] {
       grid-template-columns: 200px 1fr;
     }
-    .md\:grid-cols-\[220px_1fr\] {
-      grid-template-columns: 220px 1fr;
+    .md\:grid-cols-\[230px_1fr\] {
+      grid-template-columns: 230px 1fr;
     }
     .md\:overflow-y-auto {
       overflow-y: auto;

@@ -77,6 +77,7 @@ export const api = {
   datadogCount: (query: string) => request<{ count: number }>(`/datadog/count?query=${seg(query)}`),
   instanceHealth: (instance: string, range: string) =>
     request<InstanceHealth>(`/instance-health?instance=${seg(instance)}&range=${seg(range)}`),
+  removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),
   instanceTenants: (host: string) =>
     request<{ name: string }[]>(`/instances/tenants?host=${seg(host)}`),
   settings: () => request<Settings>('/settings'),

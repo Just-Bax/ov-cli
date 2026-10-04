@@ -11,7 +11,12 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Instance, SkillInfo, SourceInfo } from '@shared/types.ts'
-import { DatadogCard } from '@/components/datadog/Datadog'
+import {
+  AccountRow,
+  DatadogAccountRow,
+  DatadogCard,
+  useDatadog,
+} from '@/components/datadog/Datadog'
 import { dialog } from '@/components/Dialog'
 import {
   AddInstanceForm,
@@ -229,7 +234,7 @@ function Instances() {
 
   return (
     <Card className="overflow-hidden">
-      <div className="border-line flex items-center gap-2 border-b px-4 py-2.5">
+      <div className="border-line flex items-center gap-2 border-b px-5 py-2.5">
         <label className="border-line-strong focus-within:border-brand flex h-9 flex-1 items-center gap-2 rounded-full border bg-white px-3.5">
           <Search className="text-faint size-3.5" />
           <input
@@ -260,7 +265,7 @@ function Instances() {
               const row: SignInTarget = { url: i.url, host: i.host, tenant: i.tenant ?? undefined }
               const busy = pending.has(signInKey(row))
               return (
-                <div key={i.alias} className="flex items-center gap-2.5 px-4 py-2.5">
+                <div key={i.alias} className="flex items-center gap-2.5 px-5 py-2.5">
                   <span className="text-fg min-w-0 truncate text-[13px] font-medium">{i.host}</span>
                   {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
                   <div className="flex-1" />
@@ -273,6 +278,27 @@ function Instances() {
                     {busy ? <Spinner className="size-3.5" /> : <KeyRound className="size-3.5" />}
                     {busy ? 'Signing in' : i.valid ? 'Refresh' : 'Sign in'}
                   </Button>
+                  <IconButton
+                    label="Remove instance"
+                    className="hover:text-danger hover:bg-danger-soft"
+                    onClick={async () => {
+                      const name = i.tenant ? `${i.host} (${i.tenant})` : i.host
+                      const ok = await dialog.confirm({
+                        title: `Remove ${name}?`,
+                        body: 'Signs out and forgets it on this computer. Runs, maps and Datadog matches are kept; sign in again to use it.',
+                        confirmLabel: 'Remove',
+                        tone: 'danger',
+                      })
+                      if (!ok) return
+                      try {
+                        setInstances(await api.removeInstance(i.alias))
+                      } catch (e) {
+                        await dialog.alert('Could not remove it', (e as Error).message)
+                      }
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </IconButton>
                 </div>
               )
             })}
@@ -282,7 +308,7 @@ function Instances() {
           </div>
         ) : null}
       </div>
-      <AddInstanceForm className="border-line border-t px-4 py-3" onSubmit={setTarget} />
+      <AddInstanceForm className="border-line border-t px-5 py-3" onSubmit={setTarget} />
       <SignInModal
         target={target}
         pending={Boolean(target && pending.has(signInKey(target)))}
@@ -407,59 +433,78 @@ function Skills() {
   const editable = creating || (current && !current.builtin)
 
   return (
-    <Card className="grid overflow-hidden md:grid-cols-[220px_1fr]">
+    <Card className="grid overflow-hidden md:grid-cols-[230px_1fr]">
       <div className="border-line scrollbar-thin border-b p-2 md:max-h-[560px] md:overflow-y-auto md:border-r md:border-b-0">
-        {skills.map((s) => (
-          <div
-            key={s.name}
-            className={cn(
-              'flex items-start gap-2 rounded-2xl px-3 py-2 transition-colors',
-              s.name === selected ? 'bg-brand-soft' : 'hover:bg-raised',
-            )}
-          >
-            <button
-              type="button"
-              onClick={() => select(s.name)}
-              className="min-w-0 flex-1 text-left"
-            >
-              <div
+        <div className="space-y-0.5">
+          {skills.map((s) => {
+            const on = s.name === selected
+            return (
+              <button
+                key={s.name}
+                type="button"
+                onClick={() => select(s.name)}
                 className={cn(
-                  'flex items-center gap-2 text-[13px] font-medium',
-                  !s.enabled && 'text-faint',
+                  'flex h-9 w-full items-center gap-2.5 rounded-full px-3.5 text-left text-[13px] font-medium transition-colors',
+                  on
+                    ? 'bg-brand-soft text-brand-strong'
+                    : s.enabled
+                      ? 'text-text hover:bg-canvas hover:text-brand-strong'
+                      : 'text-faint hover:bg-canvas',
                 )}
               >
-                <span className="truncate">{s.title}</span>
-                {s.customized ? (
-                  <span className="bg-accent size-1.5 shrink-0 rounded-full" title="Customized" />
-                ) : null}
+                <span
+                  className={cn(
+                    'size-1.5 shrink-0 rounded-full',
+                    s.enabled ? 'bg-ok' : 'bg-line-strong',
+                  )}
+                />
+                <span className="min-w-0 flex-1 truncate">{s.title}</span>
                 {!s.builtin ? (
-                  <span className="text-faint text-[10.5px] font-normal">yours</span>
+                  <span className="text-faint shrink-0 text-[11px] font-normal">yours</span>
+                ) : s.customized ? (
+                  <span className="text-faint shrink-0 text-[11px] font-normal">edited</span>
                 ) : null}
-              </div>
-              <div className="text-faint mt-0.5 line-clamp-2 text-[11.5px]">{s.description}</div>
-            </button>
-            <div className="pt-1">
-              <Switch
-                on={s.enabled}
-                label={s.enabled ? 'Used in new runs' : 'Off'}
-                onChange={() => void toggle(s)}
-              />
-            </div>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={() => select(NEW)}
-          className={cn(
-            'text-brand-strong mt-1 flex w-full items-center gap-1.5 rounded-full px-3 py-2 text-[13px] font-medium',
-            creating ? 'bg-brand-soft' : 'hover:bg-raised',
-          )}
-        >
-          <Plus className="size-3.5" /> New skill
-        </button>
+              </button>
+            )
+          })}
+          <button
+            type="button"
+            onClick={() => select(NEW)}
+            className={cn(
+              'text-brand-strong flex h-9 w-full items-center gap-2.5 rounded-full px-3.5 text-[13px] font-medium transition-colors',
+              creating ? 'bg-brand-soft' : 'hover:bg-canvas',
+            )}
+          >
+            <Plus className="size-3.5" /> New skill
+          </button>
+        </div>
       </div>
       {creating || current ? (
         <div className="flex h-[560px] flex-col gap-3 p-4">
+          <div className="flex items-start gap-3 px-1">
+            <div className="min-w-0 flex-1">
+              <div className="text-fg flex items-center gap-2 text-[14px] font-semibold">
+                <span className="truncate">{creating ? 'New skill' : current?.title}</span>
+                {current?.builtin ? <Chip>Built-in</Chip> : null}
+                {current?.customized ? <Chip tone="brand">Edited</Chip> : null}
+              </div>
+              <div className="text-muted mt-0.5 text-[12.5px] leading-relaxed">
+                {creating
+                  ? 'Write instructions the agent follows in every new run.'
+                  : current?.description}
+              </div>
+            </div>
+            {current ? (
+              <label className="text-muted flex shrink-0 cursor-pointer items-center gap-2.5 pt-1 text-[12.5px]">
+                {current.enabled ? 'On for new runs' : 'Off'}
+                <Switch
+                  on={current.enabled}
+                  label={current.enabled ? 'Turn off' : 'Turn on'}
+                  onChange={() => void toggle(current)}
+                />
+              </label>
+            ) : null}
+          </div>
           {editable ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
@@ -568,7 +613,7 @@ function Sources() {
     <Card className="overflow-hidden">
       <div className="divide-line divide-y">
         {sources.map((s) => (
-          <div key={s.name} className="flex items-center gap-3 px-4 py-2.5">
+          <div key={s.name} className="flex items-center gap-3 px-5 py-2.5">
             <FolderGit2 className={cn('size-4 shrink-0', s.ready ? 'text-muted' : 'text-danger')} />
             <div className="min-w-0 flex-1">
               <div className="text-fg text-[13px] font-medium">
@@ -630,7 +675,7 @@ function Sources() {
         ) : null}
       </div>
       <form
-        className="border-line grid gap-2 border-t px-4 py-3"
+        className="border-line grid gap-2 border-t px-5 py-3"
         onSubmit={(e) => {
           e.preventDefault()
           void submit()
@@ -691,6 +736,7 @@ function Sources() {
 
 export function SettingsPage({ onChange }: { onChange: () => void }) {
   const [user, setUser] = useState<string>()
+  const datadog = useDatadog()
   useEffect(() => {
     api.status().then((s) => setUser(s.copilot.user))
   }, [])
@@ -700,7 +746,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
       title="Settings"
       subtitle={
         <span>
-          Defaults, instances, integrations, skills, sources and account. Stored on this machine.
+          Defaults, instances, integrations, skills, sources and accounts. Stored on this machine.
         </span>
       }
     >
@@ -721,7 +767,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           title="Integrations"
           hint="Outside services the agent can read from, and the Health page draws on."
         >
-          <DatadogCard />
+          <DatadogCard status={datadog.status} setStatus={datadog.setStatus} />
         </Section>
         <Section
           title="Skills"
@@ -735,25 +781,33 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
         >
           <Sources />
         </Section>
-        <Section title="Account" hint="GitHub Copilot powers the agent.">
-          <Card className="flex items-center gap-3 p-5">
-            <GithubMark className="size-5" />
-            <div className="flex-1 text-[13.5px]">
-              {user ? `Signed in as ${user}` : 'Not signed in'}
-            </div>
-            {user ? (
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={async () => {
-                  await api.copilotLogout()
-                  go({ page: 'home' })
-                  onChange()
-                }}
-              >
-                <LogOut className="size-3.5" /> Sign out
-              </Button>
-            ) : null}
+        <Section title="Accounts" hint="Services this computer is signed in to.">
+          <Card className="divide-line divide-y overflow-hidden">
+            <AccountRow
+              badge={
+                <span className="bg-raised text-fg flex size-10 shrink-0 items-center justify-center rounded-full">
+                  <GithubMark className="size-5" />
+                </span>
+              }
+              title="GitHub Copilot"
+              detail={user ? `Signed in as ${user}. Runs the agent.` : 'Not signed in'}
+              action={
+                user ? (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={async () => {
+                      await api.copilotLogout()
+                      go({ page: 'home' })
+                      onChange()
+                    }}
+                  >
+                    <LogOut className="size-3.5" /> Sign out
+                  </Button>
+                ) : null
+              }
+            />
+            <DatadogAccountRow status={datadog.status} setStatus={datadog.setStatus} />
           </Card>
         </Section>
       </div>
