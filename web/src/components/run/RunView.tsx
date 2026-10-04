@@ -153,15 +153,18 @@ function Footer({
   busy,
   done,
   write,
+  onSend,
 }: {
   runId: string
   busy: boolean
   done: boolean
   write: boolean
+  onSend: () => void
 }) {
   const [error, setError] = useState<string>()
   const send = async (text: string, files: File[] = []) => {
     setError(undefined)
+    onSend()
     try {
       const uploaded = files.length ? await api.upload(files) : []
       await api.message(runId, text, uploaded)
@@ -209,19 +212,31 @@ export function RunView({ id }: { id: string }) {
   const { state: loaded, error } = useRun(id)
   const [feedback, setFeedback] = useState<{ rating: Rating; note: string }>()
   const state = loaded && feedback ? { ...loaded, feedback } : loaded
-  const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+  const ready = Boolean(state)
 
-  const count = state
-    ? state.items.length +
-      state.tools.length +
-      state.queued.length +
-      state.chat.reduce((n, m) => n + m.text.length, 0)
-    : 0
+  // Follow the bottom while the reader is there: cards, markdown and images keep growing the
+  // thread after each event, so pin on every size change rather than on new events.
   useEffect(() => {
-    if (stick.current) bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [count])
+    const content = scrollRef.current
+    const scroller = content?.parentElement
+    if (!content || !scroller) return
+    const pin = () => {
+      if (stick.current) scroller.scrollTop = scroller.scrollHeight
+    }
+    const onScroll = () => {
+      stick.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80
+    }
+    const observer = new ResizeObserver(pin)
+    observer.observe(content)
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    pin()
+    return () => {
+      observer.disconnect()
+      scroller.removeEventListener('scroll', onScroll)
+    }
+  }, [ready])
 
   if (error)
     return (
@@ -356,17 +371,18 @@ export function RunView({ id }: { id: string }) {
       subtitle={subtitle}
       actions={actions}
       footer={
-        <Footer runId={id} busy={busy} done={summary.status === 'done'} write={state.writeAccess} />
+        <Footer
+          runId={id}
+          busy={busy}
+          done={summary.status === 'done'}
+          write={state.writeAccess}
+          onSend={() => {
+            stick.current = true
+          }}
+        />
       }
     >
-      <div
-        ref={scrollRef}
-        onWheel={(e) => {
-          const el = e.currentTarget.parentElement
-          if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
-        }}
-        className="mx-auto max-w-[860px] space-y-5 px-6 py-6"
-      >
+      <div ref={scrollRef} className="mx-auto max-w-[860px] space-y-5 px-6 pt-6 pb-2">
         {turns.map((turn, i) => {
           const isLast = i === turns.length - 1
           const active = isLast && busy
@@ -408,7 +424,7 @@ export function RunView({ id }: { id: string }) {
         ) : null}
         {state.queued.map((m) => (
           <QueuedMessage key={m.id} runId={id} message={m} />
-        ))}{' '}
+        ))}
         {state.error && summary.status === 'error' ? (
           <div
             className={cn(
@@ -418,7 +434,6 @@ export function RunView({ id }: { id: string }) {
             {state.error}
           </div>
         ) : null}
-        <div ref={bottomRef} />
       </div>
     </Page>
   )
