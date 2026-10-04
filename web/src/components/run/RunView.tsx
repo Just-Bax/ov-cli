@@ -1,4 +1,4 @@
-import { Clock, RotateCcw, Trash2 } from 'lucide-react'
+import { Clock, ExternalLink, RotateCcw, Trash2 } from 'lucide-react'
 import { formatMinutes, savedMinutes } from '@shared/estimate.ts'
 import { Composer } from '@/components/Composer'
 import { dialog } from '@/components/Dialog'
@@ -133,14 +133,14 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
       if (item.id !== state.outcomeId || !state.outcome) {
         return <div className="text-faint text-[12px]">Earlier answer, updated below.</div>
       }
-      return <Answer outcome={state.outcome} />
+      return <Answer outcome={state.outcome} caseUrl={state.caseUrl} />
     default:
       return null
   }
 }
 
 const SUGGESTIONS = [
-  'Summarize it in two sentences',
+  'Make the reply shorter',
   'Show the fix as a diff',
   'Check another instance too',
   'Explain the root cause',
@@ -276,6 +276,19 @@ export function RunView({ id }: { id: string }) {
         <>
           <Dot />
           <span className="text-warn font-medium">Changes allowed</span>
+        </>
+      ) : null}
+      {summary.caseKey && state.caseUrl ? (
+        <>
+          <Dot />
+          <a
+            href={state.caseUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-brand-strong inline-flex items-center gap-1 hover:underline"
+          >
+            Case {summary.caseKey} <ExternalLink className="size-3" />
+          </a>
         </>
       ) : null}
       {!busy && state.outcome?.timeSaved ? (

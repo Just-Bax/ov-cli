@@ -11,10 +11,10 @@ import { api } from '@/lib/api'
 import { go } from '@/lib/route'
 
 const EXAMPLES = [
-  'Which trackor types exist here, and how many records does each have?',
-  'Why did the last run of a rule fail? Check the logs and the rule SQL.',
-  'Find the import that loads Sites and explain its mapping.',
-  'List the Vizion Hub modules and which ones failed this week.',
+  'Which rules failed in the last 24 hours, and why?',
+  'Why did the last run of the import fail? Show the row errors.',
+  'Which Vizion Hub modules failed this week? Read their logs.',
+  'Which emails failed to send today, and what was the error?',
 ]
 
 function greeting(): string {
@@ -65,14 +65,14 @@ export function Home({ settings }: { settings: Settings }) {
       <div className="flex min-h-full flex-col items-center justify-center px-6 py-12">
         <div className="w-full max-w-[760px]">
           <h1 className="text-fg mb-6 text-center text-[26px] font-semibold tracking-tight">
-            {greeting()}. What should we look into?
+            {greeting()}. What are we troubleshooting?
           </h1>
           <Composer
             autoFocus
             size="lg"
             allowFiles
             busy={starting}
-            placeholder="Ask anything about your OneVizion instance, paste errors, attach screenshots"
+            placeholder="Case number or trackor link, or describe the problem and paste errors"
             onSend={submit}
             extras={
               <>

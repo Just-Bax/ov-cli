@@ -106,7 +106,7 @@ export function Composer({
         e.preventDefault()
         addFiles(e.dataTransfer.files)
       }}
-      className="border-line-strong focus-within:border-brand rounded-[22px] border bg-white shadow-[0_2px_12px_rgba(38,50,56,0.06)] transition-colors"
+      className="border-line-strong focus-within:border-brand rounded-[26px] border bg-white shadow-[0_2px_12px_rgba(38,50,56,0.06)] transition-colors"
     >
       {files.length ? (
         <div className="flex flex-wrap items-end gap-2 px-3 pt-3">
@@ -131,7 +131,7 @@ export function Composer({
             ) : (
               <span
                 key={i}
-                className="bg-canvas text-text inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px]"
+                className="bg-canvas text-text inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px]"
               >
                 <Paperclip className="size-3" />
                 <span className="max-w-[180px] truncate">{f.name}</span>
@@ -170,14 +170,14 @@ export function Composer({
           size === 'lg' ? 'min-h-[56px] pt-4' : 'min-h-[44px] pt-3',
         )}
       />
-      <div className="flex items-center gap-1 px-2 pb-2">
+      <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
         {allowFiles ? (
           <>
             <button
               type="button"
               title="Attach files"
               onClick={() => fileRef.current?.click()}
-              className="text-muted hover:bg-raised hover:text-fg flex size-8 items-center justify-center rounded-full"
+              className="text-muted bg-raised hover:bg-line hover:text-fg flex size-8 items-center justify-center rounded-full"
             >
               <Paperclip className="size-4" />
             </button>

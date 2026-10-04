@@ -30,7 +30,7 @@ function ActionButton({
       aria-label={label}
       onClick={onClick}
       className={cn(
-        'flex size-7 items-center justify-center rounded-md transition-colors',
+        'flex size-7 items-center justify-center rounded-full transition-colors',
         active ? 'text-brand-strong bg-brand-soft' : 'text-faint hover:bg-raised hover:text-fg',
       )}
     >
@@ -151,7 +151,7 @@ export function QueuedMessage({ runId, message }: { runId: string; message: Chat
           type="button"
           title="Remove from queue"
           onClick={() => void api.removeQueued(runId, message.id)}
-          className="hover:bg-raised hover:text-fg flex size-6 items-center justify-center rounded-md"
+          className="hover:bg-raised hover:text-fg flex size-6 items-center justify-center rounded-full"
         >
           <X className="size-3.5" />
         </button>

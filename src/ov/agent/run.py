@@ -12,7 +12,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from . import copilot, db
+from . import cases, copilot, db
 from .cancel import Cancel
 from .ovproc import login as ov_login
 from .prompt import system_prompt
@@ -282,7 +282,8 @@ class Run:
             self.emit({"type": "user", "message": self._message("u_start", text, uploaded)})
             self.vision = copilot.supports_vision(self.state["summary"]["model"])
 
-            content = self._user_content(text, uploaded)
+            ref = None if uploaded else cases.case_ref(text)
+            content = self._preload_case(ref) if ref else self._user_content(text, uploaded)
             self._messages = [
                 {"role": "system", "content": system_prompt(self.can_write(), self.instance)}
             ]
@@ -293,6 +294,43 @@ class Run:
         finally:
             self._busy = False
             self._pick_up_queue()
+
+    # A bare case number starts the way a TCE would: with the whole case already read.
+    def _preload_case(self, ref: str) -> str:
+        tool = {"id": _uid("load"), "name": "load_case", "label": f"Read case {ref} from trackor"}
+        started = db.now_ms()
+        self.emit({"type": "tool", "tool": {**tool, "status": "running"}})
+        try:
+            text = self.load_case(ref)
+        except Exception as exc:
+            self._tool_done(tool, "error", started, str(exc)[:4000])
+            raise
+        self._tool_done(tool, "ok", started, text[:12000])
+        return f"Troubleshoot this case.\n\n{text}"
+
+    def load_case(self, ref: str) -> str:
+        for attempt in range(2):
+            try:
+                bundle = cases.load_case(ref, self.work_dir, self.cancel)
+                break
+            except cases.NeedsLogin as exc:
+                if attempt or not self.require_login(exc.host):
+                    raise RunError(f"Not signed in to {exc.host}.") from None
+
+        title = " ".join(bundle["title"].split()) or f"Case {bundle['key']}"
+        self.emit(
+            {
+                "type": "meta",
+                "title": f"{bundle['key']}: {title}"[:120],
+                "caseKey": bundle["key"],
+                "caseUrl": bundle["url"],
+                "instance": bundle["website"],
+            }
+        )
+        text = cases.render(bundle, self.work_dir)
+        if bundle["website"]:
+            text += f"\n\nThe run's default instance is now {bundle['website']}."
+        return text
 
     def follow_up(self, text: str, files: list[dict[str, str]]) -> None:
         claimed = self._claim()
@@ -598,7 +636,7 @@ class RunManager:
             events = db.load_events(run_id)
             for event in events:
                 reduce(state, event)
-            state["summary"] = stored[0]
+            state["summary"] = {**state["summary"], **stored[0]}
             feedback = db.get_feedback(run_id)
             if feedback:
                 state["feedback"] = feedback

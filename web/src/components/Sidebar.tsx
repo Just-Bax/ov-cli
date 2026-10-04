@@ -52,7 +52,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
 
   const item = (active: boolean) =>
     cn(
-      'flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] transition-colors',
+      'flex h-9 items-center gap-2.5 rounded-full px-3 text-[13.5px] transition-colors',
       active ? 'bg-black/[0.06] text-fg font-medium' : 'text-text hover:bg-black/[0.04]',
     )
 
@@ -89,7 +89,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                   href={href({ page: 'run', id: r.id })}
                   title={[r.instance, timeAgo(r.createdAt)].filter(Boolean).join(' - ')}
                   className={cn(
-                    'flex h-8 items-center gap-2 rounded-lg px-2.5 text-[13px] transition-colors',
+                    'flex h-8 items-center gap-2 rounded-full px-3 text-[13px] transition-colors',
                     active ? 'text-fg bg-black/[0.06]' : 'text-text hover:bg-black/[0.04]',
                   )}
                 >

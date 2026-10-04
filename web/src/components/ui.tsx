@@ -23,9 +23,9 @@ const VARIANTS: Record<Variant, string> = {
 }
 
 const SIZES: Record<Size, string> = {
-  sm: 'h-6 gap-1 rounded px-2 text-[12px]',
-  md: 'h-7 gap-1.5 rounded px-3 text-[12px]',
-  lg: 'h-9 gap-2 rounded-md px-5 text-[13px]',
+  sm: 'h-7 gap-1 rounded-full px-3 text-[12px]',
+  md: 'h-8 gap-1.5 rounded-full px-3.5 text-[12.5px]',
+  lg: 'h-10 gap-2 rounded-full px-5 text-[13px]',
 }
 
 export function Button({
@@ -63,7 +63,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       className={cn(
-        'text-muted hover:bg-raised hover:text-fg inline-flex size-7 shrink-0 items-center justify-center rounded-md transition-colors disabled:opacity-40',
+        'text-muted hover:bg-raised hover:text-fg inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40',
         className,
       )}
       {...props}
@@ -93,7 +93,7 @@ export function Chip({
   return (
     <span
       className={cn(
-        'inline-flex h-[22px] shrink-0 items-center gap-1 rounded-[10px] px-2 text-[11.5px] font-medium whitespace-nowrap',
+        'inline-flex h-[22px] shrink-0 items-center gap-1 rounded-full px-2.5 text-[11.5px] font-medium whitespace-nowrap',
         TONES[tone],
         className,
       )}
@@ -151,7 +151,7 @@ export function SkeletonText({ lines = 3, className }: { lines?: number; classNa
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (
-    <div className={cn('border-line-strong/70 bg-panel rounded-xl border', className)}>
+    <div className={cn('border-line-strong/70 bg-panel rounded-2xl border', className)}>
       {children}
     </div>
   )
@@ -186,16 +186,18 @@ export function CopyButton({
 }
 
 const FIELD =
-  'border-line-strong bg-panel placeholder:text-faint focus:border-brand w-full rounded-md border outline-none'
+  'border-line-strong bg-panel placeholder:text-faint focus:border-brand w-full border outline-none'
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(FIELD, 'h-8 px-2.5 text-[13px]', className)} {...props} />
+  return (
+    <input className={cn(FIELD, 'h-9 rounded-full px-3.5 text-[13px]', className)} {...props} />
+  )
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
-      className={cn(FIELD, 'scrollbar-thin px-2.5 py-2 text-[13px]', className)}
+      className={cn(FIELD, 'scrollbar-thin rounded-2xl px-3.5 py-2.5 text-[13px]', className)}
       {...props}
     />
   )

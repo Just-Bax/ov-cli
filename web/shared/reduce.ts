@@ -40,9 +40,11 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
     case 'meta':
       return {
         ...state,
+        caseUrl: event.caseUrl ?? state.caseUrl,
         summary: {
           ...state.summary,
           title: event.title ?? state.summary.title,
+          caseKey: event.caseKey ?? state.summary.caseKey,
           instance: event.instance ?? state.summary.instance,
         },
       }

@@ -36,6 +36,14 @@ export interface IssueFinding {
   evidence?: string[]
 }
 
+export interface ExistingMatch {
+  key: string
+  title: string
+  covers: 'yes' | 'partly' | 'no'
+  note?: string
+  link?: string
+}
+
 export interface TimeSaved {
   minutes: number
   basis: string
@@ -44,8 +52,9 @@ export interface TimeSaved {
 export interface Outcome {
   timeSaved?: TimeSaved
   issues: IssueFinding[]
+  existing?: ExistingMatch[]
   unrelated: string[]
-  /** Optional message to forward to whoever asked. */
+  /** The case chat comment, or a message to forward; empty when there is none. */
   reply: string
 }
 
@@ -82,7 +91,7 @@ export interface ChatMessage {
 
 export type RunEvent =
   | { type: 'status'; status: RunStatus; error?: string }
-  | { type: 'meta'; title?: string; instance?: string }
+  | { type: 'meta'; title?: string; caseKey?: string; caseUrl?: string; instance?: string }
   | { type: 'tool'; tool: ToolActivity }
   | { type: 'text'; messageId: string; delta: string }
   | { type: 'user'; message: ChatMessage }
@@ -129,6 +138,7 @@ export interface RunInput {
 export interface RunSummary {
   id: string
   title: string
+  caseKey?: string
   instance?: string
   status: RunStatus
   model: string
@@ -142,6 +152,7 @@ export type Rating = 'good' | 'off' | 'wrong'
 export interface RunState {
   summary: RunSummary
   input: RunInput
+  caseUrl?: string
   items: ThreadItem[]
   tools: ToolActivity[]
   changes: Change[]

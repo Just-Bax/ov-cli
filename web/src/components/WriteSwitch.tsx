@@ -57,8 +57,8 @@ export function WriteSwitch({
           : 'Read-only: the agent can only look and propose'
       }
       className={cn(
-        'flex h-8 items-center gap-2 rounded-full px-2.5 text-[12px] transition-colors',
-        local ? 'bg-warn-soft text-warn font-medium' : 'text-muted hover:bg-raised hover:text-fg',
+        'flex h-8 items-center gap-2 rounded-full px-3 text-[12px] font-medium transition-colors',
+        local ? 'bg-warn-soft text-warn' : 'bg-raised text-text hover:bg-line',
       )}
     >
       {saving ? (

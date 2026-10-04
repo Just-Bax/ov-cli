@@ -54,6 +54,7 @@ class ToolContext(Protocol):
     def attach_image(self, name: str, url: str) -> None: ...
     def finish(self, outcome: dict[str, Any]) -> None: ...
     def can_write(self) -> bool: ...
+    def load_case(self, ref: str) -> str: ...
 
 
 Handler = Callable[[dict[str, Any], ToolContext], str]
@@ -447,8 +448,13 @@ def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
             }
             for f in findings
         ],
+        "existing": [
+            {k: str(e[k]) for k in ("key", "title", "covers", "note", "link") if e.get(k)}
+            for e in args.get("existing") or []
+            if isinstance(e, dict) and e.get("key")
+        ],
         "unrelated": [str(u) for u in args.get("unrelated") or []],
-        "reply": str(args.get("message") or ""),
+        "reply": str(args.get("reply") or ""),
         "timeSaved": {
             "minutes": min(MAX_TIME_SAVED_MINUTES, max(0, minutes)),
             "basis": str(args.get("time_saved_basis") or ""),
@@ -466,6 +472,16 @@ def _ov_label(a: dict[str, Any]) -> str:
 INSTANCE = _str("Instance alias or host. Defaults to the run's instance.")
 
 TOOLS = [
+    Tool(
+        "load_case",
+        "Read a support case from trackor.onevizion.com: every field, the full chat, and all "
+        "attachments (saved to the workspace; open each with read_file). Also sets the run's "
+        "instance to the case's affected instance (C_WEBSITE).",
+        {"case": _str("Case number (e.g. 193915) or a trackor.onevizion.com case link")},
+        ["case"],
+        lambda a: f"Read case {a.get('case')} from trackor",
+        lambda a, ctx: ctx.load_case(str(a.get("case", ""))),
+    ),
     Tool(
         "ov",
         "Run the ov CLI against a OneVizion instance: any API call, schema discovery (api list, "
@@ -637,21 +653,49 @@ TOOLS = [
                             "resolved and verified; user_action = someone must act; expected = "
                             "works as designed; info = an answer or fact",
                         },
-                        "summary": _str("Short answer, plain language"),
+                        "summary": _str("Short answer to what was asked, plain language"),
                         "still_happening": {"type": "boolean"},
-                        "evidence": _strings("1-4 short facts you verified yourself"),
+                        "evidence": _strings(
+                            "1-4 short facts you verified yourself on the instance, e.g. "
+                            '"Rule 100024528 is_enabled = 0 (checked 10/01)"'
+                        ),
                     },
                     "required": ["title", "verdict", "summary", "evidence"],
                     "additionalProperties": False,
                 },
             },
+            "existing": {
+                "type": "array",
+                "description": "Closest existing Issues / Issue Tasks found on trackor",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": _str("Issue or task key"),
+                        "title": _str("Summary"),
+                        "covers": {"type": "string", "enum": ["yes", "partly", "no"]},
+                        "note": _str("One short sentence"),
+                        "link": _str("URL"),
+                    },
+                    "required": ["key", "title", "covers"],
+                    "additionalProperties": False,
+                },
+            },
             "unrelated": _strings("Unrelated problems noticed, one sentence each"),
-            "message": _str("A short message the user can forward to whoever asked, if useful"),
-            "time_saved_minutes": _int(
-                "Realistic minutes an experienced engineer would have spent doing this exact "
-                "work by hand, minus about 10 minutes to review your result. Do not inflate."
+            "reply": _str(
+                "Working a case: the case chat comment, following the reply style rules exactly. "
+                "Otherwise a short message the user can forward, or empty."
             ),
-            "time_saved_basis": _str("One short sentence: what made it take that long by hand"),
+            "time_saved_minutes": _int(
+                "Realistic minutes an experienced TCE would have spent doing this exact "
+                "investigation and write-up by hand (opening each system, writing the queries, "
+                "reading the code, dead ends, writing the fix and reply), minus about 10 minutes "
+                "to review your result. Base it on what the work actually needed, not on how "
+                "many tool calls you made. Do not inflate."
+            ),
+            "time_saved_basis": _str(
+                'One short sentence: what made it take that long by hand, e.g. "Tracing the '
+                'rule through 3 packages and comparing 2 weeks of run logs."'
+            ),
         },
         ["findings", "time_saved_minutes", "time_saved_basis"],
         lambda _: "finish",

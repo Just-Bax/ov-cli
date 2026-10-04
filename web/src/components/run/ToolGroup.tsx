@@ -7,6 +7,7 @@ import {
   type LucideIcon,
   Search,
   Terminal,
+  Ticket,
   X,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -22,6 +23,7 @@ const ICONS: Record<string, LucideIcon> = {
   source_read: FileCode,
   read_file: FileText,
   git_clone: GitBranch,
+  load_case: Ticket,
 }
 
 const NOUNS: Record<string, [string, string]> = {
@@ -32,6 +34,7 @@ const NOUNS: Record<string, [string, string]> = {
   source_read: ['source file', 'source files'],
   read_file: ['file', 'files'],
   git_clone: ['repo', 'repos'],
+  load_case: ['case', 'cases'],
 }
 
 function summarize(tools: ToolActivity[]): string {
@@ -82,7 +85,7 @@ function Block({ title, text, error }: { title: string; text: string; error?: bo
       </div>
       <pre
         className={cn(
-          'max-h-64 scrollbar-thin overflow-auto rounded-lg px-3 py-2 font-mono text-[11.5px] leading-[18px] break-all whitespace-pre-wrap',
+          'max-h-64 scrollbar-thin overflow-auto rounded-xl px-3 py-2 font-mono text-[11.5px] leading-[18px] break-all whitespace-pre-wrap',
           error ? 'bg-danger-soft/60 text-danger' : 'bg-raised text-fg',
         )}
       >
@@ -101,7 +104,7 @@ function ToolRow({ tool }: { tool: ToolActivity }) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="hover:bg-raised flex w-full items-center gap-2 rounded-md px-2 py-1 text-left"
+        className="hover:bg-raised flex w-full items-center gap-2 rounded-full px-2.5 py-1 text-left"
       >
         <ChevronRight
           className={cn('text-faint size-3 shrink-0 transition-transform', open && 'rotate-90')}
@@ -152,7 +155,7 @@ export function ToolGroup({ tools }: { tools: ToolActivity[] }) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="text-muted hover:text-fg -ml-1 flex max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left"
+        className="text-muted hover:text-fg hover:bg-raised -ml-2 flex max-w-full items-center gap-1.5 rounded-full px-2 py-1 text-left"
       >
         <ChevronRight
           className={cn('text-faint size-3.5 shrink-0 transition-transform', open && 'rotate-90')}
@@ -162,7 +165,11 @@ export function ToolGroup({ tools }: { tools: ToolActivity[] }) {
           {running ? (
             <span className="text-text">{running.label}</span>
           ) : (
-            <span>{summarize(tools)}</span>
+            <span>
+              {tools.length === 1 && tools[0].name === 'load_case'
+                ? tools[0].label
+                : summarize(tools)}
+            </span>
           )}
         </span>
         {failed ? <span className="text-danger shrink-0 text-[11px]">{failed} failed</span> : null}

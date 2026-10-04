@@ -43,9 +43,11 @@ def reduce(state: dict[str, Any], stored: dict[str, Any]) -> dict[str, Any]:
         if event["status"] == "error":
             state["error"] = event.get("error")
     elif kind == "meta":
-        for key in ("title", "instance"):
+        for key in ("title", "instance", "caseKey"):
             if event.get(key) is not None:
                 state["summary"][key] = event[key]
+        if event.get("caseUrl"):
+            state["caseUrl"] = event["caseUrl"]
     elif kind == "tool":
         _upsert(state["tools"], event["tool"], merge=True)
         _add_item(state, "tool", event["tool"]["id"])

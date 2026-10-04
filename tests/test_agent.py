@@ -61,7 +61,7 @@ class FakeContext:
 
 def test_builtin_skills_ship_and_can_be_customized_and_reset():
     names = [s["name"] for s in skills.list_skills()]
-    assert names[:3] == ["working-style", "ov-cli", "onevizion"]
+    assert names[:4] == ["onevizion", "working-style", "ov-cli", "tce-best-practices"]
 
     skills.update("ov-cli", {"content": "mine", "enabled": False})
     custom = next(s for s in skills.list_skills() if s["name"] == "ov-cli")
@@ -310,3 +310,33 @@ def test_attachments_that_could_run_script_are_downloaded(agent_server, monkeypa
 def test_a_local_page_on_another_port_is_refused(agent_server):
     other = httpx.get(f"{agent_server}/api/runs", headers={"Origin": "http://127.0.0.1:3000"})
     assert other.status_code == 403
+
+
+def test_a_bare_case_number_or_link_is_a_case():
+    from ov.agent.cases import case_ref
+
+    assert case_ref("193915") == "193915"
+    assert case_ref(" Case #193915 ") == "193915"
+    link = "https://trackor.onevizion.com/form/ConfigAppForm.do?id=100124829949"
+    assert case_ref(link) == link
+    assert case_ref("why does case 193915 fail?") is None
+
+
+def test_finish_keeps_existing_matches_and_the_reply(tmp_path):
+    from ov.agent.tools import TOOLS_BY_NAME
+
+    ctx = FakeContext(tmp_path)
+    outcomes = []
+    ctx.finish = outcomes.append
+    TOOLS_BY_NAME["finish"].handler(
+        {
+            "findings": [{"title": "t", "verdict": "fix", "summary": "s", "evidence": ["e"]}],
+            "existing": [{"key": "IT-1", "title": "x", "covers": "partly"}],
+            "reply": "Yes, fixed.",
+            "time_saved_minutes": 30,
+            "time_saved_basis": "b",
+        },
+        ctx,
+    )
+    assert outcomes[0]["existing"] == [{"key": "IT-1", "title": "x", "covers": "partly"}]
+    assert outcomes[0]["reply"] == "Yes, fixed."

@@ -12,10 +12,10 @@ export interface Option {
 type Variant = 'chip' | 'field' | 'plain'
 
 const TRIGGER: Record<Variant, string> = {
-  chip: 'h-7 rounded-[10px] bg-brand-chip px-2.5 text-[12px] font-medium text-brand-strong hover:bg-brand hover:text-white',
+  chip: 'h-7 rounded-full bg-brand-chip px-2.5 text-[12px] font-medium text-brand-strong hover:bg-brand hover:text-white',
   field:
-    'h-8 w-full rounded-md border border-line-strong bg-white px-2.5 text-[13px] text-fg hover:border-brand',
-  plain: 'h-7 rounded-md px-1.5 text-[12px] font-medium text-text hover:bg-raised',
+    'h-9 w-full rounded-full border border-line-strong bg-white px-3.5 text-[13px] text-fg hover:border-brand',
+  plain: 'h-8 rounded-full bg-raised px-3 text-[12px] font-medium text-text hover:bg-line',
 }
 
 /** OneVizion-style dropdown: chip or field trigger, floating menu, check on the selected item. */
@@ -158,10 +158,10 @@ export function Dropdown({
                 bottom: pos.up ? window.innerHeight - pos.top : undefined,
                 minWidth: Math.max(pos.minWidth, 180),
               }}
-              className="border-line-strong/70 fixed z-50 max-w-[360px] overflow-hidden rounded-xl border bg-white p-1 shadow-[var(--shadow-large)]"
+              className="border-line-strong/70 fixed z-50 max-w-[360px] overflow-hidden rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]"
             >
               {showSearch ? (
-                <div className="border-line-strong mb-1 flex h-7 items-center gap-1.5 rounded-lg border bg-white px-2">
+                <div className="border-line-strong mb-1 flex h-8 items-center gap-1.5 rounded-full border bg-white px-3">
                   <Search className="text-faint size-3.5" />
                   <input
                     autoFocus
@@ -184,7 +184,7 @@ export function Dropdown({
                     onMouseEnter={() => setActive(i)}
                     onClick={() => pick(o)}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12.5px]',
+                      'flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[12.5px]',
                       i === active ? 'bg-brand-soft text-brand-strong' : 'text-fg',
                     )}
                   >

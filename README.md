@@ -353,11 +353,18 @@ with exit 7 before a request is sent. Useful when handing `ov` to an AI agent.
 ov agent          # or: ov ui
 ```
 
-Starts a local web app at http://127.0.0.1:5180 and opens it in your browser: a chat with
-an AI agent that works on your OneVizion instances through `ov`. Ask it anything ("why did
-this rule fail last night?", "which imports load Sites?"), paste errors, attach screenshots,
-emails or logs. It shows each API call and SQL query it makes, proposes changes as diffs,
-and ends an investigation with findings and the evidence it checked.
+Starts a local web app at http://127.0.0.1:5180 and opens it in your browser: OV Agent,
+a chat with an AI Tier 3 engineer that works on your OneVizion instances through `ov`.
+
+- **Support cases:** type a case number or paste a trackor link. It reads the whole case
+  from trackor.onevizion.com (fields, chat, attachments, emails), moves to the affected
+  instance, finds the root cause with evidence, checks existing Issues, proposes fixes as
+  diffs, and writes the reply for the case chat.
+- **Anything else:** ask a question ("which rules failed in the last 24 hours?"), paste
+  errors, attach screenshots, emails or logs.
+
+It shows each API call and SQL query it makes, and ends an investigation with findings and
+the evidence it checked.
 
 The first screen walks you through setup:
 
@@ -372,12 +379,15 @@ waits for your **Approve**.
 
 In **Settings**:
 
-- **Skills** are instructions added to every run. Three ship with `ov` (how to work, how to
-  use `ov`, what OneVizion is). Edit them, switch any off, or write your own, e.g. your
-  team's reply style or knowledge of a customer's configuration.
+- **Skills** are instructions added to every run. Four ship with `ov`: OneVizion Basics
+  (where rules, automations, notifications, imports, reports, modules and workflows live,
+  and how their runs and errors are logged), Working Style, OV CLI, and TCE Best Practices
+  (trackor cases, the troubleshooting workflow, the case reply style). Edit them, switch
+  any off, or write your own.
 - **Sources** are code and docs the agent can search: a local folder (a checkout of
   platform code, a docs export) or a git URL it clones for you. Describe each one so the
-  agent knows when to look.
+  agent knows when to look. Add your clone of the platform repo as `platform` so it can
+  read table DDL and search for error text.
 - **Instances** lists your `ov` sign-ins and signs in to new ones.
 
 Nothing leaves your machine except calls to your instances and to GitHub Copilot. The

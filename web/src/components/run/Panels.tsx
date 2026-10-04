@@ -15,7 +15,13 @@ const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   unknown: { label: 'Unclear', tone: 'neutral' },
 }
 
-export function Answer({ outcome }: { outcome: Outcome }) {
+const COVERS: Record<string, { label: string; tone: Tone }> = {
+  yes: { label: 'Covers it', tone: 'ok' },
+  partly: { label: 'Partly', tone: 'warn' },
+  no: { label: 'Not covered', tone: 'neutral' },
+}
+
+export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: string }) {
   return (
     <div className="space-y-3">
       <div className="border-line-strong/70 divide-line divide-y overflow-hidden rounded-xl border">
@@ -45,6 +51,31 @@ export function Answer({ outcome }: { outcome: Outcome }) {
             ) : null}
           </div>
         ))}
+        {outcome.existing?.length ? (
+          <div className="px-4 py-3">
+            <div className="text-faint mb-1.5 text-[11.5px] font-medium">Existing issues</div>
+            {outcome.existing.map((e, i) => (
+              <div key={i} className="flex items-center gap-2 py-0.5 text-[12.5px]">
+                <Chip tone={COVERS[e.covers]?.tone ?? 'neutral'}>
+                  {COVERS[e.covers]?.label ?? e.covers}
+                </Chip>
+                {e.link ? (
+                  <a
+                    href={e.link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-brand-strong shrink-0 font-medium hover:underline"
+                  >
+                    {e.key}
+                  </a>
+                ) : (
+                  <span className="shrink-0 font-medium">{e.key}</span>
+                )}
+                <span className="text-text min-w-0 flex-1 truncate">{e.title}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {outcome.unrelated.length ? (
           <details className="px-4 py-2.5">
             <summary className="text-muted cursor-pointer text-[12px]">
@@ -63,8 +94,20 @@ export function Answer({ outcome }: { outcome: Outcome }) {
       {outcome.reply ? (
         <div className="border-brand/40 bg-brand-soft/50 rounded-xl border">
           <div className="flex items-center gap-2 px-4 pt-2.5">
-            <span className="text-brand-strong text-[12px] font-semibold">Message to share</span>
+            <span className="text-brand-strong text-[12px] font-semibold">
+              {caseUrl ? 'Reply for the case chat' : 'Message to share'}
+            </span>
             <div className="flex-1" />
+            {caseUrl ? (
+              <a
+                href={caseUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand-strong text-[12px] hover:underline"
+              >
+                Open case
+              </a>
+            ) : null}
             <CopyButton text={outcome.reply} label="Copy" variant="primary" />
           </div>
           <p className="text-fg px-4 pt-1.5 pb-3 text-[13.5px] leading-relaxed whitespace-pre-wrap">
@@ -111,7 +154,7 @@ function ApprovalCard({ runId, question }: { runId: string; question: Question }
           </span>
         ) : null}
       </div>
-      <pre className="bg-raised text-fg mx-4 my-2.5 max-h-48 scrollbar-thin overflow-auto rounded-lg px-3 py-2 font-mono text-[11.5px] leading-[18px] break-all whitespace-pre-wrap">
+      <pre className="bg-raised text-fg mx-4 my-2.5 max-h-48 scrollbar-thin overflow-auto rounded-xl px-3 py-2 font-mono text-[11.5px] leading-[18px] break-all whitespace-pre-wrap">
         {question.detail}
       </pre>
       {!answered ? (
@@ -165,7 +208,7 @@ export function QuestionCard({ runId, question }: { runId: string; question: Que
                   : void send(o)
               }
               className={cn(
-                'h-7 rounded-md border px-3 text-[12.5px] transition-colors',
+                'h-8 rounded-full border px-3.5 text-[12.5px] transition-colors',
                 on
                   ? 'border-brand bg-brand-soft text-brand-strong'
                   : 'border-line-strong hover:border-brand bg-white',

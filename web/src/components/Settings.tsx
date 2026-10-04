@@ -169,7 +169,7 @@ function Instances() {
   return (
     <Card className="overflow-hidden">
       <div className="border-line flex items-center gap-2 border-b px-4 py-2.5">
-        <label className="border-line-strong focus-within:border-brand flex h-8 flex-1 items-center gap-2 rounded-lg border bg-white px-2.5">
+        <label className="border-line-strong focus-within:border-brand flex h-9 flex-1 items-center gap-2 rounded-full border bg-white px-3.5">
           <Search className="text-faint size-3.5" />
           <input
             value={query}
@@ -375,7 +375,7 @@ function Skills() {
           <div
             key={s.name}
             className={cn(
-              'flex items-start gap-2 rounded-lg px-3 py-2 transition-colors',
+              'flex items-start gap-2 rounded-xl px-3 py-2 transition-colors',
               s.name === selected ? 'bg-brand-soft' : 'hover:bg-raised',
             )}
           >
@@ -413,7 +413,7 @@ function Skills() {
           type="button"
           onClick={() => select(NEW)}
           className={cn(
-            'text-brand-strong mt-1 flex w-full items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium',
+            'text-brand-strong mt-1 flex w-full items-center gap-1.5 rounded-full px-3 py-2 text-[13px] font-medium',
             creating ? 'bg-brand-soft' : 'hover:bg-raised',
           )}
         >

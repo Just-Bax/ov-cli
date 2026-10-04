@@ -33,7 +33,7 @@ function StepRow({
       <div className="flex items-center gap-3">
         <div
           className={cn(
-            'flex size-8 shrink-0 items-center justify-center rounded-lg',
+            'flex size-8 shrink-0 items-center justify-center rounded-full',
             done
               ? 'bg-ok-soft text-ok'
               : active
@@ -91,7 +91,7 @@ function CopilotSignIn({ onDone }: { onDone: () => void }) {
   }
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="bg-canvas rounded-lg px-3 py-1.5 font-mono text-lg font-semibold tracking-[0.2em]">
+      <div className="bg-canvas rounded-full px-4 py-1.5 font-mono text-lg font-semibold tracking-[0.2em]">
         {code.userCode}
       </div>
       <CopyButton text={code.userCode} label="Copy code" />
