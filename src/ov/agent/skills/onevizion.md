@@ -7,7 +7,7 @@ OneVizion is a configurable platform for tracking projects, assets and processes
 
 ## The instance map
 
-Call graph_query first when you need to know what is connected to an object: which rules are triggered by or use a field, what loads a trackor type, which workflow runs a rule, which rules call a DB package and what the package uses. It answers from a cached map of the whole configuration without SQL; links marked "in code" come from rule, import, report and DB package code, counting only quoted names, config ids, `id.*` object references and `PACKAGE.procedure` calls, so dynamic SQL can be missed. Confirm anything important on the instance before you rely on it.
+Call ov_map first when you need to know what is connected to an object: which rules are triggered by or use a field, what loads a trackor type, which workflow runs a rule, which rules call a DB package and what the package uses. It answers from a cached map of the whole configuration without SQL; links marked "in code" come from rule, import, report and DB package code, counting only quoted names, config ids, `id.*` object references and `PACKAGE.procedure` calls, so dynamic SQL can be missed. Confirm anything important on the instance before you rely on it.
 
 ## Object references (the ID package)
 
@@ -80,7 +80,7 @@ select q.rule_queue_id, q.rule_id, q.created_ts, q.processed_ts, dbms_lob.substr
 
 - MODULE: MODULE_ID, MODULE_NAME, IS_ENABLED, VERSION, GIT_REPO_URL, COMMAND, SCHEDULE (cron), LAST_RUN, NEXT_RUN, LOG_LEVEL. Settings: MODULE_PARAM (NAME, VALUE, VALUE_CLOB); never read hidden or password values.
 - Runs: MODULE_RUN (MODULE_RUN_ID, MODULE_ID, PROCESS_ID); logs MODULE_LOG (MODULE_RUN_ID, TS, LOG_LEVEL 0 info/1 warn/2 error/3 debug, MESSAGE, DESCRIPTION CLOB). Install history: MODULE_INSTALL (VERSION, MODULE_STATUS_ID, ERROR_MESSAGE).
-- The code: git_clone the GIT_REPO_URL, then source_search / source_read it.
+- The code: github_clone the GIT_REPO_URL, then source_search / source_read it as repo:<name>.
 - Forms: module `/admin/module/Form.do?id=`, run `/admin/modulerun/Form.do?id=`. Grids ADMIN_MODULE, ADMIN_MODULE_RUN, ADMIN_MODULE_LOG.
 
 ## Workflows

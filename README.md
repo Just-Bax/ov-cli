@@ -374,7 +374,9 @@ The first screen walks you through setup:
 1. Sign in to GitHub. The agent runs on GitHub Copilot, so the account needs a Copilot
    subscription; you pick the model.
 2. Sign in to at least one instance (the same browser sign-in as `ov login`).
-3. Pick a default model and instance. Both can be changed per run.
+3. Pick a default model. It can be changed per run.
+
+Setup stays open until the last step, so signing in to GitHub does not skip the others.
 
 Read-only by default: every call runs with `OV_READONLY=1`. Turn on **Allow changes** for
 a run and the agent may apply changes, but each one shows you the exact `ov` command and
@@ -382,16 +384,27 @@ waits for your **Approve**.
 
 In **Settings**:
 
-- **Skills** are instructions added to every run. Four ship with `ov`: OneVizion Basics
+- **Skills** are instructions added to every run. Seven ship with `ov`: OneVizion Basics
   (where rules, automations, notifications, imports, reports, modules and workflows live,
-  and how their runs and errors are logged), Working Style, OV CLI, and TCE Best Practices
-  (trackor cases, the troubleshooting workflow, the case reply style). Edit them, switch
-  any off, or write your own.
+  and how their runs and errors are logged), Working Style, one skill per tool group (OV
+  CLI, Sources, GitHub, Datadog; Datadog only while it is connected), and TCE Best
+  Practices (trackor cases, the troubleshooting workflow, the case reply style). Edit them,
+  switch any off, or write your own.
 - **Sources** are code and docs the agent can search: a local folder (a checkout of
   platform code, a docs export) or a git URL it clones for you. Describe each one so the
   agent knows when to look. Add your clone of the platform repo as `platform` so it can
   read table DDL and search for error text.
 - **Instances** lists your `ov` sign-ins and signs in to new ones.
+
+The agent's tools come in groups, and the system prompt lists the ones a run has:
+
+| Group | Tools |
+| --- | --- |
+| OV CLI | `ov` (any ov command), `ov_sql`, `ov_search` (trackor search), `ov_map` (Instance map lookup), `ov_case` (a trackor support case) |
+| Sources | `source_search`, `source_read` |
+| GitHub | `github_clone` (clone or pull a repo, then read it as a source) |
+| Datadog | `datadog_logs`, `datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm` |
+| This run | `read_file`, `propose_change`, `ask_user`, `finish` |
 
 Nothing leaves your machine except calls to your instances and to GitHub Copilot. The
 server listens on 127.0.0.1 only. History, uploads and clones live in `~/.ov/agent`; the
@@ -403,7 +416,7 @@ notifications, workflows and modules, plus the fields each rule, import and repo
 its SQL. Pick an instance and Build: it reads the configuration with read-only SQL (about a
 minute on a large instance, Test SQL privilege needed) and caches it in `~/.ov/agent/graphs`.
 Start from a hotspot or search, double-click an object to bring in what it links to, and use
-"Ask the agent" on any object. The agent uses the same map in runs (`graph_query`) to see
+"Ask the agent" on any object. The agent uses the same map in runs (`ov_map`) to see
 what depends on something before it touches it. Links found in SQL text are best-effort.
 DB packages are objects on the map too: their bodies are read like rule code, so a package
 links to the fields, trackor types and packages it uses and to the rules that call it. Only
@@ -429,9 +442,10 @@ filter for its servers (`host:acme-app-*`, `service:acme`); "Suggest matches" pr
 from the hosts and services that sent logs in the last day, and a tenant shares its host's
 match unless you give it its own.
 
-Once connected, runs get read-only Datadog tools (`dd_logs` with message grouping,
-`dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm`), offered only for what the key can read,
-and the **Health** page shows per instance: alerting monitors, error logs with the trend
+Once connected, runs get read-only Datadog tools (`datadog_logs` with message grouping,
+`datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm`), offered only for
+what the key can read, and the **Health** page shows per instance: alerting monitors, error
+logs with the trend
 against the previous window and the top error groups, log volume, slowest endpoints,
 server metrics (CPU, load, memory, disk, JVM heap), recent events, and the instance's own
 failed processes, with "Ask the agent" to start an investigation from there. Your Datadog

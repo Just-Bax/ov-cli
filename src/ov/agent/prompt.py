@@ -4,6 +4,7 @@ import datetime
 
 from . import datadog, skills, sources
 from .ovproc import instances
+from .tools import TOOL_GROUPS, tool_specs
 
 NO_INSTANCE = (
     "not chosen. Work it out from context (a case's C_WEBSITE, a host or name in the "
@@ -26,6 +27,12 @@ def system_prompt(write_access: bool, instance: str) -> str:
     # The Datadog skill only makes sense when its tools are offered.
     shown = [s for s in skills.enabled_skills() if s["name"] != "datadog" or linked]
     skill_text = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in shown)
+    offered = {spec["function"]["name"] for spec in tool_specs()}
+    groups = "\n".join(
+        f"- {title} ({about}): {', '.join(n for n in names if n in offered)}"
+        for title, about, names in TOOL_GROUPS
+        if any(n in offered for n in names)
+    )
     if linked:
         matches = datadog.load_state().get("matches") or {}
         matched = "\n".join(f"- {alias}: {scope}" for alias, scope in sorted(matches.items()))
@@ -48,6 +55,10 @@ Instance for this run: {instance or NO_INSTANCE}
 
 Signed-in instances:
 {signed_in or "none"}
+
+# Tools by group
+
+{groups}
 
 Sources you can search with source_search and source_read:
 {configured or "none configured"}

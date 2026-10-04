@@ -155,7 +155,7 @@ def root(ref: str) -> Path:
         name = ref[len(REPO_PREFIX) :]
         path = agent_dir("repos") / name
         if not _NAME.match(name.lower()) or not path.is_dir():
-            raise SourceError(f"Repo {name} is not cloned. Call git_clone first.")
+            raise SourceError(f"Repo {name} is not cloned. Call github_clone first.")
         return path
 
     source = _find(ref)

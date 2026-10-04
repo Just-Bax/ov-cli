@@ -61,7 +61,15 @@ class FakeContext:
 
 def test_builtin_skills_ship_and_can_be_customized_and_reset():
     names = [s["name"] for s in skills.list_skills()]
-    assert names[:4] == ["onevizion", "working-style", "ov-cli", "tce-best-practices"]
+    assert names[:7] == [
+        "onevizion",
+        "working-style",
+        "ov-cli",
+        "sources",
+        "github",
+        "datadog",
+        "tce-best-practices",
+    ]
 
     skills.update("ov-cli", {"content": "mine", "enabled": False})
     custom = next(s for s in skills.list_skills() if s["name"] == "ov-cli")
@@ -263,7 +271,7 @@ def test_ov_tool_rejects_option_first_and_raw_sql(logged_in, tmp_path):
     for args in (["-ixyz", "logout"], ["--instance=x", "api", "tags"], ["api", "tags", "-iabc"]):
         with pytest.raises(ToolError):
             run_ov_tool(args, "acme", ctx)
-    with pytest.raises(ToolError, match="sql tool"):
+    with pytest.raises(ToolError, match="ov_sql tool"):
         run_ov_tool(["request", "POST", "/v3/sql/test", "-d", "delete from x"], "acme", ctx)
 
 
@@ -411,3 +419,32 @@ def test_an_instance_can_be_removed(agent_server, monkeypatch):
     assert seen == [["logout", "acme", "--json"]] and rows == []
     missing = httpx.post(f"{agent_server}/api/instances/logout", json={"alias": "acme"})
     assert missing.status_code == 404
+
+
+def test_every_tool_is_in_one_group_and_old_names_still_work():
+    from ov.agent.run import _renamed
+    from ov.agent.tools import LEGACY_NAMES, TOOL_GROUPS, TOOLS, tool_named
+
+    grouped = [name for _, _, names in TOOL_GROUPS for name in names]
+    assert sorted(grouped) == sorted(t.name for t in TOOLS)
+    assert len(grouped) == len(set(grouped))
+    for old, new in LEGACY_NAMES.items():
+        assert tool_named(old) is tool_named(new) is not None
+
+    history = [
+        {"role": "assistant", "tool_calls": [{"id": "1", "function": {"name": "graph_query"}}]}
+    ]
+    assert _renamed(history)[0]["tool_calls"][0]["function"]["name"] == "ov_map"
+
+
+def test_the_prompt_lists_tools_by_group(logged_in):
+    from ov.agent.prompt import system_prompt
+
+    text = system_prompt(False, "")
+    assert (
+        "- OV CLI (signed-in OneVizion instances): ov, ov_sql, ov_search, ov_map, ov_case" in text
+    )
+    assert "- GitHub (module and project repositories): github_clone" in text
+    assert "Datadog (logs" not in text
+    for title in ("## OV CLI", "## Sources", "## GitHub"):
+        assert title in text

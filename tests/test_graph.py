@@ -107,7 +107,7 @@ def test_the_agent_reads_a_cached_map(ov_home, tmp_path):
         work_dir = tmp_path
         cancel = None
 
-    out = TOOLS_BY_NAME["graph_query"].handler({"object": "P_STATUS"}, Ctx())
+    out = TOOLS_BY_NAME["ov_map"].handler({"object": "P_STATUS"}, Ctx())
     assert "is used in code by (1): rule Set status (500)" in out
     assert "is a field of (1): trackor_type Project (1)" in out
 

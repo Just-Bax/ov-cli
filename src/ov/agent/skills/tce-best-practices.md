@@ -5,7 +5,7 @@ description: Working OneVizion support cases as a Tier 3 engineer - trackor, the
 
 ## Trackor ticketing
 
-trackor.onevizion.com is the ticket system. Pass `instance: "trackor.onevizion.com"` for anything on it. To read a whole case use load_case; a bare case number or case link from the user is loaded for you before you start.
+trackor.onevizion.com is the ticket system. Pass `instance: "trackor.onevizion.com"` for anything on it. To read a whole case use ov_case; a bare case number or case link from the user is loaded for you before you start.
 
 Cases (trackor type `Cases`, plural): the support ticket. The case number is XITOR_KEY (comes back as TRACKOR_KEY); TRACKOR_ID is a different, long internal id.
 
@@ -20,7 +20,7 @@ Issues (trackor type `Issue`): development work. VQS_IT_XITOR_NAME (summary), VQ
 
 Issue Tasks (trackor type `Issue_Task`): IT_DESCRIPTION, IT_TASK_TYPE ("Inquiry" for enhancement requests).
 
-Similar past cases: trackor_search on Cases with a distinctive phrase, e.g. `equal(C_TITLE, "copy-blobs-to-public-s3")` or a module/rule name, then read C_RESOLUTION and the chat of the closest ones. Say which past case matched and what fixed it.
+Similar past cases: ov_search on Cases with a distinctive phrase, e.g. `equal(C_TITLE, "copy-blobs-to-public-s3")` or a module/rule name, then read C_RESOLUTION and the chat of the closest ones. Say which past case matched and what fixed it.
 
 Link to a trackor record: `https://trackor.onevizion.com/form/ConfigAppForm.do?id=<TRACKOR_ID>`.
 

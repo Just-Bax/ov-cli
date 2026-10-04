@@ -324,7 +324,7 @@ function Details({
 
   const ask = () =>
     openDraft({
-      prompt: `Explain the ${meta.label.toLowerCase()} "${node.name}" (id ${node.ref}) on ${host}: what it does, what triggers or feeds it, and what depends on it. Start with graph_query, then confirm on the instance.`,
+      prompt: `Explain the ${meta.label.toLowerCase()} "${node.name}" (id ${node.ref}) on ${host}: what it does, what triggers or feeds it, and what depends on it. Start with ov_map, then confirm on the instance.`,
       instance: alias,
     })
 

@@ -347,7 +347,7 @@ function Inspector({
   const review = () =>
     start(
       'review',
-      `Review ${subject} for performance and correctness. Read its full code, use graph_query to see what triggers it and what it touches, and check its recent errors. Then propose concrete fixes as change cards with the complete current code as before.` +
+      `Review ${subject} for performance and correctness. Read its full code, use ov_map to see what triggers it and what it touches, and check its recent errors. Then propose concrete fixes as change cards with the complete current code as before.` +
         (hints.length
           ? ` Static checks already flagged: ${hints.map((h) => `line ${h.line} ${h.title}`).join('; ')}.`
           : ''),
@@ -355,7 +355,7 @@ function Inspector({
   const ask = () =>
     start(
       'ask',
-      `Explain ${subject}: what it does, what triggers or feeds it, and what depends on it. Start with graph_query, then confirm on the instance.`,
+      `Explain ${subject}: what it does, what triggers or feeds it, and what depends on it. Start with ov_map, then confirm on the instance.`,
     )
 
   return (

@@ -1,5 +1,9 @@
 import {
+  BellAlertIcon,
+  CalendarIcon,
+  ChartBarIcon,
   ChevronRightIcon,
+  ClockIcon,
   CircleStackIcon,
   CodeBracketSquareIcon,
   CommandLineIcon,
@@ -17,33 +21,58 @@ import { CopyButton, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
 
+// Keep in sync with LEGACY_NAMES in tools.py: runs saved before the rename use the old names.
+const LEGACY: Record<string, string> = {
+  load_case: 'ov_case',
+  graph_query: 'ov_map',
+  sql: 'ov_sql',
+  trackor_search: 'ov_search',
+  git_clone: 'github_clone',
+  dd_logs: 'datadog_logs',
+  dd_metrics: 'datadog_metrics',
+  dd_monitors: 'datadog_monitors',
+  dd_events: 'datadog_events',
+  dd_apm: 'datadog_apm',
+}
+const nameOf = (tool: ToolActivity) => LEGACY[tool.name] ?? tool.name
+
 const ICONS: Record<string, Icon> = {
-  sql: CircleStackIcon,
   ov: CommandLineIcon,
-  trackor_search: MagnifyingGlassIcon,
+  ov_sql: CircleStackIcon,
+  ov_search: MagnifyingGlassIcon,
+  ov_map: MapIcon,
+  ov_case: TicketIcon,
   source_search: MagnifyingGlassIcon,
   source_read: CodeBracketSquareIcon,
+  github_clone: ShareIcon,
   read_file: DocumentTextIcon,
-  git_clone: ShareIcon,
-  load_case: TicketIcon,
-  graph_query: MapIcon,
+  datadog_logs: DocumentTextIcon,
+  datadog_metrics: ChartBarIcon,
+  datadog_monitors: BellAlertIcon,
+  datadog_events: CalendarIcon,
+  datadog_apm: ClockIcon,
 }
 
 const NOUNS: Record<string, [string, string]> = {
-  sql: ['SQL query', 'SQL queries'],
   ov: ['API call', 'API calls'],
-  trackor_search: ['trackor search', 'trackor searches'],
+  ov_sql: ['SQL query', 'SQL queries'],
+  ov_search: ['trackor search', 'trackor searches'],
+  ov_map: ['map lookup', 'map lookups'],
+  ov_case: ['case', 'cases'],
   source_search: ['code search', 'code searches'],
   source_read: ['source file', 'source files'],
+  github_clone: ['repo', 'repos'],
   read_file: ['file', 'files'],
-  git_clone: ['repo', 'repos'],
-  load_case: ['case', 'cases'],
-  graph_query: ['map lookup', 'map lookups'],
+  datadog_logs: ['log search', 'log searches'],
+  datadog_metrics: ['metric query', 'metric queries'],
+  datadog_monitors: ['monitor check', 'monitor checks'],
+  datadog_events: ['event search', 'event searches'],
+  datadog_apm: ['APM query', 'APM queries'],
 }
 
 function summarize(tools: ToolActivity[]): string {
   const counts = new Map<string, number>()
-  for (const t of tools) counts.set(t.name, (counts.get(t.name) ?? 0) + 1)
+  for (const t of tools) counts.set(nameOf(t), (counts.get(nameOf(t)) ?? 0) + 1)
   return [...counts]
     .map(([name, n]) => {
       const [one, many] = NOUNS[name] ?? [name, name]
@@ -58,22 +87,36 @@ function readableInput(tool: ToolActivity): { text: string; lang: string } {
   try {
     const a = JSON.parse(tool.input) as Record<string, unknown>
     const at = a.instance ? `-- ${a.instance}\n` : ''
-    if (tool.name === 'sql') return { text: `${at}${a.query}`, lang: 'sql' }
-    if (tool.name === 'ov')
+    const name = nameOf(tool)
+    if (name === 'ov_sql') return { text: `${at}${a.query}`, lang: 'sql' }
+    if (name.startsWith('datadog_'))
+      return {
+        text: [
+          a.instance ? `instance: ${a.instance}` : '',
+          a.query ? `query: ${a.query}` : '',
+          a.mode ? `mode: ${a.mode}` : '',
+          a.from ? `from: ${a.from}${a.to ? ` to ${a.to}` : ''}` : '',
+          a.patterns ? 'grouped by message' : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        lang: 'text',
+      }
+    if (name === 'ov')
       return {
         text: `ov ${a.instance ? `-i ${a.instance} ` : ''}${(a.args as string[]).join(' ')}`,
         lang: 'shell',
       }
-    if (tool.name === 'trackor_search')
+    if (name === 'ov_search')
       return {
         text: `${a.trackor_type}: ${a.condition}\nfields: ${(a.fields as string[]).join(', ')}`,
         lang: 'text',
       }
-    if (tool.name === 'source_search')
+    if (name === 'source_search')
       return { text: `${a.source}: /${a.pattern}/${a.path ? `  in ${a.path}` : ''}`, lang: 'text' }
-    if (tool.name === 'source_read' || tool.name === 'read_file')
+    if (name === 'source_read' || name === 'read_file')
       return { text: `${a.source ? `${a.source}/` : ''}${a.path}`, lang: 'text' }
-    if (tool.name === 'git_clone') return { text: String(a.url), lang: 'text' }
+    if (name === 'github_clone') return { text: String(a.url), lang: 'text' }
     return { text: JSON.stringify(a, null, 2), lang: 'json' }
   } catch {
     return { text: tool.input, lang: 'text' }
@@ -101,7 +144,7 @@ function Block({ title, text, error }: { title: string; text: string; error?: bo
 
 function ToolRow({ tool }: { tool: ToolActivity }) {
   const [open, setOpen] = useState(false)
-  const Icon = ICONS[tool.name] ?? CommandLineIcon
+  const Icon = ICONS[nameOf(tool)] ?? CommandLineIcon
   const input = readableInput(tool)
   return (
     <div>
@@ -170,7 +213,7 @@ export function ToolGroup({ tools }: { tools: ToolActivity[] }) {
             <span className="text-text">{running.label}</span>
           ) : (
             <span>
-              {tools.length === 1 && tools[0].name === 'load_case'
+              {tools.length === 1 && nameOf(tools[0]) === 'ov_case'
                 ? tools[0].label
                 : summarize(tools)}
             </span>

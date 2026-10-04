@@ -18,7 +18,7 @@ from .ovproc import login as ov_login
 from .ovproc import url_for
 from .prompt import system_prompt
 from .state import empty_state, reduce
-from .tools import TOOLS_BY_NAME, tool_specs
+from .tools import LEGACY_NAMES, tool_named, tool_specs
 from .workspace import (
     IMAGE_EXTS,
     attachments_dir,
@@ -65,7 +65,7 @@ class Run:
         self.vision = True
         self._lock = threading.RLock()
         self._listeners: list[queue.Queue[dict[str, Any]]] = []
-        self._messages = _answered(db.load_conversation(run_id) or [])
+        self._messages = _renamed(_answered(db.load_conversation(run_id) or []))
         turns = db.load_conversation(f"{run_id}#turns")
         self._turns: dict[str, dict[str, Any]] = turns if isinstance(turns, dict) else {}
         self._pending_images: list[tuple[str, str]] = []
@@ -301,7 +301,7 @@ class Run:
 
     # A bare case number starts the way a TCE would: with the whole case already read.
     def _preload_case(self, ref: str) -> str:
-        tool = {"id": _uid("load"), "name": "load_case", "label": f"Read case {ref} from trackor"}
+        tool = {"id": _uid("load"), "name": "ov_case", "label": f"Read case {ref} from trackor"}
         started = db.now_ms()
         self.emit({"type": "tool", "tool": {**tool, "status": "running"}})
         try:
@@ -539,7 +539,7 @@ class Run:
             return f"Error: arguments are not valid JSON: {raw[:200]}"
         if not isinstance(args, dict):
             return "Error: arguments must be a JSON object."
-        tool = TOOLS_BY_NAME.get(name)
+        tool = tool_named(name)
         if tool is None:
             return f"Error: unknown tool {name}"
 
@@ -596,6 +596,16 @@ class Run:
 
 
 # Copilot rejects a conversation whose tool calls lack results, e.g. after a crash mid-turn.
+# Continued runs carry tool calls under their old names; the model should see the current ones.
+def _renamed(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for message in messages:
+        for call in message.get("tool_calls") or []:
+            function = call.get("function") or {}
+            if function.get("name") in LEGACY_NAMES:
+                function["name"] = LEGACY_NAMES[function["name"]]
+    return messages
+
+
 def _answered(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     fixed: list[dict[str, Any]] = []
     pending: list[str] = []

@@ -200,7 +200,7 @@ def run_ov_tool(
     if any(a.startswith("--instance") or (a.startswith("-i") and a[:2] != "--") for a in cleaned):
         raise ToolError("Pass the instance in the instance parameter, not as -i.")
     if not allow_sql and (cleaned[0] == "sql" or any(_SQL_ROUTE.search(a) for a in cleaned)):
-        raise ToolError("Run SQL with the sql tool, not through ov.")
+        raise ToolError("Run SQL with the ov_sql tool, not through ov.")
     cleaned = _confine_files(cleaned, ctx)
 
     target = _target(instance, ctx)
@@ -284,7 +284,7 @@ _SECRET_SQL = re.compile(
 )
 
 
-def _sql(args: dict[str, Any], ctx: ToolContext) -> str:
+def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
     query = re.sub(r";\s*$", "", str(args["query"]).strip())
     if not _SELECT.match(query) or _PLSQL_IN_WITH.search(query):
         raise ToolError("Only SELECT / WITH queries are allowed.")
@@ -309,7 +309,7 @@ def _sql(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(_format_sql(raw), ctx, "result")
 
 
-def _trackor_search(args: dict[str, Any], ctx: ToolContext) -> str:
+def _ov_search(args: dict[str, Any], ctx: ToolContext) -> str:
     trackor_type = quote(str(args["trackor_type"]), safe="")
     limit = min(int(args.get("limit") or 50), 500)
     return run_ov_tool(
@@ -390,7 +390,7 @@ def _source_read(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(text, ctx, "file")
 
 
-def _git_clone(args: dict[str, Any], _: ToolContext) -> str:
+def _github_clone(args: dict[str, Any], _: ToolContext) -> str:
     cloned = sources.clone_repo(str(args["url"]))
     return f'Use source="{cloned["repo"]}".\nFiles:\n' + "\n".join(cloned["files"])
 
@@ -464,7 +464,7 @@ def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
     return "Delivered."
 
 
-def _graph_query(args: dict[str, Any], ctx: ToolContext) -> str:
+def _ov_map(args: dict[str, Any], ctx: ToolContext) -> str:
     target = _target(args.get("instance"), ctx)
     found = find_instance(target)
     if found is None:
@@ -481,7 +481,7 @@ def _graph_query(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(f"Map of {found['alias']} built {built}.\n\n{body}", ctx, "map")
 
 
-def _dd(handler: Handler) -> Handler:
+def _datadog(handler: Handler) -> Handler:
     def wrapped(args: dict[str, Any], ctx: ToolContext) -> str:
         try:
             return handler(args, ctx)
@@ -491,14 +491,14 @@ def _dd(handler: Handler) -> Handler:
     return wrapped
 
 
-def _dd_window(args: dict[str, Any], default: str) -> tuple[int, int]:
+def _datadog_window(args: dict[str, Any], default: str) -> tuple[int, int]:
     return datadog.to_ms(args.get("from"), default), datadog.to_ms(args.get("to"), "now")
 
 
-def _dd_logs(args: dict[str, Any], ctx: ToolContext) -> str:
+def _datadog_logs(args: dict[str, Any], ctx: ToolContext) -> str:
     alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
     query = datadog.combine(scope, str(args.get("query") or ""))
-    start, end = _dd_window(args, "now-1h")
+    start, end = _datadog_window(args, "now-1h")
     link = datadog.logs_link(
         datadog.load_state().get("site") or datadog.DEFAULT_SITE, query, start, end
     )
@@ -534,7 +534,7 @@ def _dd_logs(args: dict[str, Any], ctx: ToolContext) -> str:
     )
 
 
-def _dd_metrics(args: dict[str, Any], ctx: ToolContext) -> str:
+def _datadog_metrics(args: dict[str, Any], ctx: ToolContext) -> str:
     alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
     query = str(args.get("query") or "").strip()
     if not query:
@@ -544,7 +544,7 @@ def _dd_metrics(args: dict[str, Any], ctx: ToolContext) -> str:
         query = query.replace("{$scope}", "{" + tags + "}")
     elif "{" not in query:
         query = f"{query}{{{tags}}}"
-    start, end = _dd_window(args, "now-4h")
+    start, end = _datadog_window(args, "now-4h")
     series = datadog.query_metric(query, start, end)
     if not series:
         return f"No data for {query} between {datadog.iso(start)} and {datadog.iso(end)} UTC."
@@ -556,7 +556,7 @@ def _dd_metrics(args: dict[str, Any], ctx: ToolContext) -> str:
     )
 
 
-def _dd_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
+def _datadog_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
     alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
     rows = datadog.monitors_for(scope, include_ok=bool(args.get("include_ok")))
     base = datadog.app_url(datadog.load_state().get("site") or datadog.DEFAULT_SITE)
@@ -572,10 +572,10 @@ def _dd_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(f"Monitors for {scope or 'the org'}:\n" + "\n".join(lines), ctx, "monitors")
 
 
-def _dd_events(args: dict[str, Any], ctx: ToolContext) -> str:
+def _datadog_events(args: dict[str, Any], ctx: ToolContext) -> str:
     alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
     query = datadog.combine(scope, str(args.get("query") or ""))
-    start, end = _dd_window(args, "now-24h")
+    start, end = _datadog_window(args, "now-24h")
     rows = datadog.events_for(query, start, end, int(args.get("limit") or 30))
     if not rows:
         return f"No events for {query} between {datadog.iso(start)} and {datadog.iso(end)} UTC."
@@ -587,10 +587,10 @@ def _dd_events(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(f"Events for {query}:\n" + "\n".join(lines), ctx, "events")
 
 
-def _dd_apm(args: dict[str, Any], ctx: ToolContext) -> str:
+def _datadog_apm(args: dict[str, Any], ctx: ToolContext) -> str:
     alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
     query = datadog.combine(scope, str(args.get("query") or ""))
-    start, end = _dd_window(args, "now-1h")
+    start, end = _datadog_window(args, "now-1h")
     if args.get("mode") == "errors":
         rows = datadog.error_spans(query, start, end, int(args.get("limit") or 25))
         if not rows:
@@ -616,7 +616,7 @@ INSTANCE = _str("Instance alias or host. Defaults to the run's instance, if one 
 
 TOOLS = [
     Tool(
-        "load_case",
+        "ov_case",
         "Read a support case from trackor.onevizion.com: every field, the full chat, and all "
         "attachments (saved to the workspace; open each with read_file). Also sets the run's "
         "instance to the case's affected instance (C_WEBSITE).",
@@ -643,21 +643,22 @@ TOOLS = [
         lambda a, ctx: run_ov_tool(list(a.get("args") or []), a.get("instance"), ctx),
     ),
     Tool(
-        "graph_query",
-        "Look an object up on the instance map: what a trackor type, field, rule, automation, "
-        "import, report, notification, workflow or module is linked to (relations, fields, "
-        "triggers, and fields used in its code). Fast, no SQL needed. Builds the map on first "
-        "use (about a minute). Use it before changing anything to see what depends on it.",
+        "ov_map",
+        "Look an object up on the Instance map: what a trackor type, field, rule, automation, "
+        "import, report, notification, workflow, module or DB package is linked to (relations, "
+        "fields, triggers, packages it calls, and objects its code references by quoted name, "
+        "config id or id.* object reference). Fast, no SQL needed. Builds the map on first use "
+        "(about a minute). Use it before changing anything to see what depends on it.",
         {
             "instance": INSTANCE,
             "object": _str("Name or id of the object, e.g. C_STATUS, a rule name, or 100121663"),
         },
         ["object"],
         lambda a: f"map {a.get('object')}{' @ ' + a['instance'] if a.get('instance') else ''}",
-        _graph_query,
+        _ov_map,
     ),
     Tool(
-        "sql",
+        "ov_sql",
         "Run a read-only SELECT (or WITH) on an instance database through the platform's Test "
         "SQL endpoint. Max 1000 rows.",
         {
@@ -670,10 +671,10 @@ TOOLS = [
             f"SQL{' @ ' + a['instance'] if a.get('instance') else ''}: "
             + re.sub(r"\s+", " ", str(a.get("query", "")))[:80]
         ),
-        _sql,
+        _ov_sql,
     ),
     Tool(
-        "trackor_search",
+        "ov_search",
         "Search trackors of a type with a condition (equal, not_equal, greater, less, within, "
         "is_null, is_not_null, and/or, parentheses). String and date values in double quotes.",
         {
@@ -685,7 +686,7 @@ TOOLS = [
         },
         ["trackor_type", "fields", "condition"],
         lambda a: f"search {a.get('trackor_type')}: {str(a.get('condition', ''))[:70]}",
-        _trackor_search,
+        _ov_search,
     ),
     Tool(
         "read_file",
@@ -705,7 +706,7 @@ TOOLS = [
         "git grep (extended regex) in a configured source (code or docs folder) or a cloned "
         'repo ("repo:<name>").',
         {
-            "source": _str('Source name, or "repo:<name>" for a repo from git_clone'),
+            "source": _str('Source name, or "repo:<name>" for a repo from github_clone'),
             "pattern": _str("Extended regex"),
             "path": _str('Optional pathspec, e.g. "db/*" or "*.py"'),
             "ignore_case": {"type": "boolean"},
@@ -728,13 +729,15 @@ TOOLS = [
         _source_read,
     ),
     Tool(
-        "git_clone",
-        "Clone or update a git repository (e.g. a Vizion Hub module from MODULE.GIT_REPO_URL) "
-        "so it can be searched with source_search. Returns its file list.",
+        "github_clone",
+        "Clone or update a GitHub (or any git) repository, e.g. a Vizion Hub module from "
+        "MODULE.GIT_REPO_URL, so it can be searched with source_search and read with "
+        'source_read as "repo:<name>". Uses this computer\'s git and its credentials. '
+        "Returns the file list.",
         {"url": _str("Repository URL")},
         ["url"],
         lambda a: f"clone {str(a.get('url', '')).rstrip('/').rsplit('/', 1)[-1]}",
-        _git_clone,
+        _github_clone,
     ),
     Tool(
         "propose_change",
@@ -864,13 +867,13 @@ TOOLS = [
 
 WINDOW_FROM = _str('Start: "now-2h", "now-30m", "now-7d", an ISO time (UTC) or epoch')
 WINDOW_TO = _str('End, default "now"')
-DD_INSTANCE = _str(
+DATADOG_INSTANCE = _str(
     "Instance alias or host; its Datadog filter (host or service tags) is applied. Defaults to "
     "the run's instance."
 )
 
 
-def _dd_label(kind: str) -> Callable[[dict[str, Any]], str]:
+def _datadog_label(kind: str) -> Callable[[dict[str, Any]], str]:
     def label(a: dict[str, Any]) -> str:
         what = a.get("query") or a.get("mode") or ""
         at = f" @ {a['instance']}" if a.get("instance") else ""
@@ -882,21 +885,21 @@ def _dd_label(kind: str) -> Callable[[dict[str, Any]], str]:
 
 # area -> tools; a tool is offered only when Datadog is connected and the key can read its area.
 DATADOG_TOOLS = {
-    "dd_logs": "logs",
-    "dd_metrics": "metrics",
-    "dd_monitors": "monitors",
-    "dd_events": "events",
-    "dd_apm": "apm",
+    "datadog_logs": "logs",
+    "datadog_metrics": "metrics",
+    "datadog_monitors": "monitors",
+    "datadog_events": "events",
+    "datadog_apm": "apm",
 }
 
 TOOLS += [
     Tool(
-        "dd_logs",
+        "datadog_logs",
         "Search Datadog logs for an instance in a time window: newest matching lines, or with "
         "patterns=true the most common message groups (scans up to 500). Use Datadog log query "
         'syntax, e.g. status:error, service:x, "OutOfMemory", @http.status_code:500.',
         {
-            "instance": DD_INSTANCE,
+            "instance": DATADOG_INSTANCE,
             "query": _str('Extra log query, e.g. status:error "deadlock"'),
             "from": WINDOW_FROM,
             "to": WINDOW_TO,
@@ -904,17 +907,17 @@ TOOLS += [
             "patterns": {"type": "boolean", "description": "Group messages instead of listing"},
         },
         [],
-        _dd_label("logs"),
-        _dd(_dd_logs),
+        _datadog_label("logs"),
+        _datadog(_datadog_logs),
     ),
     Tool(
-        "dd_metrics",
+        "datadog_metrics",
         "Query a Datadog metric for an instance and get min, avg, max, latest and a sample of "
         "points per series. Give an aggregation and metric, e.g. avg:system.cpu.user, "
         "avg:jvm.heap_memory, max:system.disk.in_use; the instance filter is added as the scope "
         'unless the query has its own {...} scope. Add "by {host}" to split by host.',
         {
-            "instance": DD_INSTANCE,
+            "instance": DATADOG_INSTANCE,
             "query": _str(
                 "Metric query, e.g. avg:jvm.heap_memory or avg:system.cpu.user by {host}"
             ),
@@ -922,39 +925,39 @@ TOOLS += [
             "to": WINDOW_TO,
         },
         ["query"],
-        _dd_label("metric"),
-        _dd(_dd_metrics),
+        _datadog_label("metric"),
+        _datadog(_datadog_metrics),
     ),
     Tool(
-        "dd_monitors",
+        "datadog_monitors",
         "List Datadog monitors for an instance that are alerting, warning or have no data "
         "(include_ok=true for all), with links.",
-        {"instance": DD_INSTANCE, "include_ok": {"type": "boolean"}},
+        {"instance": DATADOG_INSTANCE, "include_ok": {"type": "boolean"}},
         [],
-        _dd_label("monitors"),
-        _dd(_dd_monitors),
+        _datadog_label("monitors"),
+        _datadog(_datadog_monitors),
     ),
     Tool(
-        "dd_events",
+        "datadog_events",
         "List Datadog events for an instance in a time window: deploys, restarts, alerts, "
         "config changes.",
         {
-            "instance": DD_INSTANCE,
+            "instance": DATADOG_INSTANCE,
             "query": _str("Extra event query, optional"),
             "from": WINDOW_FROM,
             "to": WINDOW_TO,
             "limit": _int("Max events, default 30"),
         },
         [],
-        _dd_label("events"),
-        _dd(_dd_events),
+        _datadog_label("events"),
+        _datadog(_datadog_events),
     ),
     Tool(
-        "dd_apm",
+        "datadog_apm",
         "Datadog APM for an instance: the slowest endpoints by p95 latency (mode=slowest) or "
         "recent error spans with their traces (mode=errors).",
         {
-            "instance": DD_INSTANCE,
+            "instance": DATADOG_INSTANCE,
             "mode": {"type": "string", "enum": ["slowest", "errors"]},
             "query": _str("Extra span query, e.g. service:x or resource_name:*Import*"),
             "from": WINDOW_FROM,
@@ -962,12 +965,25 @@ TOOLS += [
             "limit": _int("Max rows"),
         },
         [],
-        _dd_label("APM"),
-        _dd(_dd_apm),
+        _datadog_label("APM"),
+        _datadog(_datadog_apm),
     ),
 ]
 
 TOOL_SPECS = [t.spec for t in TOOLS if t.name not in DATADOG_TOOLS]
+
+# Every tool belongs to exactly one group; the prompt and the skills use the same names.
+TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
+    ("OV CLI", "signed-in OneVizion instances", ["ov", "ov_sql", "ov_search", "ov_map", "ov_case"]),
+    ("Sources", "folders on this computer and cloned repos", ["source_search", "source_read"]),
+    ("GitHub", "module and project repositories", ["github_clone"]),
+    ("Datadog", "logs, metrics, monitors, events and APM", list(DATADOG_TOOLS)),
+    (
+        "This run",
+        "workspace files, proposed changes, questions and the result",
+        ["read_file", "propose_change", "ask_user", "finish"],
+    ),
+]
 
 
 def tool_specs() -> list[dict[str, Any]]:
@@ -980,3 +996,21 @@ def tool_specs() -> list[dict[str, Any]]:
 
 
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
+
+# Names before tools were grouped by prefix; saved runs and model habits may still use them.
+LEGACY_NAMES = {
+    "load_case": "ov_case",
+    "graph_query": "ov_map",
+    "sql": "ov_sql",
+    "trackor_search": "ov_search",
+    "git_clone": "github_clone",
+    "dd_logs": "datadog_logs",
+    "dd_metrics": "datadog_metrics",
+    "dd_monitors": "datadog_monitors",
+    "dd_events": "datadog_events",
+    "dd_apm": "datadog_apm",
+}
+
+
+def tool_named(name: str) -> Tool | None:
+    return TOOLS_BY_NAME.get(LEGACY_NAMES.get(name, name))

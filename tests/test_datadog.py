@@ -247,51 +247,51 @@ def test_a_tenant_uses_its_hosts_match(linked):
 
 def test_tools_are_offered_only_when_connected_and_allowed(fake, logged_in):
     names = {s["function"]["name"] for s in tool_specs()}
-    assert not names & set(datadog.AREAS) and "dd_logs" not in names
+    assert not names & set(datadog.AREAS) and "datadog_logs" not in names
     assert "Datadog: not connected" in prompt.system_prompt(False, "")
 
     fake.denied = {"apm"}
     datadog.connect("datadoghq.com", API_KEY, APP_KEY)
     names = {s["function"]["name"] for s in tool_specs()}
-    assert {"dd_logs", "dd_metrics", "dd_monitors", "dd_events"} <= names
-    assert "dd_apm" not in names
+    assert {"datadog_logs", "datadog_metrics", "datadog_monitors", "datadog_events"} <= names
+    assert "datadog_apm" not in names
     assert "## Datadog" in prompt.system_prompt(False, "")
 
 
 def test_log_tool_applies_the_instance_filter(linked, tmp_path):
     datadog.save_matches({"acme": "host:acme-app-*"})
-    out = TOOLS_BY_NAME["dd_logs"].handler({"query": "status:error"}, Ctx(tmp_path))
+    out = TOOLS_BY_NAME["datadog_logs"].handler({"query": "status:error"}, Ctx(tmp_path))
     sent = json.loads(linked.requests[-1].content)
     assert sent["filter"]["query"] == "(host:acme-app-*) status:error"
     assert "Deadlock on row 42" in out and "app.datadoghq.com/logs?query=" in out
 
-    grouped = TOOLS_BY_NAME["dd_logs"].handler({"patterns": True}, Ctx(tmp_path))
+    grouped = TOOLS_BY_NAME["datadog_logs"].handler({"patterns": True}, Ctx(tmp_path))
     assert "2x Deadlock on row <n> in RULE" in grouped
 
 
 def test_tools_explain_an_unmatched_instance(linked, tmp_path):
     with pytest.raises(ToolError, match="not matched to Datadog"):
-        TOOLS_BY_NAME["dd_logs"].handler({}, Ctx(tmp_path))
+        TOOLS_BY_NAME["datadog_logs"].handler({}, Ctx(tmp_path))
 
 
 def test_metric_monitor_event_and_apm_tools(linked, tmp_path):
     datadog.save_matches({"acme": "host:acme-app-* env:prod"})
     ctx = Ctx(tmp_path)
 
-    metric = TOOLS_BY_NAME["dd_metrics"].handler({"query": "avg:jvm.heap_memory"}, ctx)
+    metric = TOOLS_BY_NAME["datadog_metrics"].handler({"query": "avg:jvm.heap_memory"}, ctx)
     assert (
         linked.requests[-1].url.params["query"] == "avg:jvm.heap_memory{host:acme-app-*,env:prod}"
     )
     assert "min 10, avg 20, max 30, latest 30" in metric
 
-    monitors = TOOLS_BY_NAME["dd_monitors"].handler({}, ctx)
+    monitors = TOOLS_BY_NAME["datadog_monitors"].handler({}, ctx)
     assert "[Alert] Heap high on acme" in monitors
     assert "Other org thing" not in monitors and "Acme disk" not in monitors
 
-    events = TOOLS_BY_NAME["dd_events"].handler({}, ctx)
+    events = TOOLS_BY_NAME["datadog_events"].handler({}, ctx)
     assert "Deploy acme" in events
 
-    apm = TOOLS_BY_NAME["dd_apm"].handler({"mode": "slowest"}, ctx)
+    apm = TOOLS_BY_NAME["datadog_apm"].handler({"mode": "slowest"}, ctx)
     assert "p95 2500.0 ms, 40 calls: GET /trackor" in apm
 
 
@@ -299,7 +299,7 @@ def test_a_denied_scope_names_the_missing_scope(linked, tmp_path):
     datadog.save_matches({"acme": "host:acme*"})
     linked.denied = {"logs"}
     with pytest.raises(ToolError, match="logs_read_data"):
-        TOOLS_BY_NAME["dd_logs"].handler({}, Ctx(tmp_path))
+        TOOLS_BY_NAME["datadog_logs"].handler({}, Ctx(tmp_path))
 
 
 def test_times_accept_relative_iso_and_epoch():
