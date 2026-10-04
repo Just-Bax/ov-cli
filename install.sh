@@ -33,8 +33,9 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 step "Installing ov"
-# The zip avoids needing git on the machine.
-uv tool install --force --python 3.12 \
+# The zip avoids needing git on the machine. The URL never changes, so without
+# --reinstall-package uv treats an existing install as current and keeps old code.
+uv tool install --force --reinstall-package ov-cli --python 3.12 \
     "ov-cli @ https://github.com/${REPO}/archive/refs/heads/${BRANCH}.zip"
 
 uv tool update-shell >/dev/null 2>&1 || true

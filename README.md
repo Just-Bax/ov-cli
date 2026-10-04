@@ -68,7 +68,8 @@ fetches it itself rather than failing.
 <summary>Already have Python tooling?</summary>
 
 ```bash
-uv tool install "ov-cli @ https://github.com/Just-Bax/ov-cli/archive/refs/heads/master.zip"
+uv tool install --force --reinstall-package ov-cli \
+  "ov-cli @ https://github.com/Just-Bax/ov-cli/archive/refs/heads/master.zip"
 ov setup
 ```
 
@@ -82,7 +83,9 @@ ov setup
 
 ### Updating
 
-Re-run the same install command. It replaces the existing copy.
+Re-run the same install command. It fetches the latest code and replaces the existing
+copy; settings, sign-ins and agent history in `~/.ov` are kept. On Windows, stop a running
+`ov agent` first, since a running `ov` cannot be replaced.
 
 ### Uninstalling
 

@@ -39,10 +39,13 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 }
 
 Write-Step 'Installing ov'
-# The zip avoids needing git on the machine.
+# The zip avoids needing git on the machine. The URL never changes, so without
+# --reinstall-package uv treats an existing install as current and keeps old code.
 $Source = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
-uv tool install --force --python 3.12 "ov-cli @ $Source"
-if ($LASTEXITCODE -ne 0) { throw 'Install failed.' }
+uv tool install --force --reinstall-package ov-cli --python 3.12 "ov-cli @ $Source"
+if ($LASTEXITCODE -ne 0) {
+    throw 'Install failed. If ov agent is running, stop it with Ctrl+C and run this again.'
+}
 
 # uv writes to stderr when the directory is already on PATH, and PowerShell 5.1
 # turns a redirected native stderr into a terminating error. Without the child
