@@ -217,3 +217,14 @@
     transform: translateY(-4px);
   }
 }
+
+.monaco-editor .ov-link {
+  cursor: pointer;
+  text-decoration: underline dotted rgba(30, 136, 229, 0.55);
+  text-underline-offset: 3px;
+}
+
+.monaco-editor .ov-link:hover {
+  text-decoration-style: solid;
+  text-decoration-color: #1e88e5;
+}

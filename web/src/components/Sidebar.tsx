@@ -2,6 +2,7 @@ import {
   CircleAlert,
   CircleCheck,
   CircleSlash,
+  Code2,
   type LucideIcon,
   Network,
   Plus,
@@ -256,6 +257,12 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           icon={Network}
           label="Instance map"
           active={route.page === 'map'}
+        />
+        <NavRow
+          to={href({ page: 'explorer' })}
+          icon={Code2}
+          label="Explorer"
+          active={route.page === 'explorer'}
         />
       </nav>
 

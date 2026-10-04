@@ -20,8 +20,9 @@ import httpx
 
 from .. import __version__
 from ..errors import OvError
-from . import copilot, db, graph, skills, sources
+from . import copilot, db, explorer, graph, skills, sources
 from .copilot import CopilotError
+from .explorer import ExplorerError
 from .ovproc import instances, login, version
 from .run import RunError, runs
 from .skills import SkillError
@@ -193,7 +194,15 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(404, "Not found.")
         except HttpError as exc:
             self.send_json({"error": str(exc)}, exc.status)
-        except (RunError, SkillError, SourceError, CopilotError, OvError, ValueError) as exc:
+        except (
+            RunError,
+            SkillError,
+            SourceError,
+            CopilotError,
+            ExplorerError,
+            OvError,
+            ValueError,
+        ) as exc:
             self.send_json({"error": str(exc)}, 400)
         except httpx.HTTPError as exc:
             self.send_json({"error": f"Network error: {exc}"}, 502)
@@ -379,7 +388,9 @@ def graph_status(h: Handler) -> dict[str, Any]:
 
 @route("POST", "/api/graph/build")
 def graph_build(h: Handler) -> dict[str, Any]:
-    return graph.start_build(_instance_alias(h, str(h.json().get("instance", ""))))
+    alias = _instance_alias(h, str(h.json().get("instance", "")))
+    explorer.forget(alias)
+    return graph.start_build(alias)
 
 
 @route("GET", "/api/graph")
@@ -388,6 +399,16 @@ def graph_get(h: Handler) -> str:
     if not path.is_file():
         raise HttpError(404, "No map built for this instance yet.")
     return path.read_text(encoding="utf-8")
+
+
+@route("GET", "/api/explorer/source")
+def explorer_source(h: Handler) -> dict[str, Any]:
+    return explorer.source(_instance_alias(h), h.query.get("id", ""))
+
+
+@route("GET", "/api/explorer/activity")
+def explorer_activity(h: Handler) -> list[dict[str, Any]]:
+    return explorer.activity(_instance_alias(h), h.query.get("id", ""))
 
 
 @route("GET", "/api/runs")

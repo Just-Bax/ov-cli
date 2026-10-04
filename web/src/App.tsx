@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import type { Settings, Status } from '@shared/types.ts'
 import { DialogHost, dialog } from '@/components/Dialog'
 import { Home } from '@/components/Home'
@@ -8,10 +8,15 @@ import { SettingsPage } from '@/components/Settings'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { Setup } from '@/components/Setup'
 import { Sidebar } from '@/components/Sidebar'
-import { Skeleton } from '@/components/ui'
+import { Skeleton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
 import { SettingsContext } from '@/lib/settings'
+
+// Monaco is large; keep it out of the main chunk.
+const ExplorerPage = lazy(() =>
+  import('@/components/explorer/ExplorerPage').then((m) => ({ default: m.ExplorerPage })),
+)
 
 export function App() {
   const route = useRoute()
@@ -111,6 +116,17 @@ export function App() {
           {route.page === 'home' && <Home settings={status.settings} />}
           {route.page === 'settings' && <SettingsPage onChange={refresh} />}
           {route.page === 'map' && <MapPage />}
+          {route.page === 'explorer' && (
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center">
+                  <Spinner className="text-brand size-6" />
+                </div>
+              }
+            >
+              <ExplorerPage />
+            </Suspense>
+          )}
           {route.page === 'run' && <RunView key={route.id} id={route.id} />}
         </main>
         <DialogHost />

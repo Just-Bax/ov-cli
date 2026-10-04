@@ -30,6 +30,7 @@ INVALID_TYPES = {
     17: "workflow",
     22: "notification",
     42: "module",
+    27: "db_package",
     50: "automation",
 }
 
@@ -43,10 +44,12 @@ FORMS = {
     "notification": "/admin/notifications/Form.do?id=",
     "workflow": "/admin/wftemplate/Form.do?id=",
     "module": "/admin/module/Form.do?id=",
+    "db_package": "/admin/dbpackage/Form.do?id=",
 }
 
 _NUMBER = re.compile(r"\b\d{6,12}\b")
 _WORD = re.compile(r"\b[A-Za-z][A-Za-z0-9_]{2,}\b")
+_CALL = re.compile(r"\b([A-Za-z][A-Za-z0-9_$#]*)\s*\.\s*[A-Za-z]")
 
 
 class GraphError(Exception):
@@ -70,7 +73,8 @@ QUERIES: dict[str, str] = {
     "relations": "select parent_type_id, child_type_id from relation_type",
     "fields": "select config_field_id, config_field_name, xitor_type_id, data_type, "
     "obj_xitor_type_id from config_field",
-    "rules": "select r.rule_id, r.rule, r.is_enabled, r.primary_trackor_type_id, t.rule_type "
+    "rules": "select r.rule_id, r.rule, r.is_enabled, r.is_async, r.filter_opt_id, "
+    "r.primary_trackor_type_id, t.rule_type "
     "from rule r left join rule_type t on t.rule_type_id = r.rule_type_id where r.rule_id > 0",
     "rule_bindings": "select rule_id, id_num from rule_id_num where rule_id > 0",
     "rule_code": f"select rule_id, {_code('sql_text')} from rule where rule_id > 0",
@@ -90,10 +94,12 @@ QUERIES: dict[str, str] = {
     "modules": "select module_id, module_name, is_enabled from module "
     "where nvl(is_archived, 0) = 0",
     "invalid": "select component_id, entity_id from invalid_object",
+    "packages": "select db_package_id, db_package_name from db_package",
 }
 
 # The graph is still useful without these, e.g. on instances without Vizion Hub.
 OPTIONAL = {
+    "packages",
     "rule_code",
     "import_code",
     "report_code",
@@ -119,7 +125,7 @@ def load(alias: str) -> dict[str, Any] | None:
         return None
 
 
-class _Sql:
+class SqlReader:
     def __init__(self, alias: str, cancel: Cancel) -> None:
         self.alias = alias
         self.cancel = cancel
@@ -192,7 +198,7 @@ class _Builder:
             "type": kind,
             "ref": number,
             "name": str(name or f"{kind} {number}"),
-            **{k: v for k, v in props.items() if v is not None},
+            **{k.rstrip("_"): v for k, v in props.items() if v is not None},
         }
 
     def edge(self, source: str, target: str, kind: str, code: bool = False) -> None:
@@ -200,7 +206,9 @@ class _Builder:
             self.edges.add((source, target, kind, code))
 
 
-def _uses(builder: _Builder, source: str, text: str, by_id: set[int], by_name: dict) -> None:
+def _uses(
+    builder: _Builder, source: str, text: str, by_id: set[int], by_name: dict, packages: dict
+) -> None:
     targets = {int(n) for n in _NUMBER.findall(text)} & by_id
     for word in _WORD.findall(text):
         found = by_name.get(word.upper())
@@ -208,6 +216,10 @@ def _uses(builder: _Builder, source: str, text: str, by_id: set[int], by_name: d
             targets.add(found)
     for ref in targets:
         builder.edge(source, f"field:{ref}", "uses", code=True)
+    for name in _CALL.findall(text):
+        package = packages.get(name.upper())
+        if package is not None:
+            builder.edge(source, f"db_package:{package}", "calls", code=True)
 
 
 def build(
@@ -217,7 +229,7 @@ def build(
     if found is None:
         raise GraphError(f"Not signed in to {instance}.")
     cancel = cancel or Cancel()
-    sql = _Sql(found["alias"], cancel)
+    sql = SqlReader(found["alias"], cancel)
     report = progress or (lambda _: None)
 
     results: dict[str, list[dict[str, Any]]] = {}
@@ -274,6 +286,8 @@ def _assemble(r: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             row["RULE"],
             enabled=_flag(row.get("IS_ENABLED")),
             trigger=row.get("RULE_TYPE"),
+            async_=_flag(row.get("IS_ASYNC")),
+            filtered=bool(row.get("FILTER_OPT_ID")),
         )
     for row in r["automations"]:
         b.node("automation", row["AUTOM_ID"], row["AUTOM_NAME"], enabled=_flag(row.get("ENABLED")))
@@ -292,6 +306,8 @@ def _assemble(r: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         b.node("workflow", row["WF_TEMPLATE_ID"], row["TEMPLATE_NAME"])
     for row in r["modules"]:
         b.node("module", row["MODULE_ID"], row["MODULE_NAME"], enabled=_flag(row.get("IS_ENABLED")))
+    for row in r["packages"]:
+        b.node("db_package", row["DB_PACKAGE_ID"], row["DB_PACKAGE_NAME"])
 
     for row in r["relations"]:
         b.edge(
@@ -346,6 +362,7 @@ def _assemble(r: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             # A name shared by two fields cannot be resolved from code text.
             names[key] = None if key in names else node["ref"]
     by_name = {k: v for k, v in names.items() if v is not None and len(k) > 3}
+    packages = {n["name"].upper(): n["ref"] for n in b.nodes.values() if n["type"] == "db_package"}
 
     for key, kind, column in (
         ("rule_code", "rule", "RULE_ID"),
@@ -353,7 +370,7 @@ def _assemble(r: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         ("report_code", "report", "REPORT_FILE_ID"),
     ):
         for row in r[key]:
-            _uses(b, f"{kind}:{_num(row[column])}", _code_text(row), field_ids, by_name)
+            _uses(b, f"{kind}:{_num(row[column])}", _code_text(row), field_ids, by_name, packages)
 
     for row in r["invalid"]:
         kind = INVALID_TYPES.get(_num(row.get("COMPONENT_ID")) or -1)
@@ -402,6 +419,7 @@ LABELS = {
     "loads": ("loads", "is loaded by"),
     "runs": ("runs", "is run by"),
     "uses": ("uses in code", "is used in code by"),
+    "calls": ("calls", "is called by"),
 }
 
 

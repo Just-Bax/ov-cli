@@ -1,8 +1,10 @@
 import type {
+  CodeSection,
   GraphStatus,
   Instance,
   InstanceGraph,
   ModelInfo,
+  ObjectActivity,
   Rating,
   RunInput,
   RunState,
@@ -94,6 +96,12 @@ export const api = {
     request<GraphStatus>(`/graph/status?instance=${seg(instance)}`),
   buildGraph: (instance: string) => post<GraphStatus>('/graph/build', { instance }),
   graph: (instance: string) => request<InstanceGraph>(`/graph?instance=${seg(instance)}`),
+  source: (instance: string, id: string) =>
+    request<{ sections: CodeSection[] }>(
+      `/explorer/source?instance=${seg(instance)}&id=${seg(id)}`,
+    ),
+  activity: (instance: string, id: string) =>
+    request<ObjectActivity[]>(`/explorer/activity?instance=${seg(instance)}&id=${seg(id)}`),
   runs: () => request<RunSummary[]>('/runs'),
   stats: () => request<SavedTotals>('/stats'),
   run: (id: string) => request<RunState>(`/runs/${id}`),

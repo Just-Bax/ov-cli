@@ -239,6 +239,7 @@ export type GraphNodeType =
   | 'notification'
   | 'workflow'
   | 'module'
+  | 'db_package'
 
 export interface GraphNode {
   id: string
@@ -249,6 +250,8 @@ export interface GraphNode {
   invalid?: boolean
   trigger?: string
   dataType?: number
+  async?: boolean
+  filtered?: boolean
 }
 
 export interface GraphEdge {
@@ -274,4 +277,24 @@ export interface GraphStatus {
   builtAt?: number
   nodes?: number
   edges?: number
+}
+
+export interface CodeHint {
+  line: number
+  severity: 'error' | 'warn' | 'info'
+  title: string
+  detail: string
+}
+
+export interface CodeSection {
+  title: string
+  code: string
+  hints: CodeHint[]
+}
+
+export interface ObjectActivity {
+  ts?: string
+  status?: string
+  runtime?: string
+  message?: string
 }

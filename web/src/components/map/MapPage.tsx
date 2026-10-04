@@ -12,117 +12,38 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import {
-  Bell,
-  Bot,
-  Boxes,
   Check,
   ChevronDown,
   ExternalLink,
-  FileSpreadsheet,
-  FileUp,
-  GitBranch,
-  type LucideIcon,
   Network,
-  Package,
   RefreshCw,
   RotateCcw,
   Search,
   Sparkles,
-  TextCursorInput,
   X,
-  Zap,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type {
-  GraphEdge,
-  GraphNode,
-  GraphNodeType,
-  GraphStatus,
-  InstanceGraph,
-} from '@shared/types.ts'
-import { useInstances } from '@/components/InstancePicker'
+import type { GraphEdge, GraphNode, GraphNodeType, InstanceGraph } from '@shared/types.ts'
+import {
+  degree,
+  FORMS,
+  index,
+  type Index,
+  LABELS,
+  type Link,
+  ObjectRow,
+  TypeDot,
+  TYPES,
+} from '@/components/map/meta'
 import { Button, Card, Page, Select, Spinner, timeAgo } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
+import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 
-const INSTANCE_KEY = 'ov-agent.map-instance'
 const EXPAND_LIMIT = 40
 const NODE_W = 230
 const NODE_H = 44
-
-const TYPES: Record<
-  GraphNodeType,
-  { label: string; plural: string; icon: LucideIcon; color: string }
-> = {
-  trackor_type: { label: 'Trackor type', plural: 'Trackor types', icon: Boxes, color: '#1e88e5' },
-  field: { label: 'Field', plural: 'Fields', icon: TextCursorInput, color: '#607d8b' },
-  rule: { label: 'Rule', plural: 'Rules', icon: Zap, color: '#7e57c2' },
-  automation: { label: 'Automation', plural: 'Automations', icon: Bot, color: '#00897b' },
-  import: { label: 'Import', plural: 'Imports', icon: FileUp, color: '#ef6c00' },
-  report: { label: 'Report', plural: 'Reports', icon: FileSpreadsheet, color: '#d81b60' },
-  notification: { label: 'Notification', plural: 'Notifications', icon: Bell, color: '#3949ab' },
-  workflow: { label: 'Workflow', plural: 'Workflows', icon: GitBranch, color: '#43a047' },
-  module: { label: 'Module', plural: 'Modules', icon: Package, color: '#6d4c41' },
-}
-
-// Admin edit forms; keep in sync with FORMS in src/ov/agent/graph.py.
-const FORMS: Record<GraphNodeType, string> = {
-  trackor_type: '/admin/trackortypes/Form.do?id=',
-  field: '/admin/configfields/Form.do?id=',
-  rule: '/admin/rules/Form.do?id=',
-  automation: '/admin/automation/Form.do?id=',
-  import: '/admin/configimport/Form.do?id=',
-  report: '/admin/reports/Form.do?id=',
-  notification: '/admin/notifications/Form.do?id=',
-  workflow: '/admin/wftemplate/Form.do?id=',
-  module: '/admin/module/Form.do?id=',
-}
-
-const LABELS: Record<string, [string, string]> = {
-  parent_of: ['Parent of', 'Child of'],
-  field_of: ['Field of', 'Fields'],
-  points_to: ['Points to', 'Pointed to by'],
-  on: ['Acts on', 'Acted on by'],
-  triggered_by: ['Triggered by', 'Triggers'],
-  loads: ['Loads', 'Loaded by'],
-  runs: ['Runs', 'Run by'],
-  uses: ['Uses in code', 'Used in code by'],
-}
-
-interface Link {
-  other: GraphNode
-  kind: string
-  out: boolean
-  code: boolean
-}
-
-interface Index {
-  byId: Map<string, GraphNode>
-  links: Map<string, Link[]>
-}
-
-function index(graph: InstanceGraph): Index {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]))
-  const links = new Map<string, Link[]>()
-  const add = (from: string, link: Link) => {
-    const list = links.get(from)
-    if (list) list.push(link)
-    else links.set(from, [link])
-  }
-  for (const e of graph.edges) {
-    const source = byId.get(e.source)
-    const target = byId.get(e.target)
-    if (!source || !target) continue
-    add(source.id, { other: target, kind: e.kind, out: true, code: Boolean(e.code) })
-    add(target.id, { other: source, kind: e.kind, out: false, code: Boolean(e.code) })
-  }
-  return { byId, links }
-}
-
-function degree(idx: Index, id: string): number {
-  return idx.links.get(id)?.length ?? 0
-}
 
 function layout(nodes: GraphNode[], edges: GraphEdge[]): Map<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph()
@@ -277,41 +198,6 @@ function Canvas({
     >
       <Background color="#cfd8dc" gap={22} size={1} />
     </ReactFlow>
-  )
-}
-
-function TypeDot({ type }: { type: GraphNodeType }) {
-  const meta = TYPES[type]
-  const Icon = meta.icon
-  return (
-    <span
-      className="flex size-6 shrink-0 items-center justify-center rounded-full"
-      style={{ background: `${meta.color}1a`, color: meta.color }}
-    >
-      <Icon className="size-3.5" strokeWidth={1.9} />
-    </span>
-  )
-}
-
-function ObjectRow({
-  node,
-  hint,
-  onClick,
-}: {
-  node: GraphNode
-  hint?: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="hover:bg-raised flex h-9 w-full items-center gap-2.5 rounded-full px-2 text-left transition-colors"
-    >
-      <TypeDot type={node.type} />
-      <span className="text-text min-w-0 flex-1 truncate text-[12.5px]">{node.name}</span>
-      {hint ? <span className="text-faint shrink-0 text-[11px]">{hint}</span> : null}
-    </button>
   )
 }
 
@@ -702,73 +588,24 @@ function TypeMenu({
 }
 
 export function MapPage() {
-  const { instances } = useInstances()
-  const signedIn = useMemo(() => (instances ?? []).filter((i) => i.valid), [instances])
-  const [alias, setAlias] = useState(() => localStorage.getItem(INSTANCE_KEY) ?? '')
-  const [status, setStatus] = useState<GraphStatus>()
-  const [graph, setGraph] = useState<InstanceGraph>()
+  const { instances, signedIn, alias, setAlias, status, graph, error, build } = useInstanceGraph()
   const [visible, setVisible] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<string>()
   const [hiddenTypes, setHiddenTypes] = useState<Set<GraphNodeType>>(new Set())
-  const [error, setError] = useState<string>()
   const idx = useMemo(() => (graph ? index(graph) : undefined), [graph])
 
   useEffect(() => {
-    if (instances && !signedIn.some((i) => i.alias === alias)) setAlias(signedIn[0]?.alias ?? '')
-  }, [instances])
-  useEffect(() => {
-    if (alias) localStorage.setItem(INSTANCE_KEY, alias)
-  }, [alias])
-
-  useEffect(() => {
-    if (!alias) return
-    let alive = true
-    setGraph(undefined)
     setVisible(new Set())
     setSelected(undefined)
-    setError(undefined)
-    setStatus(undefined)
-    api
-      .graphStatus(alias)
-      .then((s) => alive && setStatus(s))
-      .catch((e: Error) => alive && setError(e.message))
-    return () => {
-      alive = false
-    }
   }, [alias])
 
-  // Follow a build until it finishes, then load the new map without clearing the view.
+  // The Explorer's "Show on map" leaves the object to focus here.
   useEffect(() => {
-    if (!alias || !status) return
-    let alive = true
-    let timer: ReturnType<typeof setTimeout> | undefined
-    if (status.state === 'building') {
-      timer = setTimeout(() => {
-        api
-          .graphStatus(alias)
-          .then((s) => alive && setStatus(s))
-          .catch(() => undefined)
-      }, 2000)
-    } else if (status.builtAt && graph?.builtAt !== status.builtAt) {
-      api
-        .graph(alias)
-        .then((g) => alive && setGraph(g))
-        .catch((e: Error) => alive && setError(e.message))
-    }
-    return () => {
-      alive = false
-      clearTimeout(timer)
-    }
-  }, [alias, status])
-
-  const build = async () => {
-    setError(undefined)
-    try {
-      setStatus(await api.buildGraph(alias))
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
+    const target = localStorage.getItem(FOCUS_KEY)
+    if (!idx || !target || !idx.byId.has(target)) return
+    localStorage.removeItem(FOCUS_KEY)
+    focus(target)
+  }, [idx])
 
   const neighbors = (id: string, have: Set<string>) =>
     (idx?.links.get(id) ?? [])
