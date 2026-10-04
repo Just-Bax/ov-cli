@@ -5,6 +5,7 @@ import { Home } from '@/components/Home'
 import { MapPage } from '@/components/map/MapPage'
 import { RunView } from '@/components/run/RunView'
 import { SettingsPage } from '@/components/Settings'
+import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { Setup } from '@/components/Setup'
 import { isSidebarCollapsed, Sidebar } from '@/components/Sidebar'
@@ -63,9 +64,15 @@ export function App() {
         <aside
           className={`border-line-strong/60 flex shrink-0 flex-col overflow-hidden border-r bg-white ${isSidebarCollapsed() ? 'w-[72px]' : 'w-[272px]'}`}
         >
-          <div className="flex h-16 items-center px-5">
-            <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
-          </div>
+          {isSidebarCollapsed() ? (
+            <div className="flex h-16 items-center justify-center">
+              <img src={mark} alt="OV Agent" className="h-[22px] w-auto" />
+            </div>
+          ) : (
+            <div className="flex h-16 items-center px-5">
+              <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
+            </div>
+          )}
           <div className="px-3">
             <Skeleton className="h-10 w-full rounded-full" />
           </div>

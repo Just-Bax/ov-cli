@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RunStatus, RunSummary } from '@shared/types.ts'
+import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { dialog } from '@/components/Dialog'
 import { EditableTitle } from '@/components/EditableTitle'
@@ -297,7 +298,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
       >
         <a href="#/" aria-label="OV Agent home">
           {collapsed ? (
-            <img src="/favicon.svg" alt="OV Agent" className="size-8" />
+            <img src={mark} alt="OV Agent" className="h-[22px] w-auto" />
           ) : (
             <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto max-w-none" />
           )}
