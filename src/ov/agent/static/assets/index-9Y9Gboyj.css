@@ -631,8 +631,6 @@ svg.react-flow__connectionline {
     --color-black: #000;
     --color-white: #fff;
     --spacing: 0.25rem;
-    --text-lg: 1.125rem;
-    --text-lg--line-height: calc(1.75 / 1.125);
     --font-weight-normal: 400;
     --font-weight-medium: 500;
     --font-weight-semibold: 600;
@@ -845,11 +843,11 @@ svg.react-flow__connectionline {
   .top-1\/2 {
     top: calc(1 / 2 * 100%);
   }
-  .top-10 {
-    top: calc(var(--spacing) * 10);
-  }
   .top-11 {
     top: calc(var(--spacing) * 11);
+  }
+  .top-12 {
+    top: calc(var(--spacing) * 12);
   }
   .-right-1\.5 {
     right: calc(var(--spacing) * -1.5);
@@ -860,8 +858,8 @@ svg.react-flow__connectionline {
   .right-0 {
     right: 0px;
   }
-  .bottom-1 {
-    bottom: var(--spacing);
+  .bottom-1\.5 {
+    bottom: calc(var(--spacing) * 1.5);
   }
   .left-0 {
     left: 0px;
@@ -935,9 +933,6 @@ svg.react-flow__connectionline {
   .mt-3 {
     margin-top: calc(var(--spacing) * 3);
   }
-  .mt-3\.5 {
-    margin-top: calc(var(--spacing) * 3.5);
-  }
   .mt-4 {
     margin-top: calc(var(--spacing) * 4);
   }
@@ -946,6 +941,9 @@ svg.react-flow__connectionline {
   }
   .mt-6 {
     margin-top: calc(var(--spacing) * 6);
+  }
+  .mt-7 {
+    margin-top: calc(var(--spacing) * 7);
   }
   .mt-8 {
     margin-top: calc(var(--spacing) * 8);
@@ -1094,6 +1092,10 @@ svg.react-flow__connectionline {
   .size-8 {
     width: calc(var(--spacing) * 8);
     height: calc(var(--spacing) * 8);
+  }
+  .size-9 {
+    width: calc(var(--spacing) * 9);
+    height: calc(var(--spacing) * 9);
   }
   .size-10 {
     width: calc(var(--spacing) * 10);
@@ -1349,11 +1351,11 @@ svg.react-flow__connectionline {
   .max-w-\[480px\] {
     max-width: 480px;
   }
-  .max-w-\[520px\] {
-    max-width: 520px;
-  }
   .max-w-\[540px\] {
     max-width: 540px;
+  }
+  .max-w-\[560px\] {
+    max-width: 560px;
   }
   .max-w-\[640px\] {
     max-width: 640px;
@@ -1477,6 +1479,9 @@ svg.react-flow__connectionline {
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .grid-cols-\[72px_1fr\] {
     grid-template-columns: 72px 1fr;
   }
@@ -1587,6 +1592,9 @@ svg.react-flow__connectionline {
   }
   .gap-x-3 {
     column-gap: calc(var(--spacing) * 3);
+  }
+  .gap-x-4 {
+    column-gap: calc(var(--spacing) * 4);
   }
   .gap-x-8 {
     column-gap: calc(var(--spacing) * 8);
@@ -1866,6 +1874,9 @@ svg.react-flow__connectionline {
   .p-6 {
     padding: calc(var(--spacing) * 6);
   }
+  .p-7 {
+    padding: calc(var(--spacing) * 7);
+  }
   .px-1 {
     padding-inline: var(--spacing);
   }
@@ -1995,6 +2006,9 @@ svg.react-flow__connectionline {
   .pb-6 {
     padding-bottom: calc(var(--spacing) * 6);
   }
+  .pb-7 {
+    padding-bottom: calc(var(--spacing) * 7);
+  }
   .pb-8 {
     padding-bottom: calc(var(--spacing) * 8);
   }
@@ -2036,10 +2050,6 @@ svg.react-flow__connectionline {
   }
   .font-sans {
     font-family: 'Inter', Arial, Helvetica, sans-serif;
-  }
-  .text-lg {
-    font-size: var(--text-lg);
-    line-height: var(--tw-leading, var(--text-lg--line-height));
   }
   .text-\[10\.5px\] {
     font-size: 10.5px;
@@ -2126,9 +2136,9 @@ svg.react-flow__connectionline {
     --tw-font-weight: var(--font-weight-semibold);
     font-weight: var(--font-weight-semibold);
   }
-  .tracking-\[0\.2em\] {
-    --tw-tracking: 0.2em;
-    letter-spacing: 0.2em;
+  .tracking-\[0\.16em\] {
+    --tw-tracking: 0.16em;
+    letter-spacing: 0.16em;
   }
   .tracking-tight {
     --tw-tracking: var(--tracking-tight);
@@ -2337,6 +2347,10 @@ svg.react-flow__connectionline {
   .outline-none {
     --tw-outline-style: none;
     outline-style: none;
+  }
+  .select-all {
+    -webkit-user-select: all;
+    user-select: all;
   }
   .select-none {
     -webkit-user-select: none;

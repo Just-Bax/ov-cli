@@ -24,6 +24,8 @@ export function App() {
   const route = useRoute()
   const [status, setStatus] = useState<Status>()
   const [error, setError] = useState<string>()
+  // Once setup shows, it stays until its last step, so signing in to GitHub does not skip steps 2 and 3.
+  const [inSetup, setInSetup] = useState(false)
 
   const refresh = useCallback(() => {
     api
@@ -36,6 +38,9 @@ export function App() {
   }, [])
 
   useEffect(refresh, [refresh])
+  useEffect(() => {
+    if (status && !status.ready) setInSetup(true)
+  }, [status?.ready])
 
   const update = useCallback(async (patch: Partial<Settings>) => {
     const settings = await api.saveSettings(patch)
@@ -109,10 +114,10 @@ export function App() {
     )
   }
 
-  if (!status.ready)
+  if (!status.ready || inSetup)
     return (
       <>
-        <Setup status={status} onDone={refresh} />
+        <Setup status={status} onDone={refresh} onFinish={() => setInSetup(false)} />
         <DialogHost />
       </>
     )
