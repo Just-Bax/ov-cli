@@ -16,6 +16,7 @@ import { useModels } from '@/components/ModelPicker'
 import {
   Button,
   Card,
+  Chip,
   GithubMark,
   IconButton,
   Input,
@@ -162,8 +163,10 @@ function Instances() {
   }
 
   const shown = (instances ?? [])
-    .filter((i) => !query || `${i.alias} ${i.url}`.toLowerCase().includes(query.toLowerCase()))
-    .sort((a, b) => Number(b.valid) - Number(a.valid) || a.alias.localeCompare(b.alias))
+    .filter(
+      (i) => !query || `${i.host} ${i.tenant ?? ''}`.toLowerCase().includes(query.toLowerCase()),
+    )
+    .sort((a, b) => Number(b.valid) - Number(a.valid) || a.host.localeCompare(b.host))
   const signedIn = instances?.filter((i) => i.valid).length ?? 0
 
   return (
@@ -196,25 +199,11 @@ function Instances() {
               </div>
             ))
           : shown.map((i) => (
-              <div key={i.alias} className="flex items-center gap-3 px-4 py-2.5">
-                <span
-                  className={cn(
-                    'size-2 shrink-0 rounded-full',
-                    i.valid ? 'bg-ok' : 'bg-line-strong',
-                  )}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-fg text-[13px] font-medium">
-                    {i.alias}
-                    {i.current ? (
-                      <span className="text-faint ml-1.5 text-[11px] font-normal">current</span>
-                    ) : null}
-                  </div>
-                  <div className="text-faint truncate text-[11.5px]">
-                    {i.url.replace('https://', '')}
-                    {i.valid ? '' : ' - session expired'}
-                  </div>
-                </div>
+              <div key={i.alias} className="flex items-center gap-2.5 px-4 py-2.5">
+                <span className="text-fg min-w-0 truncate text-[13px] font-medium">{i.host}</span>
+                {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
+                <Chip tone={i.valid ? 'ok' : 'neutral'}>{i.valid ? 'Signed in' : 'Expired'}</Chip>
+                <div className="flex-1" />
                 <Button
                   size="sm"
                   variant={i.valid ? 'ghost' : 'secondary'}

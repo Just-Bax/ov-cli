@@ -8,6 +8,7 @@ import { ModelPicker } from '@/components/ModelPicker'
 import { WriteSwitch } from '@/components/WriteSwitch'
 import { Page } from '@/components/ui'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
 
 const EXAMPLES = [
@@ -19,44 +20,30 @@ const EXAMPLES = [
 
 const WORDS = ['troubleshooting', 'investigating', 'configuring', 'automating', 'fixing']
 const WORD_MS = 4500
-const SCRAMBLE_MS = 1100
-const GLYPHS = 'abcdefghijklmnopqrstuvwxyz#%&*+=<>/'
-
-function scrambled(word: string, progress: number): string {
-  const settled = Math.floor(word.length * progress)
-  let out = word.slice(0, settled)
-  for (let i = settled; i < word.length; i++)
-    out += GLYPHS[Math.floor(Math.random() * GLYPHS.length)]
-  return out
-}
+const FADE_MS = 500
 
 function RotatingWord() {
   const [index, setIndex] = useState(0)
-  const [text, setText] = useState(WORDS[0])
+  const [leaving, setLeaving] = useState(false)
 
   useEffect(() => {
-    const timer = setInterval(() => setIndex((i) => (i + 1) % WORDS.length), WORD_MS)
-    return () => clearInterval(timer)
+    let swap: ReturnType<typeof setTimeout> | undefined
+    const timer = setInterval(() => {
+      setLeaving(true)
+      swap = setTimeout(() => {
+        setIndex((i) => (i + 1) % WORDS.length)
+        setLeaving(false)
+      }, FADE_MS)
+    }, WORD_MS)
+    return () => {
+      clearInterval(timer)
+      clearTimeout(swap)
+    }
   }, [])
 
-  useEffect(() => {
-    const word = WORDS[index]
-    if (!index) {
-      setText(word)
-      return
-    }
-    const start = Date.now()
-    const timer = setInterval(() => {
-      const progress = Math.min(1, (Date.now() - start) / SCRAMBLE_MS)
-      setText(progress === 1 ? word : scrambled(word, progress))
-      if (progress === 1) clearInterval(timer)
-    }, 45)
-    return () => clearInterval(timer)
-  }, [index])
-
   return (
-    <span key={index} data-text={text} className="word-cycle">
-      {text}
+    <span key={index} className={cn('word-cycle', leaving ? 'word-out' : 'word-in')}>
+      {WORDS[index]}
     </span>
   )
 }

@@ -324,10 +324,6 @@
     width: calc(var(--spacing) * 1.5);
     height: calc(var(--spacing) * 1.5);
   }
-  .size-2 {
-    width: calc(var(--spacing) * 2);
-    height: calc(var(--spacing) * 2);
-  }
   .size-3 {
     width: calc(var(--spacing) * 3);
     height: calc(var(--spacing) * 3);
@@ -1563,86 +1559,40 @@
   }
 }
 .word-cycle {
-  position: relative;
   display: inline-block;
   background: linear-gradient(90deg, #4adba1 0%, #38b8b9 40%, #229dd8 75%, #13a2e9 100%);
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
-  animation: word-in 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-.word-cycle::before, .word-cycle::after {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
+.word-in {
+  animation: word-blur-in 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
-.word-cycle::before {
-  color: rgba(74, 219, 161, 0.75);
-  animation: word-split-a 1.1s steps(6, end) both;
+.word-out {
+  animation: word-blur-out 0.5s cubic-bezier(0.55, 0, 0.75, 0.3) both;
 }
-.word-cycle::after {
-  color: rgba(34, 157, 216, 0.75);
-  animation: word-split-b 1.1s steps(6, end) both;
-}
-@keyframes word-in {
-  0% {
+@keyframes word-blur-in {
+  from {
     opacity: 0;
-    filter: blur(10px);
-    transform: translateY(8px);
-    clip-path: inset(0 0 65% 0);
+    filter: blur(12px);
+    transform: translateY(4px);
   }
-  18% {
-    opacity: 0.7;
-    clip-path: inset(45% 0 0 0);
-    transform: translate(-3px, 2px);
-  }
-  32% {
-    clip-path: inset(0 0 35% 0);
-    transform: translate(3px, -1px);
-  }
-  48% {
-    clip-path: inset(0);
-    filter: blur(2px);
-    transform: none;
-  }
-  100% {
+  to {
     opacity: 1;
     filter: blur(0);
     transform: none;
   }
 }
-@keyframes word-split-a {
-  0% {
-    opacity: 0.9;
-    transform: translate(-4px, 0);
-    clip-path: inset(10% 0 55% 0);
-  }
-  50% {
-    opacity: 0.6;
-    transform: translate(3px, 1px);
-    clip-path: inset(60% 0 5% 0);
-  }
-  100% {
-    opacity: 0;
+@keyframes word-blur-out {
+  from {
+    opacity: 1;
+    filter: blur(0);
     transform: none;
   }
-}
-@keyframes word-split-b {
-  0% {
-    opacity: 0.9;
-    transform: translate(4px, 0);
-    clip-path: inset(50% 0 15% 0);
-  }
-  50% {
-    opacity: 0.6;
-    transform: translate(-3px, -1px);
-    clip-path: inset(5% 0 60% 0);
-  }
-  100% {
+  to {
     opacity: 0;
-    transform: none;
+    filter: blur(12px);
+    transform: translateY(-4px);
   }
 }
 @property --tw-scale-x {
