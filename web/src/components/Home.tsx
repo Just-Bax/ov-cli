@@ -1,4 +1,4 @@
-import { Clock } from 'lucide-react'
+import { Boxes, Clock, FileUp, type LucideIcon, MailX, TriangleAlert, Workflow } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { formatMinutes } from '@shared/estimate.ts'
 import type { SavedTotals, Settings } from '@shared/types.ts'
@@ -11,11 +11,32 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
 
-const EXAMPLES = [
-  'Which rules failed in the last 24 hours, and why?',
-  'Why did the last run of the import fail? Show the row errors.',
-  'Which Vizion Hub modules failed this week? Read their logs.',
-  'Which emails failed to send today, and what was the error?',
+const EXAMPLES: { label: string; icon: LucideIcon; prompt: string }[] = [
+  {
+    label: 'Failed rules',
+    icon: Workflow,
+    prompt: 'Which rules failed in the last 24 hours, and why?',
+  },
+  {
+    label: 'Import errors',
+    icon: FileUp,
+    prompt: 'Why did the last run of the import fail? Show the row errors.',
+  },
+  {
+    label: 'Module failures',
+    icon: Boxes,
+    prompt: 'Which Vizion Hub modules failed this week? Read their logs.',
+  },
+  {
+    label: 'Email failures',
+    icon: MailX,
+    prompt: 'Which emails failed to send today, and what was the error?',
+  },
+  {
+    label: 'Recent errors',
+    icon: TriangleAlert,
+    prompt: 'What errors did users hit in the last 24 hours, and what caused them?',
+  },
 ]
 
 const WORDS = ['troubleshooting', 'investigating', 'configuring', 'automating', 'fixing']
@@ -133,16 +154,18 @@ export function Home({ settings }: { settings: Settings }) {
             </div>
           ) : null}
 
-          <div className="mt-8 grid gap-2 sm:grid-cols-2">
-            {EXAMPLES.map((example) => (
+          <div className="mt-8 flex flex-wrap justify-center gap-2">
+            {EXAMPLES.map(({ label, icon: Icon, prompt }) => (
               <button
-                key={example}
+                key={label}
                 type="button"
+                title={prompt}
                 disabled={starting}
-                onClick={() => void submit(example, [])}
-                className="border-line hover:border-line-strong hover:bg-raised text-text rounded-2xl border p-3 text-left text-[13px] leading-snug transition-colors"
+                onClick={() => void submit(prompt, [])}
+                className="border-line-strong/70 text-text hover:bg-raised hover:border-line-strong flex h-9 items-center gap-2 rounded-full border bg-white px-4 text-[13px] transition-colors"
               >
-                {example}
+                <Icon className="text-brand size-4" strokeWidth={1.75} />
+                {label}
               </button>
             ))}
           </div>
