@@ -24,7 +24,7 @@ const COVERS: Record<string, { label: string; tone: Tone }> = {
 export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: string }) {
   return (
     <div className="space-y-3">
-      <div className="border-line-strong/70 divide-line divide-y overflow-hidden rounded-xl border">
+      <div className="border-line-strong/70 divide-line divide-y overflow-hidden rounded-2xl border">
         {outcome.issues.map((issue, i) => (
           <div key={i} className="px-4 py-3">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -92,7 +92,7 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
       </div>
 
       {outcome.reply ? (
-        <div className="border-brand/40 bg-brand-soft/50 rounded-xl border">
+        <div className="border-brand/40 bg-brand-soft/50 rounded-2xl border">
           <div className="flex items-center gap-2 px-4 pt-2.5">
             <span className="text-brand-strong text-[12px] font-semibold">
               {caseUrl ? 'Reply for the case chat' : 'Message to share'}
@@ -141,7 +141,7 @@ function ApprovalCard({ runId, question }: { runId: string; question: Question }
   return (
     <div
       className={cn(
-        'rounded-xl border',
+        'rounded-2xl border',
         answered ? 'border-line' : 'border-warn/50 bg-warn-soft/30',
       )}
     >
@@ -154,7 +154,7 @@ function ApprovalCard({ runId, question }: { runId: string; question: Question }
           </span>
         ) : null}
       </div>
-      <pre className="bg-raised text-fg mx-4 my-2.5 max-h-48 scrollbar-thin overflow-auto rounded-xl px-3 py-2 font-mono text-[11.5px] leading-[18px] break-all whitespace-pre-wrap">
+      <pre className="bg-raised text-fg mx-4 my-2.5 max-h-48 scrollbar-thin overflow-auto rounded-2xl px-3 py-2 font-mono text-[11.5px] leading-[18px] break-all whitespace-pre-wrap">
         {question.detail}
       </pre>
       {!answered ? (
@@ -192,7 +192,7 @@ export function QuestionCard({ runId, question }: { runId: string; question: Que
   }
 
   return (
-    <div className="border-warn/50 bg-warn-soft/40 rounded-xl border px-4 py-3">
+    <div className="border-warn/50 bg-warn-soft/40 rounded-2xl border px-4 py-3">
       <div className="text-fg text-[13.5px] font-medium">{question.question}</div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {question.options.map((o) => {
@@ -250,7 +250,7 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
     return <div className="text-muted text-[12.5px]">Signed in to {login.instance}.</div>
   }
   return (
-    <div className="border-warn/50 bg-warn-soft/40 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3">
+    <div className="border-warn/50 bg-warn-soft/40 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3">
       <KeyRound className="text-warn size-4" />
       <div className="min-w-0 flex-1">
         <div className="text-fg text-[13.5px] font-medium">Sign in to {login.instance}</div>

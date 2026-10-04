@@ -18,18 +18,45 @@ const EXAMPLES = [
 ]
 
 const WORDS = ['troubleshooting', 'investigating', 'configuring', 'automating', 'fixing']
-const WORD_MS = 2800
+const WORD_MS = 4500
+const SCRAMBLE_MS = 1100
+const GLYPHS = 'abcdefghijklmnopqrstuvwxyz#%&*+=<>/'
+
+function scrambled(word: string, progress: number): string {
+  const settled = Math.floor(word.length * progress)
+  let out = word.slice(0, settled)
+  for (let i = settled; i < word.length; i++)
+    out += GLYPHS[Math.floor(Math.random() * GLYPHS.length)]
+  return out
+}
 
 function RotatingWord() {
   const [index, setIndex] = useState(0)
+  const [text, setText] = useState(WORDS[0])
+
   useEffect(() => {
     const timer = setInterval(() => setIndex((i) => (i + 1) % WORDS.length), WORD_MS)
     return () => clearInterval(timer)
   }, [])
-  const word = WORDS[index]
+
+  useEffect(() => {
+    const word = WORDS[index]
+    if (!index) {
+      setText(word)
+      return
+    }
+    const start = Date.now()
+    const timer = setInterval(() => {
+      const progress = Math.min(1, (Date.now() - start) / SCRAMBLE_MS)
+      setText(progress === 1 ? word : scrambled(word, progress))
+      if (progress === 1) clearInterval(timer)
+    }, 45)
+    return () => clearInterval(timer)
+  }, [index])
+
   return (
-    <span key={word} data-text={word} className="word-cycle">
-      {word}
+    <span key={index} data-text={text} className="word-cycle">
+      {text}
     </span>
   )
 }
@@ -129,7 +156,7 @@ export function Home({ settings }: { settings: Settings }) {
                 type="button"
                 disabled={starting}
                 onClick={() => void submit(example, [])}
-                className="border-line hover:border-line-strong hover:bg-raised text-text rounded-xl border p-3 text-left text-[13px] leading-snug transition-colors"
+                className="border-line hover:border-line-strong hover:bg-raised text-text rounded-2xl border p-3 text-left text-[13px] leading-snug transition-colors"
               >
                 {example}
               </button>

@@ -81,7 +81,7 @@ export function FileChips({
             <img
               src={api.fileUrl(runId, f.name)}
               alt={f.name}
-              className="border-line bg-raised h-28 max-w-[260px] rounded-xl border object-contain transition-opacity hover:opacity-90"
+              className="border-line bg-raised h-28 max-w-[260px] rounded-2xl border object-contain transition-opacity hover:opacity-90"
             />
           </a>
         ) : (
@@ -90,7 +90,7 @@ export function FileChips({
             href={api.fileUrl(runId, f.name)}
             target="_blank"
             rel="noreferrer"
-            className="border-line text-text hover:bg-raised inline-flex h-9 items-center gap-2 rounded-xl border bg-white px-3 text-[12.5px]"
+            className="border-line text-text hover:bg-raised inline-flex h-9 items-center gap-2 rounded-full border bg-white px-3 text-[12.5px]"
           >
             <FileText className="text-muted size-4" />
             <span className="max-w-[200px] truncate">{f.name}</span>

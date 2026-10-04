@@ -184,7 +184,7 @@ export function Dropdown({
                     onMouseEnter={() => setActive(i)}
                     onClick={() => pick(o)}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[12.5px]',
+                      'flex w-full items-center gap-2 rounded-full px-3 py-1.5 text-left text-[12.5px]',
                       i === active ? 'bg-brand-soft text-brand-strong' : 'text-fg',
                     )}
                   >

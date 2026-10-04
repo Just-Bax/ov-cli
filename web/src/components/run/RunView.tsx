@@ -1,6 +1,7 @@
 import { Clock, ExternalLink, RotateCcw, Trash2 } from 'lucide-react'
 import { formatMinutes, savedMinutes } from '@shared/estimate.ts'
 import { Composer } from '@/components/Composer'
+import { EditableTitle } from '@/components/EditableTitle'
 import { dialog } from '@/components/Dialog'
 import { WriteSwitch } from '@/components/WriteSwitch'
 import { useEffect, useRef, useState } from 'react'
@@ -242,9 +243,9 @@ export function RunView({ id }: { id: string }) {
           <div className="flex justify-end">
             <Skeleton className="h-9 w-56 rounded-2xl" />
           </div>
-          <Skeleton className="h-9 w-full rounded-lg" />
+          <Skeleton className="h-9 w-full rounded-full" />
           <SkeletonText lines={2} />
-          <Skeleton className="h-9 w-full rounded-lg" />
+          <Skeleton className="h-9 w-full rounded-full" />
           <SkeletonText lines={4} />
         </div>
       </Page>
@@ -343,7 +344,13 @@ export function RunView({ id }: { id: string }) {
 
   return (
     <Page
-      title={summary.title}
+      title={
+        <EditableTitle
+          value={summary.title}
+          onSave={(title) => api.renameRun(id, title)}
+          inputClassName="h-8 max-w-[640px] text-[15px] font-semibold"
+        />
+      }
       subtitle={subtitle}
       actions={actions}
       footer={
@@ -403,7 +410,7 @@ export function RunView({ id }: { id: string }) {
         {state.error && summary.status === 'error' ? (
           <div
             className={cn(
-              'border-danger/40 bg-danger-soft/50 text-danger rounded-xl border px-4 py-3 text-[13px]',
+              'border-danger/40 bg-danger-soft/50 text-danger rounded-2xl border px-4 py-3 text-[13px]',
             )}
           >
             {state.error}

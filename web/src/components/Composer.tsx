@@ -117,7 +117,7 @@ export function Composer({
                   src={previews[i]}
                   alt={f.name}
                   title={f.name}
-                  className="border-line bg-raised size-16 rounded-xl border object-cover"
+                  className="border-line bg-raised size-16 rounded-2xl border object-cover"
                 />
                 <button
                   type="button"

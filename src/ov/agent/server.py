@@ -469,6 +469,12 @@ def message(h: Handler, run_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
+@route("POST", "/api/runs/([a-z0-9]+)/title")
+def rename(h: Handler, run_id: str) -> dict[str, bool]:
+    _run(run_id).rename(str(h.json().get("title", "")))
+    return {"ok": True}
+
+
 @route("POST", "/api/runs/([a-z0-9]+)/retry")
 def retry(h: Handler, run_id: str) -> dict[str, bool]:
     _run(run_id).retry(str(h.json().get("itemId", "")))

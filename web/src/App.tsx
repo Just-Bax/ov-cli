@@ -41,15 +41,12 @@ export function App() {
   if (!status) {
     return (
       <div className="flex h-full">
-        <nav className="bg-brand flex w-14 shrink-0 flex-col items-center py-3">
-          <img src="/favicon.svg" alt="" className="size-10 rounded-xl" />
-        </nav>
-        <aside className="border-line-strong/60 flex w-[268px] shrink-0 flex-col border-r bg-white">
+        <aside className="border-line-strong/60 flex w-[272px] shrink-0 flex-col border-r bg-white">
           <div className="flex h-16 items-center px-5">
             <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
           </div>
           <div className="px-3">
-            <Skeleton className="h-10 w-full rounded-xl" />
+            <Skeleton className="h-10 w-full rounded-full" />
           </div>
           <div className="mt-6 space-y-4 px-5">
             {['w-4/5', 'w-3/5', 'w-11/12', 'w-2/3'].map((w) => (
@@ -59,8 +56,8 @@ export function App() {
         </aside>
         <main className="flex flex-1 items-center justify-center bg-white">
           <div className="w-full max-w-[720px] px-6">
-            <Skeleton className="mx-auto h-7 w-[420px] max-w-full rounded-lg" />
-            <div className="border-line mt-6 rounded-[22px] border p-4 shadow-[0_2px_12px_rgba(38,50,56,0.04)]">
+            <Skeleton className="mx-auto h-7 w-[420px] max-w-full rounded-full" />
+            <div className="border-line mt-6 rounded-[26px] border p-4 shadow-[0_2px_12px_rgba(38,50,56,0.04)]">
               <Skeleton className="h-3.5 w-2/3" />
               <div className="mt-8 flex items-center gap-2">
                 <Skeleton className="size-7 rounded-full" />
@@ -71,7 +68,7 @@ export function App() {
             </div>
             <div className="mt-8 grid grid-cols-2 gap-2">
               {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="border-line space-y-2 rounded-xl border p-3">
+                <div key={i} className="border-line space-y-2 rounded-2xl border p-3">
                   <Skeleton className="h-2.5 w-24" />
                   <Skeleton className="h-3 w-11/12" />
                 </div>

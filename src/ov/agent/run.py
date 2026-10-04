@@ -366,6 +366,12 @@ class Run:
     def rate(self, turn_id: str, rating: str | None, note: str | None) -> None:
         self.emit({"type": "rate", "turnId": turn_id, "rating": rating, "note": note})
 
+    def rename(self, title: str) -> None:
+        cleaned = " ".join(title.split())[:120]
+        if not cleaned:
+            raise RunError("A run needs a name.")
+        self.emit({"type": "meta", "title": cleaned})
+
     def remove_queued(self, message_id: str) -> None:
         with self._lock:
             self._queue = [q for q in self._queue if q[0]["id"] != message_id]

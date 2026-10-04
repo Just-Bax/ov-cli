@@ -10,7 +10,7 @@ export function ChangeCard({ change }: { change: Change }) {
     change.instance,
   ].filter(Boolean)
   return (
-    <div className="border-line-strong/70 overflow-hidden rounded-xl border">
+    <div className="border-line-strong/70 overflow-hidden rounded-2xl border">
       <div className="bg-raised flex items-start gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

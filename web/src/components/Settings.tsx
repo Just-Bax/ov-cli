@@ -375,7 +375,7 @@ function Skills() {
           <div
             key={s.name}
             className={cn(
-              'flex items-start gap-2 rounded-xl px-3 py-2 transition-colors',
+              'flex items-start gap-2 rounded-2xl px-3 py-2 transition-colors',
               s.name === selected ? 'bg-brand-soft' : 'hover:bg-raised',
             )}
           >

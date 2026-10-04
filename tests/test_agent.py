@@ -340,3 +340,16 @@ def test_finish_keeps_existing_matches_and_the_reply(tmp_path):
     )
     assert outcomes[0]["existing"] == [{"key": "IT-1", "title": "x", "covers": "partly"}]
     assert outcomes[0]["reply"] == "Yes, fixed."
+
+
+def test_a_run_can_be_renamed(agent_server, monkeypatch):
+    from ov.agent.run import runs
+
+    monkeypatch.setattr("ov.agent.run.Run.begin", lambda self, data: None)
+    run = runs.create({"prompt": "x"}, "m")
+    ok = httpx.post(f"{agent_server}/api/runs/{run.id}/title", json={"title": "  NORAD   report "})
+    assert ok.status_code == 200
+    assert db.list_runs()[0]["title"] == "NORAD report"
+    blank = httpx.post(f"{agent_server}/api/runs/{run.id}/title", json={"title": " "})
+    assert blank.status_code == 400
+    runs.delete(run.id)

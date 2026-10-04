@@ -1,23 +1,15 @@
-import {
-  CircleAlert,
-  CircleCheck,
-  CircleSlash,
-  MessageSquareText,
-  Plus,
-  Settings,
-  Trash2,
-} from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { CircleAlert, CircleCheck, CircleSlash, Plus, Settings, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import type { RunStatus, RunSummary } from '@shared/types.ts'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { dialog } from '@/components/Dialog'
-import { Skeleton, Spinner, timeAgo } from '@/components/ui'
+import { EditableTitle } from '@/components/EditableTitle'
+import { Skeleton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
 
 const RECENT_LIMIT = 40
-const PANEL_KEY = 'ov-agent.panel-open'
 
 export function StatusIcon({
   status,
@@ -71,69 +63,27 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
   return active ? [['In progress', active], ...groups] : [...groups]
 }
 
-function useRuns(): RunSummary[] | undefined {
+function useRuns(): [RunSummary[] | undefined, () => void] {
   const [runs, setRuns] = useState<RunSummary[]>()
+  const load = useCallback(() => {
+    api
+      .runs()
+      .then(setRuns)
+      .catch(() => undefined)
+  }, [])
   useEffect(() => {
-    let alive = true
-    const load = () =>
-      api
-        .runs()
-        .then((r) => alive && setRuns(r))
-        .catch(() => undefined)
     load()
     const timer = setInterval(load, 3000)
-    return () => {
-      alive = false
-      clearInterval(timer)
-    }
-  }, [])
-  return runs
-}
-
-function RailButton({
-  label,
-  active,
-  onClick,
-  to,
-  children,
-}: {
-  label: string
-  active?: boolean
-  onClick?: () => void
-  to?: string
-  children: ReactNode
-}) {
-  const className = cn(
-    'group/rail relative flex size-10 items-center justify-center rounded-xl text-white transition-colors',
-    active ? 'bg-white/20' : 'hover:bg-white/20',
-  )
-  const inner = (
-    <>
-      {children}
-      {active && to ? (
-        <span className="absolute top-1/2 -left-2 h-4 w-1 -translate-y-1/2 rounded-r-full bg-white" />
-      ) : null}
-      <span className="bg-fg pointer-events-none absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2 rounded-full px-2.5 py-1 text-[12px] font-medium whitespace-nowrap text-white opacity-0 shadow-[0_4px_6px_rgba(0,0,0,0.1)] transition-opacity group-hover/rail:opacity-100">
-        {label}
-      </span>
-    </>
-  )
-  return to ? (
-    <a href={to} aria-label={label} className={className}>
-      {inner}
-    </a>
-  ) : (
-    <button type="button" aria-label={label} onClick={onClick} className={className}>
-      {inner}
-    </button>
-  )
+    return () => clearInterval(timer)
+  }, [load])
+  return [runs, load]
 }
 
 function Avatar({ user }: { user?: string }) {
   const [broken, setBroken] = useState(false)
   if (!user || broken)
     return (
-      <span className="text-brand-strong flex size-8 items-center justify-center rounded-full bg-white text-[13px] font-semibold">
+      <span className="bg-brand-soft text-brand-strong flex size-8 items-center justify-center rounded-full text-[13px] font-semibold">
         {(user ?? '?').slice(0, 1).toUpperCase()}
       </span>
     )
@@ -142,14 +92,22 @@ function Avatar({ user }: { user?: string }) {
       src={`https://github.com/${encodeURIComponent(user)}.png?size=64`}
       alt=""
       onError={() => setBroken(true)}
-      className="size-8 rounded-full object-cover ring-2 ring-white/60"
+      className="bg-raised size-8 rounded-full object-cover"
     />
   )
 }
 
-function RunItem({ run, active }: { run: RunSummary; active: boolean }) {
+function RunItem({
+  run,
+  active,
+  onChanged,
+}: {
+  run: RunSummary
+  active: boolean
+  onChanged: () => void
+}) {
   const remove = async (e: React.MouseEvent) => {
-    e.preventDefault()
+    e.stopPropagation()
     const ok = await dialog.confirm({
       title: 'Delete this run?',
       body: 'The conversation, findings and proposed changes are removed. This cannot be undone.',
@@ -158,137 +116,137 @@ function RunItem({ run, active }: { run: RunSummary; active: boolean }) {
     })
     if (!ok) return
     await api.deleteRun(run.id)
+    onChanged()
     if (active) go({ page: 'home' })
   }
 
   return (
-    <a
-      href={href({ page: 'run', id: run.id })}
-      title={[run.title, run.instance, timeAgo(run.createdAt)].filter(Boolean).join(' - ')}
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={() => go({ page: 'run', id: run.id })}
+      onKeyDown={(e) => e.key === 'Enter' && go({ page: 'run', id: run.id })}
       className={cn(
-        'group/run flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[12.5px] font-medium transition-colors',
+        'group/run flex h-9 cursor-pointer items-center gap-2.5 rounded-full pr-1 pl-3.5 text-[12.5px] font-medium transition-colors outline-none',
         active
           ? 'bg-brand-soft text-brand-strong'
-          : 'text-text hover:bg-canvas hover:text-brand-strong',
+          : 'text-text hover:bg-canvas hover:text-brand-strong focus-visible:bg-canvas',
       )}
     >
       <span className="flex size-3 shrink-0 items-center justify-center">
         <StatusIcon status={run.status} />
       </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate">{run.title}</span>
-        {run.instance ? (
-          <span className="text-faint block truncate text-[11px] font-normal">{run.instance}</span>
-        ) : null}
-      </span>
+      <EditableTitle
+        value={run.title}
+        onSave={async (title) => {
+          await api.renameRun(run.id, title)
+          onChanged()
+        }}
+        className="min-w-0 flex-1 truncate"
+        inputClassName="h-7 text-[12.5px] font-medium"
+      />
       <button
         type="button"
         aria-label="Delete run"
         onClick={(e) => void remove(e)}
-        className="text-faint hover:text-danger hidden size-6 shrink-0 items-center justify-center rounded-lg group-hover/run:flex hover:bg-white"
+        className="text-faint hover:text-danger flex size-7 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover/run:opacity-100 hover:bg-black/[0.06] focus-visible:opacity-100"
       >
         <Trash2 className="size-3.5" />
       </button>
-    </a>
+    </div>
   )
 }
 
 export function Sidebar({ route, user }: { route: Route; user?: string }) {
-  const runs = useRuns()
-  const [open, setOpen] = useState(() => localStorage.getItem(PANEL_KEY) !== '0')
+  const [runs, reload] = useRuns()
   const [showAll, setShowAll] = useState(false)
-  useEffect(() => localStorage.setItem(PANEL_KEY, open ? '1' : '0'), [open])
-
   const shown = showAll ? (runs ?? []) : (runs ?? []).slice(0, RECENT_LIMIT)
+  const onSettings = route.page === 'settings'
 
   return (
-    <div className="flex h-full shrink-0">
-      <nav className="bg-brand flex w-14 shrink-0 flex-col items-center gap-1.5 py-3">
+    <aside className="border-line-strong/60 flex w-[272px] shrink-0 flex-col border-r bg-white">
+      <div className="flex h-16 shrink-0 items-center px-5">
+        <a href="#/" aria-label="OV Agent home">
+          <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
+        </a>
+      </div>
+      <div className="px-3 pb-2">
         <a
           href="#/"
-          aria-label="OV Agent home"
-          className="mb-3 flex size-10 items-center justify-center overflow-hidden rounded-xl shadow-[0_2px_6px_rgba(0,0,0,0.12)]"
+          className="bg-brand hover:bg-brand-strong flex h-10 items-center justify-center gap-2 rounded-full text-[13px] font-medium text-white transition-colors"
         >
-          <img src="/favicon.svg" alt="" className="size-10" />
+          <Plus className="size-4" strokeWidth={2.25} /> New run
         </a>
-        <RailButton
-          label={open ? 'Hide runs' : 'Show runs'}
-          active={open}
-          onClick={() => setOpen(!open)}
-        >
-          <MessageSquareText className="size-5" strokeWidth={1.75} />
-        </RailButton>
-        <RailButton label="New run" to="#/" active={route.page === 'home'}>
-          <Plus className="size-5" strokeWidth={2} />
-        </RailButton>
-        <div className="flex-1" />
-        <RailButton
-          label="Settings"
-          to={href({ page: 'settings' })}
-          active={route.page === 'settings'}
-        >
-          <Settings className="size-5" strokeWidth={1.75} />
-        </RailButton>
-        <a href={href({ page: 'settings' })} title={user ?? 'Settings'} className="mt-1.5">
-          <Avatar user={user} />
-        </a>
-      </nav>
+      </div>
 
-      {open ? (
-        <aside className="border-line-strong/60 flex w-[268px] shrink-0 flex-col border-r bg-white">
-          <div className="flex h-16 shrink-0 items-center px-5">
-            <a href="#/" aria-label="OV Agent home">
-              <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
-            </a>
-          </div>
-          <div className="px-3 pb-2">
-            <a
-              href="#/"
-              className="bg-brand hover:bg-brand-strong flex h-10 items-center justify-center gap-2 rounded-xl text-[13px] font-medium text-white transition-colors"
-            >
-              <Plus className="size-4" strokeWidth={2.25} /> New run
-            </a>
-          </div>
-
-          <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4">
-            {!runs ? (
-              <div className="space-y-4 px-2.5 pt-3">
-                {[0, 1, 2, 3].map((i) => (
-                  <Skeleton key={i} className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
-                ))}
-              </div>
-            ) : null}
-            {group(shown).map(([label, list], index) => (
-              <div key={label} className={index ? 'mt-5' : 'mt-1'}>
-                <div className="text-faint mb-1 px-2.5 text-[12px] font-medium">{label}</div>
-                <div className="space-y-0.5">
-                  {list.map((r) => (
-                    <RunItem
-                      key={r.id}
-                      run={r}
-                      active={route.page === 'run' && route.id === r.id}
-                    />
-                  ))}
-                </div>
-              </div>
+      <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4">
+        {!runs ? (
+          <div className="space-y-4 px-3 pt-3">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
             ))}
-            {!showAll && (runs?.length ?? 0) > RECENT_LIMIT ? (
-              <button
-                type="button"
-                onClick={() => setShowAll(true)}
-                className="text-brand-strong hover:bg-canvas mt-3 w-full rounded-xl px-2.5 py-2 text-left text-[12.5px] font-medium"
-              >
-                Show all {runs?.length} runs
-              </button>
-            ) : null}
-            {runs && !runs.length ? (
-              <div className="text-faint px-2.5 py-3 text-[12.5px]">
-                Your runs appear here. Start one with a case number or a question.
-              </div>
-            ) : null}
           </div>
-        </aside>
-      ) : null}
-    </div>
+        ) : null}
+        {group(shown).map(([label, list], index) => (
+          <div key={label} className={index ? 'mt-5' : 'mt-1'}>
+            <div className="text-faint mb-1 px-3.5 text-[12px] font-medium">{label}</div>
+            <div className="space-y-0.5">
+              {list.map((r) => (
+                <RunItem
+                  key={r.id}
+                  run={r}
+                  active={route.page === 'run' && route.id === r.id}
+                  onChanged={reload}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+        {!showAll && (runs?.length ?? 0) > RECENT_LIMIT ? (
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="text-brand-strong hover:bg-canvas mt-3 h-9 w-full rounded-full px-3.5 text-left text-[12.5px] font-medium"
+          >
+            Show all {runs?.length} runs
+          </button>
+        ) : null}
+        {runs && !runs.length ? (
+          <div className="text-faint px-3.5 py-3 text-[12.5px]">
+            Your runs appear here. Start one with a case number or a question.
+          </div>
+        ) : null}
+      </div>
+
+      <div className="border-line-strong/60 flex h-16 shrink-0 items-center gap-1 border-t px-3">
+        <a
+          href={href({ page: 'settings' })}
+          className={cn(
+            'flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full pr-3 pl-1.5 transition-colors',
+            onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
+          )}
+        >
+          <Avatar user={user} />
+          <span className="min-w-0">
+            <span className="text-fg block truncate text-[13px] font-medium">
+              {user ?? 'Not signed in'}
+            </span>
+            <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
+          </span>
+        </a>
+        <a
+          href={href({ page: 'settings' })}
+          aria-label="Settings"
+          className={cn(
+            'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors',
+            onSettings
+              ? 'bg-brand-soft text-brand-strong'
+              : 'text-muted hover:bg-canvas hover:text-fg',
+          )}
+        >
+          <Settings className="size-[18px]" strokeWidth={1.75} />
+        </a>
+      </div>
+    </aside>
   )
 }

@@ -85,7 +85,7 @@ function Block({ title, text, error }: { title: string; text: string; error?: bo
       </div>
       <pre
         className={cn(
-          'max-h-64 scrollbar-thin overflow-auto rounded-xl px-3 py-2 font-mono text-[11.5px] leading-[18px] break-all whitespace-pre-wrap',
+          'max-h-64 scrollbar-thin overflow-auto rounded-2xl px-3 py-2 font-mono text-[11.5px] leading-[18px] break-all whitespace-pre-wrap',
           error ? 'bg-danger-soft/60 text-danger' : 'bg-raised text-fg',
         )}
       >

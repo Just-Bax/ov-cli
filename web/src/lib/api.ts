@@ -99,6 +99,7 @@ export const api = {
   message: (id: string, text: string, files: Upload[] = []) =>
     post(`/runs/${id}/message`, { text, files }),
   retry: (id: string, itemId: string) => post(`/runs/${id}/retry`, { itemId }),
+  renameRun: (id: string, title: string) => post(`/runs/${id}/title`, { title }),
   removeQueued: (id: string, mid: string) => del(`/runs/${id}/queued/${seg(mid)}`),
   rate: (id: string, turnId: string, rating: Rating | null, note?: string) =>
     post(`/runs/${id}/rate`, { turnId, rating, note }),
