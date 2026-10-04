@@ -1,5 +1,7 @@
 import type {
+  GraphStatus,
   Instance,
+  InstanceGraph,
   ModelInfo,
   Rating,
   RunInput,
@@ -88,6 +90,10 @@ export const api = {
     }
     return saved
   },
+  graphStatus: (instance: string) =>
+    request<GraphStatus>(`/graph/status?instance=${seg(instance)}`),
+  buildGraph: (instance: string) => post<GraphStatus>('/graph/build', { instance }),
+  graph: (instance: string) => request<InstanceGraph>(`/graph?instance=${seg(instance)}`),
   runs: () => request<RunSummary[]>('/runs'),
   stats: () => request<SavedTotals>('/stats'),
   run: (id: string) => request<RunState>(`/runs/${id}`),

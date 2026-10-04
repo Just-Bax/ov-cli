@@ -5,6 +5,7 @@ import {
   FileText,
   GitBranch,
   type LucideIcon,
+  Network,
   Search,
   Terminal,
   Ticket,
@@ -25,6 +26,7 @@ const ICONS: Record<string, LucideIcon> = {
   read_file: FileText,
   git_clone: GitBranch,
   load_case: Ticket,
+  graph_query: Network,
 }
 
 const NOUNS: Record<string, [string, string]> = {
@@ -36,6 +38,7 @@ const NOUNS: Record<string, [string, string]> = {
   read_file: ['file', 'files'],
   git_clone: ['repo', 'repos'],
   load_case: ['case', 'cases'],
+  graph_query: ['map lookup', 'map lookups'],
 }
 
 function summarize(tools: ToolActivity[]): string {

@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from urllib.parse import quote
 
 from ..errors import EXIT_READ_ONLY
-from . import sources
+from . import graph, sources
 from .cancel import Cancel
 from .ovproc import OvResult, find_instance, host_of, run_ov
 from .workspace import IMAGE_EXTS, image_mime, within
@@ -464,6 +464,23 @@ def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
     return "Delivered."
 
 
+def _graph_query(args: dict[str, Any], ctx: ToolContext) -> str:
+    target = _target(args.get("instance"), ctx)
+    found = find_instance(target)
+    if found is None:
+        raise ToolError(f"Not signed in to {target}.")
+    data = graph.load(found["alias"]) or graph.build(found["alias"], cancel=ctx.cancel)
+    matches = graph.find(data, str(args["object"]))
+    if not matches:
+        return f"Nothing named like {args['object']!r} on the {found['alias']} map."
+    if len(matches) > 5:
+        listed = "\n".join(f"- {m['type']} {m['name']} ({m['ref']})" for m in matches[:20])
+        return f"{len(matches)} matches; pass the exact name or id:\n{listed}"
+    built = time.strftime("%Y-%m-%d %H:%M", time.localtime(data["builtAt"] / 1000))
+    body = "\n\n".join(graph.describe(data, m) for m in matches)
+    return clip(f"Map of {found['alias']} built {built}.\n\n{body}", ctx, "map")
+
+
 def _ov_label(a: dict[str, Any]) -> str:
     at = f" @ {a['instance']}" if a.get("instance") else ""
     return f"ov {' '.join(str(x) for x in (a.get('args') or [])[:4])}{at}"
@@ -498,6 +515,20 @@ TOOLS = [
         ["args"],
         _ov_label,
         lambda a, ctx: run_ov_tool(list(a.get("args") or []), a.get("instance"), ctx),
+    ),
+    Tool(
+        "graph_query",
+        "Look an object up on the instance map: what a trackor type, field, rule, automation, "
+        "import, report, notification, workflow or module is linked to (relations, fields, "
+        "triggers, and fields used in its code). Fast, no SQL needed. Builds the map on first "
+        "use (about a minute). Use it before changing anything to see what depends on it.",
+        {
+            "instance": INSTANCE,
+            "object": _str("Name or id of the object, e.g. C_STATUS, a rule name, or 100121663"),
+        },
+        ["object"],
+        lambda a: f"map {a.get('object')}{' @ ' + a['instance'] if a.get('instance') else ''}",
+        _graph_query,
     ),
     Tool(
         "sql",

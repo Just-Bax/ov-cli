@@ -394,6 +394,15 @@ Nothing leaves your machine except calls to your instances and to GitHub Copilot
 server listens on 127.0.0.1 only. History, uploads and clones live in `~/.ov/agent`; the
 GitHub token is kept in the OS keyring with your other credentials.
 
+**Instance map** shows how an instance's configuration fits together: trackor types and
+their relations, fields, rules and what triggers them, automations, imports, reports,
+notifications, workflows and modules, plus the fields each rule, import and report uses in
+its SQL. Pick an instance and Build: it reads the configuration with read-only SQL (about a
+minute on a large instance, Test SQL privilege needed) and caches it in `~/.ov/agent/graphs`.
+Start from a hotspot or search, double-click an object to bring in what it links to, and use
+"Ask the agent" on any object. The agent uses the same map in runs (`graph_query`) to see
+what depends on something before it touches it. Links found in SQL text are best-effort.
+
 `ov agent --port 5181` picks another port; `--no-open` skips opening the browser.
 
 ## Files on disk

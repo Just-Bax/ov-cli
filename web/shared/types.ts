@@ -228,3 +228,50 @@ export interface Status {
   settings: Settings
   ready: boolean
 }
+
+export type GraphNodeType =
+  | 'trackor_type'
+  | 'field'
+  | 'rule'
+  | 'automation'
+  | 'import'
+  | 'report'
+  | 'notification'
+  | 'workflow'
+  | 'module'
+
+export interface GraphNode {
+  id: string
+  type: GraphNodeType
+  ref: number
+  name: string
+  enabled?: boolean
+  invalid?: boolean
+  trigger?: string
+  dataType?: number
+}
+
+export interface GraphEdge {
+  source: string
+  target: string
+  kind: string
+  code?: boolean
+}
+
+export interface InstanceGraph {
+  instance: string
+  host: string
+  builtAt: number
+  warnings: string[]
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
+export interface GraphStatus {
+  state: 'none' | 'building' | 'ready' | 'error'
+  step?: string
+  error?: string
+  builtAt?: number
+  nodes?: number
+  edges?: number
+}

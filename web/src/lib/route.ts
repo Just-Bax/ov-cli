@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 
-export type Route = { page: 'home' } | { page: 'settings' } | { page: 'run'; id: string }
+export type Route =
+  { page: 'home' } | { page: 'settings' } | { page: 'map' } | { page: 'run'; id: string }
 
 function parse(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/')
   if (parts[0] === 'run' && parts[1]) return { page: 'run', id: parts[1] }
   if (parts[0] === 'settings') return { page: 'settings' }
+  if (parts[0] === 'map') return { page: 'map' }
   return { page: 'home' }
 }
 

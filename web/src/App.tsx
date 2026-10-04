@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Settings, Status } from '@shared/types.ts'
 import { DialogHost, dialog } from '@/components/Dialog'
 import { Home } from '@/components/Home'
+import { MapPage } from '@/components/map/MapPage'
 import { RunView } from '@/components/run/RunView'
 import { SettingsPage } from '@/components/Settings'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
@@ -109,6 +110,7 @@ export function App() {
         <main className="min-w-0 flex-1">
           {route.page === 'home' && <Home settings={status.settings} />}
           {route.page === 'settings' && <SettingsPage onChange={refresh} />}
+          {route.page === 'map' && <MapPage />}
           {route.page === 'run' && <RunView key={route.id} id={route.id} />}
         </main>
         <DialogHost />

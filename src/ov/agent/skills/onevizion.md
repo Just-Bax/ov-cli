@@ -5,6 +5,10 @@ description: What OneVizion is, where every object lives in the database, how ru
 
 OneVizion is a configurable platform for tracking projects, assets and processes. Each customer has its own instance (a host such as acme.onevizion.com), sometimes with several tenants. Almost everything is configuration stored in an Oracle schema: trackor types and fields, rules, automations, notifications, imports, reports, workflows, Vizion Hub modules. Find things by their real definition, never by memory. If a column is not listed here, check it first: `select column_name, data_type from user_tab_columns where table_name = 'RULE'`. If a source with the platform repo (IKAMTeam/ov) is configured, table DDL is at `db/ddl/tables/<table>.sql` and packages under `db/`; search it for error text and class names from stack traces.
 
+## The instance map
+
+Call graph_query first when you need to know what is connected to an object: which rules are triggered by or use a field, what loads a trackor type, which workflow runs a rule. It answers from a cached map of the whole configuration without SQL; links marked "in code" come from text matching in rule, import and report SQL and can miss dynamic SQL. Confirm anything important on the instance before you rely on it.
+
 ## PROCESS: the run log behind reports, imports, exports, modules, rules and automations
 
 - PROCESS: PROCESS_ID, PROCESS_TYPE_ID, STATUS_ID, USER_ID, SUBMISSION_DATE, START_DATE, END_DATE, RUNTIME (seconds), ERROR_MESSAGE (short), ERROR_MESSAGE_FULL (CLOB, the detail), COMMENTS.

@@ -1,4 +1,13 @@
-import { CircleAlert, CircleCheck, CircleSlash, Plus, Settings, Trash2 } from 'lucide-react'
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleSlash,
+  type LucideIcon,
+  Network,
+  Plus,
+  Settings,
+  Trash2,
+} from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RunStatus, RunSummary } from '@shared/types.ts'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
@@ -192,6 +201,40 @@ function RunItem({
   )
 }
 
+function NavRow({
+  to,
+  icon: Icon,
+  label,
+  active,
+}: {
+  to: string
+  icon: LucideIcon
+  label: string
+  active: boolean
+}) {
+  return (
+    <a
+      href={to}
+      className={cn(
+        'flex h-9 items-center gap-2.5 rounded-full pr-3 pl-1.5 text-[13px] font-medium transition-colors',
+        active
+          ? 'bg-brand-soft text-brand-strong'
+          : 'text-text hover:bg-canvas hover:text-brand-strong',
+      )}
+    >
+      <span
+        className={cn(
+          'flex size-6 shrink-0 items-center justify-center rounded-full',
+          active ? 'bg-brand text-white' : 'bg-brand-soft text-brand-strong',
+        )}
+      >
+        <Icon className="size-3.5" strokeWidth={2.25} />
+      </span>
+      {label}
+    </a>
+  )
+}
+
 export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const [runs, reload] = useRuns()
   useRunNotifications(runs, useSettings().settings.notify)
@@ -206,14 +249,15 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
         </a>
       </div>
-      <div className="px-3 pb-2">
-        <a
-          href="#/"
-          className="bg-brand hover:bg-brand-strong flex h-10 items-center justify-center gap-2 rounded-full text-[13px] font-medium text-white transition-colors"
-        >
-          <Plus className="size-4" strokeWidth={2.25} /> New run
-        </a>
-      </div>
+      <nav className="space-y-0.5 px-3 pb-2">
+        <NavRow to="#/" icon={Plus} label="New run" active={route.page === 'home'} />
+        <NavRow
+          to={href({ page: 'map' })}
+          icon={Network}
+          label="Instance map"
+          active={route.page === 'map'}
+        />
+      </nav>
 
       <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4">
         {!runs ? (

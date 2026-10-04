@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import queue
 import random
@@ -19,7 +20,7 @@ import httpx
 
 from .. import __version__
 from ..errors import OvError
-from . import copilot, db, skills, sources
+from . import copilot, db, graph, skills, sources
 from .copilot import CopilotError
 from .ovproc import instances, login, version
 from .run import RunError, runs
@@ -31,6 +32,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_PORT = 5180
 DEV_PORT = 5179
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+GZIP_MIN_BYTES = 64 * 1024
 PING_SECONDS = 15
 APP_ID = "ov-agent"
 
@@ -136,6 +138,9 @@ class Handler(BaseHTTPRequestHandler):
         extra: dict[str, str] | None = None,
     ) -> None:
         self._drain()
+        if len(body) > GZIP_MIN_BYTES and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            body = gzip.compress(body, compresslevel=5)
+            extra = {**(extra or {}), "Content-Encoding": "gzip"}
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -357,6 +362,32 @@ def upload(h: Handler) -> dict[str, str]:
     upload_id = _short_id()
     (uploads_dir() / upload_id).write_bytes(h.body())
     return {"id": upload_id, "name": Path(name).name or "file"}
+
+
+def _instance_alias(h: Handler, ref: str | None = None) -> str:
+    ref = (h.query.get("instance", "") if ref is None else ref).strip()
+    found = next((i for i in instances() if i["alias"] == ref), None)
+    if found is None:
+        raise HttpError(404, f"Unknown instance: {ref}")
+    return found["alias"]
+
+
+@route("GET", "/api/graph/status")
+def graph_status(h: Handler) -> dict[str, Any]:
+    return graph.status(_instance_alias(h))
+
+
+@route("POST", "/api/graph/build")
+def graph_build(h: Handler) -> dict[str, Any]:
+    return graph.start_build(_instance_alias(h, str(h.json().get("instance", ""))))
+
+
+@route("GET", "/api/graph")
+def graph_get(h: Handler) -> str:
+    path = graph.graph_file(_instance_alias(h))
+    if not path.is_file():
+        raise HttpError(404, "No map built for this instance yet.")
+    return path.read_text(encoding="utf-8")
 
 
 @route("GET", "/api/runs")
