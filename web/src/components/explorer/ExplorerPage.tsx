@@ -437,7 +437,7 @@ function Inspector({
           className="contents"
         >
           <Button className="col-span-2" variant="ghost">
-            <ExternalLink className="size-3.5" /> Open in OneVizion
+            <ExternalLink className="size-3.5" /> Open link
           </Button>
         </a>
       </div>

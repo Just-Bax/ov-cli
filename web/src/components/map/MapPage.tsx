@@ -388,7 +388,7 @@ function Details({
         >
           <Button className="min-w-0" variant="secondary">
             <ExternalLink className="size-3.5" />
-            <span className="truncate">Open in OneVizion</span>
+            <span className="truncate">Open link</span>
           </Button>
         </a>
         {hidden ? (
