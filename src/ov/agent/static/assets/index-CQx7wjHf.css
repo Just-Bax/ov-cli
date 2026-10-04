@@ -803,12 +803,6 @@ svg.react-flow__connectionline {
   }
 }
 @layer utilities {
-  .pointer-events-auto {
-    pointer-events: auto;
-  }
-  .pointer-events-none {
-    pointer-events: none;
-  }
   .invisible {
     visibility: hidden;
   }
@@ -830,20 +824,14 @@ svg.react-flow__connectionline {
   .inset-0 {
     inset: 0px;
   }
-  .inset-x-4 {
-    inset-inline: calc(var(--spacing) * 4);
-  }
   .-top-1\.5 {
     top: calc(var(--spacing) * -1.5);
   }
   .top-0\.5 {
     top: calc(var(--spacing) * 0.5);
   }
-  .top-4 {
-    top: calc(var(--spacing) * 4);
-  }
-  .top-12 {
-    top: calc(var(--spacing) * 12);
+  .top-11 {
+    top: calc(var(--spacing) * 11);
   }
   .-right-1\.5 {
     right: calc(var(--spacing) * -1.5);
@@ -860,17 +848,17 @@ svg.react-flow__connectionline {
   .left-3\.5 {
     left: calc(var(--spacing) * 3.5);
   }
-  .z-10 {
-    z-index: 10;
-  }
-  .z-20 {
-    z-index: 20;
+  .z-30 {
+    z-index: 30;
   }
   .z-50 {
     z-index: 50;
   }
   .z-\[100\] {
     z-index: 100;
+  }
+  .col-span-2 {
+    grid-column: span 2 / span 2;
   }
   .mx-4 {
     margin-inline: calc(var(--spacing) * 4);
@@ -956,6 +944,9 @@ svg.react-flow__connectionline {
   .block {
     display: block;
   }
+  .contents {
+    display: contents;
+  }
   .flex {
     display: flex;
   }
@@ -990,6 +981,10 @@ svg.react-flow__connectionline {
     width: calc(var(--spacing) * 2);
     height: calc(var(--spacing) * 2);
   }
+  .size-2\.5 {
+    width: calc(var(--spacing) * 2.5);
+    height: calc(var(--spacing) * 2.5);
+  }
   .size-3 {
     width: calc(var(--spacing) * 3);
     height: calc(var(--spacing) * 3);
@@ -1001,6 +996,10 @@ svg.react-flow__connectionline {
   .size-4 {
     width: calc(var(--spacing) * 4);
     height: calc(var(--spacing) * 4);
+  }
+  .size-4\.5 {
+    width: calc(var(--spacing) * 4.5);
+    height: calc(var(--spacing) * 4.5);
   }
   .size-5 {
     width: calc(var(--spacing) * 5);
@@ -1063,6 +1062,9 @@ svg.react-flow__connectionline {
   }
   .h-11 {
     height: calc(var(--spacing) * 11);
+  }
+  .h-14 {
+    height: calc(var(--spacing) * 14);
   }
   .h-16 {
     height: calc(var(--spacing) * 16);
@@ -1172,11 +1174,17 @@ svg.react-flow__connectionline {
   .w-\[260px\] {
     width: 260px;
   }
+  .w-\[264px\] {
+    width: 264px;
+  }
   .w-\[272px\] {
     width: 272px;
   }
   .w-\[300px\] {
     width: 300px;
+  }
+  .w-\[320px\] {
+    width: 320px;
   }
   .w-\[340px\] {
     width: 340px;
@@ -1299,6 +1307,9 @@ svg.react-flow__connectionline {
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .grid-cols-\[72px_1fr\] {
+    grid-template-columns: 72px 1fr;
+  }
   .flex-col {
     flex-direction: column;
   }
@@ -1392,11 +1403,19 @@ svg.react-flow__connectionline {
   .gap-x-3 {
     column-gap: calc(var(--spacing) * 3);
   }
+  :where(.-space-x-1 > :not(:last-child)) {
+    --tw-space-x-reverse: 0;
+    margin-inline-start: calc(calc(var(--spacing) * -1) * var(--tw-space-x-reverse));
+    margin-inline-end: calc(calc(var(--spacing) * -1) * calc(1 - var(--tw-space-x-reverse)));
+  }
   .gap-y-0\.5 {
     row-gap: calc(var(--spacing) * 0.5);
   }
   .gap-y-1 {
     row-gap: var(--spacing);
+  }
+  .gap-y-2 {
+    row-gap: calc(var(--spacing) * 2);
   }
   :where(.divide-y > :not(:last-child)) {
     --tw-divide-y-reverse: 0;
@@ -1444,6 +1463,10 @@ svg.react-flow__connectionline {
   .border {
     border-style: var(--tw-border-style);
     border-width: 1px;
+  }
+  .border-2 {
+    border-style: var(--tw-border-style);
+    border-width: 2px;
   }
   .border-t {
     border-top-style: var(--tw-border-style);
@@ -1939,14 +1962,6 @@ svg.react-flow__connectionline {
     --tw-shadow: 0 1px 3px var(--tw-shadow-color, rgba(38,50,56,0.08));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
-  .shadow-\[0_1px_4px_rgba\(38\,50\,56\,0\.05\)\] {
-    --tw-shadow: 0 1px 4px var(--tw-shadow-color, rgba(38,50,56,0.05));
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
-  .shadow-\[0_2px_10px_rgba\(38\,50\,56\,0\.06\)\] {
-    --tw-shadow: 0 2px 10px var(--tw-shadow-color, rgba(38,50,56,0.06));
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
   .shadow-\[0_2px_12px_rgba\(38\,50\,56\,0\.04\)\] {
     --tw-shadow: 0 2px 12px var(--tw-shadow-color, rgba(38,50,56,0.04));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
@@ -1971,12 +1986,19 @@ svg.react-flow__connectionline {
     --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
+  .ring-2 {
+    --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
   .ring-4 {
     --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(4px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .ring-brand\/25 {
     --tw-ring-color: color-mix(in oklab, #42a5f5 25%, transparent);
+  }
+  .ring-white {
+    --tw-ring-color: var(--color-white);
   }
   .backdrop-blur-\[2px\] {
     --tw-backdrop-blur: blur(2px);
@@ -2400,6 +2422,11 @@ svg.react-flow__connectionline {
   inherits: false;
   initial-value: 0;
 }
+@property --tw-space-x-reverse {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0;
+}
 @property --tw-divide-y-reverse {
   syntax: "*";
   inherits: false;
@@ -2592,6 +2619,7 @@ svg.react-flow__connectionline {
       --tw-skew-x: initial;
       --tw-skew-y: initial;
       --tw-space-y-reverse: 0;
+      --tw-space-x-reverse: 0;
       --tw-divide-y-reverse: 0;
       --tw-border-style: solid;
       --tw-leading: initial;

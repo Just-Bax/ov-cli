@@ -15,6 +15,8 @@ import {
   Bell,
   Bot,
   Boxes,
+  Check,
+  ChevronDown,
   ExternalLink,
   FileSpreadsheet,
   FileUp,
@@ -23,6 +25,7 @@ import {
   Network,
   Package,
   RefreshCw,
+  RotateCcw,
   Search,
   Sparkles,
   TextCursorInput,
@@ -38,7 +41,7 @@ import type {
   InstanceGraph,
 } from '@shared/types.ts'
 import { useInstances } from '@/components/InstancePicker'
-import { Button, Card, Chip, Page, Select, Spinner, timeAgo } from '@/components/ui'
+import { Button, Card, Page, Select, Spinner, timeAgo } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
@@ -415,6 +418,14 @@ function Details({
     groups.set(label, [...(groups.get(label) ?? []), l])
   }
   const hidden = links.filter((l) => !visible.has(l.other.id)).length
+  const onMap = links.length - hidden
+  const status = node.invalid
+    ? { label: 'Invalid code', dot: 'bg-danger' }
+    : node.enabled === false
+      ? { label: 'Disabled', dot: 'bg-warn' }
+      : node.enabled
+        ? { label: 'Enabled', dot: 'bg-ok' }
+        : undefined
 
   const ask = async () => {
     setAsking(true)
@@ -450,25 +461,50 @@ function Details({
           <X className="size-4" />
         </button>
       </div>
-      <div className="flex flex-wrap gap-1.5 px-4">
-        {node.trigger ? <Chip>{node.trigger}</Chip> : null}
-        {node.enabled === false ? <Chip tone="warn">Disabled</Chip> : null}
-        {node.invalid ? <Chip tone="danger">Invalid code</Chip> : null}
-        <Chip tone="brand">{links.length} links</Chip>
-      </div>
-      <div className="flex flex-wrap gap-2 px-4 pt-3 pb-4">
-        <Button size="sm" variant="primary" disabled={asking} onClick={() => void ask()}>
+      <dl className="bg-raised mx-4 grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 rounded-2xl px-4 py-3 text-[12.5px]">
+        {status ? (
+          <>
+            <dt className="text-muted">Status</dt>
+            <dd className="text-fg flex items-center gap-2 font-medium">
+              <span className={cn('size-2 rounded-full', status.dot)} />
+              {status.label}
+            </dd>
+          </>
+        ) : null}
+        {node.trigger ? (
+          <>
+            <dt className="text-muted">Trigger</dt>
+            <dd className="text-fg">{node.trigger}</dd>
+          </>
+        ) : null}
+        <dt className="text-muted">Links</dt>
+        <dd className="text-fg">
+          {links.length}
+          {onMap ? (
+            <span className="text-muted">
+              {onMap === links.length ? ', all on the map' : `, ${onMap} on the map`}
+            </span>
+          ) : null}
+        </dd>
+      </dl>
+      <div className="grid grid-cols-2 gap-2 px-4 pt-3 pb-4">
+        <Button variant="primary" disabled={asking} onClick={() => void ask()}>
           {asking ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5" />} Ask the
           agent
         </Button>
-        <a href={`https://${host}${FORMS[node.type]}${node.ref}`} target="_blank" rel="noreferrer">
-          <Button size="sm" variant="ghost">
+        <a
+          href={`https://${host}${FORMS[node.type]}${node.ref}`}
+          target="_blank"
+          rel="noreferrer"
+          className="contents"
+        >
+          <Button variant="secondary">
             <ExternalLink className="size-3.5" /> Open in OneVizion
           </Button>
         </a>
         {hidden ? (
-          <Button size="sm" variant="secondary" onClick={() => onExpand(node.id)}>
-            <Network className="size-3.5" /> Show {Math.min(hidden, EXPAND_LIMIT)} linked
+          <Button className="col-span-2" variant="ghost" onClick={() => onExpand(node.id)}>
+            <Network className="size-3.5" /> Show {Math.min(hidden, EXPAND_LIMIT)} more linked
           </Button>
         ) : null}
       </div>
@@ -533,8 +569,8 @@ function SearchBox({ graph, onPick }: { graph: InstanceGraph; onPick: (id: strin
   }, [query, graph])
 
   return (
-    <div className="relative w-[340px]">
-      <label className="border-line-strong focus-within:border-brand flex h-10 items-center gap-2 rounded-full border bg-white px-3.5 shadow-[0_2px_10px_rgba(38,50,56,0.06)]">
+    <div className="relative w-[320px]">
+      <label className="border-line-strong focus-within:border-brand flex h-9 items-center gap-2 rounded-full border bg-white px-3.5">
         <Search className="text-faint size-4 shrink-0" />
         <input
           value={query}
@@ -549,7 +585,7 @@ function SearchBox({ graph, onPick }: { graph: InstanceGraph; onPick: (id: strin
         ) : null}
       </label>
       {results.length ? (
-        <div className="border-line-strong/70 absolute top-12 right-0 left-0 z-20 rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]">
+        <div className="border-line-strong/70 absolute top-11 right-0 left-0 z-30 rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]">
           {results.map((n) => (
             <ObjectRow
               key={n.id}
@@ -567,47 +603,100 @@ function SearchBox({ graph, onPick }: { graph: InstanceGraph; onPick: (id: strin
   )
 }
 
-function TypeFilters({
+function TypeMenu({
   graph,
   hidden,
   onToggle,
+  onReset,
 }: {
   graph: InstanceGraph
   hidden: Set<GraphNodeType>
   onToggle: (type: GraphNodeType) => void
+  onReset: () => void
 }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
   const counts = useMemo(() => {
     const c = new Map<GraphNodeType, number>()
     for (const n of graph.nodes) c.set(n.type, (c.get(n.type) ?? 0) + 1)
     return c
   }, [graph])
+  const types = (Object.keys(TYPES) as GraphNodeType[]).filter((t) => counts.get(t))
+  const shown = types.filter((t) => !hidden.has(t)).length
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as globalThis.Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {(Object.keys(TYPES) as GraphNodeType[])
-        .filter((t) => counts.get(t))
-        .map((t) => {
-          const on = !hidden.has(t)
-          return (
-            <button
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          'flex h-9 items-center gap-2 rounded-full border px-3.5 text-[13px] font-medium transition-colors',
+          hidden.size
+            ? 'border-brand/40 bg-brand-soft text-brand-strong'
+            : 'border-line-strong text-text hover:bg-raised bg-white',
+        )}
+      >
+        <span className="flex -space-x-1">
+          {types.slice(0, 5).map((t) => (
+            <span
               key={t}
+              className="size-2.5 rounded-full ring-2 ring-white"
+              style={{ background: hidden.has(t) ? 'var(--color-line-strong)' : TYPES[t].color }}
+            />
+          ))}
+        </span>
+        {shown === types.length ? 'All types' : `${shown} of ${types.length} types`}
+        <ChevronDown
+          className={cn('size-3.5 opacity-70 transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      {open ? (
+        <div className="border-line-strong/70 absolute top-11 left-0 z-30 w-[264px] rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]">
+          {types.map((t) => {
+            const on = !hidden.has(t)
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => onToggle(t)}
+                className="hover:bg-raised flex h-9 w-full items-center gap-2.5 rounded-full px-2.5 transition-colors"
+              >
+                <span
+                  className="flex size-4.5 shrink-0 items-center justify-center rounded-full border-2"
+                  style={{
+                    borderColor: on ? TYPES[t].color : 'var(--color-line-strong)',
+                    background: on ? TYPES[t].color : 'white',
+                  }}
+                >
+                  {on ? <Check className="size-3 text-white" strokeWidth={3} /> : null}
+                </span>
+                <span className={cn('flex-1 text-left text-[13px]', on ? 'text-fg' : 'text-faint')}>
+                  {TYPES[t].plural}
+                </span>
+                <span className="text-faint text-[12px]">{counts.get(t)?.toLocaleString()}</span>
+              </button>
+            )
+          })}
+          {hidden.size ? (
+            <button
               type="button"
-              onClick={() => onToggle(t)}
-              className={cn(
-                'flex h-8 items-center gap-1.5 rounded-full border bg-white px-3 text-[12px] font-medium shadow-[0_1px_4px_rgba(38,50,56,0.05)] transition-colors',
-                on
-                  ? 'border-line-strong/70 text-text'
-                  : 'text-faint border-line-strong/70 border-dashed',
-              )}
+              onClick={onReset}
+              className="text-brand-strong hover:bg-raised mt-1 h-9 w-full rounded-full text-[12.5px] font-medium"
             >
-              <span
-                className="size-2 rounded-full"
-                style={{ background: on ? TYPES[t].color : 'var(--color-line-strong)' }}
-              />
-              {TYPES[t].plural}
-              <span className="text-faint">{counts.get(t)}</span>
+              Show all types
             </button>
-          )
-        })}
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -700,6 +789,7 @@ export function MapPage() {
 
   const node = selected ? idx?.byId.get(selected) : undefined
   const building = status?.state === 'building'
+  const loading = !error && (!status || (Boolean(status.builtAt) && !graph && !building))
 
   const subtitle = building ? (
     <span className="text-brand-strong inline-flex items-center gap-1.5">
@@ -738,91 +828,89 @@ export function MapPage() {
   return (
     <Page title="Instance map" subtitle={subtitle} actions={actions}>
       <div className="flex h-full min-h-[480px]">
-        <div className="bg-canvas/40 relative min-w-0 flex-1">
+        <div className="bg-canvas/40 flex min-w-0 flex-1 flex-col">
           {graph && idx ? (
             <>
-              {visible.size ? (
-                <ReactFlowProvider>
-                  <Canvas
-                    idx={idx}
-                    graph={graph}
-                    visible={visible}
-                    hiddenTypes={hiddenTypes}
-                    selected={selected}
-                    onSelect={setSelected}
-                    onExpand={expand}
-                  />
-                </ReactFlowProvider>
-              ) : (
-                <StartPoints idx={idx} graph={graph} onFocus={focus} />
-              )}
-              <div className="pointer-events-none absolute inset-x-4 top-4 z-10 flex flex-wrap items-start gap-3">
-                <div className="pointer-events-auto">
-                  <SearchBox graph={graph} onPick={focus} />
-                </div>
-                <div className="pointer-events-auto min-w-0 flex-1">
-                  <TypeFilters
-                    graph={graph}
-                    hidden={hiddenTypes}
-                    onToggle={(t) =>
-                      setHiddenTypes((h) => {
-                        const next = new Set(h)
-                        if (next.has(t)) next.delete(t)
-                        else next.add(t)
-                        return next
-                      })
-                    }
-                  />
-                </div>
+              <div className="border-line flex h-14 shrink-0 items-center gap-2 border-b bg-white px-4">
+                <SearchBox graph={graph} onPick={focus} />
+                <TypeMenu
+                  graph={graph}
+                  hidden={hiddenTypes}
+                  onToggle={(type) =>
+                    setHiddenTypes((h) => {
+                      const next = new Set(h)
+                      if (next.has(type)) next.delete(type)
+                      else next.add(type)
+                      return next
+                    })
+                  }
+                  onReset={() => setHiddenTypes(new Set())}
+                />
+                <div className="flex-1" />
                 {visible.size ? (
-                  <Button
-                    className="pointer-events-auto shadow-[0_1px_4px_rgba(38,50,56,0.05)]"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setVisible(new Set())
-                      setSelected(undefined)
-                    }}
-                  >
-                    <X className="size-3.5" /> Clear
-                  </Button>
+                  <span className="text-muted text-[12.5px]">{visible.size} on the map</span>
                 ) : null}
+                <Button
+                  variant="secondary"
+                  disabled={!visible.size}
+                  onClick={() => {
+                    setVisible(new Set())
+                    setSelected(undefined)
+                  }}
+                >
+                  <RotateCcw className="size-3.5" /> Clear map
+                </Button>
+              </div>
+              <div className="relative min-h-0 flex-1">
+                {visible.size ? (
+                  <ReactFlowProvider>
+                    <Canvas
+                      idx={idx}
+                      graph={graph}
+                      visible={visible}
+                      hiddenTypes={hiddenTypes}
+                      selected={selected}
+                      onSelect={setSelected}
+                      onExpand={expand}
+                    />
+                  </ReactFlowProvider>
+                ) : (
+                  <StartPoints idx={idx} graph={graph} onFocus={focus} />
+                )}
               </div>
             </>
           ) : (
             <div className="flex h-full items-center justify-center p-6">
-              <Card className="w-full max-w-[460px] p-6 text-center">
-                <span className="bg-brand-soft text-brand-strong mx-auto flex size-12 items-center justify-center rounded-full">
-                  {building ? <Spinner className="size-5" /> : <Network className="size-5" />}
-                </span>
-                <div className="text-fg mt-4 text-[15px] font-semibold">
-                  {building
-                    ? 'Reading the configuration'
-                    : status?.builtAt
-                      ? 'Loading the map'
-                      : 'No map yet'}
-                </div>
-                <div className="text-muted mt-1 text-[13px] leading-relaxed">
-                  {building
-                    ? `${status?.step ?? 'Starting'}. Large instances take about a minute.`
-                    : status?.builtAt
-                      ? 'One moment.'
+              {loading ? (
+                <Spinner className="text-brand size-6" />
+              ) : (
+                <Card className="w-full max-w-[460px] p-6 text-center">
+                  <span className="bg-brand-soft text-brand-strong mx-auto flex size-12 items-center justify-center rounded-full">
+                    {building ? <Spinner className="size-5" /> : <Network className="size-5" />}
+                  </span>
+                  <div className="text-fg mt-4 text-[15px] font-semibold">
+                    {building ? 'Reading the configuration' : 'No map yet'}
+                  </div>
+                  <div className="text-muted mt-1 text-[13px] leading-relaxed">
+                    {building
+                      ? `${status?.step ?? 'Starting'}. Large instances take about a minute.`
                       : 'Build a map to see how trackor types, fields, rules, automations, imports, reports and workflows link together. It reads the configuration with read-only SQL and needs the Test SQL privilege.'}
-                </div>
-                {error || status?.error ? (
-                  <div className="text-danger mt-3 text-[12.5px]">{error ?? status?.error}</div>
-                ) : null}
-                {!building && !status?.builtAt ? (
-                  <Button
-                    className="mt-5"
-                    variant="primary"
-                    disabled={!alias}
-                    onClick={() => void build()}
-                  >
-                    <Network className="size-3.5" /> Build map
-                  </Button>
-                ) : null}
-              </Card>
+                  </div>
+                  {error || status?.error ? (
+                    <div className="text-danger mt-3 text-[12.5px]">{error ?? status?.error}</div>
+                  ) : null}
+                  {!building && !status?.builtAt ? (
+                    <Button
+                      className="mt-5"
+                      variant="primary"
+                      disabled={!alias}
+                      onClick={() => void build()}
+                    >
+                      <Network className="size-3.5" /> Build map
+                    </Button>
+                  ) : null}
+                </Card>
+              )}
             </div>
           )}
         </div>
