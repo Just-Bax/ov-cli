@@ -6,7 +6,9 @@ import { defineConfig } from 'vite'
 const API_PORT = Number(process.env.OV_AGENT_PORT ?? 5180)
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // Unoptimized CSS is byte-identical on every OS; the optimizer's colour maths is not, and CI
+  // checks the committed build against its own.
+  plugins: [react(), tailwindcss({ optimize: false })],
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, 'src'),
@@ -14,6 +16,7 @@ export default defineConfig({
     },
   },
   build: {
+    cssMinify: false,
     // Shipped inside the Python package, so `ov agent` needs no Node at runtime.
     outDir: path.resolve(import.meta.dirname, '../src/ov/agent/static'),
     emptyOutDir: true,
