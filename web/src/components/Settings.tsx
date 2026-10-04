@@ -29,6 +29,7 @@ import {
   Textarea,
 } from '@/components/ui'
 import { api } from '@/lib/api'
+import { go } from '@/lib/route'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
 
@@ -739,6 +740,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
                 variant="danger"
                 onClick={async () => {
                   await api.copilotLogout()
+                  go({ page: 'home' })
                   onChange()
                 }}
               >

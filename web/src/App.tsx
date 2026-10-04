@@ -101,8 +101,7 @@ export function App() {
     )
   }
 
-  const needsSetup = !status.ready
-  if (needsSetup && route.page !== 'settings')
+  if (!status.ready)
     return (
       <>
         <Setup status={status} onDone={refresh} />
