@@ -1,18 +1,26 @@
 import {
   ArrowPathIcon,
   ArrowTopRightOnSquareIcon,
+  ChartBarIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
+  ServerIcon,
+  ShieldCheckIcon,
   ShieldExclamationIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import type { DatadogStatus, HealthPoint, InstanceHealth } from '@shared/types.ts'
+import type {
+  DatadogDiscovery,
+  DatadogStatus,
+  HealthPoint,
+  Instance,
+  InstanceHealth,
+} from '@shared/types.ts'
 import {
   DATADOG_PURPLE,
   DatadogBadge,
   DatadogConnectModal,
-  DatadogMatches,
   useDatadog,
 } from '@/components/datadog/Datadog'
 import { useInstances } from '@/components/InstancePicker'
@@ -696,10 +704,243 @@ function Report({
   )
 }
 
+const PREVIEW = [
+  {
+    icon: ShieldCheckIcon,
+    title: 'A verdict at a glance',
+    text: 'Healthy, worth a look or needs attention, with the reasons behind it.',
+  },
+  {
+    icon: ChartBarIcon,
+    title: 'Requests and latency',
+    text: 'Traffic and p95 response time from APM, hour by hour.',
+  },
+  {
+    icon: ServerIcon,
+    title: 'Server metrics',
+    text: 'CPU, load, memory, disk and JVM heap of its hosts.',
+  },
+  {
+    icon: ExclamationTriangleIcon,
+    title: 'Errors and failed runs',
+    text: 'Top error groups next to failed OneVizion processes.',
+  },
+]
+
+function MatchInstance({
+  host,
+  alias,
+  status,
+  onSaved,
+}: {
+  host: string
+  alias: string
+  status: DatadogStatus
+  onSaved: (s: DatadogStatus) => void
+}) {
+  const [found, setFound] = useState<DatadogDiscovery>()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string>()
+  const [filter, setFilter] = useState('')
+  const [logs, setLogs] = useState<number | 'busy'>()
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    setError(undefined)
+    api
+      .datadogDiscover()
+      .then((r) => {
+        if (!alive) return
+        setFound(r)
+        const mine = r.suggestions.find((s) => s.alias === alias)
+        if (mine?.filter) {
+          setFilter(mine.filter)
+          setLogs(mine.count)
+        }
+      })
+      .catch((e: Error) => alive && setError(e.message))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [alias])
+
+  useEffect(() => {
+    if (!filter.trim()) return setLogs(undefined)
+    setLogs('busy')
+    const timer = setTimeout(() => {
+      api
+        .datadogCount(filter)
+        .then((r) => setLogs(r.count))
+        .catch(() => setLogs(undefined))
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [filter])
+
+  const suggestion = found?.suggestions.find((s) => s.alias === alias && s.filter)
+  const label = host.split('.')[0].toLowerCase()
+  const values = found?.values ?? []
+  const related = values.filter((v) => v.value.toLowerCase().includes(label))
+  const others = (related.length ? related : values).slice(0, 8)
+
+  const save = async () => {
+    setSaving(true)
+    setError(undefined)
+    try {
+      onSaved(await api.datadogMatches({ ...status.matches, [alias]: filter.trim() }))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-[920px] space-y-6 p-6">
+      <Card className="p-6">
+        <div className="flex items-start gap-4">
+          <DatadogBadge size="lg" />
+          <div className="min-w-0">
+            <div className="text-fg text-[17px] font-semibold">Find {host} in Datadog</div>
+            <div className="text-muted mt-1 text-[13px] leading-relaxed">
+              Health needs to know which servers in Datadog run this instance. Pick a suggestion or
+              write a filter; it applies to every tenant on this host.
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-5">
+          {loading ? (
+            <div className="bg-raised text-muted flex items-center gap-3 rounded-2xl px-4 py-4 text-[13px]">
+              <Spinner className="text-brand size-4" />
+              Looking at the hosts and services that sent logs in the last day...
+            </div>
+          ) : suggestion ? (
+            <div className="border-brand/40 bg-brand-soft/40 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3.5">
+              <SparklesIcon className="text-brand-strong size-5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-fg font-mono text-[13px] font-medium">{suggestion.filter}</div>
+                <div className="text-muted mt-0.5 text-[12px]">
+                  Suggested - {suggestion.why} - {count(suggestion.count)} logs in the last day
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant={filter === suggestion.filter ? 'secondary' : 'primary'}
+                onClick={() => setFilter(suggestion.filter)}
+              >
+                {filter === suggestion.filter ? 'Selected' : 'Use this'}
+              </Button>
+            </div>
+          ) : (
+            <div className="bg-raised text-muted rounded-2xl px-4 py-3.5 text-[13px]">
+              No host or service name looks like {host}. Pick one below or write a filter.
+            </div>
+          )}
+
+          {others.length ? (
+            <div>
+              <div className="text-faint pb-2 text-[12px] font-medium">
+                {related.length ? 'Related hosts and services' : 'Busiest hosts and services'}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {others.map((v) => {
+                  const value = `${v.kind}:${v.value}`
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setFilter(value)}
+                      className={cn(
+                        'inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] transition-colors',
+                        filter === value
+                          ? 'border-brand bg-brand-soft text-brand-strong'
+                          : 'border-line-strong text-text hover:bg-raised bg-white',
+                      )}
+                    >
+                      <span className="font-mono">{value}</span>
+                      <span className="text-faint">{count(v.count)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          <div>
+            <div className="text-faint pb-2 text-[12px] font-medium">Datadog filter</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="border-line-strong focus-within:border-brand flex h-10 min-w-[260px] flex-1 items-center gap-2 rounded-full border bg-white pr-2 pl-4">
+                <input
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="host:name* or service:name"
+                  spellCheck={false}
+                  className="placeholder:text-faint min-w-0 flex-1 bg-transparent font-mono text-[12.5px] outline-none"
+                />
+                {logs === 'busy' ? (
+                  <Spinner className="text-faint size-3.5" />
+                ) : typeof logs === 'number' ? (
+                  <span
+                    className={cn(
+                      'shrink-0 rounded-full px-2.5 py-0.5 text-[11.5px] font-medium',
+                      logs ? 'bg-ok-soft text-ok' : 'bg-warn-soft text-warn',
+                    )}
+                  >
+                    {logs ? `${count(logs)} logs / 24h` : 'No logs in 24h'}
+                  </span>
+                ) : null}
+              </div>
+              <Button
+                variant="primary"
+                size="lg"
+                disabled={!filter.trim() || saving}
+                onClick={() => void save()}
+              >
+                {saving ? <Spinner className="size-4" /> : null} Save and open Health
+              </Button>
+            </div>
+            <div className="text-faint mt-2 px-1 text-[11.5px]">
+              Combine tags with spaces, e.g. host:acme-app-* env:prod. A trailing * matches a
+              prefix.
+            </div>
+          </div>
+          {error ? <div className="text-danger text-[12.5px]">{error}</div> : null}
+        </div>
+      </Card>
+
+      <div>
+        <div className="text-faint px-1 pb-3 text-[12px] font-medium">
+          Once matched, Health shows
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {PREVIEW.map((item) => (
+            <Card key={item.title} className="p-4">
+              <IconBadge icon={item.icon} size="sm" />
+              <div className="text-fg mt-3 text-[13px] font-semibold">{item.title}</div>
+              <div className="text-muted mt-1 text-[12px] leading-relaxed">{item.text}</div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function HealthPage() {
   const { status, setStatus } = useDatadog()
   const { instances } = useInstances()
-  const signedIn = useMemo(() => (instances ?? []).filter((i) => i.valid), [instances])
+  const signedIn = useMemo(() => {
+    const byHost = new Map<string, Instance>()
+    const valid = (instances ?? []).filter((i) => i.valid)
+    for (const i of [...valid].sort(
+      (a, b) => Number(Boolean(a.tenant)) - Number(Boolean(b.tenant)),
+    ))
+      if (!byHost.has(i.host)) byHost.set(i.host, i)
+    return [...byHost.values()].sort((a, b) => a.host.localeCompare(b.host))
+  }, [instances])
   const [alias, setAlias] = useState(() => localStorage.getItem(INSTANCE_KEY) ?? '')
   const [range, setRange] = useState<Range>('24h')
   const [report, setReport] = useState<InstanceHealth>()
@@ -709,18 +950,16 @@ export function HealthPage() {
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
-    if (instances && !signedIn.some((i) => i.alias === alias)) setAlias(signedIn[0]?.alias ?? '')
+    if (!instances || signedIn.some((i) => i.alias === alias)) return
+    const host = instances.find((i) => i.alias === alias)?.host
+    setAlias((signedIn.find((i) => i.host === host) ?? signedIn[0])?.alias ?? '')
   }, [instances])
   useEffect(() => {
     if (alias) localStorage.setItem(INSTANCE_KEY, alias)
   }, [alias])
 
   const current = signedIn.find((i) => i.alias === alias)
-  const label = current
-    ? current.tenant
-      ? `${current.host} / ${current.tenant}`
-      : current.host
-    : ''
+  const label = current?.host ?? ''
 
   useEffect(() => {
     if (!status?.connected || !alias) return
@@ -751,10 +990,7 @@ export function HealthPage() {
           value={alias}
           onChange={setAlias}
           placeholder={instances ? 'No signed-in instance' : 'Loading...'}
-          options={signedIn.map((i) => ({
-            value: i.alias,
-            label: i.tenant ? `${i.host} / ${i.tenant}` : i.host,
-          }))}
+          options={signedIn.map((i) => ({ value: i.alias, label: i.host }))}
         />
       </div>
       <div className="bg-raised ml-1 flex rounded-full p-1">
@@ -839,25 +1075,7 @@ export function HealthPage() {
       </div>
     )
   } else if (report && !report.scope && report.instance === alias) {
-    body = (
-      <div className="mx-auto max-w-[860px] p-6">
-        <Card className="overflow-hidden">
-          <div className="flex items-start gap-3.5 px-5 pt-5">
-            <DatadogBadge />
-            <div>
-              <div className="text-fg text-[14px] font-semibold">Match {label} to Datadog</div>
-              <div className="text-muted mt-0.5 text-[12.5px] leading-relaxed">
-                Tell Health which servers in Datadog belong to this instance. Suggest matches looks
-                at the hosts and services that sent logs in the last day.
-              </div>
-            </div>
-          </div>
-          <div className="mt-3">
-            <DatadogMatches status={status} onSaved={setStatus} only={alias} />
-          </div>
-        </Card>
-      </div>
-    )
+    body = <MatchInstance host={label} alias={alias} status={status} onSaved={setStatus} />
   } else if (error) {
     body = <div className="text-danger p-6 text-[13px]">{error}</div>
   } else if (!report || report.instance !== alias || report.range !== range) {

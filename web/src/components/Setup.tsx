@@ -7,15 +7,17 @@ import {
 } from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { ModelInfo, Status } from '@shared/types.ts'
-import { Button, CopyButton, GithubMark, Label, Select, Spinner } from '@/components/ui'
+import wordmark from '@/assets/ov-agent-wordmark.svg'
+import { AddInstanceForm, SignInModal, type SignInTarget } from '@/components/SignInModal'
+import { Button, Card, CopyButton, GithubMark, Label, Select, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { AddInstanceForm, SignInModal, type SignInTarget } from '@/components/SignInModal'
 
-function StepRow({
+function Step({
   n,
   done,
   active,
+  last,
   icon,
   title,
   subtitle,
@@ -24,40 +26,42 @@ function StepRow({
   n: number
   done: boolean
   active: boolean
+  last?: boolean
   icon: ReactNode
   title: string
   subtitle: string
   children?: ReactNode
 }) {
   return (
-    <div
-      className={cn(
-        'border-line border-b px-5 py-4 last:border-b-0',
-        !active && !done && 'opacity-50',
-      )}
-    >
-      <div className="flex items-center gap-3">
-        <div
+    <div className="relative flex gap-4 pb-6 last:pb-0">
+      {!last ? (
+        <span
           className={cn(
-            'flex size-8 shrink-0 items-center justify-center rounded-full',
-            done
-              ? 'bg-ok-soft text-ok'
-              : active
-                ? 'bg-brand-soft text-brand-strong'
-                : 'bg-canvas text-faint',
+            'absolute top-10 bottom-1 left-[19px] w-0.5 rounded-full',
+            done ? 'bg-ok/40' : 'bg-line',
           )}
-        >
-          {done ? <CheckIcon className="size-4" /> : icon}
+        />
+      ) : null}
+      <span
+        className={cn(
+          'relative flex size-10 shrink-0 items-center justify-center rounded-full',
+          done
+            ? 'bg-ok-soft text-ok'
+            : active
+              ? 'bg-brand text-white shadow-[0_4px_14px_rgba(66,165,245,0.35)]'
+              : 'bg-raised text-faint',
+        )}
+      >
+        {done ? <CheckIcon className="size-5" /> : icon}
+      </span>
+      <div className="min-w-0 flex-1 pt-0.5">
+        <div className="text-faint text-[11.5px] font-medium">Step {n}</div>
+        <div className={cn('text-[14px] font-semibold', done || active ? 'text-fg' : 'text-muted')}>
+          {title}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-fg text-[13.5px] font-semibold">
-            <span className="text-faint mr-1 font-normal">{n}.</span>
-            {title}
-          </div>
-          <div className="text-muted text-[12px]">{subtitle}</div>
-        </div>
+        <div className="text-muted mt-0.5 text-[12.5px] leading-relaxed">{subtitle}</div>
+        {active && children ? <div className="mt-3.5">{children}</div> : null}
       </div>
-      {active && children ? <div className="mt-3 pl-11">{children}</div> : null}
     </div>
   )
 }
@@ -127,10 +131,7 @@ function InstanceSignIn({ onDone }: { onDone: () => void }) {
   return (
     <div>
       <AddInstanceForm onSubmit={setTarget} />
-      <div className="text-muted mt-1.5 text-[12px]">
-        A browser window opens on the instance's own login page. Leave the tenant empty to use your
-        own.
-      </div>
+      <div className="text-muted mt-1.5 text-[12px]">Leave the tenant empty to use your own.</div>
       <SignInModal
         target={target}
         pending={pending}
@@ -165,78 +166,104 @@ export function Setup({ status, onDone }: { status: Status; onDone: () => void }
   }, [copilotOk])
 
   const current = !copilotOk ? 1 : !instancesOk ? 2 : 3
+  const done = Number(copilotOk) + Number(instancesOk)
 
   return (
-    <div className="flex min-h-full items-start justify-center px-6 py-14">
-      <div className="w-full max-w-[600px]">
-        <div className="text-fg mb-1 text-[20px] font-semibold">OV Agent setup</div>
-        <p className="text-muted mb-6 text-[13px]">
-          Three steps before the first run. Everything stays on this machine ({status.ov.version}).
+    <div className="relative h-full scrollbar-thin overflow-y-auto bg-white">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(ellipse_60%_60%_at_50%_0%,#e1f5fe_0%,transparent_70%)]" />
+      <main className="relative mx-auto flex max-w-[520px] flex-col items-center px-6 pt-16 pb-16 text-center">
+        <img src={wordmark} alt="OV Agent" className="h-[34px] w-auto" />
+        <h1 className="text-fg mt-10 text-[30px] leading-tight font-semibold tracking-tight">
+          Set up OV Agent
+        </h1>
+        <p className="text-muted mt-2 text-[14px] leading-relaxed">
+          Troubleshoot OneVizion cases with an agent that reads the case, the instance and the code
+          for you. Everything stays on this computer.
         </p>
-
-        <div className="bg-panel overflow-hidden rounded-2xl shadow-[var(--shadow-medium)]">
-          <StepRow
-            n={1}
-            done={copilotOk}
-            active={current === 1}
-            icon={<GithubMark className="size-4" />}
-            title="GitHub Copilot"
-            subtitle={copilotOk ? `Signed in as ${status.copilot.user}` : 'Runs the agent'}
-          >
-            <CopilotSignIn onDone={onDone} />
-          </StepRow>
-          <StepRow
-            n={2}
-            done={instancesOk}
-            active={current === 2}
-            icon={<ServerIcon className="size-4" />}
-            title="A OneVizion instance"
-            subtitle={
-              instancesOk
-                ? `${status.instances.total} signed in`
-                : 'Where the agent reads (and, if you allow it, changes) data'
-            }
-          >
-            <InstanceSignIn onDone={onDone} />
-          </StepRow>
-          <StepRow
-            n={3}
-            done={false}
-            active={current === 3}
-            icon={<AdjustmentsHorizontalIcon className="size-4" />}
-            title="Model"
-            subtitle="Default model for new runs; you can switch it per run"
-          >
-            <div className="grid gap-3">
-              <div>
-                <Label>Default model</Label>
-                <Select
-                  className="w-full"
-                  value={model}
-                  onChange={setModel}
-                  placeholder={models.length ? 'Pick a model' : 'Loading models...'}
-                  options={models.map((m) => ({ value: m.id, label: m.name }))}
-                />
-              </div>
-              <div>
-                <Button
-                  variant="primary"
-                  disabled={!model || saving}
-                  onClick={async () => {
-                    setSaving(true)
-                    await api.saveSettings({ defaultModel: model })
-                    setSaving(false)
-                    onDone()
-                  }}
-                >
-                  {saving ? <Spinner className="size-3.5" /> : null} Continue{' '}
-                  <ArrowRightIcon className="size-4" />
-                </Button>
-              </div>
+        <div className="mt-10 w-full">
+          <Card className="p-6 text-left shadow-[0_12px_40px_rgba(38,50,56,0.08)]">
+            <div className="flex items-baseline gap-2">
+              <div className="text-fg text-[18px] font-semibold">Get started</div>
+              <div className="text-faint ml-auto text-[12px]">{done} of 3 done</div>
             </div>
-          </StepRow>
+            <div className="text-muted mt-1 text-[13px]">Three steps, about two minutes.</div>
+            <div className="bg-raised mt-4 h-1.5 overflow-hidden rounded-full">
+              <div
+                className="bg-brand h-full rounded-full transition-[width] duration-500"
+                style={{ width: `${Math.max(6, (done / 3) * 100)}%` }}
+              />
+            </div>
+
+            <div className="mt-6">
+              <Step
+                n={1}
+                done={copilotOk}
+                active={current === 1}
+                icon={<GithubMark className="size-5" />}
+                title="Sign in to GitHub Copilot"
+                subtitle={
+                  copilotOk
+                    ? `Signed in as ${status.copilot.user}.`
+                    : 'Copilot runs the agent. You approve this computer once on GitHub.'
+                }
+              >
+                <CopilotSignIn onDone={onDone} />
+              </Step>
+              <Step
+                n={2}
+                done={instancesOk}
+                active={current === 2}
+                icon={<ServerIcon className="size-5" />}
+                title="Add a OneVizion instance"
+                subtitle={
+                  instancesOk
+                    ? `${status.instances.total} instance${status.instances.total === 1 ? '' : 's'} signed in.`
+                    : "Where the agent reads data. It signs in through the instance's own login page."
+                }
+              >
+                <InstanceSignIn onDone={onDone} />
+              </Step>
+              <Step
+                n={3}
+                last
+                done={false}
+                active={current === 3}
+                icon={<AdjustmentsHorizontalIcon className="size-5" />}
+                title="Pick a model"
+                subtitle="The default for new runs. You can switch it for any run."
+              >
+                <div className="grid gap-3">
+                  <div>
+                    <Label>Default model</Label>
+                    <Select
+                      className="w-full"
+                      value={model}
+                      onChange={setModel}
+                      placeholder={models.length ? 'Pick a model' : 'Loading models...'}
+                      options={models.map((m) => ({ value: m.id, label: m.name }))}
+                    />
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    disabled={!model || saving}
+                    onClick={async () => {
+                      setSaving(true)
+                      await api.saveSettings({ defaultModel: model })
+                      setSaving(false)
+                      onDone()
+                    }}
+                  >
+                    {saving ? <Spinner className="size-4" /> : null} Start using OV Agent
+                    <ArrowRightIcon className="size-4" />
+                  </Button>
+                </div>
+              </Step>
+            </div>
+          </Card>
         </div>
-      </div>
+        <div className="text-faint mt-6 text-[12px]">{status.ov.version}</div>
+      </main>
     </div>
   )
 }

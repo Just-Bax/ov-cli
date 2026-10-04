@@ -651,7 +651,6 @@ svg.react-flow__connectionline {
     --default-mono-font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
     --color-line-strong: #cfd8dc;
     --color-brand: #42a5f5;
-    --shadow-medium: 0 3px 10px 0 rgba(0, 0, 0, 0.1);
     --shadow-large: 0 10px 20px 0 rgba(0, 0, 0, 0.1);
   }
 }
@@ -828,8 +827,14 @@ svg.react-flow__connectionline {
   .inset-0 {
     inset: 0px;
   }
+  .inset-x-0 {
+    inset-inline: 0px;
+  }
   .-top-1\.5 {
     top: calc(var(--spacing) * -1.5);
+  }
+  .top-0 {
+    top: 0px;
   }
   .top-0\.5 {
     top: calc(var(--spacing) * 0.5);
@@ -839,6 +844,9 @@ svg.react-flow__connectionline {
   }
   .top-1\/2 {
     top: calc(1 / 2 * 100%);
+  }
+  .top-10 {
+    top: calc(var(--spacing) * 10);
   }
   .top-11 {
     top: calc(var(--spacing) * 11);
@@ -852,6 +860,9 @@ svg.react-flow__connectionline {
   .right-0 {
     right: 0px;
   }
+  .bottom-1 {
+    bottom: var(--spacing);
+  }
   .left-0 {
     left: 0px;
   }
@@ -860,6 +871,9 @@ svg.react-flow__connectionline {
   }
   .left-3\.5 {
     left: calc(var(--spacing) * 3.5);
+  }
+  .left-\[19px\] {
+    left: 19px;
   }
   .left-full {
     left: 100%;
@@ -921,6 +935,9 @@ svg.react-flow__connectionline {
   .mt-3 {
     margin-top: calc(var(--spacing) * 3);
   }
+  .mt-3\.5 {
+    margin-top: calc(var(--spacing) * 3.5);
+  }
   .mt-4 {
     margin-top: calc(var(--spacing) * 4);
   }
@@ -932,6 +949,9 @@ svg.react-flow__connectionline {
   }
   .mt-8 {
     margin-top: calc(var(--spacing) * 8);
+  }
+  .mt-10 {
+    margin-top: calc(var(--spacing) * 10);
   }
   .mt-\[7px\] {
     margin-top: 7px;
@@ -1149,6 +1169,12 @@ svg.react-flow__connectionline {
   .h-\[26px\] {
     height: 26px;
   }
+  .h-\[34px\] {
+    height: 34px;
+  }
+  .h-\[420px\] {
+    height: 420px;
+  }
   .h-\[560px\] {
     height: 560px;
   }
@@ -1199,6 +1225,9 @@ svg.react-flow__connectionline {
   }
   .min-h-full {
     min-height: 100%;
+  }
+  .w-0\.5 {
+    width: calc(var(--spacing) * 0.5);
   }
   .w-1\/2 {
     width: calc(1 / 2 * 100%);
@@ -1320,11 +1349,11 @@ svg.react-flow__connectionline {
   .max-w-\[480px\] {
     max-width: 480px;
   }
+  .max-w-\[520px\] {
+    max-width: 520px;
+  }
   .max-w-\[540px\] {
     max-width: 540px;
-  }
-  .max-w-\[600px\] {
-    max-width: 600px;
   }
   .max-w-\[640px\] {
     max-width: 640px;
@@ -1337,6 +1366,9 @@ svg.react-flow__connectionline {
   }
   .max-w-\[860px\] {
     max-width: 860px;
+  }
+  .max-w-\[920px\] {
+    max-width: 920px;
   }
   .max-w-\[1040px\] {
     max-width: 1040px;
@@ -1367,6 +1399,9 @@ svg.react-flow__connectionline {
   }
   .min-w-\[220px\] {
     min-width: 220px;
+  }
+  .min-w-\[260px\] {
+    min-width: 260px;
   }
   .min-w-\[280px\] {
     min-width: 280px;
@@ -1541,6 +1576,11 @@ svg.react-flow__connectionline {
     --tw-space-y-reverse: 0;
     margin-block-start: calc(calc(var(--spacing) * 5) * var(--tw-space-y-reverse));
     margin-block-end: calc(calc(var(--spacing) * 5) * calc(1 - var(--tw-space-y-reverse)));
+  }
+  :where(.space-y-6 > :not(:last-child)) {
+    --tw-space-y-reverse: 0;
+    margin-block-start: calc(calc(var(--spacing) * 6) * var(--tw-space-y-reverse));
+    margin-block-end: calc(calc(var(--spacing) * 6) * calc(1 - var(--tw-space-y-reverse)));
   }
   .gap-x-2 {
     column-gap: calc(var(--spacing) * 2);
@@ -1721,6 +1761,9 @@ svg.react-flow__connectionline {
   .bg-brand-soft {
     background-color: #e1f5fe;
   }
+  .bg-brand-soft\/40 {
+    background-color: color-mix(in oklab, #e1f5fe 40%, transparent);
+  }
   .bg-brand-soft\/50 {
     background-color: color-mix(in oklab, #e1f5fe 50%, transparent);
   }
@@ -1745,6 +1788,9 @@ svg.react-flow__connectionline {
   .bg-fg {
     background-color: #263238;
   }
+  .bg-line {
+    background-color: #eceff1;
+  }
   .bg-line-strong {
     background-color: #cfd8dc;
   }
@@ -1753,6 +1799,9 @@ svg.react-flow__connectionline {
   }
   .bg-ok-soft {
     background-color: #e3f4e5;
+  }
+  .bg-ok\/40 {
+    background-color: color-mix(in oklab, #2e7d32 40%, transparent);
   }
   .bg-panel {
     background-color: #ffffff;
@@ -1777,6 +1826,9 @@ svg.react-flow__connectionline {
   }
   .bg-white {
     background-color: var(--color-white);
+  }
+  .bg-\[radial-gradient\(ellipse_60\%_60\%_at_50\%_0\%\,\#e1f5fe_0\%\,transparent_70\%\)\] {
+    background-image: radial-gradient(ellipse 60% 60% at 50% 0%,#e1f5fe 0%,transparent 70%);
   }
   .fill-current {
     fill: currentcolor;
@@ -1859,6 +1911,9 @@ svg.react-flow__connectionline {
   .py-3 {
     padding-block: calc(var(--spacing) * 3);
   }
+  .py-3\.5 {
+    padding-block: calc(var(--spacing) * 3.5);
+  }
   .py-4 {
     padding-block: calc(var(--spacing) * 4);
   }
@@ -1870,9 +1925,6 @@ svg.react-flow__connectionline {
   }
   .py-12 {
     padding-block: calc(var(--spacing) * 12);
-  }
-  .py-14 {
-    padding-block: calc(var(--spacing) * 14);
   }
   .pt-0\.5 {
     padding-top: calc(var(--spacing) * 0.5);
@@ -1901,8 +1953,14 @@ svg.react-flow__connectionline {
   .pt-6 {
     padding-top: calc(var(--spacing) * 6);
   }
+  .pt-16 {
+    padding-top: calc(var(--spacing) * 16);
+  }
   .pr-1 {
     padding-right: var(--spacing);
+  }
+  .pr-2 {
+    padding-right: calc(var(--spacing) * 2);
   }
   .pr-3 {
     padding-right: calc(var(--spacing) * 3);
@@ -1940,6 +1998,9 @@ svg.react-flow__connectionline {
   .pb-8 {
     padding-bottom: calc(var(--spacing) * 8);
   }
+  .pb-16 {
+    padding-bottom: calc(var(--spacing) * 16);
+  }
   .pl-1 {
     padding-left: var(--spacing);
   }
@@ -1960,9 +2021,6 @@ svg.react-flow__connectionline {
   }
   .pl-5 {
     padding-left: calc(var(--spacing) * 5);
-  }
-  .pl-11 {
-    padding-left: calc(var(--spacing) * 11);
   }
   .text-center {
     text-align: center;
@@ -2024,6 +2082,9 @@ svg.react-flow__connectionline {
   }
   .text-\[26px\] {
     font-size: 26px;
+  }
+  .text-\[30px\] {
+    font-size: 30px;
   }
   .leading-6 {
     --tw-leading: calc(var(--spacing) * 6);
@@ -2149,9 +2210,6 @@ svg.react-flow__connectionline {
   .opacity-35 {
     opacity: 35%;
   }
-  .opacity-50 {
-    opacity: 50%;
-  }
   .opacity-60 {
     opacity: 60%;
   }
@@ -2185,6 +2243,10 @@ svg.react-flow__connectionline {
     --tw-shadow: 0 4px 14px var(--tw-shadow-color, rgba(38,50,56,0.18));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
+  .shadow-\[0_4px_14px_rgba\(66\,165\,245\,0\.35\)\] {
+    --tw-shadow: 0 4px 14px var(--tw-shadow-color, rgba(66,165,245,0.35));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
   .shadow-\[0_6px_20px_rgba\(38\,50\,56\,0\.14\)\] {
     --tw-shadow: 0 6px 20px var(--tw-shadow-color, rgba(38,50,56,0.14));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
@@ -2193,16 +2255,16 @@ svg.react-flow__connectionline {
     --tw-shadow: 0 8px 28px var(--tw-shadow-color, rgba(38,50,56,0.14));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
+  .shadow-\[0_12px_40px_rgba\(38\,50\,56\,0\.08\)\] {
+    --tw-shadow: 0 12px 40px var(--tw-shadow-color, rgba(38,50,56,0.08));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
   .shadow-\[0_20px_60px_rgba\(38\,50\,56\,0\.25\)\] {
     --tw-shadow: 0 20px 60px var(--tw-shadow-color, rgba(38,50,56,0.25));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .shadow-\[var\(--shadow-large\)\] {
     --tw-shadow: var(--shadow-large);
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
-  .shadow-\[var\(--shadow-medium\)\] {
-    --tw-shadow: var(--shadow-medium);
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .shadow-sm {
@@ -2264,6 +2326,10 @@ svg.react-flow__connectionline {
     --tw-duration: 200ms;
     transition-duration: 200ms;
   }
+  .duration-500 {
+    --tw-duration: 500ms;
+    transition-duration: 500ms;
+  }
   .ease-out {
     --tw-ease: var(--ease-out);
     transition-timing-function: var(--ease-out);
@@ -2299,9 +2365,8 @@ svg.react-flow__connectionline {
   .first\:pl-0:first-child {
     padding-left: 0px;
   }
-  .last\:border-b-0:last-child {
-    border-bottom-style: var(--tw-border-style);
-    border-bottom-width: 0px;
+  .last\:pb-0:last-child {
+    padding-bottom: 0px;
   }
   .focus-within\:border-brand:focus-within {
     border-color: #42a5f5;
@@ -2463,6 +2528,9 @@ svg.react-flow__connectionline {
   @media (width >= 64rem) {
     .lg\:grid-cols-3 {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .lg\:grid-cols-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
   }
   @media (width >= 80rem) {
