@@ -1,8 +1,11 @@
 import type {
   CodeSection,
+  DatadogDiscovery,
+  DatadogStatus,
   GraphStatus,
   Instance,
   InstanceGraph,
+  InstanceHealth,
   ModelInfo,
   ObjectActivity,
   Rating,
@@ -63,6 +66,17 @@ export const api = {
   instances: () => request<Instance[]>('/instances'),
   loginInstance: (url: string, tenant?: string) =>
     post<{ ok: boolean; message: string }>('/instances/login', { url, tenant }),
+  datadog: () => request<DatadogStatus>('/datadog'),
+  datadogConnect: (site: string, apiKey: string, appKey: string) =>
+    post<DatadogStatus>('/datadog/connect', { site, apiKey, appKey }),
+  datadogTest: () => post<DatadogStatus>('/datadog/test', {}),
+  datadogDisconnect: () => del<DatadogStatus>('/datadog'),
+  datadogDiscover: () => request<DatadogDiscovery>('/datadog/discover'),
+  datadogMatches: (matches: Record<string, string>) =>
+    put<DatadogStatus>('/datadog/matches', { matches }),
+  datadogCount: (query: string) => request<{ count: number }>(`/datadog/count?query=${seg(query)}`),
+  instanceHealth: (instance: string, range: string) =>
+    request<InstanceHealth>(`/instance-health?instance=${seg(instance)}&range=${seg(range)}`),
   instanceTenants: (host: string) =>
     request<{ name: string }[]>(`/instances/tenants?host=${seg(host)}`),
   settings: () => request<Settings>('/settings'),

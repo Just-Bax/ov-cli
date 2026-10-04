@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from urllib.parse import quote
 
 from ..errors import EXIT_READ_ONLY
-from . import graph, sources
+from . import datadog, graph, sources
 from .cancel import Cancel
 from .ovproc import OvResult, find_instance, host_of, run_ov
 from .workspace import IMAGE_EXTS, image_mime, within
@@ -481,6 +481,132 @@ def _graph_query(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(f"Map of {found['alias']} built {built}.\n\n{body}", ctx, "map")
 
 
+def _dd(handler: Handler) -> Handler:
+    def wrapped(args: dict[str, Any], ctx: ToolContext) -> str:
+        try:
+            return handler(args, ctx)
+        except datadog.DatadogError as exc:
+            raise ToolError(str(exc)) from None
+
+    return wrapped
+
+
+def _dd_window(args: dict[str, Any], default: str) -> tuple[int, int]:
+    return datadog.to_ms(args.get("from"), default), datadog.to_ms(args.get("to"), "now")
+
+
+def _dd_logs(args: dict[str, Any], ctx: ToolContext) -> str:
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    query = datadog.combine(scope, str(args.get("query") or ""))
+    start, end = _dd_window(args, "now-1h")
+    link = datadog.logs_link(
+        datadog.load_state().get("site") or datadog.DEFAULT_SITE, query, start, end
+    )
+    head = f"Datadog logs, query: {query}, {datadog.iso(start)} to {datadog.iso(end)} UTC"
+    if args.get("patterns"):
+        rows = datadog.search_logs(query, start, end, 500)
+        groups = datadog.top_patterns(rows, 15)
+        if not groups:
+            return f"{head}\nNo logs matched.\nOpen: {link}"
+        lines = [
+            f"- {g['count']}x {g['pattern']}\n  e.g. [{g['last']} {g['service']}] {g['example']}"
+            for g in groups
+        ]
+        more = " (first 500 scanned)" if len(rows) >= 500 else ""
+        return clip(
+            f"{head}\n{len(rows)} logs{more} in {len(groups)} groups:\n"
+            + "\n".join(lines)
+            + f"\nOpen: {link}",
+            ctx,
+            "logs",
+        )
+    limit = max(1, min(int(args.get("limit") or 30), datadog.MAX_LOG_LINES))
+    rows = datadog.search_logs(query, start, end, limit)
+    if not rows:
+        return f"{head}\nNo logs matched.\nOpen: {link}"
+    lines = [
+        f"{r['time']} {r['status'] or '-'} {r['host'] or '-'} {r['service'] or '-'}: "
+        f"{r['message'][: datadog.MESSAGE_CHARS]}"
+        for r in rows
+    ]
+    return clip(
+        f"{head}\n{len(rows)} newest:\n" + "\n".join(lines) + f"\nOpen: {link}", ctx, "logs"
+    )
+
+
+def _dd_metrics(args: dict[str, Any], ctx: ToolContext) -> str:
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    query = str(args.get("query") or "").strip()
+    if not query:
+        raise ToolError('Give a metric query, e.g. "avg:jvm.heap_memory".')
+    tags = datadog.metric_scope(scope) if scope else "*"
+    if "{$scope}" in query:
+        query = query.replace("{$scope}", "{" + tags + "}")
+    elif "{" not in query:
+        query = f"{query}{{{tags}}}"
+    start, end = _dd_window(args, "now-4h")
+    series = datadog.query_metric(query, start, end)
+    if not series:
+        return f"No data for {query} between {datadog.iso(start)} and {datadog.iso(end)} UTC."
+    shown = series[:10]
+    more = f"\n({len(series) - 10} more series not shown)" if len(series) > 10 else ""
+    body = "\n".join(datadog.summarize_series(s) for s in shown)
+    return clip(
+        f"{query}, {datadog.iso(start)} to {datadog.iso(end)} UTC:\n{body}{more}", ctx, "metrics"
+    )
+
+
+def _dd_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    rows = datadog.monitors_for(scope, include_ok=bool(args.get("include_ok")))
+    base = datadog.app_url(datadog.load_state().get("site") or datadog.DEFAULT_SITE)
+    if not rows:
+        return (
+            f"No {'' if args.get('include_ok') else 'alerting or warning '}monitors for "
+            f"{scope or 'the org'}."
+        )
+    lines = []
+    for m in rows[:60]:
+        groups = f" groups: {', '.join(m['groups'])}" if m["groups"] else ""
+        lines.append(f"[{m['state']}] {m['name']} ({base}/monitors/{m['id']}){groups}")
+    return clip(f"Monitors for {scope or 'the org'}:\n" + "\n".join(lines), ctx, "monitors")
+
+
+def _dd_events(args: dict[str, Any], ctx: ToolContext) -> str:
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    query = datadog.combine(scope, str(args.get("query") or ""))
+    start, end = _dd_window(args, "now-24h")
+    rows = datadog.events_for(query, start, end, int(args.get("limit") or 30))
+    if not rows:
+        return f"No events for {query} between {datadog.iso(start)} and {datadog.iso(end)} UTC."
+    lines = [
+        f"{r['time']} [{r['source'] or '-'}{' ' + r['status'] if r['status'] else ''}] "
+        f"{r['title']}{': ' + r['message'] if r['message'] and r['message'] != r['title'] else ''}"
+        for r in rows
+    ]
+    return clip(f"Events for {query}:\n" + "\n".join(lines), ctx, "events")
+
+
+def _dd_apm(args: dict[str, Any], ctx: ToolContext) -> str:
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    query = datadog.combine(scope, str(args.get("query") or ""))
+    start, end = _dd_window(args, "now-1h")
+    if args.get("mode") == "errors":
+        rows = datadog.error_spans(query, start, end, int(args.get("limit") or 25))
+        if not rows:
+            return f"No error spans for {query}."
+        lines = [
+            f"{r['time']} {r['service']} {r['resource']}: {r['error']} (trace {r['trace']})"
+            for r in rows
+        ]
+        return clip(f"Error spans for {query}:\n" + "\n".join(lines), ctx, "spans")
+    rows = datadog.slow_endpoints(query, start, end, int(args.get("limit") or 10))
+    if not rows:
+        return f"No spans for {query}."
+    lines = [f"p95 {r['p95Ms']} ms, {r['count']} calls: {r['resource']}" for r in rows]
+    return f"Slowest endpoints by p95 for {query}:\n" + "\n".join(lines)
+
+
 def _ov_label(a: dict[str, Any]) -> str:
     at = f" @ {a['instance']}" if a.get("instance") else ""
     return f"ov {' '.join(str(x) for x in (a.get('args') or [])[:4])}{at}"
@@ -736,5 +862,121 @@ TOOLS = [
     ),
 ]
 
-TOOL_SPECS = [t.spec for t in TOOLS]
+WINDOW_FROM = _str('Start: "now-2h", "now-30m", "now-7d", an ISO time (UTC) or epoch')
+WINDOW_TO = _str('End, default "now"')
+DD_INSTANCE = _str(
+    "Instance alias or host; its Datadog filter (host or service tags) is applied. Defaults to "
+    "the run's instance."
+)
+
+
+def _dd_label(kind: str) -> Callable[[dict[str, Any]], str]:
+    def label(a: dict[str, Any]) -> str:
+        what = a.get("query") or a.get("mode") or ""
+        at = f" @ {a['instance']}" if a.get("instance") else ""
+        span = f" {a['from']}" if a.get("from") else ""
+        return f"Datadog {kind}{': ' + str(what)[:60] if what else ''}{span}{at}"
+
+    return label
+
+
+# area -> tools; a tool is offered only when Datadog is connected and the key can read its area.
+DATADOG_TOOLS = {
+    "dd_logs": "logs",
+    "dd_metrics": "metrics",
+    "dd_monitors": "monitors",
+    "dd_events": "events",
+    "dd_apm": "apm",
+}
+
+TOOLS += [
+    Tool(
+        "dd_logs",
+        "Search Datadog logs for an instance in a time window: newest matching lines, or with "
+        "patterns=true the most common message groups (scans up to 500). Use Datadog log query "
+        'syntax, e.g. status:error, service:x, "OutOfMemory", @http.status_code:500.',
+        {
+            "instance": DD_INSTANCE,
+            "query": _str('Extra log query, e.g. status:error "deadlock"'),
+            "from": WINDOW_FROM,
+            "to": WINDOW_TO,
+            "limit": _int(f"Lines to return, default 30, max {datadog.MAX_LOG_LINES}"),
+            "patterns": {"type": "boolean", "description": "Group messages instead of listing"},
+        },
+        [],
+        _dd_label("logs"),
+        _dd(_dd_logs),
+    ),
+    Tool(
+        "dd_metrics",
+        "Query a Datadog metric for an instance and get min, avg, max, latest and a sample of "
+        "points per series. Give an aggregation and metric, e.g. avg:system.cpu.user, "
+        "avg:jvm.heap_memory, max:system.disk.in_use; the instance filter is added as the scope "
+        'unless the query has its own {...} scope. Add "by {host}" to split by host.',
+        {
+            "instance": DD_INSTANCE,
+            "query": _str(
+                "Metric query, e.g. avg:jvm.heap_memory or avg:system.cpu.user by {host}"
+            ),
+            "from": WINDOW_FROM,
+            "to": WINDOW_TO,
+        },
+        ["query"],
+        _dd_label("metric"),
+        _dd(_dd_metrics),
+    ),
+    Tool(
+        "dd_monitors",
+        "List Datadog monitors for an instance that are alerting, warning or have no data "
+        "(include_ok=true for all), with links.",
+        {"instance": DD_INSTANCE, "include_ok": {"type": "boolean"}},
+        [],
+        _dd_label("monitors"),
+        _dd(_dd_monitors),
+    ),
+    Tool(
+        "dd_events",
+        "List Datadog events for an instance in a time window: deploys, restarts, alerts, "
+        "config changes.",
+        {
+            "instance": DD_INSTANCE,
+            "query": _str("Extra event query, optional"),
+            "from": WINDOW_FROM,
+            "to": WINDOW_TO,
+            "limit": _int("Max events, default 30"),
+        },
+        [],
+        _dd_label("events"),
+        _dd(_dd_events),
+    ),
+    Tool(
+        "dd_apm",
+        "Datadog APM for an instance: the slowest endpoints by p95 latency (mode=slowest) or "
+        "recent error spans with their traces (mode=errors).",
+        {
+            "instance": DD_INSTANCE,
+            "mode": {"type": "string", "enum": ["slowest", "errors"]},
+            "query": _str("Extra span query, e.g. service:x or resource_name:*Import*"),
+            "from": WINDOW_FROM,
+            "to": WINDOW_TO,
+            "limit": _int("Max rows"),
+        },
+        [],
+        _dd_label("APM"),
+        _dd(_dd_apm),
+    ),
+]
+
+TOOL_SPECS = [t.spec for t in TOOLS if t.name not in DATADOG_TOOLS]
+
+
+def tool_specs() -> list[dict[str, Any]]:
+    if not datadog.connected():
+        return TOOL_SPECS
+    allowed = datadog.permissions()
+    return TOOL_SPECS + [
+        t.spec for t in TOOLS if t.name in DATADOG_TOOLS and allowed.get(DATADOG_TOOLS[t.name])
+    ]
+
+
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}

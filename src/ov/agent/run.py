@@ -18,7 +18,7 @@ from .ovproc import login as ov_login
 from .ovproc import url_for
 from .prompt import system_prompt
 from .state import empty_state, reduce
-from .tools import TOOL_SPECS, TOOLS_BY_NAME
+from .tools import TOOLS_BY_NAME, tool_specs
 from .workspace import (
     IMAGE_EXTS,
     attachments_dir,
@@ -478,6 +478,7 @@ class Run:
         self.vision = copilot.supports_vision(model)
         self._finished = False
 
+        specs = tool_specs()
         for step in range(max_steps):
             self.cancel.check()
             self._compact()
@@ -492,7 +493,7 @@ class Run:
             result = copilot.stream_chat(
                 model,
                 self._messages,
-                TOOL_SPECS,
+                specs,
                 initiator if step == 0 else "agent",
                 self.cancel,
                 lambda delta: self.emit({"type": "text", "messageId": message_id, "delta": delta}),

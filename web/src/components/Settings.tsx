@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Instance, SkillInfo, SourceInfo } from '@shared/types.ts'
+import { DatadogCard } from '@/components/datadog/Datadog'
 import { dialog } from '@/components/Dialog'
 import {
   AddInstanceForm,
@@ -698,7 +699,9 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
     <Page
       title="Settings"
       subtitle={
-        <span>Defaults, instances, skills, sources and account. Stored on this machine.</span>
+        <span>
+          Defaults, instances, integrations, skills, sources and account. Stored on this machine.
+        </span>
       }
     >
       <div className="divide-line mx-auto max-w-[1040px] divide-y px-6 pb-6">
@@ -713,6 +716,12 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           hint="OneVizion instances signed in with ov. The agent only reads from them unless you allow changes in a run."
         >
           <Instances />
+        </Section>
+        <Section
+          title="Integrations"
+          hint="Outside services the agent can read from, and the Health page draws on."
+        >
+          <DatadogCard />
         </Section>
         <Section
           title="Skills"

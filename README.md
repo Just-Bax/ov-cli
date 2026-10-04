@@ -416,7 +416,27 @@ code in a tab. References in the code sit on a pill in their object's color: hov
 card with what it is and how it is referenced, click to open. The panel on the right shows
 status and trigger, quick static checks (SELECT INTO without a no-data handler, queries
 inside loops, COMMIT in a rule, swallowed errors, unknown hard-coded ids and similar),
-recent runs and errors, and everything the object links to. "Review with AI" starts a run that reads the code, checks
+recent runs and errors, and everything the object links to.
+
+**Datadog** (optional) adds the server side. In Settings > Integrations, connect it with
+your own keys: an **API key** (Organization Settings > API Keys) and an **application key**
+from Personal Settings > Application Keys, ideally limited to the read-only scopes the
+connect dialog lists (`logs_read_data`, `logs_read_index_data`, `metrics_read`,
+`timeseries_query`, `monitors_read`, `events_read`, `apm_read`, `hosts_read`). The dialog
+checks both keys, shows what the application key can read, and stores them in the OS
+keyring; nothing is written to the code or shared. Then match each instance to the Datadog
+filter for its servers (`host:acme-app-*`, `service:acme`); "Suggest matches" proposes them
+from the hosts and services that sent logs in the last day, and a tenant shares its host's
+match unless you give it its own.
+
+Once connected, runs get read-only Datadog tools (`dd_logs` with message grouping,
+`dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm`), offered only for what the key can read,
+and the **Health** page shows per instance: alerting monitors, error logs with the trend
+against the previous window and the top error groups, log volume, slowest endpoints,
+server metrics (CPU, load, memory, disk, JVM heap), recent events, and the instance's own
+failed processes, with "Ask the agent" to start an investigation from there. Your Datadog
+admins can see application keys and may audit their use, and logs the agent reads in a run
+go to GitHub Copilot like any other tool result. "Review with AI" starts a run that reads the code, checks
 what it touches and proposes fixes; "Show on map" jumps to it on the Instance map.
 
 `ov agent --port 5181` picks another port; `--no-open` skips opening the browser.

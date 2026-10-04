@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import type { Settings, Status } from '@shared/types.ts'
 import { DialogHost, dialog } from '@/components/Dialog'
 import { Home } from '@/components/Home'
+import { HealthPage } from '@/components/health/HealthPage'
 import { MapPage } from '@/components/map/MapPage'
 import { RunView } from '@/components/run/RunView'
 import { SettingsPage } from '@/components/Settings'
@@ -124,6 +125,7 @@ export function App() {
           {route.page === 'home' && <Home settings={status.settings} />}
           {route.page === 'settings' && <SettingsPage onChange={refresh} />}
           {route.page === 'map' && <MapPage />}
+          {route.page === 'health' && <HealthPage />}
           {route.page === 'explorer' && (
             <Suspense
               fallback={

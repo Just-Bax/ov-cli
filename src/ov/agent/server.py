@@ -20,8 +20,10 @@ import httpx
 
 from .. import __version__
 from ..errors import OvError
-from . import copilot, db, explorer, graph, skills, sources
+from . import copilot, datadog, db, explorer, graph, skills, sources
+from .cancel import Cancel
 from .copilot import CopilotError
+from .datadog import DatadogError
 from .explorer import ExplorerError
 from .ovproc import host_of, instances, login, run_ov, version
 from .run import RunError, runs
@@ -200,6 +202,7 @@ class Handler(BaseHTTPRequestHandler):
             SourceError,
             CopilotError,
             ExplorerError,
+            DatadogError,
             OvError,
             ValueError,
         ) as exc:
@@ -429,6 +432,77 @@ def explorer_source(h: Handler) -> dict[str, Any]:
 @route("GET", "/api/explorer/activity")
 def explorer_activity(h: Handler) -> list[dict[str, Any]]:
     return explorer.activity(_instance_alias(h), h.query.get("id", ""))
+
+
+@route("GET", "/api/datadog")
+def datadog_status(_: Handler) -> dict[str, Any]:
+    return datadog.status()
+
+
+@route("POST", "/api/datadog/connect")
+def datadog_connect(h: Handler) -> dict[str, Any]:
+    data = h.json()
+    return datadog.connect(
+        str(data.get("site") or ""), str(data.get("apiKey") or ""), str(data.get("appKey") or "")
+    )
+
+
+@route("POST", "/api/datadog/test")
+def datadog_test(_: Handler) -> dict[str, Any]:
+    return datadog.retest()
+
+
+@route("DELETE", "/api/datadog")
+def datadog_disconnect(_: Handler) -> dict[str, Any]:
+    return datadog.disconnect()
+
+
+@route("GET", "/api/datadog/discover")
+def datadog_discover(_: Handler) -> dict[str, Any]:
+    return datadog.discover()
+
+
+@route("PUT", "/api/datadog/matches")
+def datadog_matches(h: Handler) -> dict[str, Any]:
+    matches = h.json().get("matches")
+    if not isinstance(matches, dict):
+        raise HttpError(400, "Give matches as an object of instance alias to Datadog filter.")
+    return datadog.save_matches({str(k): str(v) for k, v in matches.items()})
+
+
+@route("GET", "/api/datadog/count")
+def datadog_count(h: Handler) -> dict[str, int]:
+    return {"count": datadog.count_logs(h.query.get("query", ""))}
+
+
+# Failed OneVizion processes for the same window, read with the instance's own Test SQL.
+def _ov_failures(alias: str, seconds: int) -> Any:
+    def read() -> list[dict[str, Any]]:
+        sql = graph.SqlReader(alias, Cancel())
+        days = round(seconds / 86400, 4)
+        rows = sql.page(
+            "select t.process_type, count(*) n, "
+            "to_char(max(p.submission_date), 'YYYY-MM-DD HH24:MI') last_at "
+            "from process p join process_type t on t.process_type_id = p.process_type_id "
+            f"where p.status_id in (3, 14, 21) and p.submission_date > sysdate - {days} "
+            "group by t.process_type order by n desc",
+            0,
+            20,
+        )
+        return [
+            {"type": r.get("PROCESS_TYPE"), "count": int(r.get("N") or 0), "last": r.get("LAST_AT")}
+            for r in rows
+        ]
+
+    return read
+
+
+@route("GET", "/api/instance-health")
+def instance_health(h: Handler) -> dict[str, Any]:
+    alias = _instance_alias(h)
+    range_key = h.query.get("range", "24h")
+    seconds = datadog.RANGES.get(range_key, datadog.RANGES["24h"])[0]
+    return datadog.health(alias, range_key, _ov_failures(alias, seconds))
 
 
 @route("GET", "/api/runs")

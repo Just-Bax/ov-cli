@@ -299,3 +299,58 @@ export interface ObjectActivity {
   runtime?: string
   message?: string
 }
+
+export type DatadogArea = 'logs' | 'metrics' | 'monitors' | 'events' | 'apm' | 'hosts'
+
+export interface DatadogStatus {
+  connected: boolean
+  site: string
+  appUrl: string
+  apiKeyLast4?: string | null
+  appKeyLast4?: string | null
+  permissions: Record<DatadogArea, boolean>
+  checkedAt?: number | null
+  error?: string | null
+  matches: Record<string, string>
+  sites: { id: string; app: string }[]
+  scopes: string[]
+}
+
+export interface DatadogDiscovery {
+  values: { kind: 'host' | 'service'; value: string; count: number }[]
+  suggestions: { alias: string; filter: string; count: number; why: string }[]
+}
+
+export interface HealthPoint {
+  t: number
+  v: number
+}
+
+export interface HealthMonitor {
+  id: number
+  name: string
+  state: string
+  type: string
+  groups: string[]
+  message: string
+}
+
+export interface InstanceHealth {
+  instance: string
+  range: string
+  scope: string
+  from: number
+  to: number
+  appUrl: string
+  links: { logs: string; monitors: string; apm: string; events: string }
+  errors: Record<string, string>
+  monitors?: HealthMonitor[]
+  errorSeries?: HealthPoint[]
+  logSeries?: HealthPoint[]
+  previousErrors?: number
+  topErrors?: { pattern: string; count: number; example: string; service: string; last: string }[]
+  events?: { time: string; title: string; message: string; source: string; status: string }[]
+  slowEndpoints?: { resource: string; p95Ms: number; count: number }[]
+  metrics?: { title: string; query: string; unit: string; points: HealthPoint[]; hosts: number }[]
+  onevizion?: { type: string; count: number; last?: string }[]
+}

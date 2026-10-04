@@ -9,7 +9,7 @@ from . import db
 BUILTIN_DIR = Path(__file__).parent / "skills"
 
 # The order skills appear in the system prompt.
-ORDER = ("onevizion", "working-style", "ov-cli", "tce-best-practices")
+ORDER = ("onevizion", "working-style", "ov-cli", "tce-best-practices", "datadog")
 
 _FRONT_MATTER = re.compile(r"^---\n([\s\S]*?)\n---\n?([\s\S]*)$")
 _SLUG = re.compile(r"[^a-z0-9]+")

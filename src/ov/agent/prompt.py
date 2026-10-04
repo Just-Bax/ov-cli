@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from . import skills, sources
+from . import datadog, skills, sources
 from .ovproc import instances
 
 NO_INSTANCE = (
@@ -22,7 +22,16 @@ def system_prompt(write_access: bool, instance: str) -> str:
         for s in sources.list_sources()
         if s["ready"]
     )
-    skill_text = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in skills.enabled_skills())
+    linked = datadog.connected()
+    # The Datadog skill only makes sense when its tools are offered.
+    shown = [s for s in skills.enabled_skills() if s["name"] != "datadog" or linked]
+    skill_text = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in shown)
+    if linked:
+        matches = datadog.load_state().get("matches") or {}
+        matched = "\n".join(f"- {alias}: {scope}" for alias, scope in sorted(matches.items()))
+        dd_text = f"connected. Instance filters:\n{matched or 'none matched yet'}"
+    else:
+        dd_text = "not connected"
 
     return f"""You are OV Agent, a senior OneVizion Tier 3 engineer (TCE). You troubleshoot \
 support cases and answer questions about OneVizion instances by investigating them yourself \
@@ -42,6 +51,8 @@ Signed-in instances:
 
 Sources you can search with source_search and source_read:
 {configured or "none configured"}
+
+Datadog: {dd_text}
 
 # Skills
 

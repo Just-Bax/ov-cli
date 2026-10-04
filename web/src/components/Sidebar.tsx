@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleSlash,
   Code2,
+  HeartPulse,
   type LucideIcon,
   Network,
   Plus,
@@ -324,6 +325,13 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           icon={Code2}
           label="Explorer"
           active={route.page === 'explorer'}
+          collapsed={collapsed}
+        />
+        <NavRow
+          to={href({ page: 'health' })}
+          icon={HeartPulse}
+          label="Health"
+          active={route.page === 'health'}
           collapsed={collapsed}
         />
       </nav>
