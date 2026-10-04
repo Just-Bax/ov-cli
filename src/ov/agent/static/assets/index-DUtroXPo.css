@@ -2323,6 +2323,9 @@ svg.react-flow__connectionline {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
   }
+  .\[\&_svg\]\:shrink-0 svg {
+    flex-shrink: 0;
+  }
 }
 @layer base {
   html, body, #root {

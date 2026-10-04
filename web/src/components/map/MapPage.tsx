@@ -376,9 +376,9 @@ function Details({
         </dd>
       </dl>
       <div className="grid grid-cols-2 gap-2 px-4 pt-3 pb-4">
-        <Button variant="primary" disabled={asking} onClick={() => void ask()}>
-          {asking ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5" />} Ask the
-          agent
+        <Button className="min-w-0" variant="primary" disabled={asking} onClick={() => void ask()}>
+          {asking ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5" />}
+          <span className="truncate">Ask the agent</span>
         </Button>
         <a
           href={`https://${host}${FORMS[node.type]}${node.ref}`}
@@ -386,8 +386,9 @@ function Details({
           rel="noreferrer"
           className="contents"
         >
-          <Button variant="secondary">
-            <ExternalLink className="size-3.5" /> Open in OneVizion
+          <Button className="min-w-0" variant="secondary">
+            <ExternalLink className="size-3.5" />
+            <span className="truncate">Open in OneVizion</span>
           </Button>
         </a>
         {hidden ? (
