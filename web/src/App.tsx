@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Settings, Status } from '@shared/types.ts'
-import { DialogHost } from '@/components/Dialog'
+import { DialogHost, dialog } from '@/components/Dialog'
 import { Home } from '@/components/Home'
 import { RunView } from '@/components/run/RunView'
 import { SettingsPage } from '@/components/Settings'
@@ -32,6 +32,13 @@ export function App() {
   const update = useCallback(async (patch: Partial<Settings>) => {
     const settings = await api.saveSettings(patch)
     setStatus((s) => (s ? { ...s, settings } : s))
+    // An ov agent started before an upgrade serves the new page but drops settings it does not know.
+    if (Object.keys(patch).some((key) => !(key in settings)))
+      await dialog.alert(
+        'Restart ov agent',
+        'The running server is older than this page and could not save that setting. Stop it with Ctrl+C, start ov agent again, then reload this tab.',
+        'warn',
+      )
   }, [])
 
   if (error && !status) {
