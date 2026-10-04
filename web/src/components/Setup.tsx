@@ -1,9 +1,10 @@
 import { ArrowRight, Check, ExternalLink, Server, SlidersHorizontal } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { ModelInfo, Status } from '@shared/types.ts'
-import { Button, CopyButton, GithubMark, Input, Label, Select, Spinner } from '@/components/ui'
+import { Button, CopyButton, GithubMark, Label, Select, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { AddInstanceForm, SignInModal, type SignInTarget } from '@/components/SignInModal'
 
 function StepRow({
   n,
@@ -115,45 +116,26 @@ function pickModel(models: ModelInfo[]): string {
 }
 
 function InstanceSignIn({ onDone }: { onDone: () => void }) {
-  const [url, setUrl] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
-
-  const signIn = async () => {
-    setBusy(true)
-    setError(undefined)
-    const res = await api
-      .loginInstance(url.trim())
-      .catch((e: Error) => ({ ok: false, message: e.message }))
-    setBusy(false)
-    if (res.ok) onDone()
-    else setError(res.message || 'Sign-in failed.')
-  }
-
+  const [target, setTarget] = useState<SignInTarget>()
+  const [pending, setPending] = useState(false)
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (url.trim()) void signIn()
-      }}
-    >
-      <div className="flex gap-2">
-        <Input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="yours.onevizion.com"
-          disabled={busy}
-        />
-        <Button type="submit" variant="primary" disabled={!url.trim() || busy}>
-          {busy ? <Spinner className="size-3.5" /> : null}
-          {busy ? 'Finish in the browser...' : 'Sign in'}
-        </Button>
-      </div>
+    <div>
+      <AddInstanceForm onSubmit={setTarget} />
       <div className="text-muted mt-1.5 text-[12px]">
-        A browser window opens on the instance's own login page. Same as `ov login`.
+        A browser window opens on the instance's own login page. Leave the tenant empty to use your
+        own.
       </div>
-      {error ? <div className="text-danger mt-2 text-[12px]">{error}</div> : null}
-    </form>
+      <SignInModal
+        target={target}
+        pending={pending}
+        onClose={() => setTarget(undefined)}
+        onStart={() => setPending(true)}
+        onFinished={(_, ok) => {
+          setPending(false)
+          if (ok) onDone()
+        }}
+      />
+    </div>
   )
 }
 

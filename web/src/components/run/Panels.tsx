@@ -249,19 +249,31 @@ export function QuestionCard({ runId, question }: { runId: string; question: Que
 
 export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt }) {
   if (login.state === 'done') {
-    return <div className="text-muted text-[12.5px]">Signed in to {login.instance}.</div>
+    return (
+      <div className="text-muted text-[12.5px]">
+        Signed in to {login.instance}
+        {login.tenant ? `, tenant ${login.tenant}` : ''}.
+      </div>
+    )
   }
   return (
     <div className="border-warn/50 bg-warn-soft/40 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3">
       <KeyRound className="text-warn size-4" />
       <div className="min-w-0 flex-1">
-        <div className="text-fg text-[13.5px] font-medium">Sign in to {login.instance}</div>
+        <div className="text-fg flex flex-wrap items-center gap-1.5 text-[13.5px] font-medium">
+          Sign in to {login.instance}
+          {login.tenant ? <Chip tone="brand">{login.tenant}</Chip> : null}
+        </div>
         <div className="text-muted text-[12px]">
           {login.state === 'running'
-            ? 'Finish signing in in the browser window that opened.'
+            ? login.tenant
+              ? `Finish signing in in the browser window that opened. You land in your own tenant; ov then switches to ${login.tenant} for you.`
+              : 'Finish signing in in the browser window that opened. It closes on its own.'
             : login.state === 'failed'
               ? (login.message ?? 'Sign-in failed.')
-              : 'Needed to continue. Access is read-only.'}
+              : login.tenant
+                ? `Needed to continue. Sign in as usual; ov switches to ${login.tenant} afterwards. Access is read-only.`
+                : 'Needed to continue. A browser window opens on the login page. Access is read-only.'}
         </div>
       </div>
       {login.state === 'running' ? (

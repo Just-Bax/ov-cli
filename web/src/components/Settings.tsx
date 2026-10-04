@@ -12,6 +12,12 @@ import {
 import { useEffect, useState } from 'react'
 import type { Instance, SkillInfo, SourceInfo } from '@shared/types.ts'
 import { dialog } from '@/components/Dialog'
+import {
+  AddInstanceForm,
+  SignInModal,
+  type SignInTarget,
+  signInKey,
+} from '@/components/SignInModal'
 import { useModels } from '@/components/ModelPicker'
 import {
   Button,
@@ -187,10 +193,9 @@ function Preferences() {
 
 function Instances() {
   const [instances, setInstances] = useState<Instance[]>()
-  const [url, setUrl] = useState('')
-  const [busy, setBusy] = useState<string>()
-  const [message, setMessage] = useState<string>()
   const [query, setQuery] = useState('')
+  const [target, setTarget] = useState<SignInTarget>()
+  const [pending, setPending] = useState<Set<string>>(new Set())
 
   const load = () =>
     api
@@ -201,22 +206,24 @@ function Instances() {
     void load()
   }, [])
 
-  const login = async (target: string) => {
-    setBusy(target)
-    setMessage(undefined)
-    const res = await api
-      .loginInstance(target)
-      .catch((e: Error) => ({ ok: false, message: e.message }))
-    setBusy(undefined)
-    setMessage(res.ok ? undefined : res.message)
-    void load()
-  }
+  const mark = (t: SignInTarget, on: boolean) =>
+    setPending((p) => {
+      const next = new Set(p)
+      if (on) next.add(signInKey(t))
+      else next.delete(signInKey(t))
+      return next
+    })
 
   const shown = (instances ?? [])
     .filter(
       (i) => !query || `${i.host} ${i.tenant ?? ''}`.toLowerCase().includes(query.toLowerCase()),
     )
-    .sort((a, b) => Number(b.valid) - Number(a.valid) || a.host.localeCompare(b.host))
+    .sort(
+      (a, b) =>
+        Number(b.valid) - Number(a.valid) ||
+        a.host.localeCompare(b.host) ||
+        (a.tenant ?? '').localeCompare(b.tenant ?? ''),
+    )
   const signedIn = instances?.filter((i) => i.valid).length ?? 0
 
   return (
@@ -248,52 +255,43 @@ function Instances() {
                 <Skeleton className="h-6 w-20 rounded-full" />
               </div>
             ))
-          : shown.map((i) => (
-              <div key={i.alias} className="flex items-center gap-2.5 px-4 py-2.5">
-                <span className="text-fg min-w-0 truncate text-[13px] font-medium">{i.host}</span>
-                {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
-                <div className="flex-1" />
-                <Chip tone={i.valid ? 'ok' : 'neutral'}>{i.valid ? 'Signed in' : 'Expired'}</Chip>
-                <Button
-                  size="sm"
-                  variant={i.valid ? 'ghost' : 'secondary'}
-                  disabled={busy === i.url}
-                  onClick={() => void login(i.url)}
-                >
-                  {busy === i.url ? (
-                    <Spinner className="size-3.5" />
-                  ) : (
-                    <KeyRound className="size-3.5" />
-                  )}
-                  {i.valid ? 'Refresh' : 'Sign in'}
-                </Button>
-              </div>
-            ))}
+          : shown.map((i) => {
+              const row: SignInTarget = { url: i.url, host: i.host, tenant: i.tenant ?? undefined }
+              const busy = pending.has(signInKey(row))
+              return (
+                <div key={i.alias} className="flex items-center gap-2.5 px-4 py-2.5">
+                  <span className="text-fg min-w-0 truncate text-[13px] font-medium">{i.host}</span>
+                  {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
+                  <div className="flex-1" />
+                  <Chip tone={i.valid ? 'ok' : 'neutral'}>{i.valid ? 'Signed in' : 'Expired'}</Chip>
+                  <Button
+                    size="sm"
+                    variant={i.valid ? 'ghost' : 'secondary'}
+                    onClick={() => setTarget(row)}
+                  >
+                    {busy ? <Spinner className="size-3.5" /> : <KeyRound className="size-3.5" />}
+                    {busy ? 'Signing in' : i.valid ? 'Refresh' : 'Sign in'}
+                  </Button>
+                </div>
+              )
+            })}
         {instances && !shown.length ? (
           <div className="text-muted px-4 py-6 text-center text-[12.5px]">
             {instances.length ? 'No instances match.' : 'Not signed in to any instance yet.'}
           </div>
         ) : null}
       </div>
-      <form
-        className="border-line flex gap-2 border-t px-4 py-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (url.trim()) void login(url.trim())
+      <AddInstanceForm className="border-line border-t px-4 py-3" onSubmit={setTarget} />
+      <SignInModal
+        target={target}
+        pending={Boolean(target && pending.has(signInKey(target)))}
+        onClose={() => setTarget(undefined)}
+        onStart={(t) => mark(t, true)}
+        onFinished={(t) => {
+          mark(t, false)
+          void load()
         }}
-      >
-        <Input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="Add instance, e.g. acme.onevizion.com"
-        />
-        <Button type="submit" variant="primary" disabled={!url.trim() || Boolean(busy)}>
-          Sign in
-        </Button>
-      </form>
-      {message ? (
-        <div className="text-danger border-line border-t px-4 py-2.5 text-[12.5px]">{message}</div>
-      ) : null}
+      />
     </Card>
   )
 }

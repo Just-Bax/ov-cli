@@ -70,5 +70,11 @@ export function useInstanceGraph() {
     }
   }
 
-  return { instances, signedIn, alias, setAlias, status, graph, error, build }
+  const current = signedIn.find((i) => i.alias === alias)
+  const label = current
+    ? current.tenant
+      ? `${current.host} / ${current.tenant}`
+      : current.host
+    : ''
+  return { instances, signedIn, alias, setAlias, label, status, graph, error, build }
 }

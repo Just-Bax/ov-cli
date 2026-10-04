@@ -359,3 +359,36 @@ def test_boolean_settings_are_stored_as_booleans():
     saved = db.save_settings({"notify": 1, "showTimeSaved": "", "expandTools": True})
     assert saved["notify"] is True and saved["showTimeSaved"] is False and saved["expandTools"]
     assert db.get_settings()["maxSteps"] == 80
+
+
+def test_instance_sign_in_keeps_the_url_and_tenant(agent_server, monkeypatch):
+    seen: list[list[str]] = []
+    monkeypatch.setattr(
+        "ov.agent.ovproc.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", "")
+    )
+    url = "http://portal.customer.example:8443/ov"
+    res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "tenant": "mTRAC"})
+    assert res.json()["ok"]
+    assert seen[-1][:2] == ["login", url]
+    assert seen[-1][-2:] == ["--tenant", "mTRAC"]
+
+    httpx.post(f"{agent_server}/api/instances/login", json={"url": url})
+    assert "--tenant" not in seen[-1]
+
+
+def test_tenant_suggestions_come_from_a_live_sign_in_on_the_host(agent_server, monkeypatch):
+    seed_session(BASE_URL)
+    rows = [{"name": "Main", "tenant_id": "1", "current": True}, {"name": "mTRAC"}]
+    seen: list[list[str]] = []
+
+    def fake(args, **_):
+        seen.append(args)
+        return OvResult(0, json.dumps(rows), "")
+
+    monkeypatch.setattr("ov.agent.server.run_ov", fake)
+    host = "acme.onevizion.test"
+    names = httpx.get(f"{agent_server}/api/instances/tenants", params={"host": host}).json()
+    assert names == [{"name": "Main"}, {"name": "mTRAC"}]
+    assert seen[-1] == ["-i", "acme", "tenants", "--json"]
+    other = httpx.get(f"{agent_server}/api/instances/tenants", params={"host": "nope.test"})
+    assert other.json() == []

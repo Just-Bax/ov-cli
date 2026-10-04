@@ -591,7 +591,8 @@ function TypeMenu({
 }
 
 export function MapPage() {
-  const { instances, signedIn, alias, setAlias, status, graph, error, build } = useInstanceGraph()
+  const { instances, signedIn, alias, setAlias, label, status, graph, error, build } =
+    useInstanceGraph()
   const [visible, setVisible] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<string>()
   const [hiddenTypes, setHiddenTypes] = useState<Set<GraphNodeType>>(new Set())
@@ -637,6 +638,7 @@ export function MapPage() {
     </span>
   ) : status?.builtAt ? (
     <span>
+      {label ? `${label} - ` : ''}
       {status.nodes?.toLocaleString()} objects, {status.edges?.toLocaleString()} links - built{' '}
       {timeAgo(status.builtAt)}
     </span>

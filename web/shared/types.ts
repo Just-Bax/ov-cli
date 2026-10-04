@@ -72,6 +72,7 @@ export interface LoginPrompt {
   id: string
   instance: string
   url: string
+  tenant?: string
   state: 'needed' | 'running' | 'done' | 'failed'
   message?: string
 }

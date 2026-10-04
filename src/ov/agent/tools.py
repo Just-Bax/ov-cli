@@ -50,7 +50,7 @@ class ToolContext(Protocol):
     def ask_user(
         self, question: str, options: list[str], multiple: bool, detail: str | None = None
     ) -> str: ...
-    def require_login(self, host: str) -> bool: ...
+    def require_login(self, host: str, tenant: str = "") -> bool: ...
     def attach_image(self, name: str, url: str) -> None: ...
     def finish(self, outcome: dict[str, Any]) -> None: ...
     def can_write(self) -> bool: ...
@@ -133,7 +133,7 @@ def _target(instance: str | None, ctx: ToolContext) -> str:
     return target
 
 
-def _alias_for(target: str, ctx: ToolContext) -> tuple[str, str]:
+def _alias_for(target: str, ctx: ToolContext) -> tuple[str, str, str]:
     found = find_instance(target)
     if found is None:
         if not ctx.require_login(host_of(target)):
@@ -141,7 +141,7 @@ def _alias_for(target: str, ctx: ToolContext) -> tuple[str, str]:
         found = find_instance(target)
         if found is None:
             raise ToolError(f"Still no signed-in instance for {target}.")
-    return found["alias"], found["host"]
+    return found["alias"], found["host"], found["tenant"] or ""
 
 
 def _quoted(args: list[str]) -> str:
@@ -205,7 +205,7 @@ def run_ov_tool(
 
     target = _target(instance, ctx)
     for attempt in range(2):
-        alias, host = _alias_for(target, ctx)
+        alias, host, tenant = _alias_for(target, ctx)
         result = run_ov(
             ["-i", alias, *cleaned],
             timeout=OV_TIMEOUT_SECONDS,
@@ -213,7 +213,7 @@ def run_ov_tool(
             cwd=ctx.work_dir,
         )
         if result.is_auth and attempt == 0:
-            if not ctx.require_login(host):
+            if not ctx.require_login(host, tenant):
                 raise ToolError(f"Session for {target} expired and the user skipped sign-in.")
             continue
         if result.timed_out:

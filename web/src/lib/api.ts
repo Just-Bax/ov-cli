@@ -61,8 +61,10 @@ export const api = {
   copilotLogout: () => post('/copilot/logout'),
   models: () => request<ModelInfo[]>('/models'),
   instances: () => request<Instance[]>('/instances'),
-  loginInstance: (url: string) =>
-    post<{ ok: boolean; message: string }>('/instances/login', { url }),
+  loginInstance: (url: string, tenant?: string) =>
+    post<{ ok: boolean; message: string }>('/instances/login', { url, tenant }),
+  instanceTenants: (host: string) =>
+    request<{ name: string }[]>(`/instances/tenants?host=${seg(host)}`),
   settings: () => request<Settings>('/settings'),
   saveSettings: (patch: Partial<Settings>) => put<Settings>('/settings', patch),
   skills: () => request<SkillInfo[]>('/skills'),

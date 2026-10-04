@@ -677,7 +677,8 @@ function NoCode({
 }
 
 export function ExplorerPage() {
-  const { instances, signedIn, alias, setAlias, status, graph, error, build } = useInstanceGraph()
+  const { instances, signedIn, alias, setAlias, label, status, graph, error, build } =
+    useInstanceGraph()
   const idx = useMemo(() => (graph ? index(graph) : undefined), [graph])
   const [tabs, setTabs] = useState<string[]>([])
   const [active, setActive] = useState<string>()
@@ -787,7 +788,7 @@ export function ExplorerPage() {
     </span>
   ) : graph ? (
     <span>
-      Code and configuration of {graph.host} - map built {timeAgo(graph.builtAt)}
+      Code and configuration of {label || graph.host} - map built {timeAgo(graph.builtAt)}
     </span>
   ) : (
     <span>Browse rules, packages and configuration with their code.</span>

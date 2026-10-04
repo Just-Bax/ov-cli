@@ -15,6 +15,7 @@ from typing import Any
 from . import cases, copilot, db
 from .cancel import Cancel
 from .ovproc import login as ov_login
+from .ovproc import url_for
 from .prompt import system_prompt
 from .state import empty_state, reduce
 from .tools import TOOL_SPECS, TOOLS_BY_NAME
@@ -200,13 +201,15 @@ class Run:
         self._set_status("running")
         return holder[0]
 
-    def require_login(self, host: str) -> bool:
+    def require_login(self, host: str, tenant: str = "") -> bool:
         with self._lock:
             existing = next(
                 (
                     item
                     for item in self.state["logins"]
-                    if item["instance"] == host and item["state"] not in ("done", "failed")
+                    if item["instance"] == host
+                    and (item.get("tenant") or "") == tenant
+                    and item["state"] not in ("done", "failed")
                 ),
                 None,
             )
@@ -217,8 +220,9 @@ class Run:
                 prompt = {
                     "id": login_id,
                     "instance": host,
-                    "url": f"https://{host}",
+                    "url": url_for(host),
                     "state": "needed",
+                    **({"tenant": tenant} if tenant else {}),
                 }
                 self.emit({"type": "login", "login": prompt})
             self.cancel.check()
@@ -240,7 +244,7 @@ class Run:
             return
 
         self.emit({"type": "login", "login": {**prompt, "state": "running"}})
-        result = ov_login(prompt["url"])
+        result = ov_login(prompt["url"], prompt.get("tenant") or "")
         ok = result.code == 0
         update = {**prompt, "state": "done" if ok else "failed"}
         if not ok:

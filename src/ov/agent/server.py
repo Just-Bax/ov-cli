@@ -23,7 +23,7 @@ from ..errors import OvError
 from . import copilot, db, explorer, graph, skills, sources
 from .copilot import CopilotError
 from .explorer import ExplorerError
-from .ovproc import instances, login, version
+from .ovproc import host_of, instances, login, run_ov, version
 from .run import RunError, runs
 from .skills import SkillError
 from .sources import SourceError
@@ -289,11 +289,31 @@ def list_instances(_: Handler) -> list[dict[str, Any]]:
 
 @route("POST", "/api/instances/login")
 def login_instance(h: Handler) -> dict[str, Any]:
-    url = str(h.json().get("url", "")).strip()
+    data = h.json()
+    url = str(data.get("url", "")).strip()
     if not url:
         raise HttpError(400, "Give an instance URL.")
-    result = login(url)
+    tenant = str(data.get("tenant") or "").strip()
+    result = login(url, tenant)
     return {"ok": result.code == 0, "message": result.message[-400:]}
+
+
+# Suggestions for the tenant field: what a live sign-in on the same host can reach.
+@route("GET", "/api/instances/tenants")
+def instance_tenants(h: Handler) -> list[dict[str, Any]]:
+    host = host_of(h.query.get("host", ""))
+    live = [i for i in instances() if i["host"] == host and i["valid"]]
+    live.sort(key=lambda i: bool(i["tenant"]))
+    if not live:
+        return []
+    result = run_ov(["-i", live[0]["alias"], "tenants", "--json"], timeout=60)
+    try:
+        rows = json.loads(result.stdout) if result.code == 0 else []
+    except json.JSONDecodeError:
+        return []
+    return [
+        {"name": str(r.get("name") or "")} for r in rows if isinstance(r, dict) and r.get("name")
+    ]
 
 
 @route("GET", "/api/settings")

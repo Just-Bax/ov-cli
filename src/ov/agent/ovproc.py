@@ -124,6 +124,11 @@ def instances() -> list[dict[str, Any]]:
     return rows
 
 
+def url_for(host: str) -> str:
+    known = next((i["url"] for i in instances() if i["host"] == host_of(host)), None)
+    return known or f"https://{host}"
+
+
 def find_instance(ref: str) -> dict[str, Any] | None:
     wanted = ref.strip().lower()
     host = host_of(ref)
@@ -141,13 +146,16 @@ _logins_lock = threading.Lock()
 
 
 # Opens a browser for the user; concurrent requests for the same host share one sign-in.
-def login(url: str) -> OvResult:
-    host = host_of(url)
+# The URL goes to ov login as given: instances can sit on any domain, port or path.
+def login(url: str, tenant: str = "") -> OvResult:
+    url = url.strip().rstrip("/")
+    tenant = tenant.strip()
+    key = (url.lower(), tenant.lower())
     with _logins_lock:
-        running = _logins.get(host)
+        running = _logins.get(key)
         if running is None:
             running = (threading.Event(), [])
-            _logins[host] = running
+            _logins[key] = running
             owner = True
         else:
             owner = False
@@ -159,7 +167,14 @@ def login(url: str) -> OvResult:
     try:
         holder.append(
             run_ov(
-                ["login", f"https://{host}", "--keep-current", "--timeout", "280"],
+                [
+                    "login",
+                    url,
+                    "--keep-current",
+                    "--timeout",
+                    "280",
+                    *(["--tenant", tenant] if tenant else []),
+                ],
                 timeout=LOGIN_TIMEOUT_SECONDS,
                 read_only=False,
             )
@@ -168,6 +183,6 @@ def login(url: str) -> OvResult:
         if not holder:
             holder.append(OvResult(1, "", "Sign-in failed."))
         with _logins_lock:
-            _logins.pop(host, None)
+            _logins.pop(key, None)
         done.set()
     return holder[0]
