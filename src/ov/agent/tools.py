@@ -682,8 +682,9 @@ TOOLS = [
             },
             "unrelated": _strings("Unrelated problems noticed, one sentence each"),
             "reply": _str(
-                "Working a case: the case chat comment, following the reply style rules exactly. "
-                "Otherwise a short message the user can forward, or empty."
+                "Working a case: the case chat comment in the reply style - short paragraphs "
+                "separated by blank lines: update, what the problem was, what I did, current "
+                "status and next step. Otherwise a short message the user can forward, or empty."
             ),
             "time_saved_minutes": _int(
                 "Realistic minutes an experienced TCE would have spent doing this exact "

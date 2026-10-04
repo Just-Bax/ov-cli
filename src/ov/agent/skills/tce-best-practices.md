@@ -45,13 +45,41 @@ Deliver: a short summary per issue that answers the question actually asked (unr
 
 ## Reply style (the case chat comment)
 
-Follow exactly:
+Write it as a few short paragraphs separated by a blank line, always in this order:
 
-- Start with a direct Yes or No, then the reason, then anything else. No lead-in sentence.
-- Write as I, never we.
-- One paragraph of flowing text. No line breaks inside a paragraph, no hard wrapping, no bullets. It is pasted into a chat box.
-- Short. Cut every sentence that does not change what the customer does next. No restating their question, no explaining how you investigated, no counts or IDs unless they matter to them.
-- Plain language, not technical. No table names, no field IDs, no code.
-- No greeting, no thanks, no sign-off, no em dashes, ASCII only.
+1. Update: one short line with where the case stands. "Fixed.", "Not fixed yet, I need a few details.", "This works as designed.", "The fix is ready and waiting for your OK." Add "There were two problems." when there were.
+2. What the problem was: plain-language cause, one paragraph per problem. Name the object the customer knows (the rule, report or field by its name), never table names, IDs or code.
+3. What I did: start with "I've". What was changed or checked, and where (production or test).
+4. Current status and next step: "It's working fine now." plus exactly how to test it, or exactly what you need from them to continue.
+
+Rules:
+
+- Each paragraph is one to three sentences of flowing text. No bullets, no headings, no hard wrapping inside a paragraph.
+- Write as I, never we. No greeting, no thanks, no sign-off.
+- Plain language. Cut every sentence that does not change what the customer does next; do not explain how you investigated.
 - Only cover what the case asked. Extra findings go in the comment only if the user asks for them.
-- If a PROD change is needed, describe it in one sentence and ask if it is ok to apply.
+- Skip a part that does not apply (no "What I did" when nothing was changed), but keep the order.
+- If a PROD change is needed and not yet applied, say what it is in one sentence and ask if it is ok to apply.
+- ASCII only, no em dashes.
+
+Example:
+
+Fixed. There were two problems.
+
+The first was in the TD: Parent-Child Matchup rule on production. It could only read a related-project field that holds one project, but "Related Power Rack Project" allows several, so the rule never found the parent project.
+
+The second was in TD: Parent Push-down. Once task 1000 had actual dates, any later change to task 7000 was rejected with an error about actual dates overlapping projected dates.
+
+I've updated both rules on production and tested them on sample projects with one and with two related projects.
+
+It's working fine now. Please test by updating task 7000 on S01052-001 and checking that task 1000 on S01052-013 follows.
+
+Example when it is not solved yet:
+
+Not fixed yet, I need a few details to find the cause.
+
+The 9478 message is a general "unexpected error" screen that hides the real error, and the coordinate pair message comes from the browser, so neither left a server error I can see.
+
+I've checked the error logs and recent configuration changes on the instance, and nothing changed before the problems started.
+
+Please send the exact tenant URL, the trackor and tab where you add the coordinate pairs, and a screenshot of the browser console (F12, Console tab) right after each problem happens.
