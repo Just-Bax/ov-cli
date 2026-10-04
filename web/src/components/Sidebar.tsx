@@ -1,19 +1,13 @@
 import {
-  BookOpen,
-  ChevronDown,
   CircleAlert,
   CircleCheck,
   CircleSlash,
-  FolderGit2,
-  PanelLeft,
+  MessageSquareText,
   Plus,
-  Search,
-  Server,
   Settings,
   Trash2,
-  X,
 } from 'lucide-react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import type { RunStatus, RunSummary } from '@shared/types.ts'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { dialog } from '@/components/Dialog'
@@ -22,8 +16,8 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
 
-const RECENT_LIMIT = 30
-const COLLAPSED_KEY = 'ov-agent.sidebar-collapsed'
+const RECENT_LIMIT = 40
+const PANEL_KEY = 'ov-agent.panel-open'
 
 export function StatusIcon({
   status,
@@ -45,10 +39,10 @@ export function StatusIcon({
   const dot: Record<string, string> = {
     waiting: 'bg-warn',
     error: 'bg-danger',
-    cancelled: 'border border-line-strong',
-    done: 'border border-faint/60',
+    cancelled: 'bg-line-strong',
+    done: 'bg-ok',
   }
-  return <span className={cn('block size-2 rounded-full', dot[status], className)} />
+  return <span className={cn('block size-1.5 rounded-full', dot[status], className)} />
 }
 
 function dayLabel(ts: number): string {
@@ -68,13 +62,13 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
   const groups = new Map<string, RunSummary[]>()
   for (const r of runs) {
     const label = ['queued', 'running', 'waiting'].includes(r.status)
-      ? 'Working'
+      ? 'In progress'
       : dayLabel(r.createdAt)
     groups.set(label, [...(groups.get(label) ?? []), r])
   }
-  const working = groups.get('Working')
-  groups.delete('Working')
-  return working ? [['Working', working], ...groups] : [...groups]
+  const active = groups.get('In progress')
+  groups.delete('In progress')
+  return active ? [['In progress', active], ...groups] : [...groups]
 }
 
 function useRuns(): RunSummary[] | undefined {
@@ -96,35 +90,60 @@ function useRuns(): RunSummary[] | undefined {
   return runs
 }
 
-function NavItem({
-  to,
-  active,
-  icon,
+function RailButton({
   label,
-  collapsed,
-  badge,
+  active,
+  onClick,
+  to,
+  children,
 }: {
-  to: string
-  active: boolean
-  icon: ReactNode
   label: string
-  collapsed: boolean
-  badge?: ReactNode
+  active?: boolean
+  onClick?: () => void
+  to?: string
+  children: ReactNode
 }) {
-  return (
-    <a
-      href={to}
-      title={collapsed ? label : undefined}
-      className={cn(
-        'flex h-9 items-center gap-3 rounded-full text-[13.5px] transition-colors',
-        collapsed ? 'w-9 justify-center' : 'px-3',
-        active ? 'text-fg bg-black/[0.07] font-medium' : 'text-text hover:bg-black/[0.04]',
-      )}
-    >
-      <span className="text-muted flex size-5 shrink-0 items-center justify-center">{icon}</span>
-      {collapsed ? null : <span className="flex-1 truncate">{label}</span>}
-      {collapsed ? null : badge}
+  const className = cn(
+    'group/rail relative flex size-10 items-center justify-center rounded-xl text-white transition-colors',
+    active ? 'bg-white/20' : 'hover:bg-white/20',
+  )
+  const inner = (
+    <>
+      {children}
+      {active && to ? (
+        <span className="absolute top-1/2 -left-2 h-4 w-1 -translate-y-1/2 rounded-r-full bg-white" />
+      ) : null}
+      <span className="bg-fg pointer-events-none absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2 rounded-full px-2.5 py-1 text-[12px] font-medium whitespace-nowrap text-white opacity-0 shadow-[0_4px_6px_rgba(0,0,0,0.1)] transition-opacity group-hover/rail:opacity-100">
+        {label}
+      </span>
+    </>
+  )
+  return to ? (
+    <a href={to} aria-label={label} className={className}>
+      {inner}
     </a>
+  ) : (
+    <button type="button" aria-label={label} onClick={onClick} className={className}>
+      {inner}
+    </button>
+  )
+}
+
+function Avatar({ user }: { user?: string }) {
+  const [broken, setBroken] = useState(false)
+  if (!user || broken)
+    return (
+      <span className="text-brand-strong flex size-8 items-center justify-center rounded-full bg-white text-[13px] font-semibold">
+        {(user ?? '?').slice(0, 1).toUpperCase()}
+      </span>
+    )
+  return (
+    <img
+      src={`https://github.com/${encodeURIComponent(user)}.png?size=64`}
+      alt=""
+      onError={() => setBroken(true)}
+      className="size-8 rounded-full object-cover ring-2 ring-white/60"
+    />
   )
 }
 
@@ -147,19 +166,26 @@ function RunItem({ run, active }: { run: RunSummary; active: boolean }) {
       href={href({ page: 'run', id: run.id })}
       title={[run.title, run.instance, timeAgo(run.createdAt)].filter(Boolean).join(' - ')}
       className={cn(
-        'group/run flex h-9 items-center gap-3 rounded-full px-3 text-[13px] transition-colors',
-        active ? 'text-fg bg-black/[0.07]' : 'text-text hover:bg-black/[0.04]',
+        'group/run flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[12.5px] font-medium transition-colors',
+        active
+          ? 'bg-brand-soft text-brand-strong'
+          : 'text-text hover:bg-canvas hover:text-brand-strong',
       )}
     >
-      <span className="flex size-5 shrink-0 items-center justify-center">
+      <span className="flex size-3 shrink-0 items-center justify-center">
         <StatusIcon status={run.status} />
       </span>
-      <span className="min-w-0 flex-1 truncate">{run.title}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{run.title}</span>
+        {run.instance ? (
+          <span className="text-faint block truncate text-[11px] font-normal">{run.instance}</span>
+        ) : null}
+      </span>
       <button
         type="button"
         aria-label="Delete run"
         onClick={(e) => void remove(e)}
-        className="text-faint hover:text-danger -mr-1 hidden size-6 shrink-0 items-center justify-center rounded-full group-hover/run:flex hover:bg-white"
+        className="text-faint hover:text-danger hidden size-6 shrink-0 items-center justify-center rounded-lg group-hover/run:flex hover:bg-white"
       >
         <Trash2 className="size-3.5" />
       </button>
@@ -167,241 +193,102 @@ function RunItem({ run, active }: { run: RunSummary; active: boolean }) {
   )
 }
 
-function Avatar({ user }: { user?: string }) {
-  const [broken, setBroken] = useState(false)
-  if (!user || broken)
-    return (
-      <span className="bg-brand-soft text-brand-strong flex size-8 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold">
-        {(user ?? '?').slice(0, 1).toUpperCase()}
-      </span>
-    )
-  return (
-    <img
-      src={`https://github.com/${encodeURIComponent(user)}.png?size=64`}
-      alt=""
-      onError={() => setBroken(true)}
-      className="bg-raised size-8 shrink-0 rounded-full object-cover"
-    />
-  )
-}
-
-export function Sidebar({
-  route,
-  user,
-  instances,
-}: {
-  route: Route
-  user?: string
-  instances?: { valid: number; total: number }
-}) {
+export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const runs = useRuns()
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === '1')
-  const [searching, setSearching] = useState(false)
-  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(() => localStorage.getItem(PANEL_KEY) !== '0')
   const [showAll, setShowAll] = useState(false)
-  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => localStorage.setItem(PANEL_KEY, open ? '1' : '0'), [open])
 
-  useEffect(() => localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'), [collapsed])
-  useEffect(() => {
-    if (searching) searchRef.current?.focus()
-  }, [searching])
-
-  const startSearch = () => {
-    setCollapsed(false)
-    setSearching(true)
-  }
-  const filtered = (runs ?? []).filter(
-    (r) => !query || `${r.title} ${r.instance ?? ''}`.toLowerCase().includes(query.toLowerCase()),
-  )
-  const shown = showAll || query ? filtered : filtered.slice(0, RECENT_LIMIT)
+  const shown = showAll ? (runs ?? []) : (runs ?? []).slice(0, RECENT_LIMIT)
 
   return (
-    <aside
-      className={cn(
-        'bg-canvas border-line-strong/40 flex shrink-0 flex-col border-r transition-[width] duration-200',
-        collapsed ? 'w-[60px] items-center' : 'w-[272px]',
-      )}
-    >
-      <div
-        className={cn(
-          'flex h-16 shrink-0 items-center',
-          collapsed ? 'justify-center' : 'justify-between pr-2.5 pl-4',
-        )}
-      >
-        {collapsed ? null : (
-          <a href="#/" aria-label="OV Agent home" className="flex items-center">
-            <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
-          </a>
-        )}
-        <button
-          type="button"
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          onClick={() => setCollapsed(!collapsed)}
-          className="text-muted hover:text-fg flex size-9 items-center justify-center rounded-full hover:bg-black/[0.05]"
-        >
-          <PanelLeft className="size-[18px]" />
-        </button>
-      </div>
-
-      <nav className={cn('space-y-0.5', collapsed ? 'flex flex-col items-center' : 'px-2.5')}>
+    <div className="flex h-full shrink-0">
+      <nav className="bg-brand flex w-14 shrink-0 flex-col items-center gap-1.5 py-3">
         <a
           href="#/"
-          title={collapsed ? 'New run' : undefined}
-          className={cn(
-            'group/new mb-1 flex h-10 items-center gap-3 rounded-full text-[13.5px] font-medium transition-colors',
-            collapsed ? 'w-10 justify-center' : 'px-1.5',
-            route.page === 'home' ? 'text-fg' : 'text-text',
-          )}
+          aria-label="OV Agent home"
+          className="mb-3 flex size-10 items-center justify-center overflow-hidden rounded-xl shadow-[0_2px_6px_rgba(0,0,0,0.12)]"
         >
-          <span className="bg-brand group-hover/new:bg-brand-strong flex size-7 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition-colors">
-            <Plus className="size-4" />
-          </span>
-          {collapsed ? null : 'New run'}
+          <img src="/favicon.svg" alt="" className="size-10" />
         </a>
-        <NavItem
-          to={href({ page: 'instances' })}
-          active={route.page === 'instances'}
-          icon={<Server className="size-4" />}
-          label="Instances"
-          collapsed={collapsed}
-          badge={
-            instances?.total ? (
-              <span className="text-faint text-[11.5px]">
-                {instances.valid}/{instances.total}
-              </span>
-            ) : null
-          }
-        />
-        <NavItem
-          to={href({ page: 'skills' })}
-          active={route.page === 'skills'}
-          icon={<BookOpen className="size-4" />}
-          label="Skills"
-          collapsed={collapsed}
-        />
-        <NavItem
-          to={href({ page: 'sources' })}
-          active={route.page === 'sources'}
-          icon={<FolderGit2 className="size-4" />}
-          label="Sources"
-          collapsed={collapsed}
-        />
+        <RailButton
+          label={open ? 'Hide runs' : 'Show runs'}
+          active={open}
+          onClick={() => setOpen(!open)}
+        >
+          <MessageSquareText className="size-5" strokeWidth={1.75} />
+        </RailButton>
+        <RailButton label="New run" to="#/" active={route.page === 'home'}>
+          <Plus className="size-5" strokeWidth={2} />
+        </RailButton>
+        <div className="flex-1" />
+        <RailButton
+          label="Settings"
+          to={href({ page: 'settings' })}
+          active={route.page === 'settings'}
+        >
+          <Settings className="size-5" strokeWidth={1.75} />
+        </RailButton>
+        <a href={href({ page: 'settings' })} title={user ?? 'Settings'} className="mt-1.5">
+          <Avatar user={user} />
+        </a>
       </nav>
 
-      {collapsed ? (
-        <div className="flex-1" />
-      ) : (
-        <div className="mt-5 min-h-0 flex-1 scrollbar-thin overflow-y-auto px-2.5 pb-3">
-          {searching ? (
-            <div className="border-line-strong focus-within:border-brand mb-3 flex h-9 items-center gap-2 rounded-full border bg-white px-3">
-              <Search className="text-faint size-3.5 shrink-0" />
-              <input
-                ref={searchRef}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setQuery('')
-                    setSearching(false)
-                  }
-                }}
-                placeholder="Search runs"
-                className="placeholder:text-faint w-full bg-transparent text-[13px] outline-none"
-              />
+      {open ? (
+        <aside className="border-line-strong/60 flex w-[268px] shrink-0 flex-col border-r bg-white">
+          <div className="flex h-16 shrink-0 items-center px-5">
+            <a href="#/" aria-label="OV Agent home">
+              <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
+            </a>
+          </div>
+          <div className="px-3 pb-2">
+            <a
+              href="#/"
+              className="bg-brand hover:bg-brand-strong flex h-10 items-center justify-center gap-2 rounded-xl text-[13px] font-medium text-white transition-colors"
+            >
+              <Plus className="size-4" strokeWidth={2.25} /> New run
+            </a>
+          </div>
+
+          <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4">
+            {!runs ? (
+              <div className="space-y-4 px-2.5 pt-3">
+                {[0, 1, 2, 3].map((i) => (
+                  <Skeleton key={i} className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
+                ))}
+              </div>
+            ) : null}
+            {group(shown).map(([label, list], index) => (
+              <div key={label} className={index ? 'mt-5' : 'mt-1'}>
+                <div className="text-faint mb-1 px-2.5 text-[12px] font-medium">{label}</div>
+                <div className="space-y-0.5">
+                  {list.map((r) => (
+                    <RunItem
+                      key={r.id}
+                      run={r}
+                      active={route.page === 'run' && route.id === r.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+            {!showAll && (runs?.length ?? 0) > RECENT_LIMIT ? (
               <button
                 type="button"
-                aria-label="Close search"
-                onClick={() => {
-                  setQuery('')
-                  setSearching(false)
-                }}
-                className="text-faint hover:text-fg"
+                onClick={() => setShowAll(true)}
+                className="text-brand-strong hover:bg-canvas mt-3 w-full rounded-xl px-2.5 py-2 text-left text-[12.5px] font-medium"
               >
-                <X className="size-3.5" />
+                Show all {runs?.length} runs
               </button>
-            </div>
-          ) : null}
-
-          {!runs ? (
-            <div className="space-y-3.5 px-3 pt-2">
-              {[0, 1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} dim className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
-              ))}
-            </div>
-          ) : null}
-          {group(shown).map(([label, list]) => (
-            <div key={label} className="mb-4">
-              <div className="text-faint px-3 pb-1 text-[12px] font-medium">{label}</div>
-              {list.map((r) => (
-                <RunItem key={r.id} run={r} active={route.page === 'run' && route.id === r.id} />
-              ))}
-            </div>
-          ))}
-          {!showAll && !query && filtered.length > RECENT_LIMIT ? (
-            <button
-              type="button"
-              onClick={() => setShowAll(true)}
-              className="text-muted hover:text-fg flex h-8 items-center gap-1.5 rounded-full px-3 text-[12.5px] hover:bg-black/[0.04]"
-            >
-              <ChevronDown className="size-3.5" /> Show all {filtered.length}
-            </button>
-          ) : null}
-          {runs && !filtered.length ? (
-            <div className="text-faint px-3 py-2 text-[12.5px]">
-              {query ? 'No runs match.' : 'Your runs appear here.'}
-            </div>
-          ) : null}
-        </div>
-      )}
-
-      <div
-        className={cn(
-          'border-line-strong/50 flex h-16 shrink-0 items-center border-t',
-          collapsed ? 'w-full flex-col justify-center gap-1 py-3' : 'gap-2.5 pr-2 pl-3',
-        )}
-      >
-        {collapsed ? (
-          <a href={href({ page: 'settings' })} title={user ?? 'Settings'}>
-            <Avatar user={user} />
-          </a>
-        ) : (
-          <>
-            <a
-              href={href({ page: 'settings' })}
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-full py-1 pr-2 hover:opacity-80"
-            >
-              <Avatar user={user} />
-              <span className="min-w-0">
-                <span className="text-fg block truncate text-[13px] font-medium">
-                  {user ?? 'Not signed in'}
-                </span>
-                <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
-              </span>
-            </a>
-            <button
-              type="button"
-              aria-label="Search runs"
-              title="Search runs"
-              onClick={startSearch}
-              className="text-muted hover:text-fg flex size-9 items-center justify-center rounded-full hover:bg-black/[0.05]"
-            >
-              <Search className="size-4" />
-            </button>
-            <a
-              href={href({ page: 'settings' })}
-              aria-label="Settings"
-              title="Settings"
-              className={cn(
-                'flex size-9 items-center justify-center rounded-full hover:bg-black/[0.05]',
-                route.page === 'settings' ? 'text-fg bg-black/[0.07]' : 'text-muted hover:text-fg',
-              )}
-            >
-              <Settings className="size-4" />
-            </a>
-          </>
-        )}
-      </div>
-    </aside>
+            ) : null}
+            {runs && !runs.length ? (
+              <div className="text-faint px-2.5 py-3 text-[12.5px]">
+                Your runs appear here. Start one with a case number or a question.
+              </div>
+            ) : null}
+          </div>
+        </aside>
+      ) : null}
+    </div>
   )
 }

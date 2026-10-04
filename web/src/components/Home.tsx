@@ -17,6 +17,23 @@ const EXAMPLES = [
   'Which emails failed to send today, and what was the error?',
 ]
 
+const WORDS = ['troubleshooting', 'investigating', 'configuring', 'automating', 'fixing']
+const WORD_MS = 2800
+
+function RotatingWord() {
+  const [index, setIndex] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => setIndex((i) => (i + 1) % WORDS.length), WORD_MS)
+    return () => clearInterval(timer)
+  }, [])
+  const word = WORDS[index]
+  return (
+    <span key={word} data-text={word} className="word-cycle">
+      {word}
+    </span>
+  )
+}
+
 function greeting(): string {
   const h = new Date().getHours()
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
@@ -65,7 +82,7 @@ export function Home({ settings }: { settings: Settings }) {
       <div className="flex min-h-full flex-col items-center justify-center px-6 py-12">
         <div className="w-full max-w-[760px]">
           <h1 className="text-fg mb-6 text-center text-[26px] font-semibold tracking-tight">
-            {greeting()}. What are we troubleshooting?
+            {greeting()}. What are we <RotatingWord />?
           </h1>
           <Composer
             autoFocus

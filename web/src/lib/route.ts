@@ -1,16 +1,12 @@
 import { useEffect, useState } from 'react'
 
-export type Section = 'instances' | 'skills' | 'sources' | 'settings'
-
-export type Route = { page: 'home' } | { page: Section } | { page: 'run'; id: string }
-
-const SECTIONS: Section[] = ['instances', 'skills', 'sources', 'settings']
+export type Route = { page: 'home' } | { page: 'settings' } | { page: 'run'; id: string }
 
 function parse(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/')
   if (parts[0] === 'run' && parts[1]) return { page: 'run', id: parts[1] }
-  const section = SECTIONS.find((s) => s === parts[0])
-  return section ? { page: section } : { page: 'home' }
+  if (parts[0] === 'settings') return { page: 'settings' }
+  return { page: 'home' }
 }
 
 export function href(route: Route): string {

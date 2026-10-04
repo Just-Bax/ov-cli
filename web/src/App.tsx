@@ -3,7 +3,7 @@ import type { Status } from '@shared/types.ts'
 import { DialogHost } from '@/components/Dialog'
 import { Home } from '@/components/Home'
 import { RunView } from '@/components/run/RunView'
-import { InstancesPage, SettingsPage, SkillsPage, SourcesPage } from '@/components/Settings'
+import { SettingsPage } from '@/components/Settings'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { Setup } from '@/components/Setup'
 import { Sidebar } from '@/components/Sidebar'
@@ -41,22 +41,19 @@ export function App() {
   if (!status) {
     return (
       <div className="flex h-full">
-        <aside className="bg-canvas border-line-strong/40 flex w-[272px] shrink-0 flex-col border-r">
-          <div className="flex h-16 items-center px-4">
+        <nav className="bg-brand flex w-14 shrink-0 flex-col items-center py-3">
+          <img src="/favicon.svg" alt="" className="size-10 rounded-xl" />
+        </nav>
+        <aside className="border-line-strong/60 flex w-[268px] shrink-0 flex-col border-r bg-white">
+          <div className="flex h-16 items-center px-5">
             <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
           </div>
-          <div className="space-y-1 px-2">
-            {[0, 1].map((i) => (
-              <div key={i} className="flex h-9 items-center gap-2.5 px-2.5">
-                <Skeleton dim className="size-4 rounded" />
-                <Skeleton dim className={i ? 'h-3 w-14' : 'h-3 w-28'} />
-              </div>
-            ))}
+          <div className="px-3">
+            <Skeleton className="h-10 w-full rounded-xl" />
           </div>
-          <div className="mt-5 space-y-4 px-4.5">
-            <Skeleton dim className="h-2.5 w-12" />
-            {['w-4/5', 'w-3/5', 'w-11/12', 'w-2/3', 'w-3/4'].map((w) => (
-              <Skeleton key={w} dim className={`h-3 ${w}`} />
+          <div className="mt-6 space-y-4 px-5">
+            {['w-4/5', 'w-3/5', 'w-11/12', 'w-2/3'].map((w) => (
+              <Skeleton key={w} className={`h-3 ${w}`} />
             ))}
           </div>
         </aside>
@@ -97,12 +94,9 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      <Sidebar route={route} user={status.copilot.user} instances={status.instances} />
+      <Sidebar route={route} user={status.copilot.user} />
       <main className="min-w-0 flex-1">
         {route.page === 'home' && <Home settings={status.settings} />}
-        {route.page === 'instances' && <InstancesPage />}
-        {route.page === 'skills' && <SkillsPage />}
-        {route.page === 'sources' && <SourcesPage />}
         {route.page === 'settings' && <SettingsPage onChange={refresh} />}
         {route.page === 'run' && <RunView key={route.id} id={route.id} />}
       </main>
