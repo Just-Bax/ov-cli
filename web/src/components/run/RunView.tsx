@@ -382,7 +382,7 @@ export function RunView({ id }: { id: string }) {
         />
       }
     >
-      <div ref={scrollRef} className="mx-auto max-w-[860px] space-y-5 px-6 pt-6 pb-2">
+      <div ref={scrollRef} className="mx-auto max-w-[860px] space-y-5 px-6 pt-6 pb-8">
         {turns.map((turn, i) => {
           const isLast = i === turns.length - 1
           const active = isLast && busy
