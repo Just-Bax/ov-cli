@@ -55,6 +55,65 @@ _QUOTED = re.compile(r"(['\"])([A-Za-z][A-Za-z0-9_$#]{2,})\1")
 _OBJREF = re.compile(r"\bid\.([A-Za-z0-9_.]+)", re.IGNORECASE)
 _CALL = re.compile(r"\b([A-Za-z][A-Za-z0-9_$#]*)\s*\.\s*[A-Za-z]")
 OBJREF_KINDS = {"imp": "import", "rpt": "report", "wf": "workflow"}
+
+# Ids are unique per table only, so a number links only when its context names the kind: the
+# column or variable it is compared with or assigned to, a ...ByID util call (those take config
+# field ids), or a name comment right after it. Keep in sync with web/src/lib/references.ts.
+ID_COLUMNS = (
+    ("config_field_id", "field"),
+    ("field_id", "field"),
+    ("cf_id", "field"),
+    ("xitor_type_id", "trackor_type"),
+    ("trackor_type_id", "trackor_type"),
+    ("parent_type_id", "trackor_type"),
+    ("child_type_id", "trackor_type"),
+    ("rule_id", "rule"),
+    ("imp_spec_id", "import"),
+    ("report_file_id", "report"),
+    ("autom_id", "automation"),
+    ("notif_id", "notification"),
+    ("wf_template_id", "workflow"),
+    ("module_id", "module"),
+    ("db_package_id", "db_package"),
+)
+_ID_KEYWORDS = frozenset(
+    "and or not in is null then when where else case return values default set select from on "
+    "between like constant number integer pls_integer varchar2 varchar char date type rowtype "
+    "if elsif loop".split()
+)
+_IDENT = re.compile(r":?[A-Za-z_][A-Za-z0-9_$#]*")
+_NAME_COMMENT = re.compile(r"^\s*(?:/\*\s*([^*]+?)\s*\*/|--\s*(\S+))")
+
+
+def id_kind(before: str) -> str | None:
+    text = re.split(r"[;\n]", before)[-1]
+    text = re.sub(r"/\*.*?\*/", " ", re.sub(r"'[^']*'", "''", text))
+    depth = 0
+    for i in range(len(text) - 1, -1, -1):
+        if text[i] == ")":
+            depth += 1
+        elif text[i] == "(":
+            if depth == 0:
+                call = re.search(r"([A-Za-z_][A-Za-z0-9_$#]*)\s*$", text[:i])
+                if call and call.group(1).lower().endswith("byid"):
+                    return "field"
+                break
+            depth -= 1
+    for token in reversed(_IDENT.findall(text)):
+        name = token.lower()
+        if name in _ID_KEYWORDS:
+            continue
+        if name.startswith(":"):
+            return None
+        return next((kind for column, kind in ID_COLUMNS if name.endswith(column)), None)
+    return None
+
+
+def comment_name(after: str) -> str | None:
+    match = _NAME_COMMENT.match(after)
+    return (match.group(1) or match.group(2)).lower() if match else None
+
+
 # Package bodies are read in windows of CODE_CHUNKS x 1000 characters.
 PACKAGE_WINDOWS = 40
 
@@ -235,10 +294,9 @@ def objref_target(ref: str, objrefs: dict[str, str]) -> str | None:
 
 class _Refs:
     def __init__(self, nodes: dict[str, dict[str, Any]], edges: set) -> None:
-        ids: dict[int, str | None] = {}
+        self.by_ref: dict[int, list[dict[str, Any]]] = {}
         for node in nodes.values():
-            ids[node["ref"]] = None if node["ref"] in ids else node["id"]
-        self.ids = {k: v for k, v in ids.items() if v is not None}
+            self.by_ref.setdefault(node["ref"], []).append(node)
         names: dict[str, str | None] = {}
         for node in nodes.values():
             if node["type"] in ("field", "trackor_type", "db_package"):
@@ -264,7 +322,15 @@ class _Refs:
                     self.objrefs[f"id.{prefix}.{name}"] = node["id"]
 
     def link(self, builder: _Builder, source: str, text: str) -> None:
-        targets = {self.ids[int(n)] for n in _NUMBER.findall(text) if int(n) in self.ids}
+        targets: set[str] = set()
+        for match in _NUMBER.finditer(text):
+            found = self.number(
+                match.group(0),
+                text[max(0, match.start() - 200) : match.start()],
+                text[match.end() : match.end() + 200],
+            )
+            if found:
+                targets.add(found["id"])
         targets |= {
             self.names[q.upper()] for _, q in _QUOTED.findall(text) if q.upper() in self.names
         }
@@ -279,6 +345,14 @@ class _Refs:
         for target in targets:
             kind = "calls" if target.startswith("db_package:") else "uses"
             builder.edge(source, target, kind, code=True)
+
+    def number(self, number: str, before: str, after: str) -> dict[str, Any] | None:
+        candidates = self.by_ref.get(int(number), [])
+        kind = id_kind(before)
+        if kind:
+            return next((n for n in candidates if n["type"] == kind), None)
+        name = comment_name(after)
+        return next((n for n in candidates if name and n["name"].lower() == name), None)
 
 
 def build(

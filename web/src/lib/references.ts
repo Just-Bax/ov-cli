@@ -6,7 +6,7 @@ export type Ref = { start: number; end: number; node: GraphNode; kind: RefKind; 
 export type RefIndex = {
   objrefs: Map<string, GraphNode>
   names: Map<string, GraphNode>
-  ids: Map<number, GraphNode>
+  byRef: Map<number, GraphNode[]>
   packages: Map<string, GraphNode>
 }
 
@@ -17,6 +17,69 @@ const NUMBER = /\b\d{6,12}\b/g
 const CALL = /\b([A-Za-z][A-Za-z0-9_$#]*)(?=\s*\.\s*[A-Za-z])/g
 const OBJREF_KINDS: Record<string, GraphNodeType> = { imp: 'import', rpt: 'report', wf: 'workflow' }
 const NAMED: GraphNodeType[] = ['field', 'trackor_type', 'db_package']
+
+// Ids are unique per table only, so a number links only when its context names the kind: the
+// column or variable it is compared with or assigned to, a ...ByID util call (those take config
+// field ids), or a name comment right after it.
+const ID_COLUMNS: [string, GraphNodeType][] = [
+  ['config_field_id', 'field'],
+  ['field_id', 'field'],
+  ['cf_id', 'field'],
+  ['xitor_type_id', 'trackor_type'],
+  ['trackor_type_id', 'trackor_type'],
+  ['parent_type_id', 'trackor_type'],
+  ['child_type_id', 'trackor_type'],
+  ['rule_id', 'rule'],
+  ['imp_spec_id', 'import'],
+  ['report_file_id', 'report'],
+  ['autom_id', 'automation'],
+  ['notif_id', 'notification'],
+  ['wf_template_id', 'workflow'],
+  ['module_id', 'module'],
+  ['db_package_id', 'db_package'],
+]
+const ID_KEYWORDS = new Set(
+  (
+    'and or not in is null then when where else case return values default set select from on ' +
+    'between like constant number integer pls_integer varchar2 varchar char date type rowtype ' +
+    'if elsif loop'
+  ).split(' '),
+)
+const IDENT = /:?[A-Za-z_][A-Za-z0-9_$#]*/g
+const NAME_COMMENT = /^\s*(?:\/\*\s*([^*]+?)\s*\*\/|--\s*(\S+))/
+
+export function idKind(before: string): GraphNodeType | undefined {
+  const text = (before.split(/[;\n]/).at(-1) ?? '')
+    .replace(/'[^']*'/g, "''")
+    .replace(/\/\*.*?\*\//g, ' ')
+  let depth = 0
+  for (let i = text.length - 1; i >= 0; i--) {
+    if (text[i] === ')') depth++
+    else if (text[i] === '(') {
+      if (depth === 0) {
+        const call = /([A-Za-z_][A-Za-z0-9_$#]*)\s*$/.exec(text.slice(0, i))
+        if (call && call[1].toLowerCase().endsWith('byid')) return 'field'
+        break
+      }
+      depth--
+    }
+  }
+  for (const token of [...text.matchAll(IDENT)].map((m) => m[0].toLowerCase()).reverse()) {
+    if (ID_KEYWORDS.has(token)) continue
+    if (token.startsWith(':')) return undefined
+    return ID_COLUMNS.find(([column]) => token.endsWith(column))?.[1]
+  }
+  return undefined
+}
+
+function byId(index: RefIndex, number: string, before: string, after: string) {
+  const candidates = index.byRef.get(Number(number)) ?? []
+  const kind = idKind(before)
+  if (kind) return candidates.find((n) => n.type === kind)
+  const m = NAME_COMMENT.exec(after)
+  const name = m ? (m[1] ?? m[2]).toLowerCase() : undefined
+  return name ? candidates.find((n) => n.name.toLowerCase() === name) : undefined
+}
 
 // The platform builds references as id.<name> with names lowercased and spaces as underscores.
 const key = (name: string) => name.toLowerCase().replace(/ /g, '_')
@@ -51,7 +114,7 @@ export function refIndex(nodes: GraphNode[], idx?: Index): RefIndex {
         .filter((n) => NAMED.includes(n.type) && n.name.length > 3)
         .map((n) => [n.name.toUpperCase(), n]),
     ),
-    ids: unique(nodes.map((n) => [n.ref, n])),
+    byRef: nodes.reduce((m, n) => m.set(n.ref, [...(m.get(n.ref) ?? []), n]), new Map()),
     packages: new Map(
       nodes.filter((n) => n.type === 'db_package').map((n) => [n.name.toUpperCase(), n]),
     ),
@@ -81,7 +144,10 @@ export function findRefs(line: string, index: RefIndex): Ref[] {
   }
   for (const m of line.matchAll(QUOTED))
     add(m.index, m[0], index.names.get(m[2].toUpperCase()), 'name')
-  for (const m of line.matchAll(NUMBER)) add(m.index, m[0], index.ids.get(Number(m[0])), 'id')
+  for (const m of line.matchAll(NUMBER)) {
+    const end = m.index + m[0].length
+    add(m.index, m[0], byId(index, m[0], line.slice(0, m.index), line.slice(end)), 'id')
+  }
   for (const m of line.matchAll(CALL))
     add(m.index, m[0], index.packages.get(m[1].toUpperCase()), 'call')
   return found.sort((a, b) => a.start - b.start)

@@ -133,3 +133,42 @@ def agent_server(logged_in):
     yield f"http://127.0.0.1:{httpd.server_address[1]}"
     httpd.shutdown()
     httpd.server_close()
+
+
+@pytest.mark.parametrize(
+    ("before", "kind"),
+    [
+        ("  where config_field_id = ", "field"),
+        ("  and prj.xitor_type_id = ", "trackor_type"),
+        ("  where config_field_id in (100100100, ", "field"),
+        ("  util.SetValByID(v_id, ", "field"),
+        ("  v_rule_id number := ", "rule"),
+        ("  c_kafka_notif_service_id constant notif_service.notif_service_id%type := ", None),
+        ("  and status.value_number in (", None),
+        ("  v := util.getval(:pk, ", None),
+        ("  v := ", None),
+        ("  x := 'xitor_type_id = ' || ", None),
+    ],
+)
+def test_ids_link_only_with_context(before, kind):
+    assert graph.id_kind(before) == kind
+
+
+def test_ids_resolve_by_context_or_name_comment():
+    g = graph._assemble(
+        rows(
+            fields=[{"CONFIG_FIELD_ID": "1000240", "CONFIG_FIELD_NAME": "P_STATUS"}],
+            automations=[{"AUTOM_ID": "1000240", "AUTOM_NAME": "Lock"}],
+            rules=[{"RULE_ID": "1", "RULE": "a"}, {"RULE_ID": "2", "RULE": "b"}],
+            rule_code=[
+                {
+                    "RULE_ID": "1",
+                    "CODE0": "c constant notif_service.notif_service_id%type := 1000240;",
+                },
+                {"RULE_ID": "2", "CODE0": "v := 1000240 /*P_STATUS*/; w := 1000240 -- Lock"},
+            ],
+        )
+    )
+    edges = {(e["source"], e["target"]) for e in g["edges"]}
+    assert not any(s == "rule:1" for s, _ in edges)
+    assert {("rule:2", "field:1000240"), ("rule:2", "automation:1000240")} <= edges

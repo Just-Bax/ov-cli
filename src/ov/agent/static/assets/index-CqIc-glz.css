@@ -990,6 +990,9 @@ svg.react-flow__connectionline {
   .inline-flex {
     display: inline-flex;
   }
+  .table {
+    display: table;
+  }
   .field-sizing-content {
     field-sizing: content;
   }
