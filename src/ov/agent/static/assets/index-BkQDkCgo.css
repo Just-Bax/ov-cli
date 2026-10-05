@@ -1297,8 +1297,14 @@ svg.react-flow__connectionline {
   .w-\[72px\] {
     width: 72px;
   }
+  .w-\[90px\] {
+    width: 90px;
+  }
   .w-\[150px\] {
     width: 150px;
+  }
+  .w-\[240px\] {
+    width: 240px;
   }
   .w-\[260px\] {
     width: 260px;
@@ -2435,6 +2441,9 @@ svg.react-flow__connectionline {
     }
     .hover\:bg-warn:hover {
       background-color: #e46b00;
+    }
+    .hover\:bg-white:hover {
+      background-color: var(--color-white);
     }
     .hover\:text-brand-strong:hover {
       color: #1e88e5;

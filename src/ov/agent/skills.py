@@ -16,6 +16,7 @@ ORDER = (
     "sources",
     "github",
     "datadog",
+    "pagerduty",
     "tce-best-practices",
 )
 

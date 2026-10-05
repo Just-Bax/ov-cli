@@ -384,10 +384,10 @@ waits for your **Approve**.
 
 In **Settings**:
 
-- **Skills** are instructions added to every run. Seven ship with `ov`: OneVizion Basics
+- **Skills** are instructions added to every run. Eight ship with `ov`: OneVizion Basics
   (where rules, automations, notifications, imports, reports, modules and workflows live,
   and how their runs and errors are logged), Working Style, one skill per tool group (OV
-  CLI, Sources, GitHub, Datadog; Datadog only while it is connected), and TCE Best
+  CLI, Sources, GitHub, Datadog, PagerDuty; the last two only while connected), and TCE Best
   Practices (trackor cases, the troubleshooting workflow, the case reply style). Edit them,
   switch any off, or write your own.
 - **Sources** are code and docs the agent can search: a local folder (a checkout of
@@ -404,6 +404,7 @@ The agent's tools come in groups, and the system prompt lists the ones a run has
 | Sources | `source_search`, `source_read` |
 | GitHub | `github_clone` (clone or pull a repo, then read it as a source) |
 | Datadog | `datadog_logs`, `datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm` |
+| PagerDuty | `pagerduty_incidents`, `pagerduty_incident`, `pagerduty_oncall` |
 | This run | `read_file`, `propose_change`, `ask_user`, `finish` |
 
 Nothing leaves your machine except calls to your instances and to GitHub Copilot. The
@@ -429,7 +430,9 @@ code in a tab. References in the code sit on a pill in their object's color: hov
 card with what it is and how it is referenced, click to open. The panel on the right shows
 status and trigger, quick static checks (SELECT INTO without a no-data handler, queries
 inside loops, COMMIT in a rule, swallowed errors, unknown hard-coded ids and similar),
-recent runs and errors, and everything the object links to.
+recent runs and errors, and everything the object links to. "Review with AI" and "Ask the
+agent" open New run with a prompt filled in for you to edit and send; "Show on map" jumps to
+the object on the Instance map.
 
 **Datadog** (optional) adds the server side. In Settings > Integrations, connect it with
 your own keys: an **API key** (Organization Settings > API Keys) and an **application key**
@@ -445,13 +448,21 @@ match unless you give it its own.
 Once connected, runs get read-only Datadog tools (`datadog_logs` with message grouping,
 `datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm`), offered only for
 what the key can read, and the **Health** page shows per instance: alerting monitors, error
-logs with the trend
-against the previous window and the top error groups, log volume, slowest endpoints,
-server metrics (CPU, load, memory, disk, JVM heap), recent events, and the instance's own
-failed processes, with "Ask the agent" to start an investigation from there. Your Datadog
-admins can see application keys and may audit their use, and logs the agent reads in a run
-go to GitHub Copilot like any other tool result. "Review with AI" starts a run that reads the code, checks
-what it touches and proposes fixes; "Show on map" jumps to it on the Instance map.
+logs with the trend against the previous window and the top error groups, log volume,
+slowest endpoints, server metrics (CPU, load, memory, disk, JVM heap), recent events, and
+the instance's own failed processes, with "Ask the agent" to start an investigation from
+there. Your Datadog admins can see application keys and may audit their use, and logs the
+agent reads in a run go to GitHub Copilot like any other tool result.
+
+**PagerDuty** (optional) adds incidents and on-call. In Settings > Integrations, connect it
+with your account address (e.g. `yourcompany.pagerduty.com`, which also picks the US or EU
+region) and a personal **API user token** from My Profile > User Settings > Create API User
+Token. The token is checked, stored in the OS keyring and only used to read. Then pick the
+PagerDuty services that page for each instance; "Suggest matches" proposes services whose
+name or description mentions the instance, and tenants share their host's services. Runs
+get `pagerduty_incidents`, `pagerduty_incident` (timeline, alerts and notes) and
+`pagerduty_oncall`, and Health shows open and recent incidents, who is on call, and counts
+triggered incidents in its verdict. PagerDuty admins can see and revoke user tokens.
 
 `ov agent --port 5181` picks another port; `--no-open` skips opening the browser.
 

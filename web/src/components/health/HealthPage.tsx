@@ -16,6 +16,7 @@ import type {
   HealthPoint,
   Instance,
   InstanceHealth,
+  PagerDutyHealth,
 } from '@shared/types.ts'
 import {
   DATADOG_PURPLE,
@@ -24,6 +25,7 @@ import {
   useDatadog,
 } from '@/components/datadog/Datadog'
 import { useInstances } from '@/components/InstancePicker'
+import { PagerDutyBadge } from '@/components/pagerduty/PagerDuty'
 import {
   type BadgeTone,
   Button,
@@ -325,6 +327,15 @@ function signalsOf(report: InstanceHealth, errorChange: number | null): Signal[]
   const metric = (title: string) => report.metrics?.find((m) => m.title === title)
   const latest = (title: string) => metric(title)?.points.at(-1)?.v
   const out: Signal[] = []
+  const open = report.pagerduty?.open ?? []
+  const triggered = open.filter((i) => i.status === 'triggered').length
+  if (triggered)
+    out.push({
+      tone: 'danger',
+      text: `${triggered} PagerDuty incident${triggered > 1 ? 's' : ''} triggered`,
+    })
+  if (open.length - triggered)
+    out.push({ tone: 'warn', text: `${open.length - triggered} PagerDuty acknowledged` })
   if (alerts)
     out.push({ tone: 'danger', text: `${alerts} monitor${alerts > 1 ? 's' : ''} alerting` })
   if (warns) out.push({ tone: 'warn', text: `${warns} monitor${warns > 1 ? 's' : ''} warning` })
@@ -386,6 +397,99 @@ function Quiet({ children }: { children: ReactNode }) {
 
 function SubHead({ children }: { children: ReactNode }) {
   return <div className="text-faint pb-1.5 text-[11.5px] font-medium">{children}</div>
+}
+
+const INCIDENT_DOT: Record<string, string> = {
+  triggered: 'bg-danger',
+  acknowledged: 'bg-warn',
+  resolved: 'bg-ok',
+}
+
+function when(value: string): string {
+  const d = new Date(value)
+  return Number.isNaN(d.getTime())
+    ? value
+    : d.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+}
+
+function Incidents({ data, range }: { data: PagerDutyHealth; range: Range }) {
+  const open = data.open ?? []
+  const openIds = new Set(open.map((i) => i.id))
+  const recent = (data.incidents ?? []).filter((i) => !openIds.has(i.id))
+  const rows = [...open, ...recent].slice(0, 8)
+  const primary = data.oncall ?? []
+  return (
+    <Card className="p-5">
+      <div className="flex items-start gap-3 pb-3">
+        <PagerDutyBadge />
+        <div className="min-w-0 flex-1">
+          <div className="text-fg text-[13.5px] font-semibold">Incidents</div>
+          <div className="text-muted mt-0.5 text-[12px]">
+            {data.errors.match
+              ? 'PagerDuty is connected, but no service is matched to this instance.'
+              : `${open.length} open - ${recent.length} more in the last ${RANGE_WORDS[range]}`}
+          </div>
+        </div>
+        {primary.length ? (
+          <div className="text-right">
+            <div className="text-faint text-[11px] font-medium">On call now</div>
+            <div className="text-fg text-[12.5px] font-medium">
+              {primary.map((o) => o.user).join(', ')}
+            </div>
+          </div>
+        ) : null}
+        <a
+          href={data.webUrl ? `${data.webUrl}/incidents` : '#'}
+          target="_blank"
+          rel="noreferrer"
+          className="text-brand-strong hover:bg-brand-soft inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] font-medium"
+        >
+          PagerDuty <ArrowTopRightOnSquareIcon className="size-3" />
+        </a>
+      </div>
+      {data.errors.match ? (
+        <a
+          href={href({ page: 'settings' })}
+          className="text-brand-strong text-[12.5px] font-medium hover:underline"
+        >
+          Match it in Settings
+        </a>
+      ) : rows.length ? (
+        <div className="-mx-2 space-y-0.5">
+          {rows.map((i) => (
+            <a
+              key={i.id}
+              href={i.url}
+              target="_blank"
+              rel="noreferrer"
+              className="hover:bg-raised flex items-center gap-3 rounded-full px-3 py-2"
+            >
+              <span className={cn('size-2 shrink-0 rounded-full', INCIDENT_DOT[i.status])} />
+              <span className="text-faint w-14 shrink-0 text-[12px] tabular-nums">#{i.number}</span>
+              <span className="text-fg min-w-0 flex-1 truncate text-[12.5px]">{i.title}</span>
+              {i.urgency === 'high' ? (
+                <span className="bg-danger-soft text-danger shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium">
+                  high
+                </span>
+              ) : null}
+              <span className="text-faint w-28 shrink-0 text-right text-[11.5px]">
+                {when(i.created)}
+              </span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <Quiet>
+          {Object.values(data.errors)[0] ?? `No incidents in the last ${RANGE_WORDS[range]}.`}
+        </Quiet>
+      )}
+    </Card>
+  )
 }
 
 function Report({
@@ -561,6 +665,8 @@ function Report({
           )}
         </Card>
       </div>
+
+      {report.pagerduty ? <Incidents data={report.pagerduty} range={range} /> : null}
 
       {report.metrics?.length ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">

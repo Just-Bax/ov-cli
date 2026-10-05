@@ -18,6 +18,7 @@ import {
   useDatadog,
 } from '@/components/datadog/Datadog'
 import { dialog } from '@/components/Dialog'
+import { PagerDutyAccountRow, PagerDutyCard, usePagerDuty } from '@/components/pagerduty/PagerDuty'
 import {
   AddInstanceForm,
   SignInModal,
@@ -738,6 +739,7 @@ function Sources() {
 export function SettingsPage({ onChange }: { onChange: () => void }) {
   const [user, setUser] = useState<string>()
   const datadog = useDatadog()
+  const pd = usePagerDuty()
   useEffect(() => {
     api.status().then((s) => setUser(s.copilot.user))
   }, [])
@@ -768,7 +770,10 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           title="Integrations"
           hint="Outside services the agent can read from, and the Health page draws on."
         >
-          <DatadogCard status={datadog.status} setStatus={datadog.setStatus} />
+          <div className="space-y-4">
+            <DatadogCard status={datadog.status} setStatus={datadog.setStatus} />
+            <PagerDutyCard status={pd.status} setStatus={pd.setStatus} />
+          </div>
         </Section>
         <Section
           title="Skills"
@@ -809,6 +814,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
               }
             />
             <DatadogAccountRow status={datadog.status} setStatus={datadog.setStatus} />
+            <PagerDutyAccountRow status={pd.status} setStatus={pd.setStatus} />
           </Card>
         </Section>
       </div>

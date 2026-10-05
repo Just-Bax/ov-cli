@@ -59,7 +59,7 @@ export function useDatadog() {
   return { status, setStatus, reload: load }
 }
 
-function KeyField({
+export function KeyField({
   label,
   hint,
   href,

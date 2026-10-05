@@ -20,12 +20,13 @@ import httpx
 
 from .. import __version__
 from ..errors import OvError
-from . import copilot, datadog, db, explorer, graph, skills, sources
+from . import copilot, datadog, db, explorer, graph, pagerduty, skills, sources
 from .cancel import Cancel
 from .copilot import CopilotError
 from .datadog import DatadogError
 from .explorer import ExplorerError
 from .ovproc import host_of, instances, login, run_ov, version
+from .pagerduty import PagerDutyError
 from .run import RunError, runs
 from .skills import SkillError
 from .sources import SourceError
@@ -203,6 +204,7 @@ class Handler(BaseHTTPRequestHandler):
             CopilotError,
             ExplorerError,
             DatadogError,
+            PagerDutyError,
             OvError,
             ValueError,
         ) as exc:
@@ -512,7 +514,48 @@ def instance_health(h: Handler) -> dict[str, Any]:
     alias = _instance_alias(h)
     range_key = h.query.get("range", "24h")
     seconds = datadog.RANGES.get(range_key, datadog.RANGES["24h"])[0]
-    return datadog.health(alias, range_key, _ov_failures(alias, seconds))
+    report = dict(datadog.health(alias, range_key, _ov_failures(alias, seconds)))
+    try:
+        report["pagerduty"] = pagerduty.health(alias, report["from"], report["to"], range_key)
+    except PagerDutyError as exc:
+        report["pagerduty"] = {"errors": {"pagerduty": str(exc)}, "services": []}
+    return report
+
+
+@route("GET", "/api/pagerduty")
+def pagerduty_status(_: Handler) -> dict[str, Any]:
+    return pagerduty.status()
+
+
+@route("POST", "/api/pagerduty/connect")
+def pagerduty_connect(h: Handler) -> dict[str, Any]:
+    data = h.json()
+    return pagerduty.connect(str(data.get("account") or ""), str(data.get("apiKey") or ""))
+
+
+@route("POST", "/api/pagerduty/test")
+def pagerduty_test(_: Handler) -> dict[str, Any]:
+    return pagerduty.retest()
+
+
+@route("DELETE", "/api/pagerduty")
+def pagerduty_disconnect(_: Handler) -> dict[str, Any]:
+    return pagerduty.disconnect()
+
+
+@route("GET", "/api/pagerduty/services")
+def pagerduty_services(_: Handler) -> dict[str, Any]:
+    return pagerduty.suggest()
+
+
+@route("PUT", "/api/pagerduty/matches")
+def pagerduty_matches(h: Handler) -> dict[str, Any]:
+    matches = h.json().get("matches")
+    if not isinstance(matches, dict):
+        raise HttpError(400, "Give matches as an object of instance alias to service ids.")
+    return pagerduty.save_matches(
+        {str(k): [str(x) for x in v] for k, v in matches.items() if isinstance(v, list)}
+    )
 
 
 @route("GET", "/api/runs")

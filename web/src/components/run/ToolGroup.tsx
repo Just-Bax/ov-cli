@@ -12,6 +12,7 @@ import {
   MapIcon,
   ShareIcon,
   TicketIcon,
+  UserIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import type { Icon } from '@/components/ui'
@@ -51,6 +52,9 @@ const ICONS: Record<string, Icon> = {
   datadog_monitors: BellAlertIcon,
   datadog_events: CalendarIcon,
   datadog_apm: ClockIcon,
+  pagerduty_incidents: BellAlertIcon,
+  pagerduty_incident: BellAlertIcon,
+  pagerduty_oncall: UserIcon,
 }
 
 const NOUNS: Record<string, [string, string]> = {
@@ -68,6 +72,9 @@ const NOUNS: Record<string, [string, string]> = {
   datadog_monitors: ['monitor check', 'monitor checks'],
   datadog_events: ['event search', 'event searches'],
   datadog_apm: ['APM query', 'APM queries'],
+  pagerduty_incidents: ['incident search', 'incident searches'],
+  pagerduty_incident: ['incident', 'incidents'],
+  pagerduty_oncall: ['on-call check', 'on-call checks'],
 }
 
 function summarize(tools: ToolActivity[]): string {
@@ -89,7 +96,8 @@ function readableInput(tool: ToolActivity): { text: string; lang: string } {
     const at = a.instance ? `-- ${a.instance}\n` : ''
     const name = nameOf(tool)
     if (name === 'ov_sql') return { text: `${at}${a.query}`, lang: 'sql' }
-    if (name.startsWith('datadog_'))
+    if (name === 'pagerduty_incident') return { text: String(a.incident), lang: 'text' }
+    if (name.startsWith('datadog_') || name.startsWith('pagerduty_'))
       return {
         text: [
           a.instance ? `instance: ${a.instance}` : '',

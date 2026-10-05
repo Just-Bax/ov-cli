@@ -8,6 +8,8 @@ import type {
   InstanceHealth,
   ModelInfo,
   ObjectActivity,
+  PagerDutyService,
+  PagerDutyStatus,
   Rating,
   RunInput,
   RunState,
@@ -75,6 +77,18 @@ export const api = {
   datadogMatches: (matches: Record<string, string>) =>
     put<DatadogStatus>('/datadog/matches', { matches }),
   datadogCount: (query: string) => request<{ count: number }>(`/datadog/count?query=${seg(query)}`),
+  pagerduty: () => request<PagerDutyStatus>('/pagerduty'),
+  pagerdutyConnect: (account: string, apiKey: string) =>
+    post<PagerDutyStatus>('/pagerduty/connect', { account, apiKey }),
+  pagerdutyTest: () => post<PagerDutyStatus>('/pagerduty/test', {}),
+  pagerdutyDisconnect: () => del<PagerDutyStatus>('/pagerduty'),
+  pagerdutyServices: () =>
+    request<{
+      services: PagerDutyService[]
+      suggestions: { alias: string; host: string; services: string[] }[]
+    }>('/pagerduty/services'),
+  pagerdutyMatches: (matches: Record<string, string[]>) =>
+    put<PagerDutyStatus>('/pagerduty/matches', { matches }),
   instanceHealth: (instance: string, range: string) =>
     request<InstanceHealth>(`/instance-health?instance=${seg(instance)}&range=${seg(range)}`),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),

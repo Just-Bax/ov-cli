@@ -360,5 +360,54 @@ export interface InstanceHealth {
     hosts: number
   }[]
   traffic?: { requests: HealthPoint[]; p95Ms: HealthPoint[] }
+  pagerduty?: PagerDutyHealth | null
   onevizion?: { type: string; count: number; last?: string }[]
+}
+
+export type PagerDutyArea = 'incidents' | 'services' | 'oncall'
+
+export interface PagerDutyStatus {
+  connected: boolean
+  region: 'us' | 'eu'
+  subdomain: string
+  webUrl: string
+  user?: string | null
+  email?: string | null
+  keyLast4?: string | null
+  permissions: Record<PagerDutyArea, boolean>
+  checkedAt?: number | null
+  error?: string | null
+  matches: Record<string, string[]>
+}
+
+export interface PagerDutyService {
+  id: string
+  name: string
+  description: string
+  status: string
+  policy: string
+  url: string
+}
+
+export interface PagerDutyIncident {
+  id: string
+  number: number
+  title: string
+  status: string
+  urgency: string
+  priority: string
+  service: string
+  created: string
+  changed: string
+  assignees: string[]
+  url: string
+}
+
+export interface PagerDutyHealth {
+  services: string[]
+  webUrl?: string
+  errors: Record<string, string>
+  open?: PagerDutyIncident[]
+  incidents?: PagerDutyIncident[]
+  oncall?: { user: string; level: number; policy: string; schedule: string; until: string }[]
 }

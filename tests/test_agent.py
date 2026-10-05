@@ -61,13 +61,14 @@ class FakeContext:
 
 def test_builtin_skills_ship_and_can_be_customized_and_reset():
     names = [s["name"] for s in skills.list_skills()]
-    assert names[:7] == [
+    assert names[:8] == [
         "onevizion",
         "working-style",
         "ov-cli",
         "sources",
         "github",
         "datadog",
+        "pagerduty",
         "tce-best-practices",
     ]
 

@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from urllib.parse import quote
 
 from ..errors import EXIT_READ_ONLY
-from . import datadog, graph, sources
+from . import datadog, graph, pagerduty, sources
 from .cancel import Cancel
 from .ovproc import OvResult, find_instance, host_of, run_ov
 from .workspace import IMAGE_EXTS, image_mime, within
@@ -970,7 +970,155 @@ TOOLS += [
     ),
 ]
 
-TOOL_SPECS = [t.spec for t in TOOLS if t.name not in DATADOG_TOOLS]
+
+def _pagerduty(handler: Handler) -> Handler:
+    def wrapped(args: dict[str, Any], ctx: ToolContext) -> str:
+        try:
+            return handler(args, ctx)
+        except (pagerduty.PagerDutyError, datadog.DatadogError) as exc:
+            raise ToolError(str(exc)) from None
+
+    return wrapped
+
+
+def _incident_line(i: dict[str, Any]) -> str:
+    who = f", assigned {', '.join(i['assignees'])}" if i["assignees"] else ""
+    pri = f" {i['priority']}" if i["priority"] else ""
+    return (
+        f"#{i['number']} [{i['status']}, {i['urgency']}{pri}] {i['title']}\n"
+        f"  service {i['service']}, created {pagerduty.short_time(i['created'])} UTC, "
+        f"last change {pagerduty.short_time(i['changed'])}{who}\n  {i['url']}"
+    )
+
+
+def _pagerduty_incidents(args: dict[str, Any], ctx: ToolContext) -> str:
+    if args.get("all_services"):
+        where, ids = "all services", None
+    else:
+        host, ids = pagerduty.resolve_services(args.get("instance"), ctx.instance)
+        where = host or "all services"
+    start = datadog.to_ms(args.get("from"), "now-7d")
+    end = datadog.to_ms(args.get("to"), "now")
+    statuses = [
+        s for s in (args.get("statuses") or []) if s in ("triggered", "acknowledged", "resolved")
+    ]
+    limit = max(1, min(int(args.get("limit") or 25), pagerduty.MAX_INCIDENTS))
+    rows = pagerduty.incidents(ids or None, start, end, statuses or None, limit * 4)
+    text = str(args.get("query") or "").strip().lower()
+    if text:
+        rows = [r for r in rows if text in f"{r['title']} {r['service']}".lower()]
+    status_text = f", status {'/'.join(statuses)}" if statuses else ""
+    match_text = f", matching {text!r}" if text else ""
+    head = (
+        f"PagerDuty incidents for {where}, {pagerduty.iso_utc(start)} to {pagerduty.iso_utc(end)}"
+        f"{status_text}{match_text}"
+    )
+    if not rows:
+        return f"{head}\nNone."
+    shown = rows[:limit]
+    more = f"\n({len(rows) - limit} more not shown)" if len(rows) > limit else ""
+    return clip(f"{head}\n" + "\n".join(_incident_line(r) for r in shown) + more, ctx, "incidents")
+
+
+def _pagerduty_incident(args: dict[str, Any], ctx: ToolContext) -> str:
+    i = pagerduty.incident_detail(str(args.get("incident") or ""))
+    lines = [_incident_line(i), "", "Timeline:"]
+    lines += [
+        f"- {pagerduty.short_time(e['time'])} {e['type']}: {e['summary']}" for e in i["timeline"]
+    ] or ["- none"]
+    if i["alerts"]:
+        lines += ["", "Alerts:"]
+        for a in i["alerts"]:
+            lines.append(f"- {pagerduty.short_time(a['time'])} [{a['status']}] {a['summary']}")
+            if a["details"]:
+                lines.append("  " + a["details"].replace("\n", "\n  "))
+    if i["notes"]:
+        lines += ["", "Notes:"]
+        lines += [f"- {pagerduty.short_time(n['time'])} {n['by']}: {n['text']}" for n in i["notes"]]
+    return clip("\n".join(lines), ctx, "incident")
+
+
+def _pagerduty_oncall(args: dict[str, Any], ctx: ToolContext) -> str:
+    host, ids = pagerduty.resolve_services(args.get("instance"), ctx.instance)
+    at = datadog.to_ms(args.get("at"), "now") if args.get("at") else None
+    rows = pagerduty.oncall(ids, at)
+    if not rows:
+        return f"Nobody is on call for the PagerDuty services of {host or 'this instance'}."
+    lines = [
+        f"- level {r['level']} {r['user']} ({r['policy']}"
+        f"{', ' + r['schedule'] if r['schedule'] else ''}"
+        f"{', until ' + pagerduty.short_time(r['until']) if r['until'] else ''})"
+        for r in rows
+    ]
+    when = f"at {pagerduty.iso_utc(at)}" if at else "now"
+    return f"On call {when} for {host}:\n" + "\n".join(lines)
+
+
+def _pagerduty_label(kind: str) -> Callable[[dict[str, Any]], str]:
+    def label(a: dict[str, Any]) -> str:
+        what = a.get("incident") or a.get("query") or ""
+        at = f" @ {a['instance']}" if a.get("instance") else ""
+        return f"PagerDuty {kind}{': ' + str(what)[:60] if what else ''}{at}"
+
+    return label
+
+
+# area -> tools; offered only when PagerDuty is connected and the key can read the area.
+PAGERDUTY_TOOLS = {
+    "pagerduty_incidents": "incidents",
+    "pagerduty_incident": "incidents",
+    "pagerduty_oncall": "oncall",
+}
+
+TOOLS += [
+    Tool(
+        "pagerduty_incidents",
+        "List PagerDuty incidents for an instance's matched services in a time window, newest "
+        "first: number, status, urgency, title, service, assignee and link. Filter by statuses "
+        "and a text query; all_services=true searches every service.",
+        {
+            "instance": _str("Instance alias or host. Defaults to the run's instance."),
+            "from": WINDOW_FROM,
+            "to": WINDOW_TO,
+            "statuses": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["triggered", "acknowledged", "resolved"]},
+            },
+            "query": _str("Text the title or service must contain"),
+            "all_services": {"type": "boolean"},
+            "limit": _int(f"Max incidents, default 25, max {pagerduty.MAX_INCIDENTS}"),
+        },
+        [],
+        _pagerduty_label("incidents"),
+        _pagerduty(_pagerduty_incidents),
+    ),
+    Tool(
+        "pagerduty_incident",
+        "Read one PagerDuty incident in full: status, timeline (triggered, acknowledged, "
+        "escalated, resolved), alerts with their details (Datadog monitor alerts carry the "
+        "monitor and its query) and notes.",
+        {"incident": _str("Incident number (e.g. 12345), id or PagerDuty link")},
+        ["incident"],
+        _pagerduty_label("incident"),
+        _pagerduty(_pagerduty_incident),
+    ),
+    Tool(
+        "pagerduty_oncall",
+        "Who is on call for an instance's PagerDuty services, now or at a given time, by "
+        "escalation level.",
+        {
+            "instance": _str("Instance alias or host. Defaults to the run's instance."),
+            "at": _str('A time, e.g. "now-2h" or an ISO time (UTC); default now'),
+        },
+        [],
+        _pagerduty_label("on call"),
+        _pagerduty(_pagerduty_oncall),
+    ),
+]
+
+TOOL_SPECS = [
+    t.spec for t in TOOLS if t.name not in DATADOG_TOOLS and t.name not in PAGERDUTY_TOOLS
+]
 
 # Every tool belongs to exactly one group; the prompt and the skills use the same names.
 TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
@@ -978,6 +1126,7 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     ("Sources", "folders on this computer and cloned repos", ["source_search", "source_read"]),
     ("GitHub", "module and project repositories", ["github_clone"]),
     ("Datadog", "logs, metrics, monitors, events and APM", list(DATADOG_TOOLS)),
+    ("PagerDuty", "incidents and on-call", list(PAGERDUTY_TOOLS)),
     (
         "This run",
         "workspace files, proposed changes, questions and the result",
@@ -987,12 +1136,15 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
 
 
 def tool_specs() -> list[dict[str, Any]]:
-    if not datadog.connected():
-        return TOOL_SPECS
-    allowed = datadog.permissions()
-    return TOOL_SPECS + [
-        t.spec for t in TOOLS if t.name in DATADOG_TOOLS and allowed.get(DATADOG_TOOLS[t.name])
-    ]
+    specs = list(TOOL_SPECS)
+    for linked, allowed, names in (
+        (datadog.connected, datadog.permissions, DATADOG_TOOLS),
+        (pagerduty.connected, pagerduty.permissions, PAGERDUTY_TOOLS),
+    ):
+        if linked():
+            areas = allowed()
+            specs += [t.spec for t in TOOLS if t.name in names and areas.get(names[t.name])]
+    return specs
 
 
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from . import datadog, skills, sources
+from . import datadog, pagerduty, skills, sources
 from .ovproc import instances
 from .tools import TOOL_GROUPS, tool_specs
 
@@ -24,8 +24,10 @@ def system_prompt(write_access: bool, instance: str) -> str:
         if s["ready"]
     )
     linked = datadog.connected()
-    # The Datadog skill only makes sense when its tools are offered.
-    shown = [s for s in skills.enabled_skills() if s["name"] != "datadog" or linked]
+    paged = pagerduty.connected()
+    # An integration's skill only makes sense when its tools are offered.
+    hidden = {name for name, on in (("datadog", linked), ("pagerduty", paged)) if not on}
+    shown = [s for s in skills.enabled_skills() if s["name"] not in hidden]
     skill_text = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in shown)
     offered = {spec["function"]["name"] for spec in tool_specs()}
     groups = "\n".join(
@@ -39,6 +41,20 @@ def system_prompt(write_access: bool, instance: str) -> str:
         dd_text = f"connected. Instance filters:\n{matched or 'none matched yet'}"
     else:
         dd_text = "not connected"
+    if paged:
+        by_id = {}
+        try:
+            by_id = {s["id"]: s["name"] for s in pagerduty.services()}
+        except pagerduty.PagerDutyError:
+            pass
+        pd_matches = pagerduty.load_state().get("matches") or {}
+        pd_lines = "\n".join(
+            f"- {alias}: {', '.join(by_id.get(i, i) for i in ids)}"
+            for alias, ids in sorted(pd_matches.items())
+        )
+        pd_text = f"connected. Instance services:\n{pd_lines or 'none matched yet'}"
+    else:
+        pd_text = "not connected"
 
     return f"""You are OV Agent, a senior OneVizion Tier 3 engineer (TCE). You troubleshoot \
 support cases and answer questions about OneVizion instances by investigating them yourself \
@@ -64,6 +80,8 @@ Sources you can search with source_search and source_read:
 {configured or "none configured"}
 
 Datadog: {dd_text}
+
+PagerDuty: {pd_text}
 
 # Skills
 
