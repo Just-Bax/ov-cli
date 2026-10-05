@@ -234,7 +234,7 @@ def retest() -> dict[str, Any]:
 def disconnect() -> dict[str, Any]:
     credentials.delete(CREDENTIAL_KEY)
     state = load_state()
-    _save_state({"matches": state.get("matches") or {}, "subdomain": state.get("subdomain")})
+    _save_state({"subdomain": state.get("subdomain")})
     _forget_caches()
     return status()
 
@@ -259,7 +259,6 @@ def status() -> dict[str, Any]:
         "permissions": permissions() if on else {a: False for a in AREAS},
         "checkedAt": state.get("checkedAt") if on else None,
         "error": state.get("error") if on else None,
-        "matches": state.get("matches") or {},
     }
 
 
@@ -286,7 +285,16 @@ def services(refresh: bool = False) -> list[dict[str, Any]]:
     return out
 
 
-# Matches are per host: Datadog and PagerDuty see servers, not tenants.
+# Services are shared, so incidents are tied to instances by what their alert names:
+# OV monitoring sends details.website (or details.database for database alerts), and
+# Datadog names the host, a tag such as dbinstanceidentifier:<name>, or [Instance].
+_HOST = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+\b")
+_TAG = re.compile(r"\[([a-z0-9][a-z0-9 _-]*)\]")
+_PAIR = re.compile(r"\b[a-z_]+:([a-z0-9][a-z0-9_-]*)")
+WEBSITE_KEYS = ("website", "host", "hostname", "url", "client_url")
+EMPTY = {"", "none", "null", "n/a", "na", "-", "unknown"}
+
+
 def main_alias(alias: str) -> str:
     found = find_instance(alias)
     if found is None:
@@ -296,45 +304,87 @@ def main_alias(alias: str) -> str:
     return same[0]["alias"] if same else alias
 
 
-def save_matches(matches: dict[str, list[str]]) -> dict[str, Any]:
+def _channel(row: dict[str, Any]) -> dict[str, Any]:
+    return (row.get("first_trigger_log_entry") or {}).get("channel") or {}
+
+
+def websites_of(row: dict[str, Any]) -> list[str]:
+    details = _channel(row).get("details")
+    found: list[str] = []
+    if isinstance(details, dict):
+        for key in WEBSITE_KEYS:
+            value = str(details.get(key) or "").strip().lower()
+            if value not in EMPTY:
+                found.append(urlsplit(value if "://" in value else f"//{value}").hostname or value)
+    return [w for w in dict.fromkeys(found) if w and w not in EMPTY]
+
+
+def database_of(row: dict[str, Any]) -> str:
+    details = _channel(row).get("details")
+    value = str(details.get("database") or "").strip().lower() if isinstance(details, dict) else ""
+    return "" if value in EMPTY else value
+
+
+# Website alerts name both the website and its database; remember the pairs so a later
+# database-only alert can be tied to every instance on that database.
+def learn_databases(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
     state = load_state()
-    cleaned = {
-        k: sorted({str(x) for x in v if x}) for k, v in matches.items() if isinstance(v, list)
-    }
-    state["matches"] = {k: v for k, v in cleaned.items() if v}
-    _save_state(state)
-    _health_cache.clear()
-    return status()
+    known: dict[str, list[str]] = {k: list(v) for k, v in (state.get("databases") or {}).items()}
+    changed = False
+    for r in rows:
+        if r["database"]:
+            for site in r["websites"]:
+                if r["database"] not in known.setdefault(site, []):
+                    known[site].append(r["database"])
+                    changed = True
+    if changed:
+        state["databases"] = known
+        _save_state(state)
+    return known
 
 
-def services_for(alias: str) -> list[str]:
-    matches = load_state().get("matches") or {}
-    return list(matches.get(main_alias(alias)) or matches.get(alias) or [])
+def _text_of(row: dict[str, Any]) -> str:
+    channel = _channel(row)
+    parts = [row.get("title"), row.get("summary"), channel.get("summary"), channel.get("details")]
+    return " ".join(json.dumps(p) if isinstance(p, dict) else str(p or "") for p in parts).lower()
 
 
-def _words(value: str) -> set[str]:
-    return {w for w in re.split(r"[^a-z0-9]+", value.lower()) if len(w) > 1}
+def _datadog_hosts(alias: str) -> list[tuple[str, bool]]:
+    from . import datadog
 
-
-def suggest() -> dict[str, Any]:
-    rows = services(refresh=True)
+    try:
+        scope = datadog.filter_for(alias)
+    except Exception:
+        return []
     out = []
-    seen: set[str] = set()
-    for inst in instances():
-        alias = main_alias(inst["alias"])
-        if alias in seen:
-            continue
-        seen.add(alias)
-        host = inst["host"].split(":")[0].lower()
-        label = host.split(".")[0]
-        picked = [
-            s["id"]
-            for s in rows
-            if host in f"{s['name']} {s['description']}".lower()
-            or label in _words(f"{s['name']} {s['description']}")
-        ]
-        out.append({"alias": alias, "host": inst["host"], "services": picked})
-    return {"services": rows, "suggestions": out}
+    for tag in scope.split():
+        name, _, value = tag.partition(":")
+        if name == "host" and value:
+            out.append((value.lower().rstrip("*"), value.endswith("*")))
+    return out
+
+
+def belongs_to(
+    incident: dict[str, Any], host: str, alias: str = "", databases: list[str] | None = None
+) -> bool:
+    host = host.split(":")[0].lower()
+    label = host.split(".")[0]
+    if host in incident["websites"]:
+        return True
+    if incident["websites"]:
+        return False
+    if incident["database"]:
+        return incident["database"] in {label, *(databases or [])}
+    text = incident["text"]
+    hosts = set(_HOST.findall(text))
+    if host in hosts:
+        return True
+    for value, prefix in _datadog_hosts(alias) if alias else []:
+        if any(h == value or (prefix and h.startswith(value)) for h in hosts):
+            return True
+    if any(tag.strip() == label for tag in _TAG.findall(text)):
+        return True
+    return label in _PAIR.findall(text)
 
 
 def iso_utc(ms: int) -> str:
@@ -350,39 +400,97 @@ def _incident(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id") or "",
         "number": row.get("incident_number"),
-        "title": str(row.get("title") or row.get("summary") or "")[:300],
+        "title": str(row.get("title") or row.get("summary") or "").strip()[:300],
         "status": row.get("status") or "",
         "urgency": row.get("urgency") or "",
         "priority": (row.get("priority") or {}).get("summary") or "",
         "service": (row.get("service") or {}).get("summary") or "",
         "serviceId": (row.get("service") or {}).get("id") or "",
+        "policy": (row.get("escalation_policy") or {}).get("id") or "",
         "created": row.get("created_at") or "",
         "changed": row.get("last_status_change_at") or "",
         "assignees": [a for a in assignees if a],
         "url": row.get("html_url") or "",
+        "websites": websites_of(row),
+        "database": database_of(row),
+        "text": _text_of(row),
     }
 
 
+def public(incident: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in incident.items() if k != "text"}
+
+
 def incidents(
-    service_ids: list[str] | None,
     start: int,
     end: int,
     statuses: list[str] | None = None,
-    limit: int = MAX_INCIDENTS,
+    limit: int = 1000,
 ) -> list[dict[str, Any]]:
     params: dict[str, Any] = {
         "since": iso_utc(start),
         "until": iso_utc(end),
         "sort_by": "created_at:desc",
         "time_zone": "UTC",
+        "include[]": ["first_trigger_log_entries"],
     }
-    if service_ids:
-        params["service_ids[]"] = service_ids
     if statuses:
         params["statuses[]"] = statuses
     with client() as pd:
-        rows = pd.pages("/incidents", "incidents", "incidents", limit, **params)
-    return [_incident(r) for r in rows]
+        rows = [
+            _incident(r) for r in pd.pages("/incidents", "incidents", "incidents", limit, **params)
+        ]
+    learn_databases(rows)
+    return rows
+
+
+def for_instance(rows: list[dict[str, Any]], alias: str) -> list[dict[str, Any]]:
+    found = find_instance(alias)
+    if found is None:
+        return []
+    main = main_alias(found["alias"])
+    databases = (load_state().get("databases") or {}).get(found["host"].split(":")[0].lower())
+    return [r for r in rows if belongs_to(r, found["host"], main, databases)]
+
+
+# Which signed-in instances (and other websites) recent incidents point at.
+def website_map(days: int = 7) -> dict[str, Any]:
+    end = int(time.time() * 1000)
+    rows = incidents(end - days * 86_400_000, end)
+    hosts: dict[str, dict[str, Any]] = {}
+    signed = {}
+    for inst in instances():
+        signed.setdefault(inst["host"], main_alias(inst["alias"]))
+    matched_ids: set[str] = set()
+    known = load_state().get("databases") or {}
+    for host, alias in signed.items():
+        mine = [r for r in rows if belongs_to(r, host, alias, known.get(host))]
+        if mine:
+            matched_ids.update(r["id"] for r in mine)
+            hosts[host] = _summary(host, alias, mine)
+    for r in rows:
+        if r["id"] in matched_ids:
+            continue
+        site_of_db = {d: s for s, dbs in known.items() for d in dbs if len(dbs) == 1}
+        fallback = site_of_db.get(r["database"]) or (
+            f"database {r['database']}" if r["database"] else "other"
+        )
+        names = r["websites"] or [fallback]
+        for site in names:
+            entry = hosts.setdefault(site, _summary(site, None, []))
+            entry["count"] += 1
+            entry["open"] += r["status"] != "resolved"
+    ordered = sorted(hosts.values(), key=lambda h: (h["alias"] is None, -h["open"], -h["count"]))
+    return {"days": days, "total": len(rows), "matched": len(matched_ids), "websites": ordered}
+
+
+def _summary(host: str, alias: str | None, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "host": host,
+        "alias": alias,
+        "count": len(rows),
+        "open": sum(r["status"] != "resolved" for r in rows),
+    }
 
 
 def _incident_ref(value: str) -> str:
@@ -457,16 +565,10 @@ def _details(alert: dict[str, Any]) -> str:
     return text[:TEXT_CHARS]
 
 
-def oncall(service_ids: list[str], at: int | None = None) -> list[dict[str, Any]]:
-    by_id = {s["id"]: s for s in services()}
-    policies = sorted(
-        {by_id[s]["policy"] for s in service_ids if s in by_id and by_id[s]["policy"]}
-    )
-    if service_ids and not policies:
-        return []
+def oncall(policy_ids: list[str], at: int | None = None) -> list[dict[str, Any]]:
     params: dict[str, Any] = {"earliest": "true"}
-    if policies:
-        params["escalation_policy_ids[]"] = policies
+    if policy_ids:
+        params["escalation_policy_ids[]"] = sorted(set(policy_ids))
     if at:
         params["since"] = iso_utc(at)
         params["until"] = iso_utc(at + 60_000)
@@ -492,45 +594,33 @@ def health(alias: str, start: int, end: int, key: str) -> dict[str, Any] | None:
     cached = _health_cache.get(cache_key)
     if cached and time.time() - cached[0] < HEALTH_TTL_SECONDS:
         return cached[1]
-    ids = services_for(alias)
-    report: dict[str, Any] = {"services": ids, "webUrl": web_url(), "errors": {}}
-    if not ids:
-        report["errors"]["match"] = "No PagerDuty service is matched to this instance."
-        return report
+    report: dict[str, Any] = {"webUrl": web_url(), "errors": {}}
     allowed = permissions()
-
-    def run(name: str, fn: Any) -> None:
-        try:
-            report[name] = fn()
-        except PagerDutyError as exc:
-            report["errors"][name] = str(exc)
-
-    open_since = end - OPEN_LOOKBACK_DAYS * 86_400_000
-    jobs: list[tuple[str, Any]] = []
     if allowed["incidents"]:
-        jobs += [
-            ("open", lambda: incidents(ids, open_since, end, ["triggered", "acknowledged"])),
-            ("incidents", lambda: incidents(ids, start, end)),
-        ]
-    if allowed["oncall"]:
-        jobs.append(("oncall", lambda: [o for o in oncall(ids) if o["level"] == 1]))
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        list(pool.map(lambda job: run(*job), jobs))
+        try:
+            open_since = end - OPEN_LOOKBACK_DAYS * 86_400_000
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                opened = pool.submit(incidents, open_since, end, ["triggered", "acknowledged"])
+                window = pool.submit(incidents, start, end)
+                report["open"] = [public(r) for r in for_instance(opened.result(), alias)]
+                report["incidents"] = [public(r) for r in for_instance(window.result(), alias)]
+        except PagerDutyError as exc:
+            report["errors"]["incidents"] = str(exc)
+    policies = [r["policy"] for r in report.get("open", []) + report.get("incidents", [])]
+    if allowed["oncall"] and policies:
+        try:
+            report["oncall"] = [o for o in oncall(policies) if o["level"] == 1]
+        except PagerDutyError as exc:
+            report["errors"]["oncall"] = str(exc)
     _health_cache[cache_key] = (time.time(), report)
     return report
 
 
-def resolve_services(instance: str | None, fallback: str) -> tuple[str, list[str]]:
+def resolve_host(instance: str | None, fallback: str) -> str:
     target = (instance or fallback or "").strip()
     if not target:
-        return "", []
+        return ""
     found = find_instance(target)
     if found is None:
         raise PagerDutyError(f"No signed-in instance matches {target}.")
-    ids = services_for(found["alias"])
-    if not ids:
-        raise PagerDutyError(
-            f"{found['host']} is not matched to a PagerDuty service yet. Match it in Settings > "
-            "Integrations > PagerDuty, or pass all_services=true to search every service."
-        )
-    return found["host"], ids
+    return found["alias"]

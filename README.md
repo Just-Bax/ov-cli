@@ -457,12 +457,15 @@ agent reads in a run go to GitHub Copilot like any other tool result.
 **PagerDuty** (optional) adds incidents and on-call. In Settings > Integrations, connect it
 with your account address (e.g. `yourcompany.pagerduty.com`, which also picks the US or EU
 region) and a personal **API user token** from My Profile > User Settings > Create API User
-Token. The token is checked, stored in the OS keyring and only used to read. Then pick the
-PagerDuty services that page for each instance; "Suggest matches" proposes services whose
-name or description mentions the instance, and tenants share their host's services. Runs
-get `pagerduty_incidents`, `pagerduty_incident` (timeline, alerts and notes) and
-`pagerduty_oncall`, and Health shows open and recent incidents, who is on call, and counts
-triggered incidents in its verdict. PagerDuty admins can see and revoke user tokens.
+Token. The token is checked, stored in the OS keyring and only used to read. There is
+nothing to map: services are shared, so each incident is tied to an instance by what its
+alert names - OV monitoring's `website` field, the database on database alerts (learned from
+website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Settings
+shows which websites recent incidents point at. Runs get `pagerduty_incidents`,
+`pagerduty_incident` (timeline, alerts and notes) and `pagerduty_oncall`, and Health shows
+open and recent incidents and who is on call for the policies that paged, and counts
+triggered incidents in its verdict, even before the instance is matched in Datadog.
+PagerDuty admins can see and revoke user tokens.
 
 `ov agent --port 5181` picks another port; `--no-open` skips opening the browser.
 

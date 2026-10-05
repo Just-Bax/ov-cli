@@ -543,19 +543,9 @@ def pagerduty_disconnect(_: Handler) -> dict[str, Any]:
     return pagerduty.disconnect()
 
 
-@route("GET", "/api/pagerduty/services")
-def pagerduty_services(_: Handler) -> dict[str, Any]:
-    return pagerduty.suggest()
-
-
-@route("PUT", "/api/pagerduty/matches")
-def pagerduty_matches(h: Handler) -> dict[str, Any]:
-    matches = h.json().get("matches")
-    if not isinstance(matches, dict):
-        raise HttpError(400, "Give matches as an object of instance alias to service ids.")
-    return pagerduty.save_matches(
-        {str(k): [str(x) for x in v] for k, v in matches.items() if isinstance(v, list)}
-    )
+@route("GET", "/api/pagerduty/websites")
+def pagerduty_websites(h: Handler) -> dict[str, Any]:
+    return pagerduty.website_map(int(h.query.get("days") or 7))
 
 
 @route("GET", "/api/runs")

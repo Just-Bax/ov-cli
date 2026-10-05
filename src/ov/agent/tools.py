@@ -991,33 +991,42 @@ def _incident_line(i: dict[str, Any]) -> str:
     )
 
 
-def _pagerduty_incidents(args: dict[str, Any], ctx: ToolContext) -> str:
-    if args.get("all_services"):
-        where, ids = "all services", None
-    else:
-        host, ids = pagerduty.resolve_services(args.get("instance"), ctx.instance)
-        where = host or "all services"
-    start = datadog.to_ms(args.get("from"), "now-7d")
+def _pagerduty_rows(args: dict[str, Any], ctx: ToolContext, default: str) -> tuple[str, list]:
+    alias = (
+        ""
+        if args.get("all_instances")
+        else pagerduty.resolve_host(args.get("instance"), ctx.instance)
+    )
+    start = datadog.to_ms(args.get("from"), default)
     end = datadog.to_ms(args.get("to"), "now")
     statuses = [
         s for s in (args.get("statuses") or []) if s in ("triggered", "acknowledged", "resolved")
     ]
-    limit = max(1, min(int(args.get("limit") or 25), pagerduty.MAX_INCIDENTS))
-    rows = pagerduty.incidents(ids or None, start, end, statuses or None, limit * 4)
-    text = str(args.get("query") or "").strip().lower()
-    if text:
-        rows = [r for r in rows if text in f"{r['title']} {r['service']}".lower()]
-    status_text = f", status {'/'.join(statuses)}" if statuses else ""
-    match_text = f", matching {text!r}" if text else ""
+    rows = pagerduty.incidents(start, end, statuses or None)
+    if alias:
+        rows = pagerduty.for_instance(rows, alias)
+    found = pagerduty.find_instance(alias) if alias else None
+    where = found["host"] if found else "all instances"
     head = (
         f"PagerDuty incidents for {where}, {pagerduty.iso_utc(start)} to {pagerduty.iso_utc(end)}"
-        f"{status_text}{match_text}"
     )
+    if statuses:
+        head += f", status {'/'.join(statuses)}"
+    return head, rows
+
+
+def _pagerduty_incidents(args: dict[str, Any], ctx: ToolContext) -> str:
+    head, rows = _pagerduty_rows(args, ctx, "now-7d")
+    text = str(args.get("query") or "").strip().lower()
+    if text:
+        rows = [r for r in rows if text in f"{r['title']} {r['service']} {r['text']}".lower()]
+        head += f", matching {text!r}"
     if not rows:
         return f"{head}\nNone."
-    shown = rows[:limit]
+    limit = max(1, min(int(args.get("limit") or 25), pagerduty.MAX_INCIDENTS))
     more = f"\n({len(rows) - limit} more not shown)" if len(rows) > limit else ""
-    return clip(f"{head}\n" + "\n".join(_incident_line(r) for r in shown) + more, ctx, "incidents")
+    body = "\n".join(_incident_line(r) for r in rows[:limit])
+    return clip(f"{head}\n{body}{more}", ctx, "incidents")
 
 
 def _pagerduty_incident(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -1039,11 +1048,24 @@ def _pagerduty_incident(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 def _pagerduty_oncall(args: dict[str, Any], ctx: ToolContext) -> str:
-    host, ids = pagerduty.resolve_services(args.get("instance"), ctx.instance)
+    alias = pagerduty.resolve_host(args.get("instance"), ctx.instance)
     at = datadog.to_ms(args.get("at"), "now") if args.get("at") else None
-    rows = pagerduty.oncall(ids, at)
+    policies: list[str] = []
+    where = "every escalation policy"
+    if alias:
+        end = int(time.time() * 1000)
+        rows = pagerduty.for_instance(pagerduty.incidents(end - 30 * 86_400_000, end), alias)
+        policies = [r["policy"] for r in rows if r["policy"]]
+        found = pagerduty.find_instance(alias)
+        where = found["host"] if found else alias
+        if not policies:
+            return (
+                f"No PagerDuty incident for {where} in the last 30 days, so no escalation policy "
+                "is known for it. Call again without instance for everyone on call."
+            )
+    rows = pagerduty.oncall(policies, at)
     if not rows:
-        return f"Nobody is on call for the PagerDuty services of {host or 'this instance'}."
+        return f"Nobody is on call for {where}."
     lines = [
         f"- level {r['level']} {r['user']} ({r['policy']}"
         f"{', ' + r['schedule'] if r['schedule'] else ''}"
@@ -1051,7 +1073,7 @@ def _pagerduty_oncall(args: dict[str, Any], ctx: ToolContext) -> str:
         for r in rows
     ]
     when = f"at {pagerduty.iso_utc(at)}" if at else "now"
-    return f"On call {when} for {host}:\n" + "\n".join(lines)
+    return f"On call {when} for {where}:\n" + "\n".join(lines)
 
 
 def _pagerduty_label(kind: str) -> Callable[[dict[str, Any]], str]:
@@ -1073,9 +1095,10 @@ PAGERDUTY_TOOLS = {
 TOOLS += [
     Tool(
         "pagerduty_incidents",
-        "List PagerDuty incidents for an instance's matched services in a time window, newest "
-        "first: number, status, urgency, title, service, assignee and link. Filter by statuses "
-        "and a text query; all_services=true searches every service.",
+        "List PagerDuty incidents for an instance in a time window, newest first: number, "
+        "status, urgency, title, service, assignee and link. Incidents are tied to an instance "
+        "by the website in their alert (OV monitoring's website field, or the host named in a "
+        "Datadog alert). Filter by statuses and a text query; all_instances=true lists all.",
         {
             "instance": _str("Instance alias or host. Defaults to the run's instance."),
             "from": WINDOW_FROM,
@@ -1084,8 +1107,8 @@ TOOLS += [
                 "type": "array",
                 "items": {"type": "string", "enum": ["triggered", "acknowledged", "resolved"]},
             },
-            "query": _str("Text the title or service must contain"),
-            "all_services": {"type": "boolean"},
+            "query": _str("Text the title, service or alert details must contain"),
+            "all_instances": {"type": "boolean"},
             "limit": _int(f"Max incidents, default 25, max {pagerduty.MAX_INCIDENTS}"),
         },
         [],
@@ -1104,10 +1127,11 @@ TOOLS += [
     ),
     Tool(
         "pagerduty_oncall",
-        "Who is on call for an instance's PagerDuty services, now or at a given time, by "
-        "escalation level.",
+        "Who is on call, now or at a given time, by escalation level: for the escalation "
+        "policies that paged about an instance in the last 30 days, or for every policy when "
+        "no instance is given.",
         {
-            "instance": _str("Instance alias or host. Defaults to the run's instance."),
+            "instance": _str("Instance alias or host; omit for every policy"),
             "at": _str('A time, e.g. "now-2h" or an ISO time (UTC); default now'),
         },
         [],

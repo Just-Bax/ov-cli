@@ -9,35 +9,43 @@ from conftest import BASE_URL, seed_session
 
 from ov import credentials
 from ov.agent import pagerduty, prompt
-from ov.agent.tools import TOOLS_BY_NAME, ToolError, tool_specs
+from ov.agent.tools import TOOLS_BY_NAME, tool_specs
 
 KEY = "u+abcdefghijklmn1234"
-
-SERVICES = [
-    {
-        "id": "PSVC1",
-        "name": "ACME Production",
-        "description": "acme.onevizion.test web",
-        "escalation_policy": {"id": "PPOL1"},
-        "html_url": "https://onevizion.pagerduty.com/service-directory/PSVC1",
-    },
-    {"id": "PSVC2", "name": "Globex", "description": "", "escalation_policy": {"id": "PPOL2"}},
-]
+HOST = "acme.onevizion.test"
 
 
-def incident(number: int, status: str, service: str = "PSVC1") -> dict[str, Any]:
+def incident(
+    number: int, status: str, title: str, details: dict | str | None, policy: str = "PPOL1"
+) -> dict[str, Any]:
     return {
         "id": f"PINC{number}",
         "incident_number": number,
-        "title": f"Heap high on acme ({number})",
+        "title": title,
         "status": status,
         "urgency": "high",
-        "service": {"id": service, "summary": "ACME Production"},
+        "service": {"id": "PSVC1", "summary": "OV-Monitoring High & Critical"},
+        "escalation_policy": {"id": policy},
         "created_at": "2026-10-04T10:00:00Z",
         "last_status_change_at": "2026-10-04T10:05:00Z",
         "assignments": [{"assignee": {"summary": "Pat"}}],
         "html_url": f"https://onevizion.pagerduty.com/incidents/PINC{number}",
+        "first_trigger_log_entry": {"channel": {"type": "api", "details": details}},
     }
+
+
+INCIDENTS = [
+    # OV monitoring website alert: website and database together.
+    incident(7, "triggered", "Unhealthy Hosts", {"website": HOST, "database": "acmedb"}),
+    # Database alert for the same database: no website.
+    incident(6, "resolved", "High CPU", {"website": "none", "database": "acmedb"}),
+    # Datadog alert naming the host in its title.
+    incident(5, "acknowledged", f"[Synthetics] Latency for {HOST}", {"body": "slow"}, "PPOL2"),
+    # Another customer.
+    incident(4, "resolved", "Unhealthy Hosts", {"website": "globex.onevizion.test"}),
+    # A Datadog alert with a tag naming the instance's first label.
+    incident(3, "resolved", "[AWS] RDS CPU high on dbinstanceidentifier:acme", "x"),
+]
 
 
 class FakePagerDuty:
@@ -55,38 +63,24 @@ class FakePagerDuty:
             return httpx.Response(403, json={"error": {"message": "Forbidden"}})
         params = request.url.params
         if path == "/users/me":
-            return httpx.Response(
-                200,
-                json={
-                    "user": {
-                        "name": "Bax",
-                        "email": "b@x.test",
-                        "html_url": "https://onevizion.pagerduty.com/users/P1",
-                    }
-                },
-            )
+            user = {"name": "Bax", "html_url": "https://onevizion.pagerduty.com/users/P1"}
+            return httpx.Response(200, json={"user": user})
         if path == "/services":
-            return httpx.Response(200, json={"services": SERVICES, "more": False})
+            return httpx.Response(200, json={"services": [], "more": False})
         if path == "/incidents":
-            rows = [
-                incident(7, "triggered"),
-                incident(6, "resolved"),
-                incident(5, "resolved", "PSVC2"),
-            ]
-            ids = params.get_list("service_ids[]")
+            if params.get("limit") != "1":
+                assert params.get_list("include[]") == ["first_trigger_log_entries"]
             statuses = params.get_list("statuses[]")
-            rows = [r for r in rows if (not ids or r["service"]["id"] in ids)]
-            rows = [r for r in rows if not statuses or r["status"] in statuses]
+            rows = [r for r in INCIDENTS if not statuses or r["status"] in statuses]
             return httpx.Response(200, json={"incidents": rows, "more": False})
-        if path == "/incidents/7" or path == "/incidents/PINC7":
-            return httpx.Response(200, json={"incident": incident(7, "triggered")})
+        if path == "/incidents/PINC7":
+            return httpx.Response(200, json={"incident": INCIDENTS[0]})
         if path.endswith("/log_entries"):
             entries = [
                 {
                     "type": "acknowledge_log_entry",
                     "created_at": "2026-10-04T10:05:00Z",
                     "summary": "Acknowledged by Pat",
-                    "agent": {"summary": "Pat"},
                 },
                 {
                     "type": "trigger_log_entry",
@@ -106,14 +100,13 @@ class FakePagerDuty:
         if path.endswith("/notes"):
             return httpx.Response(200, json={"notes": []})
         if path == "/oncalls":
-            assert params.get_list("escalation_policy_ids[]") in ([], ["PPOL1"])
+            policies = params.get_list("escalation_policy_ids[]")
             rows = [
                 {
                     "user": {"summary": "Pat"},
                     "escalation_level": 1,
-                    "escalation_policy": {"summary": "ACME"},
+                    "escalation_policy": {"summary": f"policies {','.join(policies) or 'all'}"},
                     "schedule": {"summary": "Primary"},
-                    "end": "2026-10-05T09:00:00Z",
                 },
                 {
                     "user": {"summary": "Sam"},
@@ -171,7 +164,16 @@ def test_a_bad_key_is_explained_and_not_stored(fake, ov_home):
     assert credentials.get(pagerduty.CREDENTIAL_KEY) is None and not pagerduty.connected()
 
 
-def test_suggestions_and_matches_are_per_host(linked):
+def test_incidents_are_tied_to_instances_by_website_database_and_host(linked):
+    rows = pagerduty.incidents(0, 1_791_108_000_000)
+    mine = pagerduty.for_instance(rows, "acme")
+    assert [r["number"] for r in mine] == [7, 6, 5, 3]
+    # The database seen on a website alert is remembered for later database-only alerts.
+    assert pagerduty.load_state()["databases"] == {HOST: ["acmedb"]}
+    assert [r["number"] for r in pagerduty.for_instance(rows[1:2], "acme")] == [6]
+
+
+def test_a_tenant_sees_its_host_incidents(linked):
     from ov import session as session_store
     from ov.session import Session
 
@@ -186,11 +188,16 @@ def test_suggestions_and_matches_are_per_host(linked):
             tenant_id="9",
         )
     )
-    found = pagerduty.suggest()
-    assert [s["alias"] for s in found["suggestions"]] == ["acme"]
-    assert found["suggestions"][0]["services"] == ["PSVC1"]
-    pagerduty.save_matches({"acme": ["PSVC1"]})
-    assert pagerduty.services_for("acme/mtrac") == ["PSVC1"]
+    rows = pagerduty.incidents(0, 1_791_108_000_000)
+    assert len(pagerduty.for_instance(rows, "acme/mtrac")) == 4
+
+
+def test_website_map_lists_signed_in_instances_first(linked):
+    found = pagerduty.website_map(7)
+    assert found["total"] == 5 and found["matched"] == 4
+    first, second = found["websites"][:2]
+    assert (first["host"], first["alias"], first["count"], first["open"]) == (HOST, "acme", 4, 2)
+    assert (second["host"], second["alias"], second["count"]) == ("globex.onevizion.test", None, 1)
 
 
 def test_tools_are_offered_only_when_connected(fake, logged_in):
@@ -208,17 +215,18 @@ def test_tools_are_offered_only_when_connected(fake, logged_in):
 
 
 def test_incident_tools(linked, tmp_path):
-    pagerduty.save_matches({"acme": ["PSVC1"]})
     ctx = Ctx(tmp_path)
     out = TOOLS_BY_NAME["pagerduty_incidents"].handler({}, ctx)
-    assert "#7 [triggered, high] Heap high on acme (7)" in out and "#5" not in out
-    assert linked.requests[-1].url.params.get_list("service_ids[]") == ["PSVC1"]
+    assert (
+        f"for {HOST}" in out and "#7 [triggered, high] Unhealthy Hosts" in out and "#4" not in out
+    )
 
     open_only = TOOLS_BY_NAME["pagerduty_incidents"].handler({"statuses": ["triggered"]}, ctx)
     assert "#7" in open_only and "#6" not in open_only
-
-    every = TOOLS_BY_NAME["pagerduty_incidents"].handler({"all_services": True}, ctx)
-    assert "#5" in every
+    every = TOOLS_BY_NAME["pagerduty_incidents"].handler({"all_instances": True}, ctx)
+    assert "#4" in every
+    found = TOOLS_BY_NAME["pagerduty_incidents"].handler({"query": "acmedb"}, ctx)
+    assert "#7" in found and "#5" not in found
 
     detail = TOOLS_BY_NAME["pagerduty_incident"].handler(
         {"incident": "https://onevizion.pagerduty.com/incidents/PINC7"}, ctx
@@ -227,18 +235,16 @@ def test_incident_tools(linked, tmp_path):
     assert "[Datadog] JVM heap" in detail and "avg:jvm" in detail
 
     oncall = TOOLS_BY_NAME["pagerduty_oncall"].handler({}, ctx)
-    assert "level 1 Pat (ACME, Primary" in oncall and "level 2 Sam" in oncall
-
-
-def test_an_unmatched_instance_is_explained(linked, tmp_path):
-    with pytest.raises(ToolError, match="not matched to a PagerDuty service"):
-        TOOLS_BY_NAME["pagerduty_incidents"].handler({}, Ctx(tmp_path))
+    assert "level 1 Pat (policies PPOL1,PPOL2, Primary" in oncall and "level 2 Sam" in oncall
+    everyone = TOOLS_BY_NAME["pagerduty_oncall"].handler({}, Ctx(tmp_path, instance=""))
+    assert "policies all" in everyone
 
 
 def test_health_section(linked):
-    pagerduty.save_matches({"acme": ["PSVC1"]})
     report = pagerduty.health("acme", 0, 1_791_108_000_000, "24h")
-    assert [i["number"] for i in report["open"]] == [7]
+    assert [i["number"] for i in report["open"]] == [7, 5]
+    assert [i["number"] for i in report["incidents"]] == [7, 6, 5, 3]
+    assert "text" not in report["open"][0]
     assert [o["user"] for o in report["oncall"]] == ["Pat"]
     assert not report["errors"]
 
@@ -252,9 +258,8 @@ def test_the_api_never_returns_the_key(linked):
     try:
         status = httpx.get(f"{base}/api/pagerduty")
         assert status.json()["connected"] and KEY not in status.text
-        saved = httpx.put(f"{base}/api/pagerduty/matches", json={"matches": {"acme": ["PSVC1"]}})
-        assert saved.json()["matches"] == {"acme": ["PSVC1"]}
-        assert httpx.get(f"{base}/api/pagerduty/services").json()["services"][0]["id"] == "PSVC1"
+        sites = httpx.get(f"{base}/api/pagerduty/websites", params={"days": 7}).json()
+        assert sites["websites"][0]["host"] == HOST
         bad = httpx.post(f"{base}/api/pagerduty/connect", json={"account": "x", "apiKey": "nope"})
         assert bad.status_code == 400
         assert httpx.delete(f"{base}/api/pagerduty").json()["connected"] is False

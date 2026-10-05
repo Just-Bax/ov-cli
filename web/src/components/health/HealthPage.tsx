@@ -430,9 +430,7 @@ function Incidents({ data, range }: { data: PagerDutyHealth; range: Range }) {
         <div className="min-w-0 flex-1">
           <div className="text-fg text-[13.5px] font-semibold">Incidents</div>
           <div className="text-muted mt-0.5 text-[12px]">
-            {data.errors.match
-              ? 'PagerDuty is connected, but no service is matched to this instance.'
-              : `${open.length} open - ${recent.length} more in the last ${RANGE_WORDS[range]}`}
+            {`${open.length} open - ${recent.length} more in the last ${RANGE_WORDS[range]}`}
           </div>
         </div>
         {primary.length ? (
@@ -452,14 +450,7 @@ function Incidents({ data, range }: { data: PagerDutyHealth; range: Range }) {
           PagerDuty <ArrowTopRightOnSquareIcon className="size-3" />
         </a>
       </div>
-      {data.errors.match ? (
-        <a
-          href={href({ page: 'settings' })}
-          className="text-brand-strong text-[12.5px] font-medium hover:underline"
-        >
-          Match it in Settings
-        </a>
-      ) : rows.length ? (
+      {rows.length ? (
         <div className="-mx-2 space-y-0.5">
           {rows.map((i) => (
             <a
@@ -1181,7 +1172,16 @@ export function HealthPage() {
       </div>
     )
   } else if (report && !report.scope && report.instance === alias) {
-    body = <MatchInstance host={label} alias={alias} status={status} onSaved={setStatus} />
+    body = (
+      <>
+        {report.pagerduty ? (
+          <div className="mx-auto w-full max-w-[920px] px-6 pt-6">
+            <Incidents data={report.pagerduty} range={range} />
+          </div>
+        ) : null}
+        <MatchInstance host={label} alias={alias} status={status} onSaved={setStatus} />
+      </>
+    )
   } else if (error) {
     body = <div className="text-danger p-6 text-[13px]">{error}</div>
   } else if (!report || report.instance !== alias || report.range !== range) {

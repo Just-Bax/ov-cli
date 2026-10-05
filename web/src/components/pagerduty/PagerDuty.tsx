@@ -3,17 +3,14 @@ import {
   CheckIcon,
   LinkSlashIcon,
   LockClosedIcon,
-  SparklesIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { Instance, PagerDutyArea, PagerDutyService, PagerDutyStatus } from '@shared/types.ts'
+import type { PagerDutyArea, PagerDutyStatus, PagerDutyWebsites } from '@shared/types.ts'
 import pagerdutyMark from '@/assets/pagerduty.svg'
 import { AccountRow, KeyField } from '@/components/datadog/Datadog'
 import { dialog } from '@/components/Dialog'
-import { Dropdown } from '@/components/Dropdown'
-import { useInstances } from '@/components/InstancePicker'
 import { Button, Card, Chip, IconBadge, Input, Skeleton, Spinner, timeAgo } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -217,172 +214,112 @@ function Permissions({ status }: { status: PagerDutyStatus }) {
   )
 }
 
-type Row = { alias: string; host: string }
-
-// PagerDuty services belong to servers, not tenants: one row per host, under its main sign-in.
-function hostRows(instances: Instance[] | undefined): Row[] {
-  const byHost = new Map<string, Row>()
-  const list = [...(instances ?? [])].sort(
-    (a, b) => Number(Boolean(a.tenant)) - Number(Boolean(b.tenant)),
-  )
-  for (const i of list)
-    if (!byHost.has(i.host)) byHost.set(i.host, { alias: i.alias, host: i.host })
-  return [...byHost.values()].sort((a, b) => a.host.localeCompare(b.host))
-}
-
-export function PagerDutyMatches({
-  status,
-  onSaved,
-}: {
-  status: PagerDutyStatus
-  onSaved: (s: PagerDutyStatus) => void
-}) {
-  const { instances } = useInstances()
-  const rows = useMemo(() => hostRows(instances), [instances])
-  const [services, setServices] = useState<PagerDutyService[]>()
-  const [draft, setDraft] = useState<Record<string, string[]>>(status.matches)
-  const [busy, setBusy] = useState<'load' | 'suggest' | 'save'>()
+export function WebsiteMap({ status }: { status: PagerDutyStatus }) {
+  const [days, setDays] = useState(7)
+  const [data, setData] = useState<PagerDutyWebsites>()
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
-
-  useEffect(() => setDraft(status.matches), [status.matches])
-
-  const load = async (suggest: boolean) => {
-    setBusy(suggest ? 'suggest' : 'load')
-    setError(undefined)
-    try {
-      const found = await api.pagerdutyServices()
-      setServices(found.services)
-      if (suggest)
-        setDraft((d) => {
-          const next = { ...d }
-          for (const s of found.suggestions)
-            if (!next[s.alias]?.length && s.services.length) next[s.alias] = s.services
-          return next
-        })
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setBusy(undefined)
-    }
-  }
+  const [all, setAll] = useState(false)
 
   useEffect(() => {
-    if (status.permissions.services) void load(false)
-  }, [])
-
-  const byId = new Map((services ?? []).map((s) => [s.id, s]))
-  const dirty = rows.some(
-    (r) => (draft[r.alias] ?? []).join() !== (status.matches[r.alias] ?? []).join(),
-  )
-  const set = (alias: string, ids: string[]) => setDraft((d) => ({ ...d, [alias]: ids }))
-
-  const save = async () => {
-    setBusy('save')
+    if (!status.permissions.incidents) return
+    let alive = true
+    setLoading(true)
     setError(undefined)
-    try {
-      onSaved(await api.pagerdutyMatches({ ...status.matches, ...draft }))
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setBusy(undefined)
+    api
+      .pagerdutyWebsites(days)
+      .then((d) => alive && setData(d))
+      .catch((e: Error) => alive && setError(e.message))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
     }
-  }
+  }, [days, status.checkedAt])
+
+  const rows = data?.websites ?? []
+  const shown = all ? rows : rows.slice(0, 10)
+  const max = Math.max(1, ...rows.map((r) => r.count))
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 px-5 py-3">
         <div className="min-w-0 flex-1">
-          <div className="text-fg text-[13px] font-medium">Instances</div>
+          <div className="text-fg text-[13px] font-medium">Incidents by website</div>
           <div className="text-muted text-[12px]">
-            The PagerDuty services that page for each instance. Tenants share their host's services.
+            Incidents are tied to an instance by the website or database in their alert, so there is
+            nothing to set up.
+            {data
+              ? ` ${data.matched} of ${data.total} in the last ${data.days} days belong to your instances.`
+              : ''}
           </div>
         </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={Boolean(busy) || !status.permissions.services}
-          onClick={() => void load(true)}
-        >
-          {busy === 'suggest' ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <SparklesIcon className="size-3.5" />
-          )}
-          Suggest matches
-        </Button>
-        <Button
-          size="sm"
-          variant="primary"
-          disabled={!dirty || Boolean(busy)}
-          onClick={() => void save()}
-        >
-          {busy === 'save' ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />}{' '}
-          Save
-        </Button>
+        <div className="bg-raised flex rounded-full p-1">
+          {[1, 7, 30].map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setDays(d)}
+              className={cn(
+                'h-7 min-w-11 rounded-full px-3 text-[12.5px] font-medium transition-colors',
+                d === days ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
+              )}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="divide-line border-line max-h-[340px] scrollbar-thin divide-y overflow-y-auto border-t">
-        {!instances || busy === 'load' ? (
-          <div className="space-y-3 px-5 py-4">
-            <Skeleton className="h-3 w-1/2" />
-            <Skeleton className="h-3 w-2/3" />
+      <div className="border-line border-t px-5 py-3">
+        {error ? (
+          <div className="text-danger text-[12.5px]">{error}</div>
+        ) : !data || loading ? (
+          <div className="text-muted flex items-center gap-2 py-2 text-[12.5px]">
+            <Spinner className="text-brand size-3.5" /> Reading incidents...
           </div>
+        ) : !rows.length ? (
+          <div className="text-muted py-2 text-[12.5px]">No incidents in this window.</div>
         ) : (
-          rows.map((r) => {
-            const picked = draft[r.alias] ?? []
-            const options = (services ?? [])
-              .filter((s) => !picked.includes(s.id))
-              .map((s) => ({ value: s.id, label: s.name, hint: s.status }))
-            return (
-              <div key={r.alias} className="flex flex-wrap items-center gap-2.5 px-5 py-2.5">
-                <span className="text-fg w-[240px] min-w-0 truncate text-[13px] font-medium">
+          <div className="space-y-2">
+            {shown.map((r) => (
+              <div key={r.host} className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    'w-[240px] min-w-0 shrink-0 truncate text-[12.5px]',
+                    r.alias ? 'text-fg font-medium' : 'text-muted',
+                  )}
+                >
                   {r.host}
                 </span>
-                <div className="flex min-w-[200px] flex-1 flex-wrap items-center gap-1.5">
-                  {picked.map((id) => (
-                    <span
-                      key={id}
-                      className="bg-raised text-text inline-flex h-7 items-center gap-1 rounded-full pr-1 pl-3 text-[12px]"
-                    >
-                      {byId.get(id)?.name ?? id}
-                      <button
-                        type="button"
-                        aria-label="Remove service"
-                        onClick={() =>
-                          set(
-                            r.alias,
-                            picked.filter((x) => x !== id),
-                          )
-                        }
-                        className="text-faint hover:text-fg flex size-5 items-center justify-center rounded-full hover:bg-white"
-                      >
-                        <XMarkIcon className="size-3" />
-                      </button>
-                    </span>
-                  ))}
-                  {services ? (
-                    <Dropdown
-                      variant="plain"
-                      searchable
-                      value=""
-                      placeholder={picked.length ? 'Add' : 'Pick services'}
-                      options={options}
-                      onChange={(id) => set(r.alias, [...picked, id])}
-                    />
-                  ) : null}
+                <div className="bg-raised h-1.5 min-w-[80px] flex-1 overflow-hidden rounded-full">
+                  <div
+                    className={cn('h-full rounded-full', r.open ? 'bg-danger' : 'bg-brand')}
+                    style={{ width: `${Math.max(3, (r.count / max) * 100)}%` }}
+                  />
                 </div>
-                {!picked.length ? (
-                  <span className="text-faint w-[90px] shrink-0 text-right text-[11.5px]">
-                    Not matched
-                  </span>
-                ) : null}
+                <span className="text-fg w-10 shrink-0 text-right text-[12px] font-semibold tabular-nums">
+                  {r.count}
+                </span>
+                <span className="w-[110px] shrink-0 text-right">
+                  {r.open ? (
+                    <Chip tone="danger">{r.open} open</Chip>
+                  ) : r.alias ? (
+                    <Chip tone="ok">Signed in</Chip>
+                  ) : null}
+                </span>
               </div>
-            )
-          })
+            ))}
+            {rows.length > 10 ? (
+              <button
+                type="button"
+                onClick={() => setAll((v) => !v)}
+                className="text-brand-strong hover:bg-raised mt-1 h-8 rounded-full px-3 text-[12px] font-medium"
+              >
+                {all ? 'Show fewer' : `Show all ${rows.length}`}
+              </button>
+            ) : null}
+          </div>
         )}
       </div>
-      {error ? (
-        <div className="text-danger border-line border-t px-5 py-2.5 text-[12.5px]">{error}</div>
-      ) : null}
     </div>
   )
 }
@@ -461,7 +398,7 @@ export function PagerDutyCard({
             </div>
           ) : null}
           <div className="border-line border-t">
-            <PagerDutyMatches status={status} onSaved={setStatus} />
+            <WebsiteMap status={status} />
           </div>
         </>
       ) : null}

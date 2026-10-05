@@ -42,17 +42,7 @@ def system_prompt(write_access: bool, instance: str) -> str:
     else:
         dd_text = "not connected"
     if paged:
-        by_id = {}
-        try:
-            by_id = {s["id"]: s["name"] for s in pagerduty.services()}
-        except pagerduty.PagerDutyError:
-            pass
-        pd_matches = pagerduty.load_state().get("matches") or {}
-        pd_lines = "\n".join(
-            f"- {alias}: {', '.join(by_id.get(i, i) for i in ids)}"
-            for alias, ids in sorted(pd_matches.items())
-        )
-        pd_text = f"connected. Instance services:\n{pd_lines or 'none matched yet'}"
+        pd_text = "connected. Incidents are tied to instances by the website in their alert."
     else:
         pd_text = "not connected"
 

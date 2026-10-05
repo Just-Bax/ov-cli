@@ -34,6 +34,8 @@ export function InstancePicker({
       value={value}
       onChange={onChange}
       variant="plain"
+      fluid
+      className="max-w-[320px]"
       prefix={<span className="text-faint font-normal">Instance</span>}
       options={[
         { value: '', label: 'Auto', hint: 'from context' },

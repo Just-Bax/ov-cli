@@ -8,7 +8,7 @@ import type {
   InstanceHealth,
   ModelInfo,
   ObjectActivity,
-  PagerDutyService,
+  PagerDutyWebsites,
   PagerDutyStatus,
   Rating,
   RunInput,
@@ -82,13 +82,7 @@ export const api = {
     post<PagerDutyStatus>('/pagerduty/connect', { account, apiKey }),
   pagerdutyTest: () => post<PagerDutyStatus>('/pagerduty/test', {}),
   pagerdutyDisconnect: () => del<PagerDutyStatus>('/pagerduty'),
-  pagerdutyServices: () =>
-    request<{
-      services: PagerDutyService[]
-      suggestions: { alias: string; host: string; services: string[] }[]
-    }>('/pagerduty/services'),
-  pagerdutyMatches: (matches: Record<string, string[]>) =>
-    put<PagerDutyStatus>('/pagerduty/matches', { matches }),
+  pagerdutyWebsites: (days = 7) => request<PagerDutyWebsites>(`/pagerduty/websites?days=${days}`),
   instanceHealth: (instance: string, range: string) =>
     request<InstanceHealth>(`/instance-health?instance=${seg(instance)}&range=${seg(range)}`),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),

@@ -377,7 +377,13 @@ export interface PagerDutyStatus {
   permissions: Record<PagerDutyArea, boolean>
   checkedAt?: number | null
   error?: string | null
-  matches: Record<string, string[]>
+}
+
+export interface PagerDutyWebsites {
+  days: number
+  total: number
+  matched: number
+  websites: { host: string; alias: string | null; count: number; open: number }[]
 }
 
 export interface PagerDutyService {
@@ -404,7 +410,6 @@ export interface PagerDutyIncident {
 }
 
 export interface PagerDutyHealth {
-  services: string[]
   webUrl?: string
   errors: Record<string, string>
   open?: PagerDutyIncident[]

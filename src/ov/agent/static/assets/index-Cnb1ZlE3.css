@@ -1258,6 +1258,9 @@ svg.react-flow__connectionline {
   .w-9 {
     width: calc(var(--spacing) * 9);
   }
+  .w-10 {
+    width: calc(var(--spacing) * 10);
+  }
   .w-11\/12 {
     width: calc(11 / 12 * 100%);
   }
@@ -1297,8 +1300,8 @@ svg.react-flow__connectionline {
   .w-\[72px\] {
     width: 72px;
   }
-  .w-\[90px\] {
-    width: 90px;
+  .w-\[110px\] {
+    width: 110px;
   }
   .w-\[150px\] {
     width: 150px;
@@ -1347,6 +1350,9 @@ svg.react-flow__connectionline {
   }
   .max-w-\[260px\] {
     max-width: 260px;
+  }
+  .max-w-\[320px\] {
+    max-width: 320px;
   }
   .max-w-\[360px\] {
     max-width: 360px;
@@ -1399,6 +1405,9 @@ svg.react-flow__connectionline {
   .min-w-11 {
     min-width: calc(var(--spacing) * 11);
   }
+  .min-w-\[80px\] {
+    min-width: 80px;
+  }
   .min-w-\[150px\] {
     min-width: 150px;
   }
@@ -1422,6 +1431,9 @@ svg.react-flow__connectionline {
   }
   .flex-\[2\] {
     flex: 2;
+  }
+  .shrink {
+    flex-shrink: 1;
   }
   .shrink-0 {
     flex-shrink: 0;
@@ -2441,9 +2453,6 @@ svg.react-flow__connectionline {
     }
     .hover\:bg-warn:hover {
       background-color: #e46b00;
-    }
-    .hover\:bg-white:hover {
-      background-color: var(--color-white);
     }
     .hover\:text-brand-strong:hover {
       color: #1e88e5;

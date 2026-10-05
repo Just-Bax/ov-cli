@@ -28,6 +28,7 @@ export function Dropdown({
   className,
   prefix,
   searchable,
+  fluid,
 }: {
   value: string
   onChange: (value: string) => void
@@ -37,6 +38,8 @@ export function Dropdown({
   className?: string
   prefix?: ReactNode
   searchable?: boolean
+  /** Shrinks and truncates its label when the row is tight, instead of pushing others. */
+  fluid?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -131,13 +134,14 @@ export function Dropdown({
         onClick={() => setOpen(!open)}
         onKeyDown={onKeyDown}
         className={cn(
-          'inline-flex shrink-0 items-center gap-1.5 text-left transition-colors outline-none',
+          'inline-flex items-center gap-1.5 text-left transition-colors outline-none',
+          fluid ? 'min-w-0 shrink' : 'shrink-0',
           TRIGGER[variant],
           open && variant === 'chip' && 'bg-brand text-white',
           className,
         )}
       >
-        {prefix}
+        {prefix ? <span className="shrink-0">{prefix}</span> : null}
         <span
           className={cn('min-w-0 flex-1 truncate', !current && variant === 'field' && 'text-faint')}
         >

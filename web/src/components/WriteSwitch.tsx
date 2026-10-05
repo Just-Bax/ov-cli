@@ -57,7 +57,7 @@ export function WriteSwitch({
           : 'Read-only: the agent can only look and propose'
       }
       className={cn(
-        'flex h-8 items-center gap-2 rounded-full px-3 text-[12px] font-medium transition-colors',
+        'flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-[12px] font-medium whitespace-nowrap transition-colors',
         local ? 'bg-warn-soft text-warn' : 'bg-raised text-text hover:bg-line',
       )}
     >
@@ -66,7 +66,7 @@ export function WriteSwitch({
       ) : (
         <span
           className={cn(
-            'relative h-4 w-7 rounded-full transition-colors',
+            'relative h-4 w-7 shrink-0 rounded-full transition-colors',
             local ? 'bg-warn' : 'bg-line-strong',
           )}
         >
