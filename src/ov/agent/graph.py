@@ -156,6 +156,10 @@ class GraphError(Exception):
     pass
 
 
+class NoAccess(GraphError):
+    pass
+
+
 def _code(column: str, start: str = "1") -> str:
     return ", ".join(
         f"dbms_lob.substr({column}, {CHUNK_CHARS}, {start} + {i * CHUNK_CHARS}) code{i}" for i in range(CODE_CHUNKS)
@@ -251,6 +255,9 @@ def load(alias: str) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+SQL_REQUEST = ("request", "POST", "/v3/sql/test", "-H", "Content-Type: text/plain")
+
+
 class SqlReader:
     def __init__(self, alias: str, cancel: Cancel) -> None:
         self.alias = alias
@@ -262,8 +269,7 @@ class SqlReader:
             [
                 "-i",
                 self.alias,
-                "sql",
-                "check-sql-and-return-result-set",
+                *SQL_REQUEST,
                 "-q",
                 f"rows_count={size}",
                 "-d",
@@ -275,7 +281,7 @@ class SqlReader:
         )
         self.cancel.check()
         if result.code == EXIT_FORBIDDEN or "TEST_SQL" in result.message:
-            raise GraphError("Building a map needs the Test SQL privilege on this instance.")
+            raise NoAccess(f"Your account on {self.alias} has no Test SQL privilege, which reading it needs.")
         if result.code != 0:
             raise GraphError(result.message[:ERROR_CHARS] or f"ov exited {result.code}")
 

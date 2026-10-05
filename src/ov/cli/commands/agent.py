@@ -21,6 +21,8 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
 
 
 def cmd_agent(ctx: Context) -> int:
+    from ...agent.forget import prune
     from ...agent.server import serve
 
+    prune()
     return serve(ctx.args.port, open_browser=not ctx.args.no_open)

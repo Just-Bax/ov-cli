@@ -183,6 +183,10 @@ ov logout acme           # revoke and forget one
 ov logout --all          # all of them
 ```
 
+Logging out of an instance also deletes everything kept for it on this computer: its
+secrets, cached schema, Instance map, Datadog servers and agent runs. `ov agent` does the
+same on start for anything left over from instances you are no longer signed in to.
+
 ### Instances with several tenants
 
 A OneVizion host can run many tenants, and a tenant is a Program. Your account
@@ -375,7 +379,8 @@ The first screen walks you through setup:
 1. Sign in to GitHub. The agent runs on GitHub Copilot, so the account needs a Copilot
    subscription; you pick the model.
 2. Sign in to at least one instance (the same browser sign-in as `ov login`).
-3. Pick a default model. It can be changed per run.
+3. Pick a main model. It can be changed per run. In Settings you can also pick a fast
+   model (Haiku, for example) for small chores such as naming runs.
 
 Setup stays open until the last step, so signing in to GitHub does not skip the others.
 
@@ -458,13 +463,20 @@ Datadog filter instead; a tenant shares its host's servers unless you give it it
 
 Once connected, runs get read-only Datadog tools (`datadog_logs` with message grouping,
 `datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm`), offered only for
-what the key can read, with a `role` option to look at one kind of server, and the
-**Health** page shows per instance: alerting monitors, error
-logs with the trend against the previous window and the top error groups, log volume,
-slowest endpoints, server metrics (CPU, load, memory, disk, JVM heap) and the same per
-server so a busy one stands out, recent events, and
-the instance's own failed processes, with "Ask the agent" to start an investigation from
-there. Your Datadog admins can see application keys and may audit their use, and logs the
+what the key can read, with a `role` option to look at one kind of server.
+
+The **Health** page shows one instance at a time, each card loading on its own: a verdict
+with open incidents, alerting monitors, error logs against the previous window, peak p95,
+failed OneVizion processes and the busiest server; a timeline of requests, p95 and error
+logs with incidents, Datadog events (deploys, restarts) and failed runs marked under it, so
+you see what lined up; incidents you can expand for the alert and its timeline; every
+server with a trend line per metric; top error groups; failed runs by type; slowest
+endpoints; monitors and events. Every card has Ask, which opens New run with a prompt
+about that card. A card your account or key cannot read says so instead of failing, for
+example failed runs on an instance where you lack the Test SQL privilege. Nothing on the
+page writes to Datadog, PagerDuty or the instance.
+
+Your Datadog admins can see application keys and may audit their use, and logs the
 agent reads in a run go to GitHub Copilot like any other tool result.
 
 **PagerDuty** (optional) adds incidents and on-call. In Settings > Integrations, connect it
@@ -473,8 +485,7 @@ region) and a personal **API user token** from My Profile > User Settings > Crea
 Token. The token is checked, stored in the vault and only used to read. There is
 nothing to map: services are shared, so each incident is tied to an instance by what its
 alert names - OV monitoring's `website` field, the database on database alerts (learned from
-website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Settings
-shows which websites recent incidents point at when you ask for it. Runs get `pagerduty_incidents`,
+website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Runs get `pagerduty_incidents`,
 `pagerduty_incident` (timeline, alerts and notes) and `pagerduty_oncall`, and Health shows
 open and recent incidents and who is on call for the policies that paged, and counts
 triggered incidents in its verdict, even before the instance is matched in Datadog.

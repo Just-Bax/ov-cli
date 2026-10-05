@@ -42,6 +42,11 @@ BAD_ARGS_CHARS = 200
 LOGIN_MESSAGE_CHARS = 300
 TITLE_CHARS = 120
 PROMPT_TITLE_CHARS = 90
+NAMING_INPUT_CHARS = 2000
+NAMING_PROMPT = (
+    "Name this OneVizion support request in 3 to 7 plain words, like a ticket title. "
+    "Reply with the title only: no quotes, no trailing period."
+)
 RUN_ID_SUFFIX_CHARS = 4
 
 WRITE_ON_NOTE = (
@@ -286,6 +291,8 @@ class Run:
             self.vision = copilot.supports_vision(self.state["summary"]["model"])
 
             ref = None if uploaded else cases.case_ref(text)
+            if not ref and text:
+                self._name_later(text)
             content = self._preload_case(ref) if ref else self._user_content(text, uploaded)
             self._messages = [{"role": "system", "content": system_prompt(self.can_write(), self.instance)}]
             self._push_turn("u_start", content)
@@ -367,6 +374,16 @@ class Run:
 
     def rate(self, turn_id: str, rating: str | None, note: str | None) -> None:
         self.emit({"type": "rate", "turnId": turn_id, "rating": rating, "note": note})
+
+    def _name_later(self, text: str) -> None:
+        fast = db.get_settings()["fastModel"]
+        if fast:
+            self._spawn(self._name, fast, self.state["summary"]["title"], text)
+
+    def _name(self, model: str, placeholder: str, text: str) -> None:
+        title = copilot.complete(model, NAMING_PROMPT, text[:NAMING_INPUT_CHARS]).strip("\"' .")
+        if title and self.state["summary"]["title"] == placeholder:
+            self.rename(title)
 
     def rename(self, title: str) -> None:
         cleaned = " ".join(title.split())[:TITLE_CHARS]

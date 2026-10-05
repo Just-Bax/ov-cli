@@ -10,7 +10,7 @@ import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { Setup } from '@/components/Setup'
 import { isSidebarCollapsed, Sidebar } from '@/components/Sidebar'
-import { Skeleton, Spinner } from '@/components/ui'
+import { Skeleton } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
 import { SettingsContext } from '@/lib/settings'
@@ -134,8 +134,9 @@ export function App() {
           {route.page === 'explorer' && (
             <Suspense
               fallback={
-                <div className="flex h-full items-center justify-center">
-                  <Spinner className="text-brand size-6" />
+                <div className="space-y-3 p-6">
+                  <Skeleton className="h-10 w-1/3 rounded-full" />
+                  <Skeleton className="h-[60vh] w-full rounded-2xl" />
                 </div>
               }
             >

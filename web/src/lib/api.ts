@@ -5,10 +5,12 @@ import type {
   GraphStatus,
   Instance,
   InstanceGraph,
-  InstanceHealth,
+  HealthMeta,
+  HealthSection,
+  SectionResult,
+  PagerDutyIncidentDetail,
   ModelInfo,
   ObjectActivity,
-  PagerDutyWebsites,
   PagerDutyStatus,
   Rating,
   RunInput,
@@ -81,9 +83,19 @@ export const api = {
     post<PagerDutyStatus>('/pagerduty/connect', { account, apiKey }),
   pagerdutyTest: () => post<PagerDutyStatus>('/pagerduty/test', {}),
   pagerdutyDisconnect: () => del<PagerDutyStatus>('/pagerduty'),
-  pagerdutyWebsites: (days = 7) => request<PagerDutyWebsites>(`/pagerduty/websites?days=${days}`),
-  instanceHealth: (instance: string, range: string) =>
-    request<InstanceHealth>(`/instance-health?instance=${seg(instance)}&range=${seg(range)}`),
+  healthMeta: (instance: string, range: string) =>
+    request<HealthMeta>(`/instance-health/meta?instance=${seg(instance)}&range=${seg(range)}`),
+  healthSection: <K extends HealthSection>(
+    section: K,
+    instance: string,
+    range: string,
+    to: number,
+  ) =>
+    request<SectionResult<K>>(
+      `/instance-health/${section}?instance=${seg(instance)}&range=${seg(range)}&to=${to}`,
+    ),
+  pagerdutyIncident: (id: string) =>
+    request<PagerDutyIncidentDetail>(`/pagerduty/incidents/${seg(id)}`),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),
   settings: () => request<Settings>('/settings'),
   saveSettings: (patch: Partial<Settings>) => put<Settings>('/settings', patch),

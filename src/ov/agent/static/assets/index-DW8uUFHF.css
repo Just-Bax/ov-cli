@@ -643,6 +643,7 @@ svg.react-flow__connectionline {
     --radius-2xl: 1rem;
     --radius-3xl: 1.5rem;
     --ease-out: cubic-bezier(0, 0, 0.2, 1);
+    --animate-spin: spin 1s linear infinite;
     --default-transition-duration: 150ms;
     --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     --default-font-family: 'Inter', Arial, Helvetica, sans-serif;
@@ -861,6 +862,9 @@ svg.react-flow__connectionline {
   .bottom-1\.5 {
     bottom: calc(var(--spacing) * 1.5);
   }
+  .-left-20 {
+    left: calc(var(--spacing) * -20);
+  }
   .left-0 {
     left: 0px;
   }
@@ -896,6 +900,9 @@ svg.react-flow__connectionline {
   }
   .-mx-2 {
     margin-inline: calc(var(--spacing) * -2);
+  }
+  .mx-1 {
+    margin-inline: var(--spacing);
   }
   .mx-4 {
     margin-inline: calc(var(--spacing) * 4);
@@ -966,6 +973,9 @@ svg.react-flow__connectionline {
   .mr-2 {
     margin-right: calc(var(--spacing) * 2);
   }
+  .mr-4 {
+    margin-right: calc(var(--spacing) * 4);
+  }
   .mr-auto {
     margin-right: auto;
   }
@@ -1001,12 +1011,6 @@ svg.react-flow__connectionline {
   }
   .ml-auto {
     margin-left: auto;
-  }
-  .line-clamp-2 {
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
   }
   .line-clamp-3 {
     overflow: hidden;
@@ -1109,6 +1113,10 @@ svg.react-flow__connectionline {
     width: calc(var(--spacing) * 12);
     height: calc(var(--spacing) * 12);
   }
+  .size-14 {
+    width: calc(var(--spacing) * 14);
+    height: calc(var(--spacing) * 14);
+  }
   .size-16 {
     width: calc(var(--spacing) * 16);
     height: calc(var(--spacing) * 16);
@@ -1174,6 +1182,18 @@ svg.react-flow__connectionline {
   .h-\[34px\] {
     height: 34px;
   }
+  .h-\[60vh\] {
+    height: 60vh;
+  }
+  .h-\[74px\] {
+    height: 74px;
+  }
+  .h-\[230px\] {
+    height: 230px;
+  }
+  .h-\[260px\] {
+    height: 260px;
+  }
   .h-\[420px\] {
     height: 420px;
   }
@@ -1194,6 +1214,9 @@ svg.react-flow__connectionline {
   }
   .max-h-\[140px\] {
     max-height: 140px;
+  }
+  .max-h-\[180px\] {
+    max-height: 180px;
   }
   .max-h-\[280px\] {
     max-height: 280px;
@@ -1252,9 +1275,6 @@ svg.react-flow__connectionline {
   .w-7 {
     width: calc(var(--spacing) * 7);
   }
-  .w-8 {
-    width: calc(var(--spacing) * 8);
-  }
   .w-9 {
     width: calc(var(--spacing) * 9);
   }
@@ -1263,6 +1283,9 @@ svg.react-flow__connectionline {
   }
   .w-11\/12 {
     width: calc(11 / 12 * 100%);
+  }
+  .w-12 {
+    width: calc(var(--spacing) * 12);
   }
   .w-14 {
     width: calc(var(--spacing) * 14);
@@ -1282,6 +1305,9 @@ svg.react-flow__connectionline {
   .w-32 {
     width: calc(var(--spacing) * 32);
   }
+  .w-36 {
+    width: calc(var(--spacing) * 36);
+  }
   .w-40 {
     width: calc(var(--spacing) * 40);
   }
@@ -1291,6 +1317,9 @@ svg.react-flow__connectionline {
   .w-56 {
     width: calc(var(--spacing) * 56);
   }
+  .w-64 {
+    width: calc(var(--spacing) * 64);
+  }
   .w-80 {
     width: calc(var(--spacing) * 80);
   }
@@ -1299,9 +1328,6 @@ svg.react-flow__connectionline {
   }
   .w-\[72px\] {
     width: 72px;
-  }
-  .w-\[110px\] {
-    width: 110px;
   }
   .w-\[240px\] {
     width: 240px;
@@ -1360,6 +1386,9 @@ svg.react-flow__connectionline {
   .max-w-\[480px\] {
     max-width: 480px;
   }
+  .max-w-\[520px\] {
+    max-width: 520px;
+  }
   .max-w-\[540px\] {
     max-width: 540px;
   }
@@ -1378,9 +1407,6 @@ svg.react-flow__connectionline {
   .max-w-\[860px\] {
     max-width: 860px;
   }
-  .max-w-\[920px\] {
-    max-width: 920px;
-  }
   .max-w-\[1040px\] {
     max-width: 1040px;
   }
@@ -1396,14 +1422,8 @@ svg.react-flow__connectionline {
   .min-w-0 {
     min-width: 0px;
   }
-  .min-w-8 {
-    min-width: calc(var(--spacing) * 8);
-  }
   .min-w-11 {
     min-width: calc(var(--spacing) * 11);
-  }
-  .min-w-\[80px\] {
-    min-width: 80px;
   }
   .min-w-\[150px\] {
     min-width: 150px;
@@ -1414,8 +1434,11 @@ svg.react-flow__connectionline {
   .min-w-\[220px\] {
     min-width: 220px;
   }
-  .min-w-\[280px\] {
-    min-width: 280px;
+  .min-w-\[240px\] {
+    min-width: 240px;
+  }
+  .min-w-\[720px\] {
+    min-width: 720px;
   }
   .min-w-full {
     min-width: 100%;
@@ -1434,6 +1457,10 @@ svg.react-flow__connectionline {
   }
   .border-collapse {
     border-collapse: collapse;
+  }
+  .-translate-x-1\/2 {
+    --tw-translate-x: calc(calc(1 / 2 * 100%) * -1);
+    translate: var(--tw-translate-x) var(--tw-translate-y);
   }
   .-translate-y-1\/2 {
     --tw-translate-y: calc(calc(1 / 2 * 100%) * -1);
@@ -1459,6 +1486,9 @@ svg.react-flow__connectionline {
   }
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+  }
+  .animate-spin {
+    animation: var(--animate-spin);
   }
   .cursor-help {
     cursor: help;
@@ -1591,11 +1621,6 @@ svg.react-flow__connectionline {
     margin-block-start: calc(calc(var(--spacing) * 5) * var(--tw-space-y-reverse));
     margin-block-end: calc(calc(var(--spacing) * 5) * calc(1 - var(--tw-space-y-reverse)));
   }
-  :where(.space-y-6 > :not(:last-child)) {
-    --tw-space-y-reverse: 0;
-    margin-block-start: calc(calc(var(--spacing) * 6) * var(--tw-space-y-reverse));
-    margin-block-end: calc(calc(var(--spacing) * 6) * calc(1 - var(--tw-space-y-reverse)));
-  }
   .gap-x-2 {
     column-gap: calc(var(--spacing) * 2);
   }
@@ -1604,9 +1629,6 @@ svg.react-flow__connectionline {
   }
   .gap-x-4 {
     column-gap: calc(var(--spacing) * 4);
-  }
-  .gap-x-8 {
-    column-gap: calc(var(--spacing) * 8);
   }
   :where(.-space-x-1 > :not(:last-child)) {
     --tw-space-x-reverse: 0;
@@ -1621,12 +1643,6 @@ svg.react-flow__connectionline {
   }
   .gap-y-2 {
     row-gap: calc(var(--spacing) * 2);
-  }
-  .gap-y-4 {
-    row-gap: calc(var(--spacing) * 4);
-  }
-  .gap-y-5 {
-    row-gap: calc(var(--spacing) * 5);
   }
   :where(.divide-y > :not(:last-child)) {
     --tw-divide-y-reverse: 0;
@@ -1777,9 +1793,6 @@ svg.react-flow__connectionline {
   }
   .bg-brand-soft {
     background-color: #e1f5fe;
-  }
-  .bg-brand-soft\/40 {
-    background-color: color-mix(in oklab, #e1f5fe 40%, transparent);
   }
   .bg-brand-soft\/50 {
     background-color: color-mix(in oklab, #e1f5fe 50%, transparent);
@@ -1934,9 +1947,6 @@ svg.react-flow__connectionline {
   .py-3 {
     padding-block: calc(var(--spacing) * 3);
   }
-  .py-3\.5 {
-    padding-block: calc(var(--spacing) * 3.5);
-  }
   .py-4 {
     padding-block: calc(var(--spacing) * 4);
   }
@@ -1982,6 +1992,9 @@ svg.react-flow__connectionline {
   .pr-1 {
     padding-right: var(--spacing);
   }
+  .pr-2 {
+    padding-right: calc(var(--spacing) * 2);
+  }
   .pr-3 {
     padding-right: calc(var(--spacing) * 3);
   }
@@ -1996,9 +2009,6 @@ svg.react-flow__connectionline {
   }
   .pb-1 {
     padding-bottom: var(--spacing);
-  }
-  .pb-1\.5 {
-    padding-bottom: calc(var(--spacing) * 1.5);
   }
   .pb-2 {
     padding-bottom: calc(var(--spacing) * 2);
@@ -2047,6 +2057,9 @@ svg.react-flow__connectionline {
   }
   .pl-5 {
     padding-left: calc(var(--spacing) * 5);
+  }
+  .pl-20 {
+    padding-left: calc(var(--spacing) * 20);
   }
   .text-center {
     text-align: center;
@@ -2099,9 +2112,6 @@ svg.react-flow__connectionline {
   .text-\[20px\] {
     font-size: 20px;
   }
-  .text-\[22px\] {
-    font-size: 22px;
-  }
   .text-\[26px\] {
     font-size: 26px;
   }
@@ -2119,10 +2129,6 @@ svg.react-flow__connectionline {
   .leading-\[20px\] {
     --tw-leading: 20px;
     line-height: 20px;
-  }
-  .leading-none {
-    --tw-leading: 1;
-    line-height: 1;
   }
   .leading-relaxed {
     --tw-leading: var(--leading-relaxed);
@@ -2231,9 +2237,6 @@ svg.react-flow__connectionline {
   }
   .opacity-35 {
     opacity: 35%;
-  }
-  .opacity-60 {
-    opacity: 60%;
   }
   .opacity-70 {
     opacity: 70%;
@@ -2388,9 +2391,6 @@ svg.react-flow__connectionline {
   .placeholder\:text-faint::placeholder {
     color: #90a4ae;
   }
-  .first\:pl-0:first-child {
-    padding-left: 0px;
-  }
   .last\:pb-0:last-child {
     padding-bottom: 0px;
   }
@@ -2406,9 +2406,6 @@ svg.react-flow__connectionline {
     }
     .hover\:border-brand\/50:hover {
       border-color: color-mix(in oklab, #42a5f5 50%, transparent);
-    }
-    .hover\:border-line-strong:hover {
-      border-color: #cfd8dc;
     }
     .hover\:bg-black\/\[0\.06\]:hover {
       background-color: color-mix(in srgb, #000 6%, transparent);
@@ -2508,25 +2505,11 @@ svg.react-flow__connectionline {
     .sm\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .sm\:grid-cols-4 {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
     .sm\:grid-cols-\[48px_1fr\] {
       grid-template-columns: 48px 1fr;
     }
     .sm\:grid-cols-\[160px_1fr\] {
       grid-template-columns: 160px 1fr;
-    }
-    .sm\:border-l {
-      border-left-style: var(--tw-border-style);
-      border-left-width: 1px;
-    }
-    .sm\:border-line {
-      border-color: #eceff1;
-    }
-    .sm\:first\:border-l-0:first-child {
-      border-left-style: var(--tw-border-style);
-      border-left-width: 0px;
     }
   }
   @media (width >= 48rem) {
@@ -2535,6 +2518,9 @@ svg.react-flow__connectionline {
     }
     .md\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .md\:grid-cols-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .md\:grid-cols-\[200px_1fr\] {
       grid-template-columns: 200px 1fr;
@@ -2555,16 +2541,13 @@ svg.react-flow__connectionline {
     }
   }
   @media (width >= 64rem) {
-    .lg\:grid-cols-3 {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-    .lg\:grid-cols-4 {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+    .lg\:block {
+      display: block;
     }
   }
   @media (width >= 80rem) {
-    .xl\:col-span-2 {
-      grid-column: span 2 / span 2;
+    .xl\:grid-cols-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .xl\:grid-cols-3 {
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2572,8 +2555,8 @@ svg.react-flow__connectionline {
     .xl\:grid-cols-4 {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
-    .xl\:grid-cols-5 {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+    .xl\:grid-cols-6 {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
     }
   }
   .\[\&_svg\]\:shrink-0 svg {
@@ -3042,6 +3025,11 @@ svg[data-slot='icon']:is(.size-3, .size-3\.5) {
 @property --tw-ease {
   syntax: "*";
   inherits: false;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {

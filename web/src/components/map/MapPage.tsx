@@ -32,19 +32,11 @@ import {
   TypeDot,
   TYPES,
 } from '@/components/map/meta'
-import {
-  Button,
-  Card,
-  EmptyState,
-  IconBadge,
-  Page,
-  Select,
-  Spinner,
-  timeAgo,
-} from '@/components/ui'
+import { Button, Card, Page, Select, Spinner, timeAgo } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 import { ObjectActions } from '@/components/map/ObjectActions'
+import { MapState } from '@/components/map/MapState'
 
 const EXPAND_LIMIT = 40
 const START_POINT_ROWS = 6
@@ -665,10 +657,12 @@ export function MapPage() {
           }))}
         />
       </div>
-      <Button variant="primary" disabled={!alias || building} onClick={() => void build()}>
-        {building ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
-        {graph ? 'Refresh' : 'Build map'}
-      </Button>
+      {graph ? (
+        <Button variant="primary" disabled={!alias || building} onClick={() => void build()}>
+          {building ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
+          Refresh
+        </Button>
+      ) : null}
     </>
   )
 
@@ -728,30 +722,14 @@ export function MapPage() {
             </>
           ) : (
             <div className="flex h-full items-center justify-center p-6">
-              {loading ? (
-                <Spinner className="text-brand size-6" />
-              ) : (
-                <EmptyState
-                  badge={
-                    <IconBadge icon={MapIcon} size="lg">
-                      {building ? <Spinner className="size-6" /> : undefined}
-                    </IconBadge>
-                  }
-                  title={building ? 'Reading the configuration' : 'No map yet'}
-                  error={error ?? status?.error}
-                  action={
-                    !building && !status?.builtAt ? (
-                      <Button variant="primary" disabled={!alias} onClick={() => void build()}>
-                        <MapIcon className="size-3.5" /> Build map
-                      </Button>
-                    ) : null
-                  }
-                >
-                  {building
-                    ? `${status?.step ?? 'Starting'}. Large instances take about a minute.`
-                    : 'Build a map to see how trackor types, fields, rules, automations, imports, reports and workflows link together. It reads the configuration with read-only SQL and needs the Test SQL privilege.'}
-                </EmptyState>
-              )}
+              <MapState
+                loading={loading}
+                building={building}
+                step={status?.step}
+                error={error ?? status?.error}
+                canBuild={Boolean(alias)}
+                onBuild={() => void build()}
+              />
             </div>
           )}
         </div>

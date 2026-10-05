@@ -137,7 +137,7 @@ function Preferences() {
 
   return (
     <Card className="divide-line divide-y">
-      <Row title="Default model" hint="Used for new runs. You can switch it per run in the chat.">
+      <Row title="Main model" hint="Used for new runs. You can switch it per run in the chat.">
         <Select
           className="w-[260px]"
           value={settings.defaultModel}
@@ -148,6 +148,25 @@ function Preferences() {
             label: m.name,
             hint: m.premium ? `x${m.premium}` : m.vendor,
           }))}
+        />
+      </Row>
+      <Row
+        title="Fast model"
+        hint="Used for small chores such as naming runs. A quick, cheap model fits, such as Haiku."
+      >
+        <Select
+          className="w-[260px]"
+          value={settings.fastModel}
+          onChange={(v) => void update({ fastModel: v })}
+          placeholder={models.length ? 'Off' : 'Loading models...'}
+          options={[
+            { value: '', label: 'Off', hint: 'runs keep their first line' },
+            ...models.map((m) => ({
+              value: m.id,
+              label: m.name,
+              hint: m.premium ? `x${m.premium}` : m.vendor,
+            })),
+          ]}
         />
       </Row>
       <Row

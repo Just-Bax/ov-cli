@@ -385,6 +385,16 @@ def database_of(row: dict[str, Any]) -> str:
     return "" if value in EMPTY else value
 
 
+def forget_host(host: str) -> None:
+    state = load_state()
+    databases = state.get("databases", {})
+    if _host_key(host) not in databases:
+        return
+
+    del databases[_host_key(host)]
+    _save_state(state)
+
+
 def learn_databases(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
     state = load_state()
     known: dict[str, list[str]] = {k: list(v) for k, v in state.get("databases", {}).items()}
@@ -504,54 +514,6 @@ def for_instance(rows: list[dict[str, Any]], alias: str) -> list[dict[str, Any]]
     main = main_alias(found["alias"])
     databases = load_state().get("databases", {}).get(_host_key(found["host"]), [])
     return [r for r in rows if belongs_to(r, found["host"], main, databases)]
-
-
-def website_map(days: int = 7) -> dict[str, Any]:
-    end = _now_ms()
-    rows = incidents(end - days * DAY_MS, end)
-    known = load_state().get("databases", {})
-    signed: dict[str, str] = {}
-    for inst in instances():
-        signed.setdefault(inst["host"], main_alias(inst["alias"]))
-
-    hosts: dict[str, dict[str, Any]] = {}
-    matched_ids: set[str] = set()
-    for host, alias in signed.items():
-        mine = [r for r in rows if belongs_to(r, host, alias, known.get(host, []))]
-        if mine:
-            matched_ids.update(r["id"] for r in mine)
-            hosts[host] = _summary(host, alias, mine)
-
-    site_of_db = {db: site for site, dbs in known.items() for db in dbs if len(dbs) == 1}
-    for r in rows:
-        if r["id"] not in matched_ids:
-            _count_unmatched(hosts, r, site_of_db)
-
-    ordered = sorted(hosts.values(), key=lambda h: (h["alias"] is None, -h["open"], -h["count"]))
-    return {"days": days, "total": len(rows), "matched": len(matched_ids), "websites": ordered}
-
-
-def _unmatched_label(incident: dict[str, Any], site_of_db: dict[str, str]) -> str:
-    database = incident["database"]
-    if not database:
-        return "other"
-    return site_of_db.get(database, f"database {database}")
-
-
-def _count_unmatched(hosts: dict[str, dict[str, Any]], incident: dict[str, Any], site_of_db: dict[str, str]) -> None:
-    for site in incident["websites"] or [_unmatched_label(incident, site_of_db)]:
-        entry = hosts.setdefault(site, _summary(site, None, []))
-        entry["count"] += 1
-        entry["open"] += incident["status"] != "resolved"
-
-
-def _summary(host: str, alias: str | None, rows: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
-        "host": host,
-        "alias": alias,
-        "count": len(rows),
-        "open": sum(r["status"] != "resolved" for r in rows),
-    }
 
 
 def _incident_ref(value: str) -> str:

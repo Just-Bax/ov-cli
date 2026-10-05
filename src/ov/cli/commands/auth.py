@@ -261,6 +261,7 @@ def cmd_logout(ctx: Context) -> int:
 
     revoked = _revoke(ctx, session)
     session_store.remove(session.alias)
+    _forget(session)
     reset_cache()
     cleared = ctx.cache.clear()
 
@@ -280,6 +281,18 @@ def cmd_logout(ctx: Context) -> int:
     return 0
 
 
+def _forget(session: Session) -> None:
+    from ...agent.forget import forget
+
+    forget(session.alias, session.base_url)
+
+
+def _prune() -> None:
+    from ...agent.forget import prune
+
+    prune()
+
+
 def _logout_text(session: Session, revoked: bool, remaining: str | None) -> str:
     head = (
         f"[green]Logged out[/green] of {session.alias} ({session.base_url})."
@@ -297,6 +310,7 @@ def _logout_all(ctx: Context) -> int:
         for session in session_store.listed().values()
     ]
     session_store.clear()
+    _prune()
     reset_cache()
     ctx.cache.clear()
 

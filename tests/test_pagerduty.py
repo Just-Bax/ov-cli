@@ -196,14 +196,6 @@ def test_a_tenant_sees_its_host_incidents(linked):
     assert len(pagerduty.for_instance(rows, "acme/north")) == 4
 
 
-def test_website_map_lists_signed_in_instances_first(linked):
-    found = pagerduty.website_map(7)
-    assert found["total"] == 5 and found["matched"] == 4
-    first, second = found["websites"][:2]
-    assert (first["host"], first["alias"], first["count"], first["open"]) == (HOST, "acme", 4, 2)
-    assert (second["host"], second["alias"], second["count"]) == ("globex.onevizion.test", None, 1)
-
-
 def test_tools_are_offered_only_when_connected(fake, logged_in):
     names = {s["function"]["name"] for s in tool_specs()}
     assert not {n for n in names if n.startswith("pagerduty_")}
@@ -260,8 +252,6 @@ def test_the_api_never_returns_the_key(linked):
     try:
         status = httpx.get(f"{base}/api/pagerduty")
         assert status.json()["connected"] and KEY not in status.text
-        sites = httpx.get(f"{base}/api/pagerduty/websites", params={"days": 7}).json()
-        assert sites["websites"][0]["host"] == HOST
         bad = httpx.post(f"{base}/api/pagerduty/connect", json={"account": "x", "apiKey": "nope"})
         assert bad.status_code == 400
         assert httpx.delete(f"{base}/api/pagerduty").json()["connected"] is False

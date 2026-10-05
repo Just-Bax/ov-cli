@@ -3,7 +3,6 @@ import {
   ChevronRightIcon,
   CodeBracketIcon,
   MagnifyingGlassIcon,
-  MapIcon,
   SparklesIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
@@ -32,7 +31,6 @@ import {
   Button,
   Card,
   EmptyState,
-  IconBadge,
   Page,
   Select,
   Skeleton,
@@ -44,9 +42,9 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { refIndex } from '@/lib/references'
 import { openDraft } from '@/lib/draft'
-import { go } from '@/lib/route'
 import { EXPLORE_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 import { ObjectActions } from '@/components/map/ObjectActions'
+import { MapState } from '@/components/map/MapState'
 
 const TREE_ORDER: GraphNodeType[] = [
   'rule',
@@ -755,10 +753,12 @@ export function ExplorerPage() {
           }))}
         />
       </div>
-      <Button variant="primary" disabled={!alias || building} onClick={() => void build()}>
-        {building ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
-        {graph ? 'Refresh' : 'Build map'}
-      </Button>
+      {graph ? (
+        <Button variant="primary" disabled={!alias || building} onClick={() => void build()}>
+          {building ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
+          Refresh
+        </Button>
+      ) : null}
     </>
   )
 
@@ -859,35 +859,14 @@ export function ExplorerPage() {
         </div>
       ) : (
         <div className="flex h-full items-center justify-center p-6">
-          {loading ? (
-            <Spinner className="text-brand size-6" />
-          ) : (
-            <EmptyState
-              badge={
-                <IconBadge icon={CodeBracketIcon} size="lg">
-                  {building ? <Spinner className="size-6" /> : undefined}
-                </IconBadge>
-              }
-              title={building ? 'Reading the configuration' : 'Build the map first'}
-              error={error ?? status?.error}
-              action={
-                !building ? (
-                  <>
-                    <Button variant="primary" disabled={!alias} onClick={() => void build()}>
-                      <MapIcon className="size-3.5" /> Build map
-                    </Button>
-                    <Button variant="ghost" onClick={() => go({ page: 'map' })}>
-                      Open Instance map
-                    </Button>
-                  </>
-                ) : null
-              }
-            >
-              {building
-                ? `${status?.step ?? 'Starting'}. Large instances take about a minute.`
-                : 'The Explorer lists objects from the instance map. Building it reads the configuration with read-only SQL and needs the Test SQL privilege.'}
-            </EmptyState>
-          )}
+          <MapState
+            loading={loading}
+            building={building}
+            step={status?.step}
+            error={error ?? status?.error}
+            canBuild={Boolean(alias)}
+            onBuild={() => void build()}
+          />
         </div>
       )}
     </Page>

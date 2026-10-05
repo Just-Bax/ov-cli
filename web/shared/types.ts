@@ -168,6 +168,7 @@ export interface RunState {
 
 export interface Settings {
   defaultModel: string
+  fastModel: string
   maxSteps: number
   notify: boolean
   showTimeSaved: boolean
@@ -317,14 +318,16 @@ export interface DatadogDiscovery {
   groups: Record<string, string>
 }
 
+export interface HealthServerMetric {
+  latest: number
+  max: number
+  points: HealthPoint[]
+}
+
 export interface HealthServer {
   host: string
   role: string
-  cpu?: number | null
-  load?: number | null
-  memory?: number | null
-  disk?: number | null
-  heap?: number | null
+  metrics: Partial<Record<'cpu' | 'memory' | 'disk' | 'load' | 'heap', HealthServerMetric>>
 }
 
 export interface HealthPoint {
@@ -341,34 +344,54 @@ export interface HealthMonitor {
   message: string
 }
 
-export interface InstanceHealth {
+export interface HealthMeta {
   instance: string
   range: string
   scope: string
   from: number
   to: number
   appUrl: string
-  links: { logs: string; monitors: string; apm: string; events: string }
-  errors: Record<string, string>
-  monitors?: HealthMonitor[]
-  errorSeries?: HealthPoint[]
-  logSeries?: HealthPoint[]
-  previousErrors?: number
-  topErrors?: { pattern: string; count: number; example: string; service: string; last: string }[]
-  events?: { time: string; title: string; message: string; source: string; status: string }[]
-  slowEndpoints?: { resource: string; p95Ms: number; count: number }[]
-  metrics?: {
-    title: string
-    query: string
-    unit: string
-    points: HealthPoint[]
-    max: number
-    hosts: number
-  }[]
-  servers?: HealthServer[]
-  traffic?: { requests: HealthPoint[]; p95Ms: HealthPoint[] }
-  pagerduty?: PagerDutyHealth | null
-  onevizion?: { type: string; count: number; last?: string }[]
+  links: { logs: string; monitors: string; apm: string; events: string; metrics: string }
+}
+
+export interface HealthEvent {
+  time: string
+  title: string
+  message: string
+  source: string
+  status: string
+}
+
+export interface HealthSections {
+  monitors: { monitors: HealthMonitor[] }
+  logs: {
+    errorSeries: HealthPoint[]
+    logSeries: HealthPoint[]
+    previousErrors: number
+    topErrors: { pattern: string; count: number; example: string; service: string; last: string }[]
+  }
+  traffic: {
+    traffic: { requests: HealthPoint[]; p95Ms: HealthPoint[] }
+    slowEndpoints: { resource: string; p95Ms: number; count: number }[]
+  }
+  servers: { servers: HealthServer[] }
+  events: { events: HealthEvent[] }
+  onevizion: {
+    byType: { type: string; count: number; last: string }[]
+    failures: { type: string; at: string }[]
+    utcOffsetMinutes: number
+  }
+  incidents: PagerDutyHealth
+}
+
+export type HealthSection = keyof HealthSections
+
+export type SectionResult<K extends HealthSection> = HealthSections[K] | { unavailable: string }
+
+export interface PagerDutyIncidentDetail extends PagerDutyIncident {
+  timeline: { time: string; type: string; summary: string; by: string }[]
+  alerts: { time: string; status: string; summary: string; details: string }[]
+  notes: { time: string; by: string; text: string }[]
 }
 
 export type PagerDutyArea = 'incidents' | 'services' | 'oncall'
@@ -384,13 +407,6 @@ export interface PagerDutyStatus {
   permissions: Record<PagerDutyArea, boolean>
   checkedAt?: number | null
   error?: string | null
-}
-
-export interface PagerDutyWebsites {
-  days: number
-  total: number
-  matched: number
-  websites: { host: string; alias: string | null; count: number; open: number }[]
 }
 
 export interface PagerDutyIncident {

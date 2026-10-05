@@ -317,8 +317,7 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
     rows = min(max(int(args.get("rows") or DEFAULT_SQL_ROWS), 1), MAX_SQL_ROWS)
     raw = run_ov_tool(
         [
-            "sql",
-            "check-sql-and-return-result-set",
+            *graph.SQL_REQUEST,
             "-q",
             f"rows_count={rows}",
             "-d",

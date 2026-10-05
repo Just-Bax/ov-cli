@@ -11,6 +11,7 @@ import threading
 import time
 import webbrowser
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -46,7 +47,6 @@ LOGOUT_MESSAGE_CHARS = 300
 LOGIN_MESSAGE_CHARS = 400
 HEALTH_CHECK_TIMEOUT_SECONDS = 2
 DEFAULT_RANGE = "24h"
-DEFAULT_WEBSITE_DAYS = 7
 DAY_MS = 86_400_000
 SECONDS_PER_DAY = 86_400
 FAILED_PROCESS_STATUSES = "3, 14, 21"
@@ -489,37 +489,83 @@ def datadog_matches(h: Handler) -> dict[str, Any]:
     return datadog.save_matches({str(k): str(v) for k, v in matches.items()})
 
 
-def _ov_failures(alias: str, seconds: int) -> Callable[[], list[dict[str, Any]]]:
-    def read() -> list[dict[str, Any]]:
-        sql = graph.SqlReader(alias, Cancel())
-        days = round(seconds / SECONDS_PER_DAY, 4)
-        rows = sql.page(
-            "select t.process_type, count(*) n, "
-            "to_char(max(p.submission_date), 'YYYY-MM-DD HH24:MI') last_at "
-            "from process p join process_type t on t.process_type_id = p.process_type_id "
-            f"where p.status_id in ({FAILED_PROCESS_STATUSES}) and p.submission_date > sysdate - {days} "
-            "group by t.process_type order by n desc",
-            0,
+FAILURE_TIMES_SHOWN = 500
+UTC_OFFSET_SQL = "select round((sysdate - cast(sys_extract_utc(systimestamp) as date)) * 1440) m from dual"
+
+
+def _failed_runs(alias: str, start: int, end: int) -> dict[str, Any]:
+    sql = graph.SqlReader(alias, Cancel())
+    days = round((end - start) / 1000 / SECONDS_PER_DAY, 4)
+    failed = (
+        "from process p join process_type t on t.process_type_id = p.process_type_id "
+        f"where p.status_id in ({FAILED_PROCESS_STATUSES}) and p.submission_date > sysdate - {days}"
+    )
+    queries = {
+        "byType": (
+            "select t.process_type, count(*) n, to_char(max(p.submission_date), 'YYYY-MM-DD HH24:MI') last_at "
+            f"{failed} group by t.process_type order by n desc",
             FAILED_PROCESS_TYPES_SHOWN,
-        )
-        return [{"type": r["PROCESS_TYPE"], "count": int(r["N"]), "last": r["LAST_AT"]} for r in rows]
+        ),
+        "times": (
+            f"select t.process_type, to_char(p.submission_date, 'YYYY-MM-DD\"T\"HH24:MI:SS') at {failed} "
+            "order by p.submission_date desc",
+            FAILURE_TIMES_SHOWN,
+        ),
+        "offset": (UTC_OFFSET_SQL, 1),
+    }
+    with ThreadPoolExecutor(max_workers=len(queries)) as pool:
+        futures = {name: pool.submit(sql.page, query, 0, size) for name, (query, size) in queries.items()}
+        found = {name: future.result() for name, future in futures.items()}
 
-    return read
+    by_type, times = found["byType"], found["times"]
+    offset = int(found["offset"][0]["M"])
+
+    return {
+        "byType": [{"type": r["PROCESS_TYPE"], "count": int(r["N"]), "last": r["LAST_AT"]} for r in by_type],
+        "failures": [{"type": r["PROCESS_TYPE"], "at": r["AT"]} for r in times],
+        "utcOffsetMinutes": offset,
+    }
 
 
-@route("GET", "/api/instance-health")
-def instance_health(h: Handler) -> dict[str, Any]:
-    alias = _instance_alias(h)
+def _incidents(alias: str, start: int, end: int, range_key: str) -> dict[str, Any]:
+    report = pagerduty.health(alias, start, end, range_key)
+    if report is None:
+        raise datadog.Unavailable("PagerDuty is not connected.")
+    return report
+
+
+def _health_range(h: Handler) -> str:
     range_key = h.query.get("range", DEFAULT_RANGE)
     if range_key not in datadog.RANGES:
         raise HttpError(400, f"Unknown range: {range_key}")
+    return range_key
 
-    report = dict(datadog.health(alias, range_key, _ov_failures(alias, datadog.RANGES[range_key][0])))
+
+@route("GET", "/api/instance-health/meta")
+def instance_health_meta(h: Handler) -> dict[str, Any]:
+    return datadog.health_meta(_instance_alias(h), _health_range(h))
+
+
+@route("GET", "/api/instance-health/([a-z]+)")
+def instance_health_section(h: Handler, section: str) -> dict[str, Any]:
+    alias = _instance_alias(h)
+    range_key = _health_range(h)
+    end = int(_required(h.query, "to"))
+    start, _ = datadog.window(range_key, end)
+
     try:
-        report["pagerduty"] = pagerduty.health(alias, report["from"], report["to"], range_key)
-    except PagerDutyError as exc:
-        report["pagerduty"] = {"errors": {"pagerduty": str(exc)}}
-    return report
+        if section == "onevizion":
+            return _failed_runs(alias, start, end)
+        if section == "incidents":
+            return _incidents(alias, start, end, range_key)
+        return datadog.health_section(alias, range_key, section, end)
+    except (datadog.Unavailable, graph.NoAccess) as exc:
+        return {"unavailable": str(exc)}
+
+
+@route("GET", "/api/pagerduty/incidents/([A-Za-z0-9]+)")
+def pagerduty_incident(_: Handler, ident: str) -> dict[str, Any]:
+    return pagerduty.public(pagerduty.incident_detail(ident))
 
 
 @route("GET", "/api/pagerduty")
@@ -541,11 +587,6 @@ def pagerduty_test(_: Handler) -> dict[str, Any]:
 @route("DELETE", "/api/pagerduty")
 def pagerduty_disconnect(_: Handler) -> dict[str, Any]:
     return pagerduty.disconnect()
-
-
-@route("GET", "/api/pagerduty/websites")
-def pagerduty_websites(h: Handler) -> dict[str, Any]:
-    return pagerduty.website_map(int(h.query.get("days") or DEFAULT_WEBSITE_DAYS))
 
 
 @route("GET", "/api/runs")

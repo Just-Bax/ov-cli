@@ -17,7 +17,6 @@ import httpx
 
 from .. import credentials
 from ..paths import agent_dir, write_atomic
-from .graph import GraphError
 from .ovproc import find_instance, host_of, instances
 
 CREDENTIAL_KEY = "agent:datadog"
@@ -385,6 +384,17 @@ def save_matches(matches: dict[str, str]) -> dict[str, Any]:
     _save_state(state)
     _health_cache.clear()
     return status()
+
+
+def forget(alias: str) -> None:
+    state = load_state()
+    matches = state.get("matches", {})
+    if alias not in matches:
+        return
+
+    del matches[alias]
+    _save_state(state)
+    _health_cache.clear()
 
 
 def filter_for(alias: str) -> str:
@@ -835,45 +845,34 @@ def _error_span_row(row: dict[str, Any]) -> dict[str, Any]:
 
 RANGES = {"1h": (3600, "1m"), "24h": (86400, "30m"), "7d": (604800, "6h")}
 METRICS = [
-    ("cpu", "CPU", "avg:system.cpu.user{%s} by {host}", "%"),
-    ("load", "Load (per core)", "avg:system.load.norm.1{%s} by {host}", ""),
-    ("memory", "Memory usable", "avg:system.mem.pct_usable{%s} by {host}*100", "%"),
-    ("disk", "Disk in use", "max:system.disk.in_use{%s} by {host}*100", "%"),
-    ("heap", "JVM heap", "avg:jvm.heap_memory{%s} by {host}", "B"),
+    ("cpu", "avg:system.cpu.user{%s} by {host}"),
+    ("memory", "avg:system.mem.pct_usable{%s} by {host}*100"),
+    ("disk", "max:system.disk.in_use{%s} by {host}*100"),
+    ("load", "avg:system.load.norm.1{%s} by {host}"),
+    ("heap", "avg:jvm.heap_memory{%s} by {host}"),
 ]
+SECTION_AREAS = {"monitors": "monitors", "logs": "logs", "traffic": "apm", "servers": "metrics", "events": "events"}
+AREA_WORDS = {"monitors": "monitors", "logs": "logs", "apm": "APM traces", "metrics": "metrics", "events": "events"}
+SERVER_POINTS = 30
 
 
-def health(alias: str, range_key: str, ov_side: Callable[[], Any] | None = None) -> dict[str, Any]:
+class Unavailable(DatadogError):
+    pass
+
+
+def window(range_key: str, end: int) -> tuple[int, str]:
     if range_key not in RANGES:
         raise DatadogError(f"Unknown range {range_key}. Use one of: {', '.join(RANGES)}.")
 
-    key = (alias, range_key)
-    cached = _health_cache.get(key)
-    if cached and time.time() - cached[0] < HEALTH_TTL_SECONDS:
-        return cached[1]
-
-    scope = filter_for(alias)
     seconds, interval = RANGES[range_key]
+    return end - seconds * 1000, interval
+
+
+def health_meta(alias: str, range_key: str) -> dict[str, Any]:
     end = _now_ms()
-    start = end - seconds * 1000
-
-    report = _health_report(alias, range_key, scope, start, end)
-    if not scope:
-        report["errors"]["scope"] = "This instance is not matched to Datadog yet."
-        return report
-
-    jobs = _health_jobs(scope, start, end, interval)
-    if ov_side is not None:
-        jobs.append(("onevizion", ov_side))
-
-    _run_jobs(report, jobs)
-    _add_metrics(report, scope)
-    _health_cache[key] = (time.time(), report)
-    return report
-
-
-def _health_report(alias: str, range_key: str, scope: str, start: int, end: int) -> dict[str, Any]:
-    site = load_state().get("site", DEFAULT_SITE)
+    start, _ = window(range_key, end)
+    scope = filter_for(alias)
+    site = _stored(load_state(), "site")
     base = app_url(site)
 
     return {
@@ -888,106 +887,107 @@ def _health_report(alias: str, range_key: str, scope: str, start: int, end: int)
             "monitors": f"{base}/monitors/manage",
             "apm": f"{base}/apm/traces?query={quote(scope)}",
             "events": f"{base}/event/explorer?query={quote(scope)}",
+            "metrics": f"{base}/infrastructure?filter={quote(scope)}",
         },
-        "errors": {},
     }
+
+
+def health_section(alias: str, range_key: str, section: str, end: int) -> dict[str, Any]:
+    if section not in SECTION_AREAS:
+        raise DatadogError(f"Unknown health section {section}.")
+
+    key = (alias, range_key, section, end)
+    cached = _health_cache.get(key)
+    if cached and time.time() - cached[0] < HEALTH_TTL_SECONDS:
+        return cached[1]
+
+    area = SECTION_AREAS[section]
+    if not permissions()[area]:
+        raise Unavailable(f"The Datadog application key cannot read {AREA_WORDS[area]}.")
+
+    scope = filter_for(alias)
+    if not scope:
+        raise Unavailable("This instance has no Datadog servers picked yet.")
+
+    start, interval = window(range_key, end)
+    result = SECTION_READERS[section](scope, start, end, interval)
+    _health_cache[key] = (time.time(), result)
+    return result
+
+
+def _parallel(jobs: dict[str, Callable[[], Any]]) -> dict[str, Any]:
+    with ThreadPoolExecutor(max_workers=HEALTH_WORKERS) as pool:
+        futures = {name: pool.submit(fn) for name, fn in jobs.items()}
+        return {name: future.result() for name, future in futures.items()}
+
+
+def _monitors_section(scope: str, _start: int, _end: int, _interval: str) -> dict[str, Any]:
+    return {"monitors": monitors_for(scope, include_ok=True)}
+
+
+def _logs_section(scope: str, start: int, end: int, interval: str) -> dict[str, Any]:
+    errors_query = combine(scope, "status:error")
+    previous_start = start - (end - start)
+
+    return _parallel(
+        {
+            "errorSeries": partial(log_timeseries, errors_query, start, end, interval),
+            "logSeries": partial(log_timeseries, scope, start, end, interval),
+            "previousErrors": partial(_error_count, errors_query, previous_start, start, interval),
+            "topErrors": lambda: top_patterns(search_logs(errors_query, start, end, HEALTH_LOG_SAMPLE)),
+        }
+    )
+
+
+def _traffic_section(scope: str, start: int, end: int, interval: str) -> dict[str, Any]:
+    return _parallel(
+        {
+            "traffic": partial(traffic, scope, start, end, interval),
+            "slowEndpoints": partial(slow_endpoints, scope, start, end, HEALTH_ENDPOINTS),
+        }
+    )
+
+
+def _events_section(scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
+    return {"events": events_for(scope, start, end, HEALTH_EVENTS)}
+
+
+def _servers_section(scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
+    tags = metric_scope(scope)
+    found = _parallel({name: partial(query_metric, template % tags, start, end) for name, template in METRICS})
+    names = hosts_in(scope) or sorted({_host_of_series(s) for series in found.values() for s in series} - {None})
+
+    servers = []
+    for name in names:
+        metrics = {metric: _server_metric(found[metric], name) for metric, _ in METRICS}
+        servers.append({"host": name, "role": role_of(name), "metrics": {k: v for k, v in metrics.items() if v}})
+    return {"servers": servers}
+
+
+def _host_of_series(series: dict[str, Any]) -> str | None:
+    return next((p.split(":", 1)[1] for p in series["scope"].split(",") if p.startswith("host:")), None)
+
+
+def _server_metric(series: list[dict[str, Any]], host: str) -> dict[str, Any] | None:
+    mine = next((s for s in series if _host_of_series(s) == host and s["points"]), None)
+    if mine is None:
+        return None
+
+    points = mine["points"]
+    return {"latest": points[-1]["v"], "max": max(p["v"] for p in points), "points": downsample(points, SERVER_POINTS)}
 
 
 def _error_count(query: str, start: int, end: int, interval: str) -> float:
     return sum(p["v"] for p in log_timeseries(query, start, end, interval))
 
 
-def _health_jobs(scope: str, start: int, end: int, interval: str) -> list[tuple[str, Callable[[], Any]]]:
-    allowed = permissions()
-    errors_query = combine(scope, "status:error")
-    previous_start = start - (end - start)
-    jobs: list[tuple[str, Callable[[], Any]]] = []
-    if allowed["monitors"]:
-        jobs.append(("monitors", partial(monitors_for, scope, include_ok=True)))
-
-    if allowed["logs"]:
-        jobs += [
-            ("errorSeries", partial(log_timeseries, errors_query, start, end, interval)),
-            ("logSeries", partial(log_timeseries, scope, start, end, interval)),
-            ("previousErrors", partial(_error_count, errors_query, previous_start, start, interval)),
-            ("topErrors", lambda: top_patterns(search_logs(errors_query, start, end, HEALTH_LOG_SAMPLE))),
-        ]
-
-    if allowed["events"]:
-        jobs.append(("events", partial(events_for, scope, start, end, HEALTH_EVENTS)))
-
-    if allowed["apm"]:
-        jobs += [
-            ("slowEndpoints", partial(slow_endpoints, scope, start, end, HEALTH_ENDPOINTS)),
-            ("traffic", partial(traffic, scope, start, end, interval)),
-        ]
-
-    if allowed["metrics"]:
-        tags = metric_scope(scope)
-        jobs += [
-            (f"metric:{name}", partial(_metric_card, title, template % tags, unit, start, end))
-            for name, title, template, unit in METRICS
-        ]
-
-    return jobs
-
-
-def _run_jobs(report: dict[str, Any], jobs: list[tuple[str, Callable[[], Any]]]) -> None:
-    def run(name: str, fn: Callable[[], Any]) -> None:
-        try:
-            report[name] = fn()
-        except (DatadogError, GraphError) as exc:
-            report["errors"][name] = str(exc)
-
-    with ThreadPoolExecutor(max_workers=HEALTH_WORKERS) as pool:
-        list(pool.map(lambda job: run(*job), jobs))
-
-
-def _add_metrics(report: dict[str, Any], scope: str) -> None:
-    cards = {name: report.pop(f"metric:{name}", None) for name, *_ in METRICS}
-    report["metrics"] = [card for card in cards.values() if card]
-    names = hosts_in(scope) or sorted({h for card in report["metrics"] for h in card["byHost"]})
-    report["servers"] = [
-        {"host": name, "role": role_of(name), **{key: _latest(card, name) for key, card in cards.items()}}
-        for name in names
-    ]
-
-
-def _latest(card: dict[str, Any] | None, host: str) -> float | None:
-    if card is None or host not in card["byHost"]:
-        return None
-    return card["byHost"][host]["latest"]
-
-
-def _metric_card(title: str, query: str, unit: str, start: int, end: int) -> dict[str, Any] | None:
-    series = query_metric(query, start, end)
-    points: dict[int, list[float]] = {}
-    for s in series:
-        for p in s["points"]:
-            points.setdefault(p["t"], []).append(p["v"])
-
-    merged = [{"t": t, "v": sum(v) / len(v)} for t, v in sorted(points.items())]
-    if not merged:
-        return None
-
-    return {
-        "byHost": _by_host(series),
-        "title": title,
-        "query": query,
-        "unit": unit,
-        "points": downsample(merged),
-        "max": max(p["v"] for p in merged),
-        "hosts": len(series),
-    }
-
-
-def _by_host(series: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
-    by_host = {}
-    for s in series:
-        name = next((p.split(":", 1)[1] for p in s["scope"].split(",") if p.startswith("host:")), None)
-        if name and s["points"]:
-            by_host[name] = {"latest": s["points"][-1]["v"], "max": max(p["v"] for p in s["points"])}
-    return by_host
+SECTION_READERS: dict[str, Callable[[str, int, int, str], dict[str, Any]]] = {
+    "monitors": _monitors_section,
+    "logs": _logs_section,
+    "traffic": _traffic_section,
+    "servers": _servers_section,
+    "events": _events_section,
+}
 
 
 def downsample(points: list[dict[str, float]], buckets: int = CHART_POINTS) -> list[dict[str, float]]:

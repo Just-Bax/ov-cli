@@ -618,10 +618,10 @@ export function DatadogCard({
     )
 
   const header = (
-    <div className="flex flex-wrap items-center gap-3.5 p-5">
+    <div className="flex items-center gap-3.5 p-5">
       <DatadogBadge />
       <div
-        className={cn('min-w-0 flex-1', status.connected && 'cursor-pointer')}
+        className={cn('mr-4 min-w-0 flex-1', status.connected && 'cursor-pointer')}
         onClick={status.connected ? toggle : undefined}
       >
         <div className="flex items-center gap-2">
@@ -634,14 +634,14 @@ export function DatadogCard({
             )
           ) : null}
         </div>
-        <div className="text-muted mt-0.5 text-[12.5px]">
+        <div className="text-muted mt-0.5 truncate text-[12.5px]">
           {status.connected
-            ? `${siteAddress(status)} - keys ...${status.apiKeyLast4} and ...${status.appKeyLast4}${status.checkedAt ? ` - checked ${timeAgo(status.checkedAt)}` : ''}`
-            : 'Logs, metrics, monitors, events and APM for your instances. The agent uses them in runs, and Health shows them per instance.'}
+            ? siteAddress(status)
+            : 'Logs, metrics, monitors, events and APM for your instances.'}
         </div>
       </div>
       {status.connected ? (
-        <div className="flex gap-1">
+        <div className="flex shrink-0 gap-1">
           <Button
             size="sm"
             variant="ghost"
@@ -675,6 +675,10 @@ export function DatadogCard({
           <div className="border-line flex flex-wrap items-center gap-3 border-t px-5 py-3">
             <span className="text-muted text-[12px] font-medium">Can read</span>
             <Permissions status={status} />
+            <span className="text-faint ml-auto text-[12px]">
+              Keys ...{status.apiKeyLast4}, ...{status.appKeyLast4}
+              {status.checkedAt ? ` - checked ${timeAgo(status.checkedAt)}` : ''}
+            </span>
           </div>
           {status.error ? (
             <div className="border-line text-danger border-t px-5 py-2.5 text-[12.5px]">

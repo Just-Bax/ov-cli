@@ -319,21 +319,32 @@ def test_times_accept_relative_iso_and_epoch():
         datadog.to_ms("yesterday", "now")
 
 
-def test_health_report(linked):
+def test_health_loads_per_section(linked):
     datadog.save_matches({"acme": "host:acme-app-*"})
-    report = datadog.health("acme", "24h", lambda: [{"type": "Import", "count": 2}])
-    assert report["scope"] == "host:acme-app-*"
-    assert [m["name"] for m in report["monitors"]][:1] == ["Heap high on acme"]
-    assert report["topErrors"][0]["count"] == 2
-    assert report["onevizion"] == [{"type": "Import", "count": 2}]
-    assert {m["title"] for m in report["metrics"]} >= {"CPU", "JVM heap"}
-    assert "slowEndpoints" in report and not report["errors"]
-    assert [(s["host"], s["role"], s["cpu"]) for s in report["servers"]] == [("acme-app-01", "acme-app", 30.0)]
-    assert report["traffic"]["p95Ms"][0]["v"] == 2000.0
+    meta = datadog.health_meta("acme", "24h")
+    assert meta["scope"] == "host:acme-app-*"
+
+    def section(name):
+        return datadog.health_section("acme", "24h", name, meta["to"])
+
+    assert [m["name"] for m in section("monitors")["monitors"]][:1] == ["Heap high on acme"]
+    assert section("logs")["topErrors"][0]["count"] == 2
+    traffic = section("traffic")
+    assert traffic["traffic"]["p95Ms"][0]["v"] == 2000.0 and traffic["slowEndpoints"]
+    server = section("servers")["servers"][0]
+    assert (server["host"], server["role"], server["metrics"]["cpu"]["latest"]) == ("acme-app-01", "acme-app", 30.0)
+    assert section("events")["events"]
 
     before = len(linked.requests)
-    datadog.health("acme", "24h")
+    section("logs")
     assert len(linked.requests) == before
+
+
+def test_a_health_section_without_access_is_unavailable(linked):
+    datadog.save_matches({})
+    meta = datadog.health_meta("acme", "24h")
+    with pytest.raises(datadog.Unavailable, match="no Datadog servers"):
+        datadog.health_section("acme", "24h", "logs", meta["to"])
 
 
 def test_long_series_are_averaged_into_buckets():
@@ -359,8 +370,13 @@ def test_the_api_never_returns_keys(linked):
 
         saved = httpx.put(f"{base}/api/datadog/matches", json={"matches": {"acme": "host:a*"}})
         assert saved.json()["matches"] == {"acme": "host:a*"}
-        health = httpx.get(f"{base}/api/instance-health", params={"instance": "acme"})
-        assert health.status_code == 200 and health.json()["scope"] == "host:a*"
+        meta = httpx.get(f"{base}/api/instance-health/meta", params={"instance": "acme"}).json()
+        assert meta["scope"] == "host:a*"
+        params = {"instance": "acme", "to": meta["to"]}
+        logs = httpx.get(f"{base}/api/instance-health/logs", params=params).json()
+        assert logs["topErrors"]
+        missing = httpx.get(f"{base}/api/instance-health/incidents", params=params).json()
+        assert missing == {"unavailable": "PagerDuty is not connected."}
         assert httpx.delete(f"{base}/api/datadog").json()["connected"] is False
     finally:
         httpd.shutdown()

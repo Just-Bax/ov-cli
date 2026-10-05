@@ -30,6 +30,7 @@ MODELS_TTL_SECONDS = 600
 TOKEN_REFRESH_MARGIN_SECONDS = 120
 MAX_TOKENS = 16000
 CHAT_ATTEMPTS = 4
+COMPLETE_MAX_TOKENS = 200
 RETRY_BASE_SECONDS = 2
 ERROR_DETAIL_CHARS = 500
 PENDING_STATUSES = {"authorization_pending": "pending", "slow_down": "slow_down"}
@@ -284,6 +285,23 @@ def stream_chat(
                 if cancel.is_set():
                     raise Cancelled from None
                 raise
+
+
+def complete(model: str, system: str, user_text: str) -> str:
+    api, headers = _headers(**{"X-Initiator": "agent"})
+    payload = {
+        "model": model,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_text}],
+        "stream": False,
+        "max_tokens": COMPLETE_MAX_TOKENS,
+    }
+
+    with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as http:
+        response = http.post(f"{api}/chat/completions", json=payload, headers=headers)
+    if response.status_code >= 400:
+        raise CopilotError(f"Copilot chat failed ({response.status_code}): {response.text[:ERROR_DETAIL_CHARS]}")
+
+    return response.json()["choices"][0]["message"]["content"].strip()
 
 
 def _chunks(response: httpx.Response) -> Iterator[dict[str, Any]]:
