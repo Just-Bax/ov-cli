@@ -13,6 +13,7 @@ import { AddInstanceForm, SignInModal, type SignInTarget } from '@/components/Si
 import { Button, Card, GithubMark, Label, Select, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { reportError } from '@/components/Toasts'
 
 const SLOW_DOWN_STEP_MS = 5000
 const COPIED_FEEDBACK_MS = 2000
@@ -221,7 +222,7 @@ export function Setup({
         setModels(m)
         if (!model || !m.some((x) => x.id === model)) setModel(pickModel(m))
       })
-      .catch(() => undefined)
+      .catch(reportError)
   }, [copilotOk])
 
   useEffect(() => setAdding(false), [status.instances.total])

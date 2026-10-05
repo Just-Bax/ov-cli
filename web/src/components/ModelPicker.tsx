@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react'
 import type { ModelInfo } from '@shared/types.ts'
 import { Dropdown } from '@/components/Dropdown'
 import { api } from '@/lib/api'
+import { reportError } from '@/components/Toasts'
 
 let cache: Promise<ModelInfo[]> | undefined
 
 export function useModels(): ModelInfo[] {
   const [models, setModels] = useState<ModelInfo[]>([])
   useEffect(() => {
-    cache ??= api.models().catch(() => {
+    cache ??= api.models().catch((e: Error) => {
       cache = undefined
+      reportError(e)
       return []
     })
     void cache.then(setModels)

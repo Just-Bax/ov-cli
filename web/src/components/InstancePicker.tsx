@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Instance } from '@shared/types.ts'
 import { Dropdown } from '@/components/Dropdown'
 import { api } from '@/lib/api'
+import { reportError } from '@/components/Toasts'
 
 export function useInstances(): { instances?: Instance[] } {
   const [instances, setInstances] = useState<Instance[]>()
@@ -10,7 +11,10 @@ export function useInstances(): { instances?: Instance[] } {
     api
       .instances()
       .then(setInstances)
-      .catch(() => setInstances([]))
+      .catch((e: Error) => {
+        setInstances([])
+        reportError(e)
+      })
   }, [])
 
   return { instances }

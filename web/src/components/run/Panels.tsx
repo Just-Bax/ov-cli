@@ -6,6 +6,7 @@ import { Button, Chip, CopyButton, Input, Spinner, type Tone } from '@/component
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
+import { reportError } from '@/components/Toasts'
 
 const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   fix: { label: 'Fix needed', tone: 'warn' },
@@ -140,7 +141,10 @@ function ApprovalCard({ runId, question }: { runId: string; question: Question }
 
   const send = async (answer: string) => {
     setSending(true)
-    await api.answer(runId, question.id, answer).catch(() => setSending(false))
+    await api.answer(runId, question.id, answer).catch((e: Error) => {
+      setSending(false)
+      reportError(e)
+    })
   }
 
   return (
@@ -193,7 +197,10 @@ export function QuestionCard({ runId, question }: { runId: string; question: Que
 
   const send = async (answer: string) => {
     setSending(true)
-    await api.answer(runId, question.id, answer).catch(() => setSending(false))
+    await api.answer(runId, question.id, answer).catch((e: Error) => {
+      setSending(false)
+      reportError(e)
+    })
   }
 
   return (

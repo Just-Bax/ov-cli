@@ -46,6 +46,7 @@ import { api } from '@/lib/api'
 import { go } from '@/lib/route'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
+import { reportError } from '@/components/Toasts'
 
 function Section({
   title,
@@ -230,7 +231,10 @@ function Instances() {
     api
       .instances()
       .then(setInstances)
-      .catch(() => setInstances([]))
+      .catch((e: Error) => {
+        setInstances([])
+        reportError(e)
+      })
 
   useEffect(() => {
     void load()
@@ -607,7 +611,10 @@ function Sources() {
     api
       .sources()
       .then(setSources)
-      .catch(() => setSources([]))
+      .catch((e: Error) => {
+        setSources([])
+        reportError(e)
+      })
   }, [])
 
   const act = async (key: string, fn: () => Promise<SourceInfo[]>) => {

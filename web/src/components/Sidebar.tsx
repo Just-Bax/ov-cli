@@ -23,6 +23,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
 import { useSettings } from '@/lib/settings'
+import { reportError } from '@/components/Toasts'
 
 const RECENT_LIMIT = 40
 const RUNS_POLL_MS = 3000
@@ -86,10 +87,7 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
 function useRuns(): [RunSummary[] | undefined, () => void] {
   const [runs, setRuns] = useState<RunSummary[]>()
   const load = useCallback(() => {
-    api
-      .runs()
-      .then(setRuns)
-      .catch(() => undefined)
+    api.runs().then(setRuns).catch(reportError)
   }, [])
 
   useEffect(() => {

@@ -859,8 +859,14 @@ svg.react-flow__connectionline {
   .right-0 {
     right: 0px;
   }
+  .right-4 {
+    right: calc(var(--spacing) * 4);
+  }
   .bottom-1\.5 {
     bottom: calc(var(--spacing) * 1.5);
+  }
+  .bottom-4 {
+    bottom: calc(var(--spacing) * 4);
   }
   .-left-20 {
     left: calc(var(--spacing) * -20);
@@ -1349,6 +1355,9 @@ svg.react-flow__connectionline {
   }
   .w-\[340px\] {
     width: 340px;
+  }
+  .w-\[360px\] {
+    width: 360px;
   }
   .w-\[420px\] {
     width: 420px;
@@ -2278,6 +2287,10 @@ svg.react-flow__connectionline {
   }
   .shadow-\[0_8px_28px_rgba\(38\,50\,56\,0\.14\)\] {
     --tw-shadow: 0 8px 28px var(--tw-shadow-color, rgba(38,50,56,0.14));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
+  .shadow-\[0_8px_28px_rgba\(38\,50\,56\,0\.16\)\] {
+    --tw-shadow: 0 8px 28px var(--tw-shadow-color, rgba(38,50,56,0.16));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .shadow-\[0_12px_40px_rgba\(38\,50\,56\,0\.08\)\] {

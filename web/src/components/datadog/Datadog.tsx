@@ -22,6 +22,7 @@ import { Button, Card, Chip, IconBadge, Select, Skeleton, Spinner, timeAgo } fro
 import { api } from '@/lib/api'
 import { hostsIn, roleOf, scopeOf, shortHost } from '@/lib/servers'
 import { cn } from '@/lib/cn'
+import { reportError } from '@/components/Toasts'
 
 export const DATADOG_PURPLE = '#632CA6'
 const DEFAULT_SITE = 'datadoghq.com'
@@ -84,10 +85,7 @@ export function useDatadog() {
   const [status, setStatus] = useState<DatadogStatus>()
 
   useEffect(() => {
-    api
-      .datadog()
-      .then(setStatus)
-      .catch(() => undefined)
+    api.datadog().then(setStatus).catch(reportError)
   }, [])
 
   return { status, setStatus }

@@ -10,6 +10,7 @@ import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { Setup } from '@/components/Setup'
 import { isSidebarCollapsed, Sidebar } from '@/components/Sidebar'
+import { Toasts } from '@/components/Toasts'
 import { Skeleton } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
@@ -119,6 +120,7 @@ export function App() {
       <>
         <Setup status={status} onDone={refresh} onFinish={() => setInSetup(false)} />
         <DialogHost />
+        <Toasts />
       </>
     )
 
@@ -146,6 +148,7 @@ export function App() {
           {route.page === 'run' && <RunView key={route.id} id={route.id} />}
         </main>
         <DialogHost />
+        <Toasts />
       </div>
     </SettingsContext.Provider>
   )

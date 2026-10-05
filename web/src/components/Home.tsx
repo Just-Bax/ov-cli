@@ -11,6 +11,7 @@ import { api } from '@/lib/api'
 import { takeDraft } from '@/lib/draft'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
+import { reportError } from '@/components/Toasts'
 
 const WORDS = ['troubleshooting', 'investigating', 'configuring', 'automating', 'fixing']
 const WORD_MS = 4500
@@ -72,10 +73,7 @@ export function Home({ settings }: { settings: Settings }) {
   }, [])
 
   useEffect(() => {
-    api
-      .stats()
-      .then(setTotals)
-      .catch(() => undefined)
+    api.stats().then(setTotals).catch(reportError)
   }, [])
 
   const submit = async (text: string, files: File[]) => {

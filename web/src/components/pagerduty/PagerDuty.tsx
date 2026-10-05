@@ -14,6 +14,7 @@ import { dialog } from '@/components/Dialog'
 import { Button, Card, Chip, IconBadge, Input, Skeleton, Spinner, timeAgo } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { reportError } from '@/components/Toasts'
 
 const PAGERDUTY_GREEN = '#06AC38'
 const DEFAULT_WEB_URL = 'https://app.pagerduty.com'
@@ -40,10 +41,7 @@ export function usePagerDuty() {
   const [status, setStatus] = useState<PagerDutyStatus>()
 
   useEffect(() => {
-    api
-      .pagerduty()
-      .then(setStatus)
-      .catch(() => undefined)
+    api.pagerduty().then(setStatus).catch(reportError)
   }, [])
 
   return { status, setStatus }
