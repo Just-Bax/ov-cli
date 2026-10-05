@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { PagerDutyArea, PagerDutyStatus, PagerDutyWebsites } from '@shared/types.ts'
 import pagerdutyMark from '@/assets/pagerduty.svg'
-import { AccountRow, KeyField } from '@/components/datadog/Datadog'
+import { AccountRow, CollapseButton, KeyField, useOpen } from '@/components/datadog/Datadog'
 import { dialog } from '@/components/Dialog'
 import { Button, Card, Chip, IconBadge, Input, Skeleton, Spinner, timeAgo } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -333,6 +333,7 @@ export function PagerDutyCard({
 }) {
   const [connecting, setConnecting] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [open, toggle] = useOpen('pagerduty')
 
   if (!status)
     return (
@@ -345,7 +346,10 @@ export function PagerDutyCard({
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center gap-3.5 p-5">
         <PagerDutyBadge />
-        <div className="min-w-0 flex-1">
+        <div
+          className={cn('min-w-0 flex-1', status.connected && 'cursor-pointer')}
+          onClick={status.connected ? toggle : undefined}
+        >
           <div className="flex items-center gap-2">
             <span className="text-fg text-[14px] font-semibold">PagerDuty</span>
             {status.connected ? (
@@ -379,6 +383,7 @@ export function PagerDutyCard({
             <Button size="sm" variant="ghost" onClick={() => setConnecting(true)}>
               Change token
             </Button>
+            <CollapseButton open={open} onClick={toggle} />
           </div>
         ) : (
           <Button variant="secondary" onClick={() => setConnecting(true)}>
@@ -386,7 +391,7 @@ export function PagerDutyCard({
           </Button>
         )}
       </div>
-      {status.connected ? (
+      {status.connected && open ? (
         <>
           <div className="border-line flex flex-wrap items-center gap-3 border-t px-5 py-3">
             <span className="text-muted text-[12px] font-medium">Can read</span>

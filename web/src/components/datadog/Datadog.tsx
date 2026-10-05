@@ -2,6 +2,7 @@ import {
   ArrowPathIcon,
   ArrowTopRightOnSquareIcon,
   CheckIcon,
+  ChevronDownIcon,
   EyeIcon,
   EyeSlashIcon,
   LinkSlashIcon,
@@ -32,6 +33,34 @@ export const AREA_LABELS: Record<DatadogArea, string> = {
   events: 'Events',
   apm: 'APM',
   hosts: 'Hosts',
+}
+
+// Integration cards start collapsed and remember whether the user opened them.
+export function useOpen(name: string): [boolean, () => void] {
+  const key = `ov-agent.integration-${name}`
+  const [open, setOpen] = useState(() => localStorage.getItem(key) === '1')
+  return [
+    open,
+    () =>
+      setOpen((v) => {
+        localStorage.setItem(key, v ? '0' : '1')
+        return !v
+      }),
+  ]
+}
+
+export function CollapseButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={open ? 'Collapse' : 'Expand'}
+      aria-expanded={open}
+      onClick={onClick}
+      className="text-muted hover:text-fg hover:bg-raised flex size-8 shrink-0 items-center justify-center rounded-full transition-colors"
+    >
+      <ChevronDownIcon className={cn('size-4 transition-transform', open && 'rotate-180')} />
+    </button>
+  )
 }
 
 export function DatadogMark({ className }: { className?: string }) {
@@ -530,6 +559,7 @@ export function DatadogCard({
 }) {
   const [connecting, setConnecting] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [open, toggle] = useOpen('datadog')
 
   if (!status)
     return (
@@ -541,7 +571,10 @@ export function DatadogCard({
   const header = (
     <div className="flex flex-wrap items-center gap-3.5 p-5">
       <DatadogBadge />
-      <div className="min-w-0 flex-1">
+      <div
+        className={cn('min-w-0 flex-1', status.connected && 'cursor-pointer')}
+        onClick={status.connected ? toggle : undefined}
+      >
         <div className="flex items-center gap-2">
           <span className="text-fg text-[14px] font-semibold">Datadog</span>
           {status.connected ? (
@@ -575,6 +608,7 @@ export function DatadogCard({
           <Button size="sm" variant="ghost" onClick={() => setConnecting(true)}>
             Change keys
           </Button>
+          <CollapseButton open={open} onClick={toggle} />
         </div>
       ) : (
         <Button variant="secondary" onClick={() => setConnecting(true)}>
@@ -587,7 +621,7 @@ export function DatadogCard({
   return (
     <Card className="overflow-hidden">
       {header}
-      {status.connected ? (
+      {status.connected && open ? (
         <>
           <div className="border-line flex flex-wrap items-center gap-3 border-t px-5 py-3">
             <span className="text-muted text-[12px] font-medium">Can read</span>
