@@ -64,7 +64,6 @@ def test_an_unknown_instance_names_the_known_ones(two_instances):
 def test_hosts_sharing_a_first_label_get_distinct_aliases(ov_home):
     seed_session("https://acme.onevizion.test")
     seed_session("https://acme.eu.example.test")
-
     aliases = sorted(session_store.all_sessions())
     assert aliases == ["acme", "acme.eu.example.test"]
 
@@ -78,7 +77,6 @@ def test_an_explicit_alias_cannot_steal_another_instances_name(ov_home):
 def test_logging_in_again_keeps_the_same_alias(ov_home):
     seed_session(BASE_URL, token="FIRST:KEY")
     seed_session(BASE_URL, token="SECOND:KEY")
-
     sessions = session_store.all_sessions()
     assert list(sessions) == ["acme"]
     assert sessions["acme"].bearer_token == "SECOND:KEY"
@@ -102,9 +100,6 @@ def test_removing_the_last_instance_leaves_nothing(logged_in):
         session_store.load()
 
 
-# --- through the CLI ---
-
-
 def test_instances_lists_both_and_marks_the_current(capsys, two_instances, server):
     code, data = payload(capsys, "instances", "--json")
     assert code == 0
@@ -115,7 +110,6 @@ def test_instances_lists_both_and_marks_the_current(capsys, two_instances, serve
 def test_i_targets_another_instance(capsys, two_instances, server):
     server.route("GET", "/api/v3/server_info", 200, {"version": "1"})
     run(capsys, "-i", "globex", "request", "GET", "/v3/server_info", "--json")
-
     assert str(server.last.url).startswith(OTHER_URL)
     assert server.last.headers["authorization"] == "Bearer OTHER:SECRET"
 
@@ -139,7 +133,6 @@ def test_the_instance_env_var_is_honoured(capsys, two_instances, server, monkeyp
 def test_use_changes_what_later_commands_target(capsys, two_instances, server):
     code, _ = run(capsys, "use", "globex", "--json")
     assert code == 0
-
     run(capsys, "request", "GET", "/v3/server_info", "--json")
     assert str(server.last.url).startswith(OTHER_URL)
 
@@ -176,8 +169,6 @@ def test_a_generated_group_is_built_for_the_targeted_instance(capsys, two_instan
 
 
 def test_a_generated_group_is_absent_for_an_instance_without_a_schema(capsys, two_instances, server):
-    """Only the targeted instance's schema is expanded, so acme's 'users' group
-    must not appear when globex is the target."""
     from ov import spec as spec_module
 
     trimmed = json.loads(json.dumps(OPENAPI))
@@ -201,7 +192,6 @@ def test_an_instance_with_no_schema_is_told_to_fetch_one(capsys, logged_in, serv
 
 def test_login_stores_a_second_instance_without_replacing_the_first(capsys, logged_in, server):
     code, data = payload(capsys, "login", OTHER_URL, "--token", "KEY:SECRET", "--no-spec", "--json")
-
     assert code == 0
     assert data["alias"] == "globex"
     assert sorted(session_store.all_sessions()) == ["acme", "globex"]
@@ -263,6 +253,5 @@ def test_whoami_can_be_asked_about_a_specific_instance(capsys, two_instances, se
 def test_a_static_token_instance_and_a_session_instance_coexist(ov_home):
     seed_session(BASE_URL)
     session_store.save(Session(base_url=OTHER_URL, mode="token", bearer_token="K:S"))
-
     assert session_store.load("acme").is_static is False
     assert session_store.load("globex").is_static is True

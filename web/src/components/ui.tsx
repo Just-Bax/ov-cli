@@ -15,6 +15,8 @@ import { cn } from '@/lib/cn'
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type Size = 'sm' | 'md' | 'lg'
 
+const COPIED_FEEDBACK_MS = 1400
+
 const VARIANTS: Record<Variant, string> = {
   primary:
     'bg-brand text-on-brand hover:bg-brand-strong disabled:bg-line-strong disabled:text-white',
@@ -29,8 +31,8 @@ const SIZES: Record<Size, string> = {
   lg: 'h-10 gap-2 rounded-full px-5 text-[13px]',
 }
 
-// Every icon comes from Heroicons outline, so they all share this type.
 export type Icon = typeof SparklesIcon
+
 export function Button({
   variant = 'secondary',
   size = 'md',
@@ -136,15 +138,15 @@ export function Spinner({ className }: { className?: string }) {
   )
 }
 
-/** Use `dim` on the gray sidebar, where the default tint is invisible. */
-export function Skeleton({ className, dim }: { className?: string; dim?: boolean }) {
-  return <div className={cn('skeleton h-3', dim && 'skeleton-dim', className)} />
+export function Skeleton({ className }: { className?: string }) {
+  return <div className={cn('skeleton h-3', className)} />
 }
 
-export function SkeletonText({ lines = 3, className }: { lines?: number; className?: string }) {
+export function SkeletonText({ lines = 3 }: { lines?: number }) {
   const widths = ['w-11/12', 'w-full', 'w-4/5', 'w-2/3', 'w-5/6']
+
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className="space-y-2">
       {Array.from({ length: lines }, (_, i) => (
         <Skeleton key={i} className={i === lines - 1 ? 'w-1/2' : widths[i % widths.length]} />
       ))}
@@ -164,22 +166,21 @@ export function CopyButton({
   text,
   label = 'Copy',
   variant = 'secondary',
-  size = 'sm',
 }: {
   text: string
   label?: string
   variant?: Variant
-  size?: Size
 }) {
   const [done, setDone] = useState(false)
+
   return (
     <Button
       variant={variant}
-      size={size}
+      size="sm"
       onClick={() => {
         void navigator.clipboard.writeText(text)
         setDone(true)
-        setTimeout(() => setDone(false), 1400)
+        setTimeout(() => setDone(false), COPIED_FEEDBACK_MS)
       }}
     >
       {done ? <CheckIcon className="size-3.5" /> : <Square2StackIcon className="size-3.5" />}
@@ -244,11 +245,10 @@ export function Markdown({ text }: { text: string }) {
   )
 }
 
-export function Label({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
+export function Label({ children }: { children: ReactNode }) {
   return (
     <div className="mb-1 flex items-baseline justify-between gap-3">
       <span className="text-text text-[12px] font-medium">{children}</span>
-      {hint ? <span className="text-faint text-[11.5px]">{hint}</span> : null}
     </div>
   )
 }
@@ -264,6 +264,7 @@ export function GithubMark({ className }: { className?: string }) {
 export function timeAgo(ts: number | string): string {
   const t = typeof ts === 'number' ? ts : Date.parse(ts)
   if (!t) return ''
+
   const s = Math.max(0, (Date.now() - t) / 1000)
   if (s < 60) return 'just now'
   if (s < 3600) return `${Math.floor(s / 60)}m ago`
@@ -327,7 +328,6 @@ const BADGE_SIZES = {
   lg: ['size-12', 'size-6'],
 } as const
 
-/** The one tinted circle used for icons in headers, account rows, tiles and empty states. */
 export function IconBadge({
   icon: Glyph,
   tone = 'brand',
@@ -344,6 +344,7 @@ export function IconBadge({
   children?: ReactNode
 }) {
   const [box, glyph] = BADGE_SIZES[size]
+
   return (
     <span
       className={cn(
@@ -359,7 +360,6 @@ export function IconBadge({
   )
 }
 
-/** Centered card for pages with nothing to show yet: badge, title, one line, actions. */
 export function EmptyState({
   icon,
   badge,

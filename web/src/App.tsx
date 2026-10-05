@@ -15,7 +15,6 @@ import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
 import { SettingsContext } from '@/lib/settings'
 
-// Monaco is large; keep it out of the main chunk.
 const ExplorerPage = lazy(() =>
   import('@/components/explorer/ExplorerPage').then((m) => ({ default: m.ExplorerPage })),
 )
@@ -24,7 +23,6 @@ export function App() {
   const route = useRoute()
   const [status, setStatus] = useState<Status>()
   const [error, setError] = useState<string>()
-  // Once setup shows, it stays until its last step, so signing in to GitHub does not skip steps 2 and 3.
   const [inSetup, setInSetup] = useState(false)
 
   const refresh = useCallback(() => {
@@ -45,8 +43,9 @@ export function App() {
   const update = useCallback(async (patch: Partial<Settings>) => {
     const settings = await api.saveSettings(patch)
     setStatus((s) => (s ? { ...s, settings } : s))
-    // An ov agent started before an upgrade serves the new page but drops settings it does not know.
-    if (Object.keys(patch).some((key) => !(key in settings)))
+
+    const serverIsOlderThanPage = Object.keys(patch).some((key) => !(key in settings))
+    if (serverIsOlderThanPage)
       await dialog.alert(
         'Restart ov agent',
         'The running server is older than this page and could not save that setting. Stop it with Ctrl+C, start ov agent again, then reload this tab.',
@@ -64,6 +63,7 @@ export function App() {
       </div>
     )
   }
+
   if (!status) {
     return (
       <div className="flex h-full">

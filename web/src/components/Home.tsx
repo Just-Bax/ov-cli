@@ -65,6 +65,7 @@ function RotatingWord() {
         setLeaving(false)
       }, FADE_MS)
     }, WORD_MS)
+
     return () => {
       clearInterval(timer)
       clearTimeout(swap)
@@ -100,6 +101,7 @@ export function Home({ settings }: { settings: Settings }) {
       setDraft({ text: found.prompt, at: Date.now() })
       if (found.instance) setInstance(found.instance)
     }
+
     load()
     window.addEventListener('ov-agent:draft', load)
     return () => window.removeEventListener('ov-agent:draft', load)

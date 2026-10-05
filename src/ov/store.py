@@ -17,7 +17,6 @@ LOCK_TIMEOUT_SECONDS = 30
 _locks: dict[str, FileLock] = {}
 
 
-# One object per path: FileLock re-enters only through the same instance.
 def lock() -> FileLock:
     path = str(home() / "config.lock")
     if path not in _locks:
@@ -26,29 +25,23 @@ def lock() -> FileLock:
 
 
 def read() -> dict[str, Any]:
-    try:
-        return _load()
-    except (json.JSONDecodeError, OSError, ValueError):
-        return {}
-
-
-def _load() -> dict[str, Any]:
     path = config_file()
     if not path.exists():
         return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise OvError(f"Cannot read {path}: {exc}") from exc
+
     if not isinstance(data, dict):
-        raise ValueError(f"{path} is not a JSON object")
+        raise OvError(f"{path} is not a JSON object")
     return data
 
 
 def mutate(change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
     with lock():
-        # A transient read failure (an antivirus lock on Windows) must not erase every session.
-        try:
-            data = _load()
-        except (json.JSONDecodeError, OSError, ValueError) as exc:
-            raise OvError(f"Cannot read {config_file()}: {exc}") from exc
+        data = read()
         change(data)
         write_atomic(config_file(), json.dumps(data, indent=2))
     return data

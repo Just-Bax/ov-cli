@@ -33,6 +33,8 @@ import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
 import { Answer, LoginCard, QuestionCard } from './Panels'
 import { ToolGroup } from './ToolGroup'
 
+const FOLLOW_BOTTOM_PX = 80
+
 const TONE_TEXT: Record<Tone, string> = {
   brand: 'text-brand-strong',
   ok: 'text-ok',
@@ -59,7 +61,6 @@ interface Turn {
   blocks: Block[]
 }
 
-/** Group the thread into turns: a user message and everything the agent did in reply. */
 function toTurns(state: RunState): Turn[] {
   const turns: Turn[] = [{ blocks: [] }]
   for (const item of state.items) {
@@ -69,6 +70,7 @@ function toTurns(state: RunState): Turn[] {
       if (user) turns.push({ user, blocks: [] })
       continue
     }
+
     if (item.kind === 'tool') {
       const tool = state.tools.find((t) => t.id === item.id)
       if (!tool) continue
@@ -79,10 +81,10 @@ function toTurns(state: RunState): Turn[] {
       turn.blocks.push({ kind: 'item', item, key: `${item.kind}_${item.id}` })
     }
   }
+
   return turns.filter((t) => t.user || t.blocks.length)
 }
 
-/** Plain text of an agent turn, for the copy button. */
 function turnText(turn: Turn, state: RunState): string {
   const parts: string[] = []
   for (const b of turn.blocks) {
@@ -98,6 +100,7 @@ function turnText(turn: Turn, state: RunState): string {
       if (ch) parts.push(`${ch.title}\n${ch.after}`)
     }
   }
+
   return parts.join('\n\n')
 }
 
@@ -112,6 +115,7 @@ function turnTime(turn: Turn, state: RunState): number | undefined {
 
 function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
   if (block.kind === 'tools') return <ToolGroup tools={block.tools} />
+
   const { item } = block
   const id = state.summary.id
   switch (item.kind) {
@@ -167,6 +171,7 @@ function Footer({
   onSend: () => void
 }) {
   const [error, setError] = useState<string>()
+
   const send = async (text: string, files: File[] = []) => {
     setError(undefined)
     onSend()
@@ -177,6 +182,7 @@ function Footer({
       setError((e as Error).message)
     }
   }
+
   return (
     <div className="px-6 pt-1 pb-4">
       <div className="mx-auto max-w-[860px]">
@@ -212,33 +218,35 @@ function Footer({
     </div>
   )
 }
+
 export function RunView({ id }: { id: string }) {
   const { settings } = useSettings()
   const { state: loaded, error } = useRun(id)
   const [feedback, setFeedback] = useState<{ rating: Rating; note: string }>()
   const state = loaded && feedback ? { ...loaded, feedback } : loaded
   const scrollRef = useRef<HTMLDivElement>(null)
-  const stick = useRef(true)
+  const followBottom = useRef(true)
   const ready = Boolean(state)
 
-  // Follow the bottom while the reader is there: cards, markdown and images keep growing the
-  // thread after each event, so pin on every size change rather than on new events.
   useEffect(() => {
     const content = scrollRef.current
     const scroller = content?.parentElement
     if (!content || !scroller) return
-    const pin = () => {
-      if (stick.current) scroller.scrollTop = scroller.scrollHeight
+
+    const pinToBottom = () => {
+      if (followBottom.current) scroller.scrollTop = scroller.scrollHeight
     }
     const onScroll = () => {
-      stick.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80
+      const fromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+      followBottom.current = fromBottom < FOLLOW_BOTTOM_PX
     }
-    const observer = new ResizeObserver(pin)
-    observer.observe(content)
+    const contentGrowth = new ResizeObserver(pinToBottom)
+    contentGrowth.observe(content)
     scroller.addEventListener('scroll', onScroll, { passive: true })
-    pin()
+    pinToBottom()
+
     return () => {
-      observer.disconnect()
+      contentGrowth.disconnect()
       scroller.removeEventListener('scroll', onScroll)
     }
   }, [ready])
@@ -249,6 +257,7 @@ export function RunView({ id }: { id: string }) {
         {null}
       </Page>
     )
+
   if (!state) {
     return (
       <Page
@@ -336,6 +345,7 @@ export function RunView({ id }: { id: string }) {
       ) : null}
     </>
   )
+
   const actions = (
     <>
       {!busy ? (
@@ -355,6 +365,7 @@ export function RunView({ id }: { id: string }) {
             }))
           )
             return
+
           await api.deleteRun(id)
           go({ page: 'home' })
         }}
@@ -382,7 +393,7 @@ export function RunView({ id }: { id: string }) {
           done={summary.status === 'done'}
           write={state.writeAccess}
           onSend={() => {
-            stick.current = true
+            followBottom.current = true
           }}
         />
       }
@@ -396,6 +407,7 @@ export function RunView({ id }: { id: string }) {
           const hasOutcome = turn.blocks.some(
             (b) => b.kind === 'item' && b.item.kind === 'outcome' && b.item.id === state.outcomeId,
           )
+
           return (
             <div key={turnId ?? `t${i}`} className="space-y-4">
               {turn.user ? <UserMessage runId={id} message={turn.user} canRetry={!busy} /> : null}

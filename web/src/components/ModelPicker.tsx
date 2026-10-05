@@ -17,7 +17,7 @@ export function useModels(): ModelInfo[] {
   return models
 }
 
-export function modelOptions(models: ModelInfo[]) {
+function modelOptions(models: ModelInfo[]) {
   return models.map((m) => ({ value: m.id, label: m.name, hint: m.vendor }))
 }
 
@@ -26,6 +26,7 @@ export function ModelPicker({ value, onChange }: { value: string; onChange: (v: 
   const options = modelOptions(models)
   if (value && !options.some((o) => o.value === value))
     options.unshift({ value, label: value, hint: '' })
+
   return (
     <Dropdown
       value={value}

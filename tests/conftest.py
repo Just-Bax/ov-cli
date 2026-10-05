@@ -9,8 +9,6 @@ import pytest
 BASE_URL = "https://acme.onevizion.test"
 OTHER_URL = "https://globex.onevizion.test"
 
-# operationId is the Java handler signature, which is what OneVizion's springdoc
-# customizer emits. The parser has to survive it.
 SIGNATURE = (
     "public com.onevizion.vo.api.v3.UserJsonModel "
     "com.onevizion.web.controller.api.v3.UserJsonApiControllerV3.{method}({args})"
@@ -129,8 +127,6 @@ OPENAPI: dict[str, Any] = {
 
 @pytest.fixture(autouse=True)
 def ov_home(tmp_path, monkeypatch):
-    """Autouse, because anything that refreshes a token persists it: a test
-    without this would rewrite the developer's own ~/.ov/config.json."""
     monkeypatch.setenv("OV_HOME", str(tmp_path))
     monkeypatch.setenv("OV_CREDENTIALS", "file")
     return tmp_path
@@ -162,7 +158,6 @@ def logged_in(ov_home):
 
 @pytest.fixture
 def two_instances(ov_home):
-    """Two systems signed in at once, with 'acme' left as the current one."""
     seed_session(OTHER_URL, token="OTHER:SECRET")
     seed_session(BASE_URL)
     return ov_home
@@ -177,8 +172,6 @@ def with_spec(logged_in):
 
 
 class Recorder:
-    """A stand-in server that records what the CLI sent."""
-
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.routes: dict[tuple[str, str], Any] = {}

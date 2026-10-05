@@ -16,9 +16,13 @@ from .workspace import describe, html_to_text, unique_path
 TRACKOR_HOST = "trackor.onevizion.com"
 CASE_TYPE = "Cases"
 FIELD_BATCH = 40
+FETCH_WORKERS = 6
 MAX_FIELD_CHARS = 6000
 MAX_CASE_CHARS = 90_000
 MAX_CHAT_PAGES = 20
+CHAT_PAGE_SIZE = 100
+ERROR_CHARS = 2000
+OUTPUT_PREVIEW_CHARS = 300
 
 FILE_TYPES = {"ELECTRONIC_FILE", "MULTIPLE_EFILES"}
 SKIP_FIELDS = {
@@ -35,8 +39,8 @@ SKIP_FIELDS = {
     "C_EXCLUDE_ME_IN_MY_ACTIVE_CASE",
 }
 KEY_FIELDS = {"TRACKOR_ID", "TRACKOR_KEY", "XITOR_KEY"}
+EMPTY_VALUES = (None, "", "0")
 
-# A bare case number or a trackor link to one; anything longer is a free-form prompt.
 CASE_ONLY = re.compile(r"^\s*(?:case\s*)?#?(\d{5,8})\s*$", re.IGNORECASE)
 TRACKOR_LINK = re.compile(r"^\s*https?://trackor\.onevizion\.com/\S*[?&]id=(\d{9,})\S*\s*$")
 
@@ -87,11 +91,12 @@ class _Trackor:
         if result.is_auth:
             raise NeedsLogin
         if result.code != 0:
-            raise CaseError(result.message[:2000] or f"ov exited {result.code}")
+            raise CaseError(result.message[:ERROR_CHARS] or f"ov exited {result.code}")
+
         try:
             return json.loads(result.stdout)
         except json.JSONDecodeError:
-            raise CaseError(f"ov returned non-JSON output: {result.stdout[:300]}") from None
+            raise CaseError(f"ov returned non-JSON output: {result.stdout[:OUTPUT_PREVIEW_CHARS]}") from None
 
     def get(self, path: str, *query: str) -> Any:
         args = ["request", "GET", path]
@@ -99,7 +104,7 @@ class _Trackor:
             args += ["-q", item]
         return self.run(args)
 
-    def download(self, blob_id: int, target: Path) -> bool:
+    def download(self, blob_id: int, target: Path) -> None:
         result = run_ov(
             [
                 "-i",
@@ -112,7 +117,8 @@ class _Trackor:
             ],
             cancel=self.cancel,
         )
-        return result.code == 0 and target.exists() and target.stat().st_size > 0
+        if result.code != 0:
+            raise CaseError(f"Downloading {target.name} failed: {result.message[:ERROR_CHARS]}")
 
 
 def _case_schema(trackor: _Trackor) -> list[dict[str, Any]]:
@@ -123,125 +129,149 @@ def _case_schema(trackor: _Trackor) -> list[dict[str, Any]]:
         return _schema
 
 
+def _locate(trackor: _Trackor, key: str | None, trackor_id: str | None) -> tuple[str, int]:
+    if trackor_id:
+        head = trackor.get(f"/v3/trackors/{trackor_id}", "fields=XITOR_KEY")
+        return str(head["TRACKOR_KEY"]), int(trackor_id)
+
+    rows = trackor.get(f"/v3/trackor_types/{CASE_TYPE}/trackors", "fields=XITOR_KEY", f"XITOR_KEY={key}")
+    hit = next((r for r in rows if str(r["TRACKOR_KEY"]) == key), None)
+    if hit is None:
+        raise CaseError(f"Case {key} not found on {TRACKOR_HOST}.")
+    return key, int(hit["TRACKOR_ID"])
+
+
+def _fetch(
+    trackor: _Trackor, tid: int, text_fields: list[str], file_fields: list[str]
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    batches = [text_fields[i : i + FIELD_BATCH] for i in range(0, len(text_fields), FIELD_BATCH)]
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+        parts = list(pool.map(lambda b: trackor.get(f"/v3/trackors/{tid}", f"fields={','.join(b)}"), batches))
+        files = trackor.get(f"/v3/trackors/{tid}", f"fields={','.join(file_fields)}")
+        chats = trackor.get("/v3/chats", f"trackor_id={tid}")
+
+    row: dict[str, Any] = {}
+    for part in parts:
+        row.update(part)
+    return row, files, chats
+
+
+def _field_texts(row: dict[str, Any], labels: dict[str, str]) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for name, value in row.items():
+        if value in EMPTY_VALUES or name in KEY_FIELDS:
+            continue
+        text = html_to_text(value) if isinstance(value, str) else json.dumps(value)
+        if len(text) > MAX_FIELD_CHARS:
+            text = text[:MAX_FIELD_CHARS] + "\n...[truncated]"
+        if text:
+            fields[f"{labels.get(name, name)} [{name}]"] = text
+    return fields
+
+
+def _efiles(value: Any) -> list[dict[str, Any]]:
+    if not value:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def _file_attachments(
+    files: dict[str, Any], file_fields: list[str], labels: dict[str, str], attach_dir: Path
+) -> list[dict[str, Any]]:
+    attachments: list[dict[str, Any]] = []
+    for name in file_fields:
+        for item in _efiles(files.get(name)):
+            if not item.get("data") or not item.get("file_name"):
+                continue
+            target = unique_path(attach_dir, item["file_name"])
+            target.write_bytes(base64.b64decode(item["data"]))
+            attachments.append(describe(target, labels.get(name, name)))
+    return attachments
+
+
 def load_case(ref: str, work_dir: Path, cancel: Cancel) -> dict[str, Any]:
     key, trackor_id = _parse_ref(ref)
     if not key and not trackor_id:
         raise CaseError(f'Cannot find a case number in "{ref}".')
+
     trackor = _Trackor(cancel)
+    case_key, tid = _locate(trackor, key, trackor_id)
 
     schema = _case_schema(trackor)
     text_fields = [f["name"] for f in schema if f["data_type"] not in FILE_TYPES and f["name"] not in SKIP_FIELDS]
     file_fields = [f["name"] for f in schema if f["data_type"] in FILE_TYPES]
     labels = {f["name"]: f.get("label") or f["name"] for f in schema}
-
-    if trackor_id:
-        tid = int(trackor_id)
-        head = trackor.get(f"/v3/trackors/{tid}", "fields=XITOR_KEY")
-        key = str(head.get("TRACKOR_KEY") or head.get("XITOR_KEY") or tid)
-    else:
-        rows = trackor.get(f"/v3/trackor_types/{CASE_TYPE}/trackors", "fields=XITOR_KEY", f"XITOR_KEY={key}")
-        hit = next((r for r in rows if str(r.get("TRACKOR_KEY")) == key), None)
-        if hit is None:
-            raise CaseError(f"Case {key} not found on {TRACKOR_HOST}.")
-        tid = int(hit["TRACKOR_ID"])
-
-    # One request with every field overflows the server's URL limit.
-    batches = [text_fields[i : i + FIELD_BATCH] for i in range(0, len(text_fields), FIELD_BATCH)]
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        parts = list(pool.map(lambda b: trackor.get(f"/v3/trackors/{tid}", f"fields={','.join(b)}"), batches))
-        files = trackor.get(f"/v3/trackors/{tid}", f"fields={','.join(file_fields)}")
-        chats = trackor.get("/v3/chats", f"trackor_id={tid}")
-    row: dict[str, Any] = {}
-    for part in parts:
-        row.update(part)
-
-    fields: dict[str, str] = {}
-    for name, value in row.items():
-        if value in (None, "", "0") or name in KEY_FIELDS:
-            continue
-        text = html_to_text(value) if isinstance(value, str) else json.dumps(value)
-        if text:
-            if len(text) > MAX_FIELD_CHARS:
-                text = text[:MAX_FIELD_CHARS] + "\n...[truncated]"
-            fields[f"{labels.get(name, name)} [{name}]"] = text
+    row, files, chats = _fetch(trackor, tid, text_fields, file_fields)
 
     attach_dir = work_dir / "attachments"
     attach_dir.mkdir(parents=True, exist_ok=True)
-    attachments: list[dict[str, Any]] = []
-    for name in file_fields:
-        value = files.get(name)
-        for item in value if isinstance(value, list) else [value] if value else []:
-            if not isinstance(item, dict) or not item.get("data") or not item.get("file_name"):
-                continue
-            target = unique_path(attach_dir, item["file_name"])
-            target.write_bytes(base64.b64decode(item["data"]))
-            attachments.append(describe(target, labels.get(name, name)))
-
+    attachments = _file_attachments(files, file_fields, labels, attach_dir)
     chat, downloads = _read_chats(trackor, chats, attach_dir)
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        for found in pool.map(lambda d: d(), downloads):
-            if found:
-                attachments.append(found)
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+        attachments += pool.map(lambda download: download(), downloads)
     chat.sort(key=lambda m: m["ts"])
 
     return {
-        "key": key,
+        "key": case_key,
         "trackorId": tid,
         "url": form_url(tid),
         "title": str(row.get("C_TITLE") or ""),
         "website": str(row["C_WEBSITE"]).strip() if row.get("C_WEBSITE") else None,
-        "fields": fields,
+        "fields": _field_texts(row, labels),
         "chat": chat,
         "attachments": attachments,
     }
 
 
+def _reserve(attach_dir: Path, name: str) -> Path:
+    target = unique_path(attach_dir, name)
+    target.write_bytes(b"")
+    return target
+
+
+def _chat_message(
+    trackor: _Trackor, message: dict[str, Any], attach_dir: Path, downloads: list[Callable[[], dict[str, Any]]]
+) -> dict[str, Any]:
+    names = []
+    for item in message.get("files") or []:
+        target = _reserve(attach_dir, item["file_name"])
+        names.append(target.name)
+        downloads.append(_downloader(trackor, item["blob_data_id"], target, message["ts"]))
+    return {
+        "user": message.get("user_name") or "",
+        "ts": message["ts"],
+        "text": html_to_text(message.get("text") or ""),
+        "files": names,
+    }
+
+
 def _read_chats(
     trackor: _Trackor, chats: list[dict[str, Any]], attach_dir: Path
-) -> tuple[list[dict[str, Any]], list[Callable[[], dict[str, Any] | None]]]:
+) -> tuple[list[dict[str, Any]], list[Callable[[], dict[str, Any]]]]:
     chat: list[dict[str, Any]] = []
-    downloads: list[Callable[[], dict[str, Any] | None]] = []
+    downloads: list[Callable[[], dict[str, Any]]] = []
     for room in chats:
         cursor = None
         for _ in range(MAX_CHAT_PAGES):
-            query = ["per_page=100"] + ([f"before_cursor={cursor}"] if cursor else [])
+            query = [f"per_page={CHAT_PAGE_SIZE}", *([f"before_cursor={cursor}"] if cursor else [])]
             page = trackor.get(f"/v3/chats/{room['chat_id']}/messages", *query)
-            for message in page.get("data") or []:
-                names = []
-                for item in message.get("files") or []:
-                    # Reserved now, so parallel downloads never pick the same name.
-                    target = unique_path(attach_dir, item["file_name"])
-                    target.write_bytes(b"")
-                    names.append(target.name)
-                    downloads.append(_downloader(trackor, item["blob_data_id"], target, message))
-                chat.append(
-                    {
-                        "user": message.get("user_name") or "",
-                        "ts": message.get("ts") or "",
-                        "text": html_to_text(message.get("text") or ""),
-                        "files": names,
-                    }
-                )
+            chat += [_chat_message(trackor, message, attach_dir, downloads) for message in page.get("data") or []]
             cursor = page.get("before_cursor")
             if not page.get("hasBefore") or not cursor:
                 break
     return chat, downloads
 
 
-def _downloader(
-    trackor: _Trackor, blob_id: int, target: Path, message: dict[str, Any]
-) -> Callable[[], dict[str, Any] | None]:
-    def fetch() -> dict[str, Any] | None:
-        if trackor.download(blob_id, target):
-            return describe(target, f"chat {message.get('ts', '')}")
-        target.unlink(missing_ok=True)
-        return None
+def _downloader(trackor: _Trackor, blob_id: int, target: Path, ts: str) -> Callable[[], dict[str, Any]]:
+    def fetch() -> dict[str, Any]:
+        trackor.download(blob_id, target)
+        return describe(target, f"chat {ts}")
 
     return fetch
 
 
 def render(bundle: dict[str, Any], work_dir: Path) -> str:
-    website = bundle.get("website")
+    website = bundle["website"]
     lines = [
         f"# Case {bundle['key']}: {bundle['title']}",
         f"Trackor link: {bundle['url']}",

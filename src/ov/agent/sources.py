@@ -15,7 +15,15 @@ from .workspace import within
 
 REPO_PREFIX = "repo:"
 MAX_MATCHES = 80
+MAX_MATCHES_PER_FILE = 20
 MAX_LINE = 300
+READ_LINES = 400
+MAX_LISTED_FILES = 300
+ERROR_TAIL_CHARS = 400
+GIT_TIMEOUT_SECONDS = 120
+CLONE_TIMEOUT_SECONDS = 600
+SYNC_TIMEOUT_SECONDS = 300
+GREP_TIMEOUT_SECONDS = 60
 
 _NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _GIT_URL = re.compile(r"^(https?://|ssh://|git@)", re.IGNORECASE)
@@ -26,7 +34,7 @@ class SourceError(Exception):
     pass
 
 
-def git(args: list[str], cwd: Path, timeout: float = 120) -> subprocess.CompletedProcess[str]:
+def git(args: list[str], cwd: Path, timeout: float = GIT_TIMEOUT_SECONDS) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             ["git", *args],
@@ -43,6 +51,10 @@ def git(args: list[str], cwd: Path, timeout: float = 120) -> subprocess.Complete
         raise SourceError("git is not installed or not on PATH.") from None
     except subprocess.TimeoutExpired:
         raise SourceError(f"git {args[0]} timed out after {timeout:.0f}s.") from None
+
+
+def _stderr_tail(result: subprocess.CompletedProcess[str]) -> str:
+    return result.stderr.strip()[-ERROR_TAIL_CHARS:]
 
 
 def is_git_url(location: str) -> bool:
@@ -83,6 +95,7 @@ def add(name: str, description: str, location: str) -> dict[str, Any]:
         raise SourceError("Name: lowercase letters, digits, dots, dashes and underscores.")
     if any(s["name"] == name for s in list_sources()):
         raise SourceError(f"A source named {name} already exists.")
+
     _prepare(name, location)
     db.put_source(name, description.strip(), location)
     return _find(name)
@@ -109,9 +122,9 @@ def _prepare(name: str, location: str) -> None:
     target = _clone_dir(name)
     if target.exists():
         _rmtree(target)
-    result = git(["clone", "--depth", "1", location, str(target)], agent_dir("sources"), 600)
+    result = git(["clone", "--depth", "1", location, str(target)], agent_dir("sources"), CLONE_TIMEOUT_SECONDS)
     if result.returncode != 0:
-        raise SourceError(f"Could not clone {location}: {result.stderr.strip()[-400:]}")
+        raise SourceError(f"Could not clone {location}: {_stderr_tail(result)}")
 
 
 def sync(name: str) -> dict[str, Any]:
@@ -121,9 +134,10 @@ def sync(name: str) -> dict[str, Any]:
     if not source["ready"]:
         _prepare(name, source["location"])
         return _find(name)
-    result = git(["pull", "--ff-only"], Path(source["path"]), 300)
+
+    result = git(["pull", "--ff-only"], Path(source["path"]), SYNC_TIMEOUT_SECONDS)
     if result.returncode != 0:
-        raise SourceError(f"git pull failed: {result.stderr.strip()[-400:]}")
+        raise SourceError(f"git pull failed: {_stderr_tail(result)}")
     return _find(name)
 
 
@@ -138,16 +152,15 @@ def _remove_clone(source: dict[str, Any]) -> None:
         _rmtree(Path(source["path"]))
 
 
-# git marks pack files read-only, which rmtree cannot delete on Windows.
 def _rmtree(path: Path) -> None:
-    def unlock(function: Any, target: str, _: Any) -> None:
+    def clear_read_only_and_retry(function: Any, target: str, _: Any) -> None:
         os.chmod(target, stat.S_IWRITE)
         function(target)
 
     if sys.version_info >= (3, 12):
-        shutil.rmtree(path, onexc=unlock)
+        shutil.rmtree(path, onexc=clear_read_only_and_retry)
     else:
-        shutil.rmtree(path, onerror=unlock)
+        shutil.rmtree(path, onerror=clear_read_only_and_retry)
 
 
 def root(ref: str) -> Path:
@@ -166,7 +179,7 @@ def root(ref: str) -> Path:
 
 def search(ref: str, pattern: str, pathspec: str = "", ignore_case: bool = False) -> str:
     base = root(ref)
-    args = ["grep", "-n", "-I", "-E", "--max-count", "20"]
+    args = ["grep", "-n", "-I", "-E", "--max-count", str(MAX_MATCHES_PER_FILE)]
     if not (base / ".git").exists():
         args.insert(1, "--no-index")
     if ignore_case:
@@ -175,22 +188,22 @@ def search(ref: str, pattern: str, pathspec: str = "", ignore_case: bool = False
     if pathspec:
         args += ["--", pathspec]
 
-    result = git(args, base, 60)
+    result = git(args, base, GREP_TIMEOUT_SECONDS)
     if result.returncode == 1:
         return "No matches."
     if result.returncode != 0:
         raise SourceError(result.stderr.strip() or "git grep failed")
+
     lines = [line for line in result.stdout.split("\n") if line]
     shown = [line if len(line) <= MAX_LINE else line[:MAX_LINE] + "..." for line in lines]
     if len(lines) > MAX_MATCHES:
         extra = len(lines) - MAX_MATCHES
-        shown = shown[:MAX_MATCHES] + [f"... {extra} more matches; narrow the pattern or path."]
+        shown = [*shown[:MAX_MATCHES], f"... {extra} more matches; narrow the pattern or path."]
     return "\n".join(shown)
 
 
 def read(ref: str, rel: str, start: int = 1, end: int | None = None) -> str:
-    base = root(ref)
-    path = within(base, rel)
+    path = within(root(ref), rel)
     if not path.exists():
         raise SourceError(f"No such file in {ref}: {rel}")
     if path.is_dir():
@@ -199,39 +212,49 @@ def read(ref: str, rel: str, start: int = 1, end: int | None = None) -> str:
 
     lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
     first = max(1, start)
-    last = min(len(lines), end or first + 399)
+    last = min(len(lines), end or first + READ_LINES - 1)
     body = "\n".join(f"{first + i}: {line}" for i, line in enumerate(lines[first - 1 : last]))
     return f"{body}\n... ({len(lines)} lines total)" if last < len(lines) else body
 
 
-def clone_repo(ref: str) -> dict[str, Any]:
-    ref = ref.strip()
+def _repo_url(ref: str) -> tuple[str, str]:
     match = _GITHUB.search(ref)
     if match:
-        url = f"https://github.com/{match.group(1)}/{match.group(2)}.git"
-        name = f"{match.group(1)}-{match.group(2)}"
-    elif is_git_url(ref):
-        url, name = ref, ref.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-    else:
-        raise SourceError(f"Not a git URL: {ref}")
-    name = name.lower()
+        owner, repo = match.groups()
+        return f"https://github.com/{owner}/{repo}.git", f"{owner}-{repo}".lower()
+    if is_git_url(ref):
+        return ref, ref.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git").lower()
+    raise SourceError(f"Not a git URL: {ref}")
+
+
+def _pull(target: Path, url: str, name: str) -> None:
+    origin = git(["remote", "get-url", "origin"], target).stdout.strip()
+    if origin.removesuffix(".git").lower() != url.removesuffix(".git").lower():
+        raise SourceError(f"repo:{name} is already a clone of {origin}.")
+
+    result = git(["pull", "--ff-only"], target)
+    if result.returncode != 0:
+        raise SourceError(f"git pull failed: {_stderr_tail(result)}")
+
+
+def _clone(target: Path, url: str) -> None:
+    result = git(["clone", "--depth", "1", url, str(target)], agent_dir("repos"), CLONE_TIMEOUT_SECONDS)
+    if result.returncode != 0:
+        raise SourceError(
+            f"Could not clone {url}: {_stderr_tail(result)}. Check the URL; the user may need access to that repo."
+        )
+
+
+def clone_repo(ref: str) -> dict[str, Any]:
+    url, name = _repo_url(ref.strip())
     if not _NAME.match(name):
         raise SourceError(f"Bad repo name: {name}")
 
     target = agent_dir("repos") / name
     if (target / ".git").exists():
-        origin = git(["remote", "get-url", "origin"], target).stdout.strip()
-        if origin.removesuffix(".git").lower() != url.removesuffix(".git").lower():
-            raise SourceError(f"repo:{name} is already a clone of {origin}.")
-        result = git(["pull", "--ff-only"], target, 120)
-        if result.returncode != 0:
-            raise SourceError(f"git pull failed: {result.stderr.strip()[-400:]}")
+        _pull(target, url, name)
     else:
-        result = git(["clone", "--depth", "1", url, str(target)], agent_dir("repos"), 600)
-        if result.returncode != 0:
-            raise SourceError(
-                f"Could not clone {url}: {result.stderr.strip()[-400:]}. "
-                "Check the URL; the user may need access to that repo."
-            )
+        _clone(target, url)
+
     files = git(["ls-files"], target).stdout.split("\n")
-    return {"repo": f"{REPO_PREFIX}{name}", "files": [f for f in files if f][:300]}
+    return {"repo": f"{REPO_PREFIX}{name}", "files": [f for f in files if f][:MAX_LISTED_FILES]}

@@ -10,6 +10,10 @@ from rich.table import Table
 
 from .context import Context
 
+TABLE_ROW_LIMIT = 200
+TABLE_MAX_COLUMNS = 12
+CELL_LIMIT = 120
+
 _TableBuilder = Callable[[], Table]
 
 
@@ -71,7 +75,7 @@ def build_table(title: str | None, columns: list[dict[str, Any]], rows: list[lis
     return table
 
 
-def rows_from(payload: Any, limit: int = 200) -> Table | None:
+def rows_from(payload: Any) -> Table | None:
     if not isinstance(payload, list):
         return None
     if not payload:
@@ -79,15 +83,12 @@ def rows_from(payload: Any, limit: int = 200) -> Table | None:
     if not all(isinstance(item, dict) for item in payload):
         return None
 
-    columns: list[str] = []
-    for item in payload[:limit]:
-        for key in item:
-            if key not in columns:
-                columns.append(key)
-    if not columns or len(columns) > 12:
+    shown = payload[:TABLE_ROW_LIMIT]
+    columns = list(dict.fromkeys(key for item in shown for key in item))
+    if not columns or len(columns) > TABLE_MAX_COLUMNS:
         return None
 
-    rows = [[_cell(item.get(column)) for column in columns] for item in payload[:limit]]
+    rows = [[_cell(item.get(column)) for column in columns] for item in shown]
     return build_table(None, [{"header": c, "overflow": "fold"} for c in columns], rows)
 
 
@@ -95,5 +96,5 @@ def _cell(value: Any) -> str:
     if value is None:
         return "-"
     if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False, default=str)[:120]
+        return json.dumps(value, ensure_ascii=False, default=str)[:CELL_LIMIT]
     return str(value)

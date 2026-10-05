@@ -1,6 +1,5 @@
 import type { RunState } from './types.ts'
 
-/** Minutes the agent estimated it saved on this run; a run rated wrong saved nothing. */
 export function savedMinutes(state: RunState): number {
   if (state.feedback?.rating === 'wrong') return 0
   return Math.max(0, Math.round(state.outcome?.timeSaved?.minutes ?? 0))

@@ -2,7 +2,6 @@ from . import agent, api, auth, request, schema, settings, setup
 
 GROUPS = (auth, api, request, schema, settings, setup, agent)
 
-# Reserved so a schema tag such as "config" cannot shadow a built-in command.
 BUILTIN_NAMES = frozenset(
     {
         "login",
@@ -21,4 +20,4 @@ BUILTIN_NAMES = frozenset(
     }
 )
 
-__all__ = ["GROUPS", "BUILTIN_NAMES"]
+__all__ = ["BUILTIN_NAMES", "GROUPS"]

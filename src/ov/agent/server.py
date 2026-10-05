@@ -38,9 +38,21 @@ DEV_PORT = 5179
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 GZIP_MIN_BYTES = 64 * 1024
 PING_SECONDS = 15
+GZIP_LEVEL = 5
+ASSET_CACHE = "public, max-age=31536000, immutable"
+UPLOAD_ID_SUFFIX_CHARS = 6
+LOGOUT_TIMEOUT_SECONDS = 60
+LOGOUT_MESSAGE_CHARS = 300
+LOGIN_MESSAGE_CHARS = 400
+HEALTH_CHECK_TIMEOUT_SECONDS = 2
+DEFAULT_RANGE = "24h"
+DEFAULT_WEBSITE_DAYS = 7
+DAY_MS = 86_400_000
+SECONDS_PER_DAY = 86_400
+FAILED_PROCESS_STATUSES = "3, 14, 21"
+FAILED_PROCESS_TYPES_SHOWN = 20
 APP_ID = "ov-agent"
 
-# Windows' mimetypes reads the registry, which often maps .js to text/plain.
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
@@ -62,6 +74,17 @@ CONTENT_TYPES = {
 
 INLINE_FILES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".log", ".csv"}
 _BODY_TYPES = ("application/json", "application/octet-stream")
+CLIENT_ERRORS = (
+    RunError,
+    SkillError,
+    SourceError,
+    CopilotError,
+    ExplorerError,
+    DatadogError,
+    PagerDutyError,
+    OvError,
+    ValueError,
+)
 
 
 class HttpError(Exception):
@@ -114,8 +137,6 @@ class Handler(BaseHTTPRequestHandler):
         self._unread = 0
         return self.rfile.read(length) if length else b""
 
-    # Replying with the body still unread makes Windows reset the connection, so the client
-    # sees an aborted request instead of the error.
     def _drain(self) -> None:
         if self._unread > MAX_UPLOAD_BYTES:
             self.close_connection = True
@@ -143,7 +164,7 @@ class Handler(BaseHTTPRequestHandler):
     ) -> None:
         self._drain()
         if len(body) > GZIP_MIN_BYTES and "gzip" in (self.headers.get("Accept-Encoding") or ""):
-            body = gzip.compress(body, compresslevel=5)
+            body = gzip.compress(body, compresslevel=GZIP_LEVEL)
             extra = {**(extra or {}), "Content-Encoding": "gzip"}
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -159,8 +180,6 @@ class Handler(BaseHTTPRequestHandler):
         text = payload if isinstance(payload, str) else json.dumps(payload)
         self.send(status, text.encode("utf-8"), "application/json")
 
-    # A browser tab on any site can reach 127.0.0.1, so only same-machine pages may call the
-    # API, and bodies must use a type that forces a CORS preflight.
     def _trusted(self, method: str) -> bool:
         host = (self.headers.get("Host") or "").split(":")[0]
         if host not in ("127.0.0.1", "localhost"):
@@ -173,41 +192,17 @@ class Handler(BaseHTTPRequestHandler):
             return content_type in _BODY_TYPES
         return True
 
-    # Other local web apps must not drive the agent; the Vite dev server is the one exception.
     def _origins(self) -> set[str]:
         ports = (self.server.server_address[1], DEV_PORT)
         return {f"http://{host}:{port}" for host in ("127.0.0.1", "localhost") for port in ports}
 
     def _dispatch(self, method: str) -> None:
         self._unread = int(self.headers.get("Content-Length") or 0)
-        path = urlsplit(self.path).path
         try:
-            if not path.startswith("/api/"):
-                self._static(path)
-                return
-            if not self._trusted(method):
-                raise HttpError(403, "Forbidden.")
-            for verb, pattern, fn in ROUTES:
-                match = pattern.match(path)
-                if verb == method and match:
-                    result = fn(self, *(unquote(g) for g in match.groups()))
-                    if result is not None:
-                        self.send_json(result)
-                    return
-            raise HttpError(404, "Not found.")
+            self._handle(method, urlsplit(self.path).path)
         except HttpError as exc:
             self.send_json({"error": str(exc)}, exc.status)
-        except (
-            RunError,
-            SkillError,
-            SourceError,
-            CopilotError,
-            ExplorerError,
-            DatadogError,
-            PagerDutyError,
-            OvError,
-            ValueError,
-        ) as exc:
+        except CLIENT_ERRORS as exc:
             self.send_json({"error": str(exc)}, 400)
         except httpx.HTTPError as exc:
             self.send_json({"error": f"Network error: {exc}"}, 502)
@@ -216,22 +211,38 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self.send_json({"error": f"{type(exc).__name__}: {exc}"}, 500)
 
+    def _handle(self, method: str, path: str) -> None:
+        if not path.startswith("/api/"):
+            self._static(path)
+            return
+        if not self._trusted(method):
+            raise HttpError(403, "Forbidden.")
+
+        for verb, pattern, fn in ROUTES:
+            match = pattern.match(path)
+            if verb == method and match:
+                result = fn(self, *(unquote(g) for g in match.groups()))
+                if result is not None:
+                    self.send_json(result)
+                return
+        raise HttpError(404, "Not found.")
+
     def _static(self, path: str) -> None:
         index = STATIC_DIR / "index.html"
         if not index.exists():
             raise HttpError(500, "The web UI is not built. Run 'pnpm build' in web/.")
+
         rel = path.lstrip("/")
         target = within(STATIC_DIR, rel) if rel else index
         if not target.is_file():
             target = index
-        cache = "public, max-age=31536000, immutable" if "/assets/" in path else "no-cache"
+        cache = ASSET_CACHE if "/assets/" in path else "no-cache"
         content_type = CONTENT_TYPES.get(target.suffix.lower(), "application/octet-stream")
         self.send(200, target.read_bytes(), content_type, cache)
 
 
 class AgentServer(ThreadingHTTPServer):
     daemon_threads = True
-    # On Windows SO_REUSEADDR lets a second server bind the same port silently.
     allow_reuse_address = sys.platform != "win32"
 
 
@@ -242,9 +253,23 @@ def _run(run_id: str) -> Any:
     return run
 
 
+def _required(data: dict[str, Any], key: str) -> str:
+    value = data.get(key)
+    if not isinstance(value, str):
+        raise HttpError(400, f"Missing {key}.")
+    return value
+
+
+def _objects(data: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    items = data.get(key) or []
+    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+        raise HttpError(400, f"{key} must be a list of objects.")
+    return items
+
+
 def _short_id() -> str:
     stamp = f"{int(time.time() * 1000):x}"
-    return stamp + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    return stamp + "".join(random.choices(string.ascii_lowercase + string.digits, k=UPLOAD_ID_SUFFIX_CHARS))
 
 
 @route("GET", "/api/health")
@@ -273,7 +298,7 @@ def copilot_device(_: Handler) -> dict[str, Any]:
 
 @route("POST", "/api/copilot/poll")
 def copilot_poll(h: Handler) -> dict[str, Any]:
-    return copilot.poll_device_flow(str(h.json().get("deviceCode", "")))
+    return copilot.poll_device_flow(_required(h.json(), "deviceCode"))
 
 
 @route("POST", "/api/copilot/logout")
@@ -304,16 +329,15 @@ def login_instance(h: Handler) -> dict[str, Any]:
         raise HttpError(400, "An API token is tied to its own tenant; leave the tenant out.")
 
     result = login(url, tenant, token)
-    return {"ok": result.code == 0, "message": result.message[-400:]}
+    return {"ok": result.code == 0, "message": result.message[-LOGIN_MESSAGE_CHARS:]}
 
 
-# Signs out (revoking the token when the server still accepts it) and forgets the instance.
 @route("POST", "/api/instances/logout")
 def logout_instance(h: Handler) -> list[dict[str, Any]]:
-    alias = _instance_alias(h, str(h.json().get("alias", "")))
-    result = run_ov(["logout", alias, "--json"], timeout=60, read_only=False)
+    alias = _instance_alias(h, _required(h.json(), "alias"))
+    result = run_ov(["logout", alias, "--json"], timeout=LOGOUT_TIMEOUT_SECONDS, read_only=False)
     if result.code != 0:
-        raise HttpError(400, result.message[-300:] or "Could not remove the instance.")
+        raise HttpError(400, result.message[-LOGOUT_MESSAGE_CHARS:] or "Could not remove the instance.")
     return instances()
 
 
@@ -384,10 +408,13 @@ def delete_source(_: Handler, name: str) -> list[dict[str, Any]]:
 
 @route("POST", "/api/uploads")
 def upload(h: Handler) -> dict[str, str]:
-    name = unquote(h.headers.get("X-File-Name") or "file")
+    name = Path(unquote(h.headers.get("X-File-Name") or "")).name
+    if not name:
+        raise HttpError(400, "Give the file name in the X-File-Name header.")
+
     upload_id = _short_id()
     (uploads_dir() / upload_id).write_bytes(h.body())
-    return {"id": upload_id, "name": Path(name).name or "file"}
+    return {"id": upload_id, "name": name}
 
 
 def _instance_alias(h: Handler, ref: str | None = None) -> str:
@@ -405,7 +432,7 @@ def graph_status(h: Handler) -> dict[str, Any]:
 
 @route("POST", "/api/graph/build")
 def graph_build(h: Handler) -> dict[str, Any]:
-    alias = _instance_alias(h, str(h.json().get("instance", "")))
+    alias = _instance_alias(h, _required(h.json(), "instance"))
     explorer.forget(alias)
     return graph.start_build(alias)
 
@@ -462,21 +489,20 @@ def datadog_matches(h: Handler) -> dict[str, Any]:
     return datadog.save_matches({str(k): str(v) for k, v in matches.items()})
 
 
-# Failed OneVizion processes for the same window, read with the instance's own Test SQL.
-def _ov_failures(alias: str, seconds: int) -> Any:
+def _ov_failures(alias: str, seconds: int) -> Callable[[], list[dict[str, Any]]]:
     def read() -> list[dict[str, Any]]:
         sql = graph.SqlReader(alias, Cancel())
-        days = round(seconds / 86400, 4)
+        days = round(seconds / SECONDS_PER_DAY, 4)
         rows = sql.page(
             "select t.process_type, count(*) n, "
             "to_char(max(p.submission_date), 'YYYY-MM-DD HH24:MI') last_at "
             "from process p join process_type t on t.process_type_id = p.process_type_id "
-            f"where p.status_id in (3, 14, 21) and p.submission_date > sysdate - {days} "
+            f"where p.status_id in ({FAILED_PROCESS_STATUSES}) and p.submission_date > sysdate - {days} "
             "group by t.process_type order by n desc",
             0,
-            20,
+            FAILED_PROCESS_TYPES_SHOWN,
         )
-        return [{"type": r.get("PROCESS_TYPE"), "count": int(r.get("N") or 0), "last": r.get("LAST_AT")} for r in rows]
+        return [{"type": r["PROCESS_TYPE"], "count": int(r["N"]), "last": r["LAST_AT"]} for r in rows]
 
     return read
 
@@ -484,13 +510,15 @@ def _ov_failures(alias: str, seconds: int) -> Any:
 @route("GET", "/api/instance-health")
 def instance_health(h: Handler) -> dict[str, Any]:
     alias = _instance_alias(h)
-    range_key = h.query.get("range", "24h")
-    seconds = datadog.RANGES.get(range_key, datadog.RANGES["24h"])[0]
-    report = dict(datadog.health(alias, range_key, _ov_failures(alias, seconds)))
+    range_key = h.query.get("range", DEFAULT_RANGE)
+    if range_key not in datadog.RANGES:
+        raise HttpError(400, f"Unknown range: {range_key}")
+
+    report = dict(datadog.health(alias, range_key, _ov_failures(alias, datadog.RANGES[range_key][0])))
     try:
         report["pagerduty"] = pagerduty.health(alias, report["from"], report["to"], range_key)
     except PagerDutyError as exc:
-        report["pagerduty"] = {"errors": {"pagerduty": str(exc)}, "services": []}
+        report["pagerduty"] = {"errors": {"pagerduty": str(exc)}}
     return report
 
 
@@ -517,7 +545,7 @@ def pagerduty_disconnect(_: Handler) -> dict[str, Any]:
 
 @route("GET", "/api/pagerduty/websites")
 def pagerduty_websites(h: Handler) -> dict[str, Any]:
-    return pagerduty.website_map(int(h.query.get("days") or 7))
+    return pagerduty.website_map(int(h.query.get("days") or DEFAULT_WEBSITE_DAYS))
 
 
 @route("GET", "/api/runs")
@@ -528,10 +556,9 @@ def list_runs(_: Handler) -> list[dict[str, Any]]:
 @route("GET", "/api/stats")
 def stats(_: Handler) -> dict[str, Any]:
     now = db.now_ms()
-    day = 86_400_000
     return {
-        "week": db.saved_totals(now - 7 * day),
-        "month": db.saved_totals(now - 30 * day),
+        "week": db.saved_totals(now - 7 * DAY_MS),
+        "month": db.saved_totals(now - 30 * DAY_MS),
         "all": db.saved_totals(0),
     }
 
@@ -541,7 +568,7 @@ def start_run(h: Handler) -> dict[str, str]:
     data = h.json()
     settings = db.get_settings()
     prompt = str(data.get("prompt") or "").strip()
-    attachments = [a for a in data.get("attachments") or [] if isinstance(a, dict)]
+    attachments = _objects(data, "attachments")
     if not prompt and not attachments:
         raise HttpError(400, "Describe what you need.")
     model = str(data.get("model") or settings["defaultModel"])
@@ -610,7 +637,7 @@ def _write_event(h: Handler, stored: dict[str, Any]) -> None:
 @route("POST", "/api/runs/([a-z0-9]+)/answer")
 def answer(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
-    _run(run_id).answer(str(data.get("questionId", "")), str(data.get("answer", "")))
+    _run(run_id).answer(_required(data, "questionId"), _required(data, "answer"))
     return {"ok": True}
 
 
@@ -618,38 +645,31 @@ def answer(h: Handler, run_id: str) -> dict[str, bool]:
 def run_login(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     run = _run(run_id)
-    threading.Thread(
-        target=_quietly,
-        args=(run.login, str(data.get("loginId", "")), bool(data.get("skip"))),
-        daemon=True,
-    ).start()
+    login_id = _required(data, "loginId")
+    if not any(item["id"] == login_id for item in run.state["logins"]):
+        raise HttpError(404, "No such login prompt.")
+
+    threading.Thread(target=run.login, args=(login_id, bool(data.get("skip"))), daemon=True).start()
     return {"ok": True}
-
-
-def _quietly(fn: Callable[..., Any], *args: Any) -> None:
-    try:
-        fn(*args)
-    except Exception:
-        pass
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/message")
 def message(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
-    files = [f for f in data.get("files") or [] if isinstance(f, dict)]
+    files = _objects(data, "files")
     _run(run_id).follow_up(str(data.get("text", "")), files)
     return {"ok": True}
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/title")
 def rename(h: Handler, run_id: str) -> dict[str, bool]:
-    _run(run_id).rename(str(h.json().get("title", "")))
+    _run(run_id).rename(_required(h.json(), "title"))
     return {"ok": True}
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/retry")
 def retry(h: Handler, run_id: str) -> dict[str, bool]:
-    _run(run_id).retry(str(h.json().get("itemId", "")))
+    _run(run_id).retry(_required(h.json(), "itemId"))
     return {"ok": True}
 
 
@@ -662,7 +682,7 @@ def remove_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
 @route("POST", "/api/runs/([a-z0-9]+)/rate")
 def rate(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
-    _run(run_id).rate(str(data.get("turnId", "")), data.get("rating"), data.get("note"))
+    _run(run_id).rate(_required(data, "turnId"), data.get("rating"), data.get("note"))
     return {"ok": True}
 
 
@@ -672,14 +692,13 @@ def run_file(h: Handler, run_id: str, name: str) -> None:
     path = within(attachments_dir(run_id), Path(name).name)
     if not path.is_file():
         raise HttpError(404, "File not found.")
-    # Same origin as the API, so anything that could run script (html, svg) is downloaded.
+
     suffix = path.suffix.lower()
     if suffix in INLINE_FILES:
         content_type, disposition = CONTENT_TYPES[suffix], "inline"
     else:
         content_type, disposition = "application/octet-stream", "attachment"
     headers = {"Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(path.name)}"}
-    # Chrome refuses to show a sandboxed PDF; its viewer does not run scripts in our origin.
     if suffix != ".pdf":
         headers["Content-Security-Policy"] = "sandbox"
     h.send(200, path.read_bytes(), content_type, extra=headers)
@@ -703,6 +722,7 @@ def feedback(h: Handler, run_id: str) -> dict[str, bool]:
     rating, note = str(data.get("rating", "")), str(data.get("note") or "")
     if rating not in ("good", "off", "wrong"):
         raise HttpError(400, "Unknown rating.")
+
     run = _run(run_id)
     db.save_feedback(run_id, rating, note)
     run.state["feedback"] = {"rating": rating, "note": note}
@@ -711,7 +731,7 @@ def feedback(h: Handler, run_id: str) -> dict[str, bool]:
 
 def already_running(port: int) -> bool:
     try:
-        response = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=2)
+        response = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=HEALTH_CHECK_TIMEOUT_SECONDS)
         return response.json().get("app") == APP_ID
     except (httpx.HTTPError, ValueError):
         return False

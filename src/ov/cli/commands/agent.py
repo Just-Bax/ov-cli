@@ -15,7 +15,7 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
         help="open the AI agent in your browser (GitHub Copilot powered)",
         description="Start the local agent web app on 127.0.0.1 and open it in your browser.",
     )
-    agent.add_argument("--port", type=int, default=DEFAULT_PORT, help="default 5180")
+    agent.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"default {DEFAULT_PORT}")
     agent.add_argument("--no-open", action="store_true", help="do not open a browser window")
     agent.set_defaults(func=cmd_agent)
 

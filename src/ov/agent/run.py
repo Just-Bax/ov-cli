@@ -18,7 +18,7 @@ from .ovproc import login as ov_login
 from .ovproc import url_for
 from .prompt import system_prompt
 from .state import empty_state, reduce
-from .tools import tool_named, tool_specs
+from .tools import Tool, ToolError, tool_named, tool_specs
 from .workspace import (
     IMAGE_EXTS,
     attachments_dir,
@@ -31,9 +31,18 @@ from .workspace import (
 )
 
 CONTEXT_BUDGET = 360_000
+COMPACT_TARGET = int(CONTEXT_BUDGET * 0.7)
 KEEP_RECENT_MESSAGES = 12
 TRIMMED_TOOL_OUTPUT = 1200
 TOOL_WORKERS = 8
+TOOL_INPUT_CHARS = 8000
+TOOL_OUTPUT_CHARS = 12000
+TOOL_ERROR_CHARS = 4000
+BAD_ARGS_CHARS = 200
+LOGIN_MESSAGE_CHARS = 300
+TITLE_CHARS = 120
+PROMPT_TITLE_CHARS = 90
+RUN_ID_SUFFIX_CHARS = 4
 
 WRITE_ON_NOTE = (
     "The user turned ON write access for this run. You may now apply changes with ov; each "
@@ -64,8 +73,7 @@ class Run:
         self._lock = threading.RLock()
         self._listeners: list[queue.Queue[dict[str, Any]]] = []
         self._messages = _answered(db.load_conversation(run_id) or [])
-        turns = db.load_conversation(f"{run_id}#turns")
-        self._turns: dict[str, dict[str, Any]] = turns if isinstance(turns, dict) else {}
+        self._turns: dict[str, dict[str, Any]] = db.load_conversation(f"{run_id}#turns") or {}
         self._pending_images: list[tuple[str, str]] = []
         self._notes: list[str] = []
         self._queue: list[tuple[dict[str, Any], Any]] = []
@@ -79,10 +87,6 @@ class Run:
     @property
     def instance(self) -> str:
         return self.state["summary"].get("instance") or ""
-
-    @property
-    def busy(self) -> bool:
-        return self._busy
 
     def snapshot(self) -> str:
         with self._lock:
@@ -118,8 +122,8 @@ class Run:
                 channel.put(stored)
 
     def _saved_minutes(self) -> int:
-        outcome = self.state.get("outcome") or {}
-        return int((outcome.get("timeSaved") or {}).get("minutes") or 0)
+        outcome = self.state.get("outcome")
+        return int(outcome["timeSaved"]["minutes"]) if outcome else 0
 
     def _save(self, key: str, value: Any) -> None:
         if not self.deleted:
@@ -138,7 +142,6 @@ class Run:
             if self._busy:
                 return False
             self._busy = True
-            # Fresh before the turn's thread starts, so a Stop sent meanwhile is not lost.
             self.cancel = Cancel()
             return True
 
@@ -157,6 +160,7 @@ class Run:
             dropped, self._queue = self._queue, []
             questions, self._questions = self._questions, {}
             logins, self._logins = self._logins, {}
+
         for message, _ in dropped:
             self.emit({"type": "unqueue", "id": message["id"]})
         for event, answer in questions.values():
@@ -172,6 +176,7 @@ class Run:
             waiter = self._questions.pop(question_id, None)
         if question is None or waiter is None:
             raise RunError("No such pending question.")
+
         self.emit({"type": "question", "question": {**question, "answer": answer}})
         waiter[1].append(answer)
         waiter[0].set()
@@ -185,11 +190,12 @@ class Run:
         }
         if detail:
             entry["detail"] = detail
+
         event, holder = threading.Event(), []
-        # Checked after registering: stop() sets cancel before it releases the waiters.
         with self._lock:
             self._questions[entry["id"]] = (event, holder)
             self.cancel.check()
+
         self.emit({"type": "question", "question": entry})
         self._set_status("waiting")
         event.wait()
@@ -211,7 +217,6 @@ class Run:
             )
             login_id = existing["id"] if existing else _uid("login")
             waiter = self._logins.setdefault(login_id, (threading.Event(), []))
-            # Emitted under the lock so parallel tool calls share one prompt per host.
             if existing is None:
                 prompt = {
                     "id": login_id,
@@ -222,6 +227,7 @@ class Run:
                 }
                 self.emit({"type": "login", "login": prompt})
             self.cancel.check()
+
         self._set_status("waiting")
         waiter[0].wait()
         self.cancel.check()
@@ -242,9 +248,8 @@ class Run:
         ok = result.code == 0
         update = {**prompt, "state": "done" if ok else "failed"}
         if not ok:
-            update["message"] = result.message[-300:] or "Sign-in failed."
+            update["message"] = result.message[-LOGIN_MESSAGE_CHARS:] or "Sign-in failed."
         self.emit({"type": "login", "login": update})
-        # A failed sign-in keeps the agent waiting so the user can try again.
         if ok:
             self._resolve_login(login_id, True)
 
@@ -291,7 +296,6 @@ class Run:
             self._busy = False
             self._pick_up_queue()
 
-    # A bare case number starts the way a TCE would: with the whole case already read.
     def _preload_case(self, ref: str) -> str:
         tool = {"id": _uid("load"), "name": "ov_case", "label": f"Read case {ref} from trackor"}
         started = db.now_ms()
@@ -299,9 +303,9 @@ class Run:
         try:
             text = self.load_case(ref)
         except Exception as exc:
-            self._tool_done(tool, "error", started, str(exc)[:4000])
+            self._tool_done(tool, "error", started, str(exc)[:TOOL_ERROR_CHARS])
             raise
-        self._tool_done(tool, "ok", started, text[:12000])
+        self._tool_done(tool, "ok", started, text[:TOOL_OUTPUT_CHARS])
         return f"Troubleshoot this case.\n\n{text}"
 
     def load_case(self, ref: str) -> str:
@@ -317,12 +321,13 @@ class Run:
         self.emit(
             {
                 "type": "meta",
-                "title": f"{bundle['key']}: {title}"[:120],
+                "title": f"{bundle['key']}: {title}"[:TITLE_CHARS],
                 "caseKey": bundle["key"],
                 "caseUrl": bundle["url"],
                 "instance": bundle["website"],
             }
         )
+
         text = cases.render(bundle, self.work_dir)
         if bundle["website"]:
             text += f"\n\nThe run's default instance is now {bundle['website']}."
@@ -333,6 +338,7 @@ class Run:
         if claimed and not self._messages:
             self._busy = False
             raise RunError("This run has no conversation to continue.")
+
         try:
             uploaded = self._copy_uploads(files)
             message = self._message(_uid("u"), text, uploaded)
@@ -348,11 +354,11 @@ class Run:
             self.emit({"type": "queued", "message": message})
             self._pick_up_queue()
             return
+
         self.emit({"type": "user", "message": message})
         self._push_turn(message["id"], content)
         self._spawn(self._run_turn)
 
-    # The agent may have finished while a queued message was being prepared.
     def _pick_up_queue(self) -> None:
         with self._lock:
             waiting = bool(self._queue)
@@ -363,7 +369,7 @@ class Run:
         self.emit({"type": "rate", "turnId": turn_id, "rating": rating, "note": note})
 
     def rename(self, title: str) -> None:
-        cleaned = " ".join(title.split())[:120]
+        cleaned = " ".join(title.split())[:TITLE_CHARS]
         if not cleaned:
             raise RunError("A run needs a name.")
         self.emit({"type": "meta", "title": cleaned})
@@ -423,10 +429,13 @@ class Run:
         target_dir = attachments_dir(self.id)
         copied = []
         for item in files:
-            source = within(uploads_dir(), str(item.get("id", "")))
+            if not item.get("id") or not item.get("name"):
+                raise RunError("Each attached file needs an id and a name.")
+            source = within(uploads_dir(), str(item["id"]))
             if not source.is_file():
-                continue
-            target = unique_path(target_dir, str(item.get("name") or "file"))
+                raise RunError(f"Upload not found: {item['name']}")
+
+            target = unique_path(target_dir, str(item["name"]))
             shutil.copyfile(source, target)
             copied.append(describe(target, "upload"))
         return copied
@@ -434,6 +443,7 @@ class Run:
     def _user_content(self, text: str, uploaded: list[dict[str, Any]]) -> Any:
         if not uploaded:
             return text
+
         lines = [f"{a['name']} ({a['kind']}, {a['size']} bytes)" for a in uploaded]
         body = f"{text or 'See the attached files.'}\n\nAttached files (open with read_file):\n" + "\n".join(
             f"- {line}" for line in lines
@@ -466,78 +476,79 @@ class Run:
         max_steps = int(db.get_settings()["maxSteps"])
         self.vision = copilot.supports_vision(model)
         self._finished = False
-
         specs = tool_specs()
+
         for step in range(max_steps):
-            self.cancel.check()
-            self._compact()
-            if self._notes:
-                notes, self._notes = self._notes, []
-                self._messages.append({"role": "user", "content": f"[{' '.join(notes)}]"})
-            if self._queue:
-                self._deliver_queued()
-                self._finished = False
-
-            message_id = _uid("a")
-            result = copilot.stream_chat(
-                model,
-                self._messages,
-                specs,
-                initiator if step == 0 else "agent",
-                self.cancel,
-                lambda delta: self.emit({"type": "text", "messageId": message_id, "delta": delta}),
-            )
-            self._requests += 1
-            self.emit({"type": "usage", "requests": self._requests})
-
-            reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
-            if result.tool_calls:
-                reply["tool_calls"] = result.tool_calls
-            self._messages.append(reply)
-            self._save(self.id, self._messages)
-            if not result.tool_calls:
-                if self._queue:
-                    continue
-                break
-
-            with ThreadPoolExecutor(max_workers=TOOL_WORKERS) as pool:
-                outputs = list(pool.map(self._call_tool, result.tool_calls))
-            for call, content in zip(result.tool_calls, outputs, strict=True):
-                self._messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
-            if self._pending_images:
-                images, self._pending_images = self._pending_images, []
-                parts: list[dict[str, Any]] = [{"type": "text", "text": f"Attached: {', '.join(n for n, _ in images)}"}]
-                parts += [{"type": "image_url", "image_url": {"url": url}} for _, url in images]
-                self._messages.append({"role": "user", "content": parts})
-            self._save(self.id, self._messages)
-            if self._finished and not self._queue:
+            self._prepare_step()
+            calls = self._ask_model(model, specs, initiator if step == 0 else "agent")
+            if calls:
+                self._run_tools(calls)
+                if self._finished and not self._queue:
+                    break
+            elif not self._queue:
                 break
 
         self._set_status("done")
 
+    def _prepare_step(self) -> None:
+        self.cancel.check()
+        self._compact()
+        if self._notes:
+            notes, self._notes = self._notes, []
+            self._messages.append({"role": "user", "content": f"[{' '.join(notes)}]"})
+        if self._queue:
+            self._deliver_queued()
+            self._finished = False
+
+    def _ask_model(self, model: str, specs: list[dict[str, Any]], initiator: str) -> list[dict[str, Any]]:
+        message_id = _uid("a")
+        result = copilot.stream_chat(
+            model,
+            self._messages,
+            specs,
+            initiator,
+            cancel=self.cancel,
+            on_text=lambda delta: self.emit({"type": "text", "messageId": message_id, "delta": delta}),
+        )
+        self._requests += 1
+        self.emit({"type": "usage", "requests": self._requests})
+
+        reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
+        if result.tool_calls:
+            reply["tool_calls"] = result.tool_calls
+        self._messages.append(reply)
+        self._save(self.id, self._messages)
+        return result.tool_calls
+
+    def _run_tools(self, calls: list[dict[str, Any]]) -> None:
+        with ThreadPoolExecutor(max_workers=TOOL_WORKERS) as pool:
+            outputs = list(pool.map(self._call_tool, calls))
+        for call, content in zip(calls, outputs, strict=True):
+            self._messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
+
+        if self._pending_images:
+            images, self._pending_images = self._pending_images, []
+            parts: list[dict[str, Any]] = [{"type": "text", "text": f"Attached: {', '.join(n for n, _ in images)}"}]
+            parts += [{"type": "image_url", "image_url": {"url": url}} for _, url in images]
+            self._messages.append({"role": "user", "content": parts})
+        self._save(self.id, self._messages)
+
     def _call_tool(self, call: dict[str, Any]) -> str:
         name = call["function"]["name"]
-        raw = call["function"]["arguments"]
-        try:
-            args = json.loads(raw) if raw else {}
-        except json.JSONDecodeError:
-            return f"Error: arguments are not valid JSON: {raw[:200]}"
-        if not isinstance(args, dict):
-            return "Error: arguments must be a JSON object."
         tool = tool_named(name)
         if tool is None:
             return f"Error: unknown tool {name}"
+        try:
+            args = _tool_args(tool, call["function"]["arguments"])
+        except ToolError as exc:
+            return f"Error: {exc}"
 
         started = db.now_ms()
-        try:
-            label = tool.label(args)
-        except Exception:
-            label = name
         base = {
             "id": call["id"],
             "name": name,
-            "label": label,
-            "input": json.dumps(args, indent=2)[:8000],
+            "label": tool.label(args),
+            "input": json.dumps(args, indent=2)[:TOOL_INPUT_CHARS],
         }
         if not tool.silent:
             self.emit({"type": "tool", "tool": {**base, "status": "running"}})
@@ -546,10 +557,11 @@ class Run:
         except Exception as exc:
             message = str(exc) or type(exc).__name__
             if not tool.silent:
-                self._tool_done(base, "error", started, message[:4000])
+                self._tool_done(base, "error", started, message[:TOOL_ERROR_CHARS])
             return f"Error: {message}"
+
         if not tool.silent:
-            self._tool_done(base, "ok", started, content[:12000])
+            self._tool_done(base, "ok", started, content[:TOOL_OUTPUT_CHARS])
         return content
 
     def _tool_done(self, base: dict[str, Any], status: str, started: int, output: str) -> None:
@@ -557,34 +569,51 @@ class Run:
         self.emit({"type": "tool", "tool": tool})
 
     def _compact(self) -> None:
-        def size() -> int:
-            return len(json.dumps(self._messages))
-
-        if size() < CONTEXT_BUDGET:
+        if _size(self._messages) < CONTEXT_BUDGET:
             return
+
         keep_from = max(2, len(self._messages) - KEEP_RECENT_MESSAGES)
         for message in self._messages[2:keep_from]:
-            if size() <= CONTEXT_BUDGET * 0.7:
+            if _size(self._messages) <= COMPACT_TARGET:
                 break
-            content = message.get("content")
-            if message["role"] == "tool" and len(content or "") > TRIMMED_TOOL_OUTPUT:
-                message["content"] = content[:TRIMMED_TOOL_OUTPUT] + "\n[older output trimmed to save context]"
-            elif message["role"] == "user" and isinstance(content, list):
-                message["content"] = [
-                    {"type": "text", "text": "[image removed to save context]"}
-                    if part.get("type") == "image_url"
-                    else part
-                    for part in content
-                ]
+            _trim(message)
 
 
-# Copilot rejects a conversation whose tool calls lack results, e.g. after a crash mid-turn.
+def _tool_args(tool: Tool, raw: str) -> dict[str, Any]:
+    try:
+        args = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        raise ToolError(f"arguments are not valid JSON: {raw[:BAD_ARGS_CHARS]}") from None
+    if not isinstance(args, dict):
+        raise ToolError("arguments must be a JSON object.")
+
+    missing = [key for key in tool.required if key not in args]
+    if missing:
+        raise ToolError(f"missing required arguments: {', '.join(missing)}")
+    return args
+
+
+def _size(messages: list[dict[str, Any]]) -> int:
+    return len(json.dumps(messages))
+
+
+def _trim(message: dict[str, Any]) -> None:
+    content = message["content"]
+    if message["role"] == "tool" and len(content) > TRIMMED_TOOL_OUTPUT:
+        message["content"] = content[:TRIMMED_TOOL_OUTPUT] + "\n[older output trimmed to save context]"
+    elif message["role"] == "user" and isinstance(content, list):
+        message["content"] = [
+            {"type": "text", "text": "[image removed to save context]"} if part["type"] == "image_url" else part
+            for part in content
+        ]
+
+
 def _answered(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     fixed: list[dict[str, Any]] = []
     pending: list[str] = []
     for message in messages:
-        if message.get("role") == "tool":
-            if message.get("tool_call_id") in pending:
+        if message["role"] == "tool":
+            if message["tool_call_id"] in pending:
                 pending.remove(message["tool_call_id"])
             fixed.append(message)
             continue
@@ -604,13 +633,15 @@ class RunManager:
         self._lock = threading.Lock()
 
     def create(self, data: dict[str, Any], model: str) -> Run:
-        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
+        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=RUN_ID_SUFFIX_CHARS))
         run_id = f"r{_base36(db.now_ms())}{suffix}"
         prompt = (data.get("prompt") or "").strip()
-        title = (prompt.split("\n", 1)[0] or "Attached files")[:90]
+        title = (prompt.split("\n", 1)[0] or "Attached files")[:PROMPT_TITLE_CHARS]
         db.create_run(run_id, title, model, data)
         stored = db.get_run(run_id)
-        assert stored is not None
+        if stored is None:
+            raise RunError(f"Run {run_id} was not saved.")
+
         run = Run(run_id, empty_state(*stored), -1)
         with self._lock:
             self._runs[run_id] = run
@@ -622,6 +653,7 @@ class RunManager:
             live = self._runs.get(run_id)
             if live is not None:
                 return live
+
             stored = db.get_run(run_id)
             if stored is None:
                 return None
@@ -645,7 +677,9 @@ class RunManager:
             run.deleted = True
             run.stop()
         db.delete_run(run_id)
-        shutil.rmtree(run_dir(run_id), ignore_errors=True)
+        directory = run_dir(run_id)
+        if directory.exists():
+            shutil.rmtree(directory)
 
 
 def _base36(value: int) -> str:

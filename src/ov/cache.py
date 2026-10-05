@@ -6,50 +6,33 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .paths import cache_dir
+from .paths import cache_dir, write_atomic
 
 
-# ttl 0 disables reads but still writes, so --refresh replaces stale entries.
 class Cache:
-    def __init__(self, root: Path | None = None, ttl_seconds: int = 600) -> None:
-        self._root = root
+    def __init__(self, ttl_seconds: int) -> None:
         self.ttl_seconds = ttl_seconds
-
-    @property
-    def root(self) -> Path:
-        return self._root if self._root is not None else cache_dir()
 
     def _path(self, key: str) -> Path:
         digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
-        return self.root / f"{digest}.json"
+        return cache_dir() / f"{digest}.json"
 
     def get(self, key: str) -> Any | None:
-        if self.ttl_seconds <= 0:
-            return None
         path = self._path(key)
-        if not path.exists():
+        if self.ttl_seconds <= 0 or not path.exists():
             return None
-        try:
-            record = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if time.time() - record["saved_at"] > self.ttl_seconds:
             return None
-        if time.time() - record.get("saved_at", 0) > self.ttl_seconds:
-            return None
-        return record.get("value")
+        return record["value"]
 
     def set(self, key: str, value: Any) -> None:
         record = {"key": key, "saved_at": time.time(), "value": value}
-        try:
-            self._path(key).write_text(json.dumps(record), encoding="utf-8")
-        except OSError:
-            pass
+        write_atomic(self._path(key), json.dumps(record))
 
     def clear(self) -> int:
-        removed = 0
-        for path in self.root.glob("*.json"):
-            try:
-                path.unlink()
-                removed += 1
-            except OSError:
-                pass
-        return removed
+        entries = list(cache_dir().glob("*.json"))
+        for path in entries:
+            path.unlink()
+        return len(entries)

@@ -14,19 +14,12 @@ from .invoke import RequestPlan
 from .spec import SPEC_PATH, SWAGGER_CONFIG_PATH, Operation, Spec
 
 AUTHORIZE_PATH = "/authorize"
-SERVER_INFO_PATH = "/v3/server_info"
 
 
 class OvService:
-    def __init__(
-        self,
-        client: Client,
-        cache: Cache | None = None,
-        spec_group: str = "v3",
-        spec_ttl_seconds: int = 86400,
-    ) -> None:
+    def __init__(self, client: Client, *, cache: Cache, spec_group: str, spec_ttl_seconds: int) -> None:
         self.client = client
-        self.cache = cache or Cache(ttl_seconds=0)
+        self.cache = cache
         self.spec_group = spec_group
         self.spec_ttl_seconds = spec_ttl_seconds
         self._spec: Spec | None = None
@@ -35,31 +28,12 @@ class OvService:
     def base_url(self) -> str:
         return self.client.base_url
 
-    def authorize(self) -> bool:
-        self.client.api("GET", AUTHORIZE_PATH, accept="text/plain")
-        return True
-
-    def server_info(self) -> Any:
-        return payload_of(self.client.api("GET", SERVER_INFO_PATH))
-
     def spec(self, refresh: bool = False) -> Spec:
         if self._spec is not None and not refresh:
             return self._spec
-
-        if not refresh:
-            cached = spec_module.load_cached(self.base_url, self.spec_group, self.spec_ttl_seconds)
-            if cached is not None:
-                self._spec = cached
-                return cached
-
-        self._spec = self.fetch_spec()
+        cached = None if refresh else spec_module.load_cached(self.base_url, self.spec_group, self.spec_ttl_seconds)
+        self._spec = cached if cached is not None else self.fetch_spec()
         return self._spec
-
-    # Any age is fine: this feeds help text, which must not depend on the network.
-    def cached_spec(self) -> Spec | None:
-        if self._spec is not None:
-            return self._spec
-        return spec_module.load_cached(self.base_url, self.spec_group, ttl_seconds=0)
 
     def fetch_spec(self) -> Spec:
         document = self._fetch_spec_document()
@@ -70,20 +44,19 @@ class OvService:
         errors = []
         for path in self._spec_paths():
             try:
-                response = self._get_spec(path)
+                document = self._get_spec(path).json()
             except OvError as exc:
                 errors.append(f"{path}: {exc}")
                 continue
-            try:
-                document = response.json()
             except ValueError:
                 errors.append(f"{path}: response was not JSON")
                 continue
+
             if isinstance(document, dict) and document.get("paths"):
                 return document
             errors.append(f"{path}: no paths in the document")
 
-        detail = "\n  ".join(errors) or "no candidate URLs"
+        detail = "\n  ".join(errors)
         raise SpecUnavailable(
             f"Could not read the OpenAPI schema. The account needs the API Docs module at Read.\n  {detail}"
         )
@@ -94,32 +67,30 @@ class OvService:
         paths.append(SPEC_PATH)
         return paths
 
-    # The schema lives on the cookie-based web chain; only an API token goes through /api.
     def _get_spec(self, path: str) -> httpx.Response:
         if self.client.session.is_static:
             return self.client.api("GET", path)
         return self.client.web_get(path)
 
     def spec_groups(self) -> list[str]:
+        response = self._get_spec(SWAGGER_CONFIG_PATH)
         try:
-            response = self.client.web_get(SWAGGER_CONFIG_PATH)
             payload = response.json()
-        except (OvError, ValueError):
-            return [self.spec_group]
+        except ValueError as exc:
+            raise SpecUnavailable(f"{SWAGGER_CONFIG_PATH} did not return JSON") from exc
 
-        urls = payload.get("urls") if isinstance(payload, dict) else None
-        names = [u.get("name") for u in urls or [] if isinstance(u, dict) and u.get("name")]
-        return names or [self.spec_group]
+        if not isinstance(payload, dict):
+            raise SpecUnavailable(f"{SWAGGER_CONFIG_PATH} did not return an object")
+        return [entry["name"] for entry in payload.get("urls", [])]
 
     def operation(self, ref: str, refresh: bool = False) -> Operation:
         return self.spec(refresh=refresh).find(ref)
 
     def run(self, plan: RequestPlan) -> httpx.Response:
         key = self._cache_key(plan)
-        if key:
-            cached = self.cache.get(key)
-            if cached is not None:
-                return _replay(cached)
+        cached = self.cache.get(key) if key else None
+        if cached is not None:
+            return _replay(cached)
 
         response = self.client.api(
             plan.method,
@@ -135,7 +106,6 @@ class OvService:
             self.cache.set(key, _record(response))
         return response
 
-    # Base URL is in the key: the same path means different data on each instance.
     def _cache_key(self, plan: RequestPlan) -> str | None:
         if self.cache.ttl_seconds <= 0 or plan.method != "GET":
             return None
@@ -143,9 +113,6 @@ class OvService:
             return None
         query = "&".join(f"{name}={value}" for name, value in sorted(plan.params))
         return f"{self.base_url}|GET|{plan.path}|{query}|{plan.accept}"
-
-    def call(self, plan: RequestPlan) -> Any:
-        return payload_of(self.run(plan))
 
     def download(self, plan: RequestPlan, destination: Path) -> Path:
         response = self.run(plan)
@@ -155,7 +122,6 @@ class OvService:
 
 
 def _record(response: httpx.Response) -> dict[str, Any]:
-    # Bytes, not text: an export or attachment is as cacheable as a JSON list.
     return {
         "status": response.status_code,
         "content_type": response.headers.get("content-type", ""),
@@ -164,30 +130,18 @@ def _record(response: httpx.Response) -> dict[str, Any]:
 
 
 def _replay(record: dict[str, Any]) -> httpx.Response:
-    headers = {}
-    if record.get("content_type"):
-        headers["content-type"] = record["content_type"]
-    return httpx.Response(
-        int(record.get("status") or 200),
-        content=base64.b64decode(record.get("body") or ""),
-        headers=headers,
-    )
+    headers = {"content-type": record["content_type"]} if record["content_type"] else {}
+    return httpx.Response(record["status"], content=base64.b64decode(record["body"]), headers=headers)
 
 
-# Several endpoints answer text/plain or an empty body on success, so JSON is not required.
 def payload_of(response: httpx.Response) -> Any:
     if response.status_code == 204 or not response.content:
         return None
-    content_type = (response.headers.get("content-type") or "").lower()
-    if "json" in content_type:
+
+    content_type = response.headers.get("content-type", "").lower()
+    if "json" in content_type or content_type.startswith("text/") or not content_type:
         try:
             return response.json()
         except ValueError:
             return response.text
-    if content_type.startswith("text/") or not content_type:
-        text = response.text
-        try:
-            return response.json()
-        except ValueError:
-            return text
     return {"content_type": content_type, "bytes": len(response.content)}

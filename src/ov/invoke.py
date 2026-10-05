@@ -5,11 +5,13 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from .errors import OvError
-from .spec import Operation, Param, path_param_names
+from .spec import Operation, Param, kebab, path_param_names
 
-# A spec parameter named like one of these loses its generated flag; -q/-p still reach it.
+JSON_MEDIA = "application/json"
+
 RESERVED_FLAGS = {
     "json",
     "no-color",
@@ -38,7 +40,7 @@ class RequestPlan:
     json_body: Any = None
     content: bytes | None = None
     files: dict[str, Any] = field(default_factory=dict)
-    accept: str = "application/json"
+    accept: str = JSON_MEDIA
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -53,21 +55,18 @@ class RequestPlan:
 
 
 def flag_name(param: Param) -> str | None:
-    from .spec import kebab
-
     slug = kebab(param.name)
     return None if slug in RESERVED_FLAGS else slug
 
 
 def dest_name(param: Param) -> str:
-    from .spec import kebab
-
     return "spec_" + kebab(param.name).replace("-", "_")
 
 
 def build_plan(
     operation: Operation,
     values: dict[str, Any],
+    *,
     query: list[str] | None = None,
     path_values: list[str] | None = None,
     headers: list[str] | None = None,
@@ -80,33 +79,15 @@ def build_plan(
     supplied = {k: v for k, v in supplied.items() if v is not None}
     supplied.update(_pairs(path_values, "-p"))
 
-    extra_query = _pairs(query, "-q")
-
-    path = _fill_path(operation, supplied)
-
-    params: list[tuple[str, str]] = []
-    for param in operation.query_params:
-        value = supplied.get(param.name)
-        if value is None:
-            if param.required and param.name not in extra_query:
-                raise OvError(
-                    f"Missing required query parameter '{param.name}'. Pass {param.flag} or -q {param.name}=VALUE."
-                )
-            continue
-        params.extend(_as_pairs(param.name, value))
-    for name, value in extra_query.items():
-        params.extend(_as_pairs(name, value))
-
     request_headers = _pairs(headers, "-H", separator=":")
     for param in operation.header_params:
-        value = supplied.get(param.name)
-        if value is not None:
-            request_headers[param.name] = str(value)
+        if param.name in supplied:
+            request_headers[param.name] = str(supplied[param.name])
 
     plan = RequestPlan(
         method=operation.method,
-        path=path,
-        params=params,
+        path=_fill_path(operation, supplied),
+        params=_query(operation, supplied, _pairs(query, "-q")),
         headers=request_headers,
         accept=accept or _accept_for(operation),
     )
@@ -114,31 +95,37 @@ def build_plan(
     return plan
 
 
+def _query(operation: Operation, supplied: dict[str, Any], extra: dict[str, str]) -> list[tuple[str, str]]:
+    params: list[tuple[str, str]] = []
+    for param in operation.query_params:
+        if param.name in supplied:
+            params.extend(_as_pairs(param.name, supplied[param.name]))
+        elif param.required and param.name not in extra:
+            raise OvError(
+                f"Missing required query parameter '{param.name}'. Pass {param.flag} or -q {param.name}=VALUE."
+            )
+
+    for name, value in extra.items():
+        params.extend(_as_pairs(name, value))
+    return params
+
+
 def _accept_for(operation: Operation) -> str:
-    if not operation.produces:
-        return "application/json"
-    if any("json" in media for media in operation.produces):
-        return "application/json"
+    if not operation.produces or any("json" in media for media in operation.produces):
+        return JSON_MEDIA
     return operation.produces[0]
 
 
 def _fill_path(operation: Operation, supplied: dict[str, Any]) -> str:
     path = operation.path
     for name in path_param_names(operation.path):
-        value = supplied.get(name)
-        if value is None:
+        if name not in supplied:
             raise OvError(
                 f"Missing path parameter '{name}' for {operation.ref}. "
                 f"Pass --{name.replace('_', '-')} or -p {name}=VALUE."
             )
-        path = path.replace("{" + name + "}", _quote(str(value)))
+        path = path.replace("{" + name + "}", quote(str(supplied[name]), safe=""))
     return path
-
-
-def _quote(value: str) -> str:
-    from urllib.parse import quote
-
-    return quote(value, safe="")
 
 
 def _as_pairs(name: str, value: Any) -> list[tuple[str, str]]:
@@ -170,23 +157,13 @@ def _attach_body(
     raw_body = _wants_raw_body(plan, operation)
     body = _read_data(data, parse_json=not raw_body)
     built = _build_fields(fields)
-
     if uploads:
-        plan.files = uploads
-        # A multipart part named like a declared parameter is a form field, not a file.
-        if built:
-            plan.files.update(
-                {k: (None, json.dumps(v) if isinstance(v, (dict, list)) else str(v)) for k, v in built.items()}
-            )
-        if body is not None:
-            raise OvError("--data and --file cannot be combined; put scalars in --field.")
+        _attach_multipart(plan, uploads, body, built)
         return
 
     if body is not None and built:
         raise OvError("--data and --field both set a body; use one of them.")
-
-    payload = body if body is not None else (built or None)
-    if payload is None:
+    if body is None and not built:
         if operation.body and operation.body.required:
             raise OvError(
                 f"{operation.ref} requires a request body. "
@@ -194,15 +171,30 @@ def _attach_body(
             )
         return
 
+    payload = built if body is None else body
     if raw_body:
-        if isinstance(payload, dict):
-            raise OvError("This body is not JSON, so --field cannot build it; use --data.")
-        plan.content = payload if isinstance(payload, bytes) else str(payload).encode("utf-8")
-        if operation.body and not operation.body.is_json:
-            plan.headers.setdefault("Content-Type", operation.body.content_type)
-        return
+        _attach_raw(plan, operation, payload)
+    else:
+        plan.json_body = payload
 
-    plan.json_body = payload
+
+def _attach_multipart(plan: RequestPlan, uploads: dict[str, Any], body: Any, built: dict[str, Any]) -> None:
+    if body is not None:
+        raise OvError("--data and --file cannot be combined; put scalars in --field.")
+    plan.files = uploads
+    plan.files.update({name: (None, _form_value(value)) for name, value in built.items()})
+
+
+def _form_value(value: Any) -> str:
+    return json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+
+
+def _attach_raw(plan: RequestPlan, operation: Operation, payload: Any) -> None:
+    if isinstance(payload, dict):
+        raise OvError("This body is not JSON, so --field cannot build it; use --data.")
+    plan.content = payload.encode("utf-8")
+    if operation.body and not operation.body.is_json:
+        plan.headers.setdefault("Content-Type", operation.body.content_type)
 
 
 def _wants_raw_body(plan: RequestPlan, operation: Operation) -> bool:
@@ -220,35 +212,42 @@ def _uploads(files: list[str] | None) -> dict[str, Any]:
         name, found, raw = entry.partition("=")
         if not found:
             raise OvError(f"--file expects FIELD=@path, got {entry!r}")
-        path = Path(raw.strip().lstrip("@")).expanduser()
-        if not path.is_file():
-            raise OvError(f"No such file: {path}")
-        uploads[name.strip()] = (path.name, path.read_bytes())
+        uploads[name.strip()] = _upload(Path(raw.strip().lstrip("@")).expanduser())
     return uploads
 
 
-def _read_data(data: str | None, parse_json: bool = True) -> Any:
+def _upload(path: Path) -> tuple[str, bytes]:
+    if not path.is_file():
+        raise OvError(f"No such file: {path}")
+    return path.name, path.read_bytes()
+
+
+def _read_data(data: str | None, parse_json: bool) -> Any:
     if data is None:
         return None
-    if data == "-":
-        raw = sys.stdin.read()
-    elif data.startswith("@"):
-        path = Path(data[1:]).expanduser()
-        if not path.is_file():
-            raise OvError(f"No such file: {path}")
-        raw = path.read_text(encoding="utf-8")
-    else:
-        raw = data
 
-    raw = raw.strip()
+    raw = _data_text(data).strip()
     if not raw:
         return None
     if not parse_json:
         return raw
+
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
         raise OvError(f"--data is not valid JSON: {exc}") from None
+
+
+def _data_text(data: str) -> str:
+    if data == "-":
+        return sys.stdin.read()
+    if not data.startswith("@"):
+        return data
+
+    path = Path(data[1:]).expanduser()
+    if not path.is_file():
+        raise OvError(f"No such file: {path}")
+    return path.read_text(encoding="utf-8")
 
 
 def _build_fields(fields: list[str] | None) -> dict[str, Any]:
@@ -258,18 +257,20 @@ def _build_fields(fields: list[str] | None) -> dict[str, Any]:
         if not found:
             raise OvError(f"--field expects NAME=VALUE or NAME:=JSON, got {entry!r}")
 
-        key = raw_key.strip()
-        if key.endswith(":"):
-            key = key[:-1].strip()
-            try:
-                value: Any = json.loads(raw_value)
-            except json.JSONDecodeError as exc:
-                raise OvError(f"--field {key}:= is not valid JSON: {exc}") from None
-        else:
-            value = raw_value
-
+        key, value = _field_value(raw_key.strip(), raw_value)
         _assign(payload, key.split("."), value)
     return payload
+
+
+def _field_value(key: str, raw_value: str) -> tuple[str, Any]:
+    if not key.endswith(":"):
+        return key, raw_value
+
+    key = key[:-1].strip()
+    try:
+        return key, json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise OvError(f"--field {key}:= is not valid JSON: {exc}") from None
 
 
 def _assign(target: dict[str, Any], keys: list[str], value: Any) -> None:

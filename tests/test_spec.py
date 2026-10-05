@@ -47,7 +47,6 @@ def test_path_parameters_are_required(spec):
 
 
 def test_undeclared_path_parameter_is_recovered(spec):
-    """DELETE /v3/users/{user_id} declares no parameters at all."""
     operation = spec.find("users:delete-user")
     assert [p.name for p in operation.path_params] == ["user_id"]
 
@@ -87,9 +86,9 @@ def test_search_covers_path_and_summary(spec):
 
 
 def test_nested_refs_are_expanded_not_left_as_pointers():
-    """A body of {"fields": {"$ref": ...}} tells the caller nothing."""
     document = {
         "openapi": "3.1.0",
+        "info": {"title": "T", "version": "1"},
         "paths": {
             "/v3/x": {
                 "post": {
@@ -118,6 +117,7 @@ def test_nested_refs_are_expanded_not_left_as_pointers():
 def test_a_recursive_model_is_cut_off_rather_than_unrolled():
     document = {
         "openapi": "3.1.0",
+        "info": {"title": "T", "version": "1"},
         "paths": {
             "/v3/y": {
                 "post": {
@@ -142,6 +142,5 @@ def test_a_recursive_model_is_cut_off_rather_than_unrolled():
 
 
 def test_markup_is_stripped_from_descriptions():
-    """OneVizion writes <b> and <br> into its API descriptions."""
     assert plain("Use <b>[filter]</b><br>or trackor_id") == "Use [filter] or trackor_id"
     assert plain("") == ""

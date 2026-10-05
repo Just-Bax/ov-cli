@@ -15,7 +15,6 @@ from ov.tenants import parse_program_menu, resolve_tenant
 
 MENU = {"100": "North", "200": "Harbor", "300": "Metro"}
 
-# What Default.jsp actually renders, ps:writeJson inside a <script> block.
 PAGE = (
     "<html><head><script>\n"
     '  var whatsNewUrl = "";\n'
@@ -24,8 +23,6 @@ PAGE = (
     "</script></head><body>app</body></html>"
 )
 
-# A single-tenant account: Default.java only puts programMenu in the model when
-# there is more than one, so the tag writes a bare null.
 SINGLE = "<script>\n  var programMenu = null;\n</script>"
 
 
@@ -38,9 +35,6 @@ def payload(capsys, *argv: str):
     return code, json.loads(out)
 
 
-# --- reading the tenant list off the page ---
-
-
 def test_the_program_menu_is_parsed_from_the_page():
     assert parse_program_menu(PAGE) == MENU
 
@@ -49,12 +43,10 @@ def test_a_single_tenant_account_has_no_menu():
     assert parse_program_menu(SINGLE) == {}
 
 
-def test_an_unreadable_page_yields_no_tenants():
-    for page in ("", "<html>no script here</html>", "var programMenu = {broken;"):
-        assert parse_program_menu(page) == {}
-
-
-# --- naming a tenant ---
+def test_an_unreadable_page_is_an_error():
+    for page in ("", "<html>no script here</html>", "var programMenu = {broken;", "var programMenu = {broken};"):
+        with pytest.raises(OvError):
+            parse_program_menu(page)
 
 
 def test_a_tenant_resolves_by_name_id_or_prefix():
@@ -78,9 +70,6 @@ def test_an_unknown_tenant_names_the_real_ones():
 def test_asking_for_a_tenant_on_a_single_tenant_account_explains_why_not():
     with pytest.raises(OvError, match="user with your email"):
         resolve_tenant({}, "North")
-
-
-# --- aliases ---
 
 
 def test_a_tenant_alias_is_host_slash_tenant():
@@ -149,9 +138,6 @@ def test_signing_in_again_to_a_tenant_replaces_that_tenant_only(ov_home):
     assert session_store.load("acme/north").bearer_token == "SECOND:K"
 
 
-# --- the switch itself ---
-
-
 def recording_transport(calls: list[str], first_call_401: bool = False):
     state = {"api": 0}
 
@@ -197,11 +183,6 @@ def tenant_session() -> Session:
 
 
 def test_the_tenant_switch_happens_before_the_token_is_minted(ov_home):
-    """A token minted before the switch belongs to the default tenant.
-
-    It would still authenticate, and would still return data, so getting the
-    order wrong is silently wrong rather than an error.
-    """
     calls: list[str] = []
     session = tenant_session()
     with Client(session, transport=recording_transport(calls)) as client:
@@ -214,13 +195,10 @@ def test_the_tenant_switch_happens_before_the_token_is_minted(ov_home):
 
 
 def test_a_refresh_after_a_401_re_enters_the_tenant(ov_home):
-    """The dangerous case: the token expires mid-session and is silently
-    replaced with one scoped to the wrong tenant."""
     calls: list[str] = []
     session = tenant_session()
     with Client(session, transport=recording_transport(calls, first_call_401=True)) as client:
         client.api("GET", "/v3/users")
-
     assert "POST /program/FormProg.do?pid=100" in calls
 
 
@@ -229,7 +207,6 @@ def test_no_switch_happens_without_a_tenant(ov_home):
     session = Session(base_url=BASE_URL, cookies={"JSESSIONID": "abc"}, bearer_token="OLD:KEY")
     with Client(session, transport=recording_transport(calls)) as client:
         client.refresh_token()
-
     assert not any("FormProg" in c for c in calls)
 
 
@@ -237,9 +214,6 @@ def test_the_client_reads_the_tenant_list(ov_home):
     calls: list[str] = []
     with Client(tenant_session(), transport=recording_transport(calls)) as client:
         assert client.tenants() == MENU
-
-
-# --- through the CLI ---
 
 
 @pytest.fixture
@@ -261,7 +235,6 @@ def tenant_server(monkeypatch):
 def test_tenants_lists_them_and_marks_the_current(capsys, ov_home, tenant_server):
     session_store.save(tenant_session())
     code, data = payload(capsys, "tenants", "--json")
-
     assert code == 0
     assert [r["name"] for r in data] == ["Harbor", "Metro", "North"]
     assert [r["current"] for r in data] == [False, False, True]
@@ -270,20 +243,17 @@ def test_tenants_lists_them_and_marks_the_current(capsys, ov_home, tenant_server
 def test_tenants_is_refused_for_an_api_token(capsys, ov_home, tenant_server):
     session_store.save(Session(base_url=BASE_URL, mode="token", bearer_token="K:S"))
     code, data = payload(capsys, "tenants", "--json")
-
     assert code == 1
     assert "browser sign-in" in data["error"]
 
 
 def test_login_with_a_tenant_is_refused_for_an_api_token(capsys, ov_home, tenant_server):
     code, data = payload(capsys, "login", BASE_URL, "--token", "K:S", "--tenant", "North", "--no-spec", "--json")
-
     assert code == 1
     assert "--tenant needs a browser sign-in" in data["error"]
 
 
 def test_naming_the_host_means_its_default_tenant(ov_home):
-    """Before tenants, -i <host> was unambiguous; it has to stay that way."""
     seed_session(BASE_URL)
     session_store.save(
         Session(
@@ -309,7 +279,6 @@ def test_naming_the_host_means_its_default_tenant(ov_home):
 
 
 def test_two_hosts_still_disambiguate_normally(ov_home):
-    """The host-collapsing rule must not swallow a genuine ambiguity."""
     seed_session("https://acme-prod.onevizion.test")
     seed_session("https://acme-test.onevizion.test")
     with pytest.raises(Ambiguous):
@@ -317,11 +286,6 @@ def test_two_hosts_still_disambiguate_normally(ov_home):
 
 
 def test_a_tenant_login_is_stored_under_a_tenant_alias(capsys, ov_home, tenant_server, monkeypatch):
-    """The mint persists the session, so the alias has to be settled first.
-
-    Getting the order wrong stored a tenant session under the plain host alias,
-    where nothing later could tell the two apart.
-    """
     from ov.session import Session as S
 
     monkeypatch.setattr(
@@ -335,5 +299,4 @@ def test_a_tenant_login_is_stored_under_a_tenant_alias(capsys, ov_home, tenant_s
     assert data["alias"] == "acme/north"
     assert data["tenant"] == "North"
     assert sorted(session_store.all_sessions()) == ["acme/north"]
-    # and the token is the one minted after the switch, not the sign-in token
     assert session_store.load("acme/north").bearer_token == "TENANT:KEY"

@@ -68,6 +68,7 @@ const NOUNS: Record<string, [string, string]> = {
 function summarize(tools: ToolActivity[]): string {
   const counts = new Map<string, number>()
   for (const t of tools) counts.set(t.name, (counts.get(t.name) ?? 0) + 1)
+
   return [...counts]
     .map(([name, n]) => {
       const [one, many] = NOUNS[name] ?? [name, name]
@@ -76,46 +77,37 @@ function summarize(tools: ToolActivity[]): string {
     .join(', ')
 }
 
-/** Show tool input the way a person would write it, not as raw JSON. */
-function readableInput(tool: ToolActivity): { text: string; lang: string } {
-  if (!tool.input) return { text: '', lang: 'text' }
+function readableInput(tool: ToolActivity): string {
+  if (!tool.input) return ''
+
   try {
     const a = JSON.parse(tool.input) as Record<string, unknown>
     const at = a.instance ? `-- ${a.instance}\n` : ''
     const name = tool.name
-    if (name === 'ov_sql') return { text: `${at}${a.query}`, lang: 'sql' }
-    if (name === 'pagerduty_incident') return { text: String(a.incident), lang: 'text' }
+    if (name === 'ov_sql') return `${at}${a.query}`
+    if (name === 'pagerduty_incident') return String(a.incident)
     if (name.startsWith('datadog_') || name.startsWith('pagerduty_'))
-      return {
-        text: [
-          a.instance ? `instance: ${a.instance}` : '',
-          a.query ? `query: ${a.query}` : '',
-          a.mode ? `mode: ${a.mode}` : '',
-          a.from ? `from: ${a.from}${a.to ? ` to ${a.to}` : ''}` : '',
-          a.patterns ? 'grouped by message' : '',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-        lang: 'text',
-      }
+      return [
+        a.instance ? `instance: ${a.instance}` : '',
+        a.query ? `query: ${a.query}` : '',
+        a.mode ? `mode: ${a.mode}` : '',
+        a.from ? `from: ${a.from}${a.to ? ` to ${a.to}` : ''}` : '',
+        a.patterns ? 'grouped by message' : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
     if (name === 'ov')
-      return {
-        text: `ov ${a.instance ? `-i ${a.instance} ` : ''}${(a.args as string[]).join(' ')}`,
-        lang: 'shell',
-      }
+      return `ov ${a.instance ? `-i ${a.instance} ` : ''}${(a.args as string[]).join(' ')}`
     if (name === 'ov_search')
-      return {
-        text: `${a.trackor_type}: ${a.condition}\nfields: ${(a.fields as string[]).join(', ')}`,
-        lang: 'text',
-      }
+      return `${a.trackor_type}: ${a.condition}\nfields: ${(a.fields as string[]).join(', ')}`
     if (name === 'source_search')
-      return { text: `${a.source}: /${a.pattern}/${a.path ? `  in ${a.path}` : ''}`, lang: 'text' }
+      return `${a.source}: /${a.pattern}/${a.path ? `  in ${a.path}` : ''}`
     if (name === 'source_read' || name === 'read_file')
-      return { text: `${a.source ? `${a.source}/` : ''}${a.path}`, lang: 'text' }
-    if (name === 'github_clone') return { text: String(a.url), lang: 'text' }
-    return { text: JSON.stringify(a, null, 2), lang: 'json' }
+      return `${a.source ? `${a.source}/` : ''}${a.path}`
+    if (name === 'github_clone') return String(a.url)
+    return JSON.stringify(a, null, 2)
   } catch {
-    return { text: tool.input, lang: 'text' }
+    return tool.input
   }
 }
 
@@ -142,6 +134,7 @@ function ToolRow({ tool }: { tool: ToolActivity }) {
   const [open, setOpen] = useState(false)
   const Icon = ICONS[tool.name] ?? CommandLineIcon
   const input = readableInput(tool)
+
   return (
     <div>
       <button
@@ -173,7 +166,7 @@ function ToolRow({ tool }: { tool: ToolActivity }) {
       </button>
       {open ? (
         <div className="mt-1 mb-2 ml-7 space-y-2">
-          {input.text ? <Block title="Input" text={input.text} /> : null}
+          {input ? <Block title="Input" text={input} /> : null}
           {tool.status !== 'running' ? (
             <Block
               title={tool.status === 'error' ? 'Error' : 'Output'}

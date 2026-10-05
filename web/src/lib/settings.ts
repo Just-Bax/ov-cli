@@ -1,19 +1,15 @@
 import { createContext, useContext } from 'react'
 import type { Settings } from '@shared/types.ts'
 
-export const DEFAULT_SETTINGS: Settings = {
-  defaultModel: '',
-  maxSteps: 80,
-  notify: false,
-  showTimeSaved: true,
-  expandTools: false,
-}
-
-export const SettingsContext = createContext<{
+type SettingsValue = {
   settings: Settings
   update: (patch: Partial<Settings>) => Promise<void>
-}>({ settings: DEFAULT_SETTINGS, update: async () => undefined })
+}
 
-export function useSettings() {
-  return useContext(SettingsContext)
+export const SettingsContext = createContext<SettingsValue | undefined>(undefined)
+
+export function useSettings(): SettingsValue {
+  const value = useContext(SettingsContext)
+  if (!value) throw new Error('useSettings must be used inside SettingsContext.Provider')
+  return value
 }

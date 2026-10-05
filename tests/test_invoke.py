@@ -59,7 +59,6 @@ def test_a_parameter_named_like_a_cli_flag_gets_no_flag():
 
 
 def test_a_parameter_named_like_a_cli_flag_is_still_reachable(spec):
-    """'json' collides with --json, so -q has to remain a complete escape hatch."""
     operation = spec.find("trackor-types:search")
     plan = build_plan(operation, {}, path_values=["trackor_type=X"], query=["json=true"])
     assert ("json", "true") in plan.params
@@ -74,7 +73,6 @@ def test_data_accepts_inline_json(spec):
 def test_data_accepts_a_file(spec, tmp_path):
     path = tmp_path / "user.json"
     path.write_text(json.dumps({"user_name": "jsmith"}), encoding="utf-8")
-
     operation = spec.find("users:create-user")
     plan = build_plan(operation, {}, data=f"@{path}")
     assert plan.json_body == {"user_name": "jsmith"}
@@ -125,7 +123,6 @@ def test_a_malformed_pair_is_reported(spec):
 def test_a_file_upload_becomes_multipart(spec, tmp_path):
     path = tmp_path / "data.csv"
     path.write_bytes(b"a,b\n1,2\n")
-
     operation = spec.find("users:create-user")
     plan = build_plan(operation, {}, files=[f"file=@{path}"])
     assert plan.files["file"][0] == "data.csv"

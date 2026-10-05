@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 
 HOME_ENV = "OV_HOME"
+REPLACE_ATTEMPTS = 10
+REPLACE_RETRY_SECONDS = 0.05
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -53,20 +55,12 @@ def slugify(value: str) -> str:
 
 def _ensure(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
-    _chmod(path, stat.S_IRWXU)
+    os.chmod(path, stat.S_IRWXU)
     return path
 
 
 def restrict(path: Path) -> None:
-    _chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-
-
-# No-op on Windows beyond the read-only bit; the profile ACL is what protects files there.
-def _chmod(path: Path, mode: int) -> None:
-    try:
-        os.chmod(path, mode)
-    except OSError:
-        pass
+    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
 
 
 def write_atomic(path: Path, text: str) -> None:
@@ -77,19 +71,18 @@ def write_atomic(path: Path, text: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         restrict(Path(temp))
-        _replace(temp, path)
+        _replace_when_unlocked(temp, path)
     except BaseException:
         Path(temp).unlink(missing_ok=True)
         raise
 
 
-# Windows refuses the swap while another process has the target open for reading.
-def _replace(source: str, target: Path, attempts: int = 10) -> None:
-    for attempt in range(attempts):
+def _replace_when_unlocked(source: str, target: Path) -> None:
+    for attempt in range(REPLACE_ATTEMPTS):
         try:
             os.replace(source, target)
             return
         except PermissionError:
-            if attempt == attempts - 1:
+            if attempt == REPLACE_ATTEMPTS - 1:
                 raise
-            time.sleep(0.05)
+            time.sleep(REPLACE_RETRY_SECONDS)

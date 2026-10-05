@@ -59,6 +59,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "expandTools": False,
 }
 
+MAX_STEPS_LIMIT = 500
+RUN_LIST_LIMIT = 200
 ACTIVE = ("queued", "running", "waiting")
 
 _lock = threading.RLock()
@@ -87,18 +89,17 @@ def _db() -> sqlite3.Connection:
     return conn
 
 
-# A restart orphans anything that was mid-flight. The status event is what the UI replays.
 def _close_orphans(conn: sqlite3.Connection) -> None:
     marks = ",".join("?" * len(ACTIVE))
     orphans = conn.execute(f"SELECT id FROM runs WHERE status IN ({marks})", ACTIVE).fetchall()
     event = json.dumps({"type": "status", "status": "error", "error": "Interrupted by a restart."})
     for (run_id,) in orphans:
-        last = conn.execute("SELECT MAX(seq) FROM events WHERE run_id = ?", (run_id,)).fetchone()
-        seq = (last[0] if last and last[0] is not None else -1) + 1
         conn.execute(
-            "INSERT INTO events (run_id, seq, ts, data) VALUES (?, ?, ?, ?)",
-            (run_id, seq, now_ms(), event),
+            "INSERT INTO events (run_id, seq, ts, data) "
+            "SELECT ?, COALESCE(MAX(seq), -1) + 1, ?, ? FROM events WHERE run_id = ?",
+            (run_id, now_ms(), event, run_id),
         )
+
     conn.execute(f"UPDATE runs SET status = 'error' WHERE status IN ({marks})", ACTIVE)
 
 
@@ -130,21 +131,27 @@ def get_settings() -> dict[str, Any]:
     return {**DEFAULT_SETTINGS, **{k: v for k, v in stored.items() if k in DEFAULT_SETTINGS}}
 
 
+def _max_steps(value: Any) -> int:
+    try:
+        steps = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"maxSteps must be a whole number, got {value!r}.") from None
+    return min(max(steps, 1), MAX_STEPS_LIMIT)
+
+
 def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
     if "maxSteps" in patch:
-        try:
-            patch = {**patch, "maxSteps": min(max(int(patch["maxSteps"]), 1), 500)}
-        except (TypeError, ValueError):
-            patch = {k: v for k, v in patch.items() if k != "maxSteps"}
+        patch = {**patch, "maxSteps": _max_steps(patch["maxSteps"])}
+
     for key, value in patch.items():
-        if isinstance(DEFAULT_SETTINGS.get(key), bool):
-            value = bool(value)
-        if key in DEFAULT_SETTINGS:
-            _run(
-                "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                key,
-                json.dumps(value),
-            )
+        if key not in DEFAULT_SETTINGS:
+            continue
+        stored = bool(value) if isinstance(DEFAULT_SETTINGS[key], bool) else value
+        _run(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            key,
+            json.dumps(stored),
+        )
     return get_settings()
 
 
@@ -193,7 +200,7 @@ def update_run(run_id: str, **patch: Any) -> None:
     _run(f"UPDATE runs SET {', '.join(sets)} WHERE id = ?", *values, run_id)
 
 
-def list_runs(limit: int = 200) -> list[dict[str, Any]]:
+def list_runs(limit: int = RUN_LIST_LIMIT) -> list[dict[str, Any]]:
     rows = _all(f"{RUN_SELECT} ORDER BY r.created_at DESC LIMIT ?", limit)
     return [_summary(r) for r in rows]
 
@@ -213,13 +220,13 @@ def delete_run(run_id: str) -> None:
 
 
 def saved_totals(since: int) -> dict[str, int]:
-    row = _one(
+    (row,) = _all(
         "SELECT COALESCE(SUM(r.saved_minutes), 0) AS minutes, COUNT(*) AS runs "
         "FROM runs r LEFT JOIN feedback f ON f.run_id = r.id "
         "WHERE r.saved_minutes > 0 AND r.created_at >= ? AND COALESCE(f.rating, '') <> 'wrong'",
         since,
     )
-    return {"minutes": row["minutes"], "runs": row["runs"]} if row else {"minutes": 0, "runs": 0}
+    return {"minutes": row["minutes"], "runs": row["runs"]}
 
 
 def append_event(run_id: str, seq: int, event: dict[str, Any]) -> dict[str, Any]:
@@ -286,7 +293,7 @@ def put_skill(name: str, **fields: Any) -> None:
         merged.get("title"),
         merged.get("description"),
         merged.get("content"),
-        1 if merged.get("enabled", 1) else 0,
+        1 if merged["enabled"] else 0,
     )
 
 

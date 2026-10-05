@@ -10,7 +10,6 @@ export type RefIndex = {
   packages: Map<string, GraphNode>
 }
 
-// Keep in sync with graph.py: the same four kinds of reference count as links there.
 const OBJREF = /\bid\.[A-Za-z0-9_.]+/gi
 const QUOTED = /(['"])([A-Za-z][A-Za-z0-9_$#]{2,})\1/g
 const NUMBER = /\b\d{6,12}\b/g
@@ -18,9 +17,6 @@ const CALL = /\b([A-Za-z][A-Za-z0-9_$#]*)(?=\s*\.\s*[A-Za-z])/g
 const OBJREF_KINDS: Record<string, GraphNodeType> = { imp: 'import', rpt: 'report', wf: 'workflow' }
 const NAMED: GraphNodeType[] = ['field', 'trackor_type', 'db_package']
 
-// Ids are unique per table only, so a number links only when its context names the kind: the
-// column or variable it is compared with or assigned to, a ...ByID util call (those take config
-// field ids), or a name comment right after it.
 const ID_COLUMNS: [string, GraphNodeType][] = [
   ['config_field_id', 'field'],
   ['field_id', 'field'],
@@ -48,10 +44,11 @@ const ID_KEYWORDS = new Set(
 const IDENT = /:?[A-Za-z_][A-Za-z0-9_$#]*/g
 const NAME_COMMENT = /^\s*(?:\/\*\s*([^*]+?)\s*\*\/|--\s*(\S+))/
 
-export function idKind(before: string): GraphNodeType | undefined {
+function idKind(before: string): GraphNodeType | undefined {
   const text = (before.split(/[;\n]/).at(-1) ?? '')
     .replace(/'[^']*'/g, "''")
     .replace(/\/\*.*?\*\//g, ' ')
+
   let depth = 0
   for (let i = text.length - 1; i >= 0; i--) {
     if (text[i] === ')') depth++
@@ -64,11 +61,13 @@ export function idKind(before: string): GraphNodeType | undefined {
       depth--
     }
   }
+
   for (const token of [...text.matchAll(IDENT)].map((m) => m[0].toLowerCase()).reverse()) {
     if (ID_KEYWORDS.has(token)) continue
     if (token.startsWith(':')) return undefined
     return ID_COLUMNS.find(([column]) => token.endsWith(column))?.[1]
   }
+
   return undefined
 }
 
@@ -76,13 +75,13 @@ function byId(index: RefIndex, number: string, before: string, after: string) {
   const candidates = index.byRef.get(Number(number)) ?? []
   const kind = idKind(before)
   if (kind) return candidates.find((n) => n.type === kind)
+
   const m = NAME_COMMENT.exec(after)
   const name = m ? (m[1] ?? m[2]).toLowerCase() : undefined
   return name ? candidates.find((n) => n.name.toLowerCase() === name) : undefined
 }
 
-// The platform builds references as id.<name> with names lowercased and spaces as underscores.
-const key = (name: string) => name.toLowerCase().replace(/ /g, '_')
+const objrefSegment = (name: string) => name.toLowerCase().replace(/ /g, '_')
 
 function unique<K>(entries: [K, GraphNode][]): Map<K, GraphNode> {
   const out = new Map<K, GraphNode>()
@@ -91,6 +90,7 @@ function unique<K>(entries: [K, GraphNode][]): Map<K, GraphNode> {
     if (out.has(k)) taken.add(k)
     else out.set(k, node)
   }
+
   for (const k of taken) out.delete(k)
   return out
 }
@@ -98,15 +98,16 @@ function unique<K>(entries: [K, GraphNode][]): Map<K, GraphNode> {
 export function refIndex(nodes: GraphNode[], idx?: Index): RefIndex {
   const objrefs = new Map<string, GraphNode>()
   for (const n of nodes) {
-    if (n.type === 'trackor_type') objrefs.set(`id.${key(n.name)}.tt`, n)
+    if (n.type === 'trackor_type') objrefs.set(`id.${objrefSegment(n.name)}.tt`, n)
     else if (n.type === 'field') {
       const owner = idx?.links.get(n.id)?.find((l) => l.kind === 'field_of' && l.out)?.other
-      if (owner) objrefs.set(`id.${key(owner.name)}.cf.${key(n.name)}`, n)
+      if (owner) objrefs.set(`id.${objrefSegment(owner.name)}.cf.${objrefSegment(n.name)}`, n)
     } else {
       const prefix = Object.entries(OBJREF_KINDS).find(([, t]) => t === n.type)?.[0]
-      if (prefix) objrefs.set(`id.${prefix}.${key(n.name)}`, n)
+      if (prefix) objrefs.set(`id.${prefix}.${objrefSegment(n.name)}`, n)
     }
   }
+
   return {
     objrefs,
     names: unique(
@@ -127,7 +128,6 @@ function objref(text: string, index: RefIndex): GraphNode | undefined {
     return index.objrefs.get(`id.${parts[0]}.cf.${parts[2]}`)
   if (parts.length >= 2 && parts[0] in OBJREF_KINDS)
     return index.objrefs.get(`id.${parts[0]}.${parts[1]}`)
-  // id.<type>.tt, and the type behind id.<type>.rel.* or id.<type>.class.*.
   return parts.length ? index.objrefs.get(`id.${parts[0]}.tt`) : undefined
 }
 
@@ -138,6 +138,7 @@ export function findRefs(line: string, index: RefIndex): Ref[] {
     const end = start + text.length
     if (node && free(start, end)) found.push({ start, end, node, kind, text })
   }
+
   for (const m of line.matchAll(OBJREF)) {
     const text = m[0].replace(/\.+$/, '')
     add(m.index, text, objref(text, index), 'objref')
@@ -150,6 +151,7 @@ export function findRefs(line: string, index: RefIndex): Ref[] {
   }
   for (const m of line.matchAll(CALL))
     add(m.index, m[0], index.packages.get(m[1].toUpperCase()), 'call')
+
   return found.sort((a, b) => a.start - b.start)
 }
 

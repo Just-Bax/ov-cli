@@ -127,9 +127,11 @@ function Preferences() {
     if (settings.notify) return void update({ notify: false })
     if (!('Notification' in window))
       return setNotice('This browser does not support notifications.')
+
     const permission = await Notification.requestPermission()
     if (permission !== 'granted')
       return setNotice('Notifications are blocked for this page. Allow them in the browser first.')
+
     await update({ notify: true })
   }
 
@@ -210,6 +212,7 @@ function Instances() {
       .instances()
       .then(setInstances)
       .catch(() => setInstances([]))
+
   useEffect(() => {
     void load()
   }, [])
@@ -271,6 +274,7 @@ function Instances() {
                 mode: i.mode === 'token' ? 'token' : 'browser',
               }
               const busy = pending.has(signInKey(row))
+
               return (
                 <div key={i.alias} className="flex items-center gap-2.5 px-5 py-2.5">
                   <span className="text-fg min-w-0 truncate text-[13px] font-medium">{i.host}</span>
@@ -298,6 +302,7 @@ function Instances() {
                         tone: 'danger',
                       })
                       if (!ok) return
+
                       try {
                         setInstances(await api.removeInstance(i.alias))
                       } catch (e) {
@@ -387,6 +392,7 @@ function Skills() {
         <SkeletonText lines={6} />
       </Card>
     )
+
   const current = skills.find((s) => s.name === selected)
   const creating = selected === NEW
   const dirty = creating
@@ -429,6 +435,7 @@ function Skills() {
       })
       if (!ok) return
     }
+
     const next = await api.deleteSkill(current.name)
     setSkills(next)
     select(next.find((s) => s.name === current.name)?.name ?? next[0]?.name ?? NEW, next)
@@ -604,6 +611,7 @@ function Sources() {
           api.updateSource(editing, { description: draft.description, location: draft.location }),
         )
       : await act('save', () => api.addSource(draft))
+
     if (ok) {
       setDraft(EMPTY_SOURCE)
       setEditing(undefined)
@@ -746,6 +754,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
   const [user, setUser] = useState<string>()
   const datadog = useDatadog()
   const pd = usePagerDuty()
+
   useEffect(() => {
     api.status().then((s) => setUser(s.copilot.user))
   }, [])

@@ -26,11 +26,7 @@
   --color-warn-soft: #ffe4cc;
   --color-danger: #ce2605;
   --color-danger-soft: #f5d3cd;
-  --color-info: #1e88e5;
-  --color-info-soft: #e1f5fe;
 
-  --shadow-thin: 0 0 1px 0.5px rgba(0, 0, 0, 0.1);
-  --shadow-medium: 0 3px 10px 0 rgba(0, 0, 0, 0.1);
   --shadow-large: 0 10px 20px 0 rgba(0, 0, 0, 0.1);
 }
 
@@ -83,16 +79,6 @@
     background-position: -220px 0;
     animation: shimmer 1.6s ease-in-out infinite;
     border-radius: 6px;
-  }
-  /* On the gray sidebar the light base disappears; use a darker tint. */
-  .skeleton-dim {
-    background-color: rgba(38, 50, 56, 0.07);
-    background-image: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.45) 50%,
-      rgba(255, 255, 255, 0) 100%
-    );
   }
 
   .ov-spinner {
@@ -218,7 +204,6 @@
   }
 }
 
-/* A reference sits on a rounded pill in its type's color; per-type colors come from CodeView. */
 .monaco-editor .lines-content .cdr.ov-ref {
   top: 3px;
   height: 16px;
@@ -232,7 +217,6 @@
   cursor: pointer;
 }
 
-/* Heroicons outline everywhere, with one stroke weight; small sizes get a little more so they stay crisp. */
 svg[data-slot='icon'] {
   stroke-width: 1.6;
 }

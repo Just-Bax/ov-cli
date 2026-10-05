@@ -13,12 +13,14 @@ type Line = {
 type Row = Line | { type: 'gap'; rows: Line[] }
 
 const CONTEXT = 3
+const MIN_HIDDEN_LINES = 3
+const REWRITTEN_RATIO = 0.6
 
-/** Remove the indentation every non-blank line shares, so nested SQL does not waste half the width. */
 function dedent(before: string, after: string): [string, string] {
   const lines = `${before}\n${after}`.split('\n').filter((l) => l.trim())
   const indent = Math.min(...lines.map((l) => /^[ \t]*/.exec(l)![0].replace(/\t/g, '    ').length))
   if (!Number.isFinite(indent) || indent === 0) return [before, after]
+
   const strip = (s: string) =>
     s
       .split('\n')
@@ -28,14 +30,16 @@ function dedent(before: string, after: string): [string, string] {
           .slice(Math.min(indent, /^ */.exec(l.replace(/\t/g, '    '))![0].length)),
       )
       .join('\n')
+
   return [strip(before), strip(after)]
 }
 
 function markWords(oldText: string, newText: string): [ReactNode, ReactNode] {
   const parts = diffWordsWithSpace(oldText, newText)
   const changed = parts.filter((p) => p.added || p.removed).reduce((n, p) => n + p.value.length, 0)
-  // Mostly-rewritten lines read better without confetti highlighting.
-  if (changed > Math.max(oldText.length, newText.length) * 0.6) return [oldText, newText]
+  const mostlyRewritten = changed > Math.max(oldText.length, newText.length) * REWRITTEN_RATIO
+  if (mostlyRewritten) return [oldText, newText]
+
   const oldNodes: ReactNode[] = []
   const newNodes: ReactNode[] = []
   parts.forEach((p, i) => {
@@ -56,28 +60,17 @@ function markWords(oldText: string, newText: string): [ReactNode, ReactNode] {
       newNodes.push(p.value)
     }
   })
+
   return [oldNodes, newNodes]
 }
 
-function buildRows(rawBefore: string, rawAfter: string): Row[] {
-  const [before, after] = dedent(rawBefore.replace(/\r\n/g, '\n'), rawAfter.replace(/\r\n/g, '\n'))
-  const lines: Line[] = []
-  let oldNo = 1
-  let newNo = 1
-  for (const part of diffLines(before, after)) {
-    for (const text of part.value.replace(/\n$/, '').split('\n')) {
-      if (part.added) lines.push({ type: 'add', text, newNo: newNo++ })
-      else if (part.removed) lines.push({ type: 'del', text, oldNo: oldNo++ })
-      else lines.push({ type: 'same', text, oldNo: oldNo++, newNo: newNo++ })
-    }
-  }
-
-  // Pair each removed block with the added block after it for word-level marks.
+function markReplacedLines(lines: Line[]): void {
   for (let i = 0; i < lines.length;) {
     if (lines[i].type !== 'del') {
       i++
       continue
     }
+
     let d = i
     while (d < lines.length && lines[d].type === 'del') d++
     let a = d
@@ -90,6 +83,23 @@ function buildRows(rawBefore: string, rawAfter: string): Row[] {
     }
     i = a
   }
+}
+
+function buildRows(rawBefore: string, rawAfter: string): Row[] {
+  const [before, after] = dedent(rawBefore.replace(/\r\n/g, '\n'), rawAfter.replace(/\r\n/g, '\n'))
+
+  const lines: Line[] = []
+  let oldNo = 1
+  let newNo = 1
+  for (const part of diffLines(before, after)) {
+    for (const text of part.value.replace(/\n$/, '').split('\n')) {
+      if (part.added) lines.push({ type: 'add', text, newNo: newNo++ })
+      else if (part.removed) lines.push({ type: 'del', text, oldNo: oldNo++ })
+      else lines.push({ type: 'same', text, oldNo: oldNo++, newNo: newNo++ })
+    }
+  }
+
+  markReplacedLines(lines)
 
   const rows: Row[] = []
   for (let i = 0; i < lines.length;) {
@@ -97,12 +107,13 @@ function buildRows(rawBefore: string, rawAfter: string): Row[] {
       rows.push(lines[i++])
       continue
     }
+
     let j = i
     while (j < lines.length && lines[j].type === 'same') j++
     const run = lines.slice(i, j)
     const head = i === 0 ? 0 : CONTEXT
     const tail = j === lines.length ? 0 : CONTEXT
-    if (run.length > head + tail + 2) {
+    if (run.length - head - tail >= MIN_HIDDEN_LINES) {
       rows.push(
         ...run.slice(0, head),
         { type: 'gap', rows: run.slice(head, run.length - tail) },
@@ -113,6 +124,7 @@ function buildRows(rawBefore: string, rawAfter: string): Row[] {
     }
     i = j
   }
+
   return rows
 }
 

@@ -17,7 +17,6 @@ import 'monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoLineQu
 import 'monaco-editor/editor/common/standaloneStrings'
 import 'monaco-editor/languages/definitions/sql/register'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
-// The package's export map only covers .js files, so the icon font is imported by path.
 import '../../node_modules/monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.css'
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() }

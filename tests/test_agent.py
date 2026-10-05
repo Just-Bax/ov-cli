@@ -177,7 +177,7 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
         ]
     )
 
-    def fake_chat(model, messages, tools, initiator, cancel, on_text):
+    def fake_chat(*args, cancel, on_text):
         reply = next(replies)
         on_text(reply.text)
         return reply

@@ -13,7 +13,9 @@ import { Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 
-export function formatTime(ts: number): string {
+const COPIED_FEEDBACK_MS = 1200
+
+function formatTime(ts: number): string {
   const d = new Date(ts)
   const today = new Date().toDateString() === d.toDateString()
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -49,13 +51,14 @@ function ActionButton({
 
 function CopyAction({ text }: { text: string }) {
   const [done, setDone] = useState(false)
+
   return (
     <ActionButton
       label={done ? 'Copied' : 'Copy'}
       onClick={() => {
         void navigator.clipboard.writeText(text)
         setDone(true)
-        setTimeout(() => setDone(false), 1200)
+        setTimeout(() => setDone(false), COPIED_FEEDBACK_MS)
       }}
     >
       {done ? (
@@ -67,20 +70,11 @@ function CopyAction({ text }: { text: string }) {
   )
 }
 
-export function FileChips({
-  runId,
-  files,
-  align = 'end',
-}: {
-  runId: string
-  files: MessageFile[]
-  align?: 'start' | 'end'
-}) {
+function FileChips({ runId, files }: { runId: string; files: MessageFile[] }) {
   if (!files.length) return null
+
   return (
-    <div
-      className={cn('flex flex-wrap gap-1.5', align === 'end' ? 'justify-end' : 'justify-start')}
-    >
+    <div className="flex flex-wrap justify-end gap-1.5">
       {files.map((f) =>
         f.kind === 'image' ? (
           <a
@@ -123,6 +117,7 @@ export function UserMessage({
   canRetry: boolean
 }) {
   const [retrying, setRetrying] = useState(false)
+
   return (
     <div className="group flex flex-col items-end gap-1.5">
       <FileChips runId={runId} files={message.files ?? []} />

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -10,21 +11,26 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .errors import LoginFailed
+import httpx
+import playwright
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import sync_playwright
+
+from . import auth
+from .auth import AJAX_HEADERS, CSRF_PATH, LOGIN_PATH, MINT_PATH
+from .errors import Forbidden, LoginFailed, OvError
 from .paths import browser_profile_dir
 from .session import Session, cookies_from_playwright, expiry_to_epoch
 
-LOGIN_PATH = "/Login.do"
-CSRF_PATH = "/CsrfToken.do"
-MINT_PATH = "/widget/GenerateApiTokenForWebSession"
-
 LOGIN_WAIT_MS = 5 * 60 * 1000
+PAGE_LOAD_TIMEOUT_MS = 60_000
+HTTP_MINT_TIMEOUT_SECONDS = 30.0
 POLL_INTERVAL_SECONDS = 1.0
 PROGRESS_EVERY_SECONDS = 5.0
-
 STUCK_AFTER_ROUNDS = 20
 
-AJAX_HEADERS = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"}
+BROWSERS_PATH_ENV = "PLAYWRIGHT_BROWSERS_PATH"
+INSTALL_MARKER = "INSTALLATION_COMPLETE"
 
 PENDING_PATHS = (
     "/login.do",
@@ -43,7 +49,6 @@ NO_WIDGET_PRIV = (
     "Admin > Auth Tokens."
 )
 
-# Runs in-page so the exchange carries the origin, referer and cookies a widget's call would.
 MINT_SCRIPT = """
 async (paths) => {
   const port = location.port ? ':' + location.port : '';
@@ -81,43 +86,60 @@ async (paths) => {
 """
 
 Progress = Callable[[str], None]
+Minted = tuple[dict[str, Any] | None, str]
+
+
+def _silent(_message: str) -> None:
+    pass
 
 
 def interactive_login(
     base_url: str,
     timeout_ms: int = LOGIN_WAIT_MS,
-    on_progress: Progress | None = None,
+    on_progress: Progress = _silent,
     verify: bool = True,
     headless: bool = False,
 ) -> Session:
-    playwright = _import_playwright()
     base_url = base_url.rstrip("/")
-    host = urlsplit(base_url).hostname or ""
-    report: Progress = on_progress or (lambda _message: None)
-
-    with playwright() as p:
-        context = _launch(p, headless, report)
+    with sync_playwright() as p:
+        context = _launch(p, headless, on_progress)
         try:
-            page = context.pages[0] if context.pages else context.new_page()
-            try:
-                page.goto(f"{base_url}{LOGIN_PATH}", wait_until="domcontentloaded", timeout=60000)
-            except Exception as exc:
-                raise LoginFailed(f"Could not open {base_url}{LOGIN_PATH}: {str(exc).splitlines()[0]}") from exc
-            minted = _await_token(context, base_url, host, timeout_ms, report, verify)
-            cookies = cookies_from_playwright(context.cookies(base_url), host)
-            report("signed in, closing the browser")
+            _open_login_page(context, base_url)
+            minted = _await_token(context, base_url, timeout_ms, on_progress, verify=verify)
+            cookies = cookies_from_playwright(context.cookies(base_url), _host(base_url))
+            on_progress("signed in, closing the browser")
         finally:
-            _close(context)
+            with contextlib.suppress(PlaywrightError):
+                context.close()
 
     return _session_from(minted, cookies, base_url)
+
+
+def _open_login_page(context: Any, base_url: str) -> None:
+    page = context.pages[0] if context.pages else context.new_page()
+    try:
+        page.goto(f"{base_url}{LOGIN_PATH}", wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT_MS)
+    except PlaywrightError as exc:
+        raise LoginFailed(f"Could not open {base_url}{LOGIN_PATH}: {_first_line(exc)}") from exc
+
+
+def _host(base_url: str) -> str:
+    host = urlsplit(base_url).hostname
+    if not host:
+        raise LoginFailed(f"Not an instance URL: {base_url!r}")
+    return host
+
+
+def _first_line(exc: Exception) -> str:
+    return next(iter(str(exc).splitlines()), type(exc).__name__)
 
 
 def _await_token(
     context: Any,
     base_url: str,
-    host: str,
     timeout_ms: int,
     report: Progress,
+    *,
     verify: bool = True,
 ) -> dict[str, Any]:
     started = time.monotonic()
@@ -128,35 +150,43 @@ def _await_token(
     seen: list[str] = []
 
     while time.monotonic() < deadline:
-        pages = _open_pages(context)
-        if not pages:
-            raise LoginFailed("The browser window was closed before sign-in finished.")
+        pages = _live_pages(context)
+        seen = [page.url for page in pages]
+        minted, last_error, signed_in = _try_signed_in_tabs(context, pages, seen, base_url, verify)
+        if minted is not None:
+            return minted
 
-        seen = [_url_of(page) for page in pages]
-        # SSO often opens the app in a new tab and leaves ours parked on the provider's page.
-        ready = [page for page, url in zip(pages, seen) if _looks_signed_in(url, host)]
-
-        for page in ready:
-            minted, last_error = _mint(context, page, base_url, verify)
-            if minted is not None:
-                return minted
-
-        if ready:
-            refused += 1
-            if refused >= STUCK_AFTER_ROUNDS:
-                raise LoginFailed(_stuck_message(base_url, last_error, seen))
-        else:
-            refused = 0
-            last_error = f"no tab is on {host} yet"
+        refused = refused + 1 if signed_in else 0
+        if refused >= STUCK_AFTER_ROUNDS:
+            raise LoginFailed(_stuck_message(base_url, last_error, seen))
 
         if time.monotonic() >= next_report:
             next_report = time.monotonic() + PROGRESS_EVERY_SECONDS
-            waited = int(time.monotonic() - started)
-            report(f"waiting {waited}s: {last_error} [{', '.join(seen) or 'no tabs'}]")
+            report(f"waiting {int(time.monotonic() - started)}s: {last_error} [{', '.join(seen)}]")
 
         _pause(pages)
 
-    raise LoginFailed(
+    raise LoginFailed(_timeout_message(base_url, last_error, seen))
+
+
+def _try_signed_in_tabs(
+    context: Any, pages: list[Any], urls: list[str], base_url: str, verify: bool
+) -> tuple[dict[str, Any] | None, str, bool]:
+    host = _host(base_url)
+    ready = [page for page, url in zip(pages, urls, strict=True) if _looks_signed_in(url, host)]
+    if not ready:
+        return None, f"no tab is on {host} yet", False
+
+    error = ""
+    for page in ready:
+        minted, error = _mint(context, page, base_url, verify=verify)
+        if minted is not None:
+            return minted, "", True
+    return None, error, True
+
+
+def _timeout_message(base_url: str, last_error: str, seen: list[str]) -> str:
+    return (
         f"Timed out waiting for sign-in at {base_url}.\n"
         f"Last attempt: {last_error or 'nothing tried'}\n"
         f"Open tabs: {', '.join(seen) or 'none'}\n"
@@ -169,7 +199,7 @@ def _stuck_message(base_url: str, last_error: str, seen: list[str]) -> str:
     return (
         f"Signed in at {base_url}, but the instance would not issue an API token.\n"
         f"Tried three ways, all refused: {last_error}\n"
-        f"Open tabs: {', '.join(seen) or 'none'}\n\n"
+        f"Open tabs: {', '.join(seen)}\n\n"
         "Most likely the account lacks the WIDGET module at Read, which is what the "
         "token endpoint requires.\n"
         "Use a token instead: Admin > Auth Tokens, create one of type API, then\n"
@@ -177,33 +207,21 @@ def _stuck_message(base_url: str, last_error: str, seen: list[str]) -> str:
     )
 
 
-# Sync Playwright only delivers events inside its calls; time.sleep would leave page.url stale.
 def _pause(pages: list[Any]) -> None:
     for page in pages:
         try:
             page.wait_for_timeout(POLL_INTERVAL_SECONDS * 1000)
             return
-        except Exception:
+        except PlaywrightError:
             continue
     time.sleep(POLL_INTERVAL_SECONDS)
 
 
-def _open_pages(context: Any) -> list[Any]:
-    live = []
-    for page in context.pages:
-        try:
-            if not page.is_closed():
-                live.append(page)
-        except Exception:
-            continue
+def _live_pages(context: Any) -> list[Any]:
+    live = [page for page in context.pages if not page.is_closed()]
+    if not live:
+        raise LoginFailed("The browser window was closed before sign-in finished.")
     return live
-
-
-def _url_of(page: Any) -> str:
-    try:
-        return page.url
-    except Exception:
-        return ""
 
 
 def _looks_signed_in(url: str, host: str) -> bool:
@@ -213,8 +231,7 @@ def _looks_signed_in(url: str, host: str) -> bool:
     return not any(parts.path.lower().startswith(p) for p in PENDING_PATHS)
 
 
-# Page fetch mirrors the product, context request survives navigation, HTTP mirrors refresh.
-def _mint(context: Any, page: Any, base_url: str, verify: bool = True) -> tuple[dict[str, Any] | None, str]:
+def _mint(context: Any, page: Any, base_url: str, *, verify: bool = True) -> Minted:
     minted, page_error = _mint_from_page(page)
     if minted is not None:
         return minted, ""
@@ -230,16 +247,11 @@ def _mint(context: Any, page: Any, base_url: str, verify: bool = True) -> tuple[
     return None, f"{page_error}; {request_error}; {http_error}"
 
 
-def _mint_over_http(context: Any, base_url: str, verify: bool) -> tuple[dict[str, Any] | None, str]:
-    import httpx
-
-    from .auth import mint_web_session_token
-    from .errors import Forbidden
-
+def _mint_over_http(context: Any, base_url: str, verify: bool) -> Minted:
     try:
-        cookies = cookies_from_playwright(context.cookies(base_url), urlsplit(base_url).hostname or "")
-    except Exception as exc:
-        return None, f"http: could not read cookies: {str(exc).splitlines()[0]}"
+        cookies = cookies_from_playwright(context.cookies(base_url), _host(base_url))
+    except PlaywrightError as exc:
+        return None, f"http: could not read cookies: {_first_line(exc)}"
     if not cookies:
         return None, "http: the browser has no cookies for this host yet"
 
@@ -248,31 +260,28 @@ def _mint_over_http(context: Any, base_url: str, verify: bool) -> tuple[dict[str
         with httpx.Client(
             base_url=base_url,
             follow_redirects=True,
-            timeout=30.0,
+            timeout=HTTP_MINT_TIMEOUT_SECONDS,
             verify=verify,
             cookies=cookies,
         ) as http:
-            mint_web_session_token(http, session)
+            auth.mint_web_session_token(http, session)
     except Forbidden as exc:
         raise LoginFailed(str(exc)) from None
-    except Exception as exc:
-        return None, f"http: {str(exc).splitlines()[0]}"
+    except (OvError, httpx.HTTPError) as exc:
+        return None, f"http: {_first_line(exc)}"
 
-    return {
-        "bearerToken": session.bearer_token,
-        "expirationTime": session.expires_text,
-    }, ""
+    return {"bearerToken": session.bearer_token, "expirationTime": session.expires_text}, ""
 
 
-def _mint_from_page(page: Any) -> tuple[dict[str, Any] | None, str]:
+def _mint_from_page(page: Any) -> Minted:
     try:
         result = page.evaluate(MINT_SCRIPT, {"csrf": CSRF_PATH, "mint": MINT_PATH})
-    except Exception as exc:
-        return None, f"page: {str(exc).splitlines()[0]}"
+    except PlaywrightError as exc:
+        return None, f"page: {_first_line(exc)}"
     return _read_minted(result, "page")
 
 
-def _mint_from_context(context: Any, base_url: str) -> tuple[dict[str, Any] | None, str]:
+def _mint_from_context(context: Any, base_url: str) -> Minted:
     request = context.request
     try:
         csrf = request.get(f"{base_url}{CSRF_PATH}", headers=AJAX_HEADERS)
@@ -280,12 +289,10 @@ def _mint_from_context(context: Any, base_url: str) -> tuple[dict[str, Any] | No
             return None, f"request: {CSRF_PATH} returned {csrf.status}"
 
         token = csrf.json()
-        headers = dict(AJAX_HEADERS)
-        headers[token["headerName"]] = token["token"]
-
+        headers = {**AJAX_HEADERS, token["headerName"]: token["token"]}
         response = request.post(f"{base_url}{MINT_PATH}", headers=headers)
-    except Exception as exc:
-        return None, f"request: {str(exc).splitlines()[0]}"
+    except (PlaywrightError, ValueError, KeyError) as exc:
+        return None, f"request: {_first_line(exc)}"
 
     if response.status == 403:
         raise LoginFailed(NO_WIDGET_PRIV)
@@ -293,44 +300,36 @@ def _mint_from_context(context: Any, base_url: str) -> tuple[dict[str, Any] | No
         return None, f"request: {MINT_PATH} returned {response.status}"
 
     try:
-        return _read_minted(response.json(), "request")
-    except Exception:
+        result = response.json()
+    except ValueError:
         return None, f"request: {MINT_PATH} did not return JSON"
+    return _read_minted(result, "request")
 
 
-def _read_minted(result: Any, source: str) -> tuple[dict[str, Any] | None, str]:
+def _read_minted(result: Any, source: str) -> Minted:
     if not isinstance(result, dict):
         return None, f"{source}: unreadable response"
     if result.get("status") == 403:
         raise LoginFailed(NO_WIDGET_PRIV)
     if result.get("error"):
         return None, str(result["error"])
-    if not result.get("bearerToken"):
-        return None, f"{source}: no bearerToken in the response"
+    if not result.get("bearerToken") or not result.get("expirationTime"):
+        return None, f"{source}: no bearerToken or expirationTime in the response"
     return result, ""
 
 
 def _session_from(minted: dict[str, Any], cookies: dict[str, str], base_url: str) -> Session:
-    expires_text = minted.get("expirationTime") or ""
     return Session(
         base_url=base_url,
         mode="session",
         cookies=cookies,
         bearer_token=minted["bearerToken"],
-        expires_text=expires_text,
-        expires_at=expiry_to_epoch(expires_text),
+        expires_text=minted["expirationTime"],
+        expires_at=expiry_to_epoch(minted["expirationTime"]),
     )
 
 
-def _import_playwright() -> Any:
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        raise LoginFailed("Playwright is missing from this install. Reinstall ov.") from None
-    return sync_playwright
-
-
-def _launch(p: Any, headless: bool = False, report: Progress | None = None) -> Any:
+def _launch(p: Any, headless: bool, report: Progress) -> Any:
     options = {
         "user_data_dir": str(browser_profile_dir()),
         "headless": headless,
@@ -338,30 +337,21 @@ def _launch(p: Any, headless: bool = False, report: Progress | None = None) -> A
     }
     try:
         return p.chromium.launch_persistent_context(**options)
-    except Exception as exc:
+    except PlaywrightError as exc:
         if not _looks_like_missing_browser(exc):
             raise LoginFailed(f"Could not start the browser: {exc}") from exc
         _fetch_browser(report)
 
     try:
         return p.chromium.launch_persistent_context(**options)
-    except Exception as exc:
+    except PlaywrightError as exc:
         raise LoginFailed(f"Could not start the browser: {exc}") from exc
 
 
-# The tool install exposes only `ov`, so users cannot run `playwright install` themselves.
-def _fetch_browser(report: Progress | None) -> None:
-    if report:
-        report("sign-in browser missing, downloading it once (about 150MB)")
+def _fetch_browser(report: Progress) -> None:
+    report("sign-in browser missing, downloading it once (about 150MB)")
     if not install_chromium():
         raise LoginFailed("The sign-in browser could not be downloaded.\nCheck your connection, then run: ov setup")
-
-
-def _close(context: Any) -> None:
-    try:
-        context.close()
-    except Exception:
-        pass
 
 
 def _looks_like_missing_browser(exc: Exception) -> bool:
@@ -370,15 +360,12 @@ def _looks_like_missing_browser(exc: Exception) -> bool:
 
 
 def install_chromium() -> bool:
-    result = subprocess.run(
-        [sys.executable, "-m", "playwright", "install", "chromium"],
-        check=False,
-    )
+    result = subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
     return result.returncode == 0
 
 
 def _browsers_root() -> Path:
-    override = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    override = os.environ.get(BROWSERS_PATH_ENV)
     if override:
         return Path(override)
     if sys.platform == "win32":
@@ -390,8 +377,6 @@ def _browsers_root() -> Path:
 
 
 def _pinned_builds() -> list[str]:
-    import playwright
-
     manifest = Path(playwright.__file__).parent / "driver" / "package" / "browsers.json"
     entries = json.loads(manifest.read_text(encoding="utf-8"))["browsers"]
     return [
@@ -401,11 +386,7 @@ def _pinned_builds() -> list[str]:
     ]
 
 
-# Match pinned builds: another project's chromium can sit in the same dir and fail to launch.
 def browser_is_installed() -> bool:
     root = _browsers_root()
-    try:
-        wanted = _pinned_builds()
-    except Exception:
-        return False
-    return bool(wanted) and all((root / name / "INSTALLATION_COMPLETE").exists() for name in wanted)
+    wanted = _pinned_builds()
+    return bool(wanted) and all((root / name / INSTALL_MARKER).exists() for name in wanted)

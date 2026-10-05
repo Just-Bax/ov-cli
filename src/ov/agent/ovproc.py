@@ -20,7 +20,11 @@ from .cancel import Cancel
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
+DEFAULT_TIMEOUT_SECONDS = 120
 LOGIN_TIMEOUT_SECONDS = 300
+BROWSER_LOGIN_TIMEOUT_SECONDS = 280
+POLL_SECONDS = 0.2
+CONSOLE_COLUMNS = "200"
 
 
 @dataclass
@@ -43,11 +47,10 @@ def version() -> str:
     return f"ov {__version__}"
 
 
-# A child process rather than in-process calls: ov keeps per-process state (console, schema
-# cache, read-only flag) that parallel tool calls would otherwise share.
 def run_ov(
     args: list[str],
-    timeout: float = 120,
+    *,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
     read_only: bool = True,
     cancel: Cancel | None = None,
     cwd: Path | None = None,
@@ -59,20 +62,17 @@ def run_ov(
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUTF8": "1",
         "NO_COLOR": "1",
-        "COLUMNS": "200",
+        "COLUMNS": CONSOLE_COLUMNS,
     }
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    # Files instead of pipes, so a large response cannot fill a pipe and stall the child.
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         process = subprocess.Popen(
-            # -P keeps a stray ov.py in the working directory from shadowing the package.
             [sys.executable, "-P", "-m", "ov", *args],
             cwd=cwd or agent_dir(),
             stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE,
             stdout=out,
             stderr=err,
             env=env,
-            creationflags=flags,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if stdin is not None:
             process.stdin.write(stdin.encode())
@@ -82,7 +82,7 @@ def run_ov(
         out.seek(0)
         err.seek(0)
         return OvResult(
-            code=process.returncode if process.returncode is not None else 1,
+            code=process.returncode,
             stdout=out.read().decode("utf-8", "replace"),
             stderr=_ANSI.sub("", err.read().decode("utf-8", "replace")),
             timed_out=timed_out,
@@ -93,21 +93,20 @@ def _wait(process: subprocess.Popen[Any], timeout: float, cancel: Cancel | None)
     deadline = time.monotonic() + timeout
     while True:
         try:
-            process.wait(timeout=0.2)
-            return False
+            process.wait(timeout=POLL_SECONDS)
         except subprocess.TimeoutExpired:
-            pass
-        expired = time.monotonic() > deadline
-        if expired or (cancel is not None and cancel.is_set()):
-            process.kill()
-            process.wait()
-            return expired
+            expired = time.monotonic() > deadline
+            if expired or (cancel is not None and cancel.is_set()):
+                process.kill()
+                process.wait()
+                return expired
+        else:
+            return False
 
 
 def host_of(value: str) -> str:
     text = value.strip()
-    parsed = urlsplit(text if "://" in text else f"https://{text}")
-    return (parsed.netloc or text).lower()
+    return urlsplit(text if "://" in text else f"https://{text}").netloc.lower()
 
 
 def instances() -> list[dict[str, Any]]:
@@ -145,24 +144,21 @@ def find_instance(ref: str) -> dict[str, Any] | None:
     return found[0] if found else None
 
 
-_logins: dict[str, tuple[threading.Event, list[OvResult]]] = {}
+_logins: dict[tuple[str, str], tuple[threading.Event, list[OvResult]]] = {}
 _logins_lock = threading.Lock()
 
 
-# Opens a browser for the user; concurrent requests for the same host share one sign-in.
-# The URL goes to ov login as given: instances can sit on any domain, port or path.
 def login(url: str, tenant: str = "", token: str = "") -> OvResult:
     url = url.strip().rstrip("/")
     tenant = tenant.strip()
     key = (url.lower(), tenant.lower())
     with _logins_lock:
         running = _logins.get(key)
+        owner = running is None
         if running is None:
             running = (threading.Event(), [])
             _logins[key] = running
-            owner = True
-        else:
-            owner = False
+
     done, holder = running
     if not owner:
         done.wait()
@@ -176,7 +172,7 @@ def login(url: str, tenant: str = "", token: str = "") -> OvResult:
                     url,
                     "--keep-current",
                     "--timeout",
-                    "280",
+                    str(BROWSER_LOGIN_TIMEOUT_SECONDS),
                     *(["--tenant", tenant] if tenant else []),
                     *(["--token", "-"] if token else []),
                 ],

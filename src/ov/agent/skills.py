@@ -8,7 +8,6 @@ from . import db
 
 BUILTIN_DIR = Path(__file__).parent / "skills"
 
-# The order skills appear in the system prompt.
 ORDER = (
     "onevizion",
     "working-style",
@@ -30,56 +29,59 @@ class SkillError(Exception):
 
 def _parse(name: str, raw: str) -> dict[str, str]:
     match = _FRONT_MATTER.match(raw.replace("\r\n", "\n"))
+    if match is None:
+        raise SkillError(f"Built-in skill {name} has no front matter.")
+
     meta: dict[str, str] = {}
-    for line in (match.group(1) if match else "").split("\n"):
+    for line in match.group(1).split("\n"):
         key, sep, value = line.partition(":")
         if sep:
             meta[key.strip()] = value.strip()
+    if "title" not in meta or "description" not in meta:
+        raise SkillError(f"Built-in skill {name} needs a title and a description.")
+
     return {
         "name": name,
-        "title": meta.get("title", name),
-        "description": meta.get("description", ""),
-        "content": (match.group(2) if match else raw).strip(),
+        "title": meta["title"],
+        "description": meta["description"],
+        "content": match.group(2).strip(),
     }
 
 
 def builtins() -> list[dict[str, str]]:
     found = [_parse(p.stem, p.read_text(encoding="utf-8")) for p in BUILTIN_DIR.glob("*.md")]
+    return sorted(found, key=lambda skill: ORDER.index(skill["name"]))
 
-    def rank(skill: dict[str, str]) -> tuple[int, str]:
-        name = skill["name"]
-        return (ORDER.index(name) if name in ORDER else len(ORDER), name)
 
-    return sorted(found, key=rank)
+def _builtin_entry(builtin: dict[str, str], row: dict[str, Any] | None) -> dict[str, Any]:
+    if row is None:
+        return {**builtin, "builtin": True, "customized": False, "enabled": True}
+
+    customized = row["content"] is not None
+    return {
+        **builtin,
+        "content": row["content"] if customized else builtin["content"],
+        "builtin": True,
+        "customized": customized,
+        "enabled": bool(row["enabled"]),
+    }
 
 
 def list_skills() -> list[dict[str, Any]]:
     rows = db.skill_rows()
-    skills = []
-    for builtin in builtins():
-        row = rows.pop(builtin["name"], None) or {}
-        customized = row.get("content") is not None
-        skills.append(
-            {
-                **builtin,
-                "content": row["content"] if customized else builtin["content"],
-                "builtin": True,
-                "customized": customized,
-                "enabled": bool(row.get("enabled", 1)),
-            }
-        )
-    for name, row in sorted(rows.items()):
-        skills.append(
-            {
-                "name": name,
-                "title": row.get("title") or name,
-                "description": row.get("description") or "",
-                "content": row.get("content") or "",
-                "builtin": False,
-                "customized": False,
-                "enabled": bool(row.get("enabled", 1)),
-            }
-        )
+    skills = [_builtin_entry(builtin, rows.pop(builtin["name"], None)) for builtin in builtins()]
+    skills += [
+        {
+            "name": name,
+            "title": row["title"],
+            "description": row["description"],
+            "content": row["content"],
+            "builtin": False,
+            "customized": False,
+            "enabled": bool(row["enabled"]),
+        }
+        for name, row in sorted(rows.items())
+    ]
     return skills
 
 
@@ -91,6 +93,7 @@ def create(title: str, description: str, content: str) -> str:
     title = title.strip()
     if not title:
         raise SkillError("A skill needs a title.")
+
     taken = {s["name"] for s in list_skills()}
     base = _SLUG.sub("-", title.lower()).strip("-") or "skill"
     name, index = base, 2
@@ -111,12 +114,9 @@ def update(name: str, patch: dict[str, Any]) -> None:
     if "enabled" in patch:
         fields["enabled"] = 1 if patch["enabled"] else 0
     if not skill["builtin"]:
-        for key in ("title", "description"):
-            if key in patch:
-                fields[key] = str(patch[key]).strip()
+        fields.update({key: str(patch[key]).strip() for key in ("title", "description") if key in patch})
     db.put_skill(name, **fields)
 
 
-# Deleting a built-in skill resets it to the shipped text instead.
 def delete(name: str) -> None:
     db.delete_skill(name)

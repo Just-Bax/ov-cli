@@ -25,6 +25,7 @@ TEXT_EXTS = {
     ".yaml",
     ".yml",
 }
+MAX_NAME_CHARS = 120
 
 _UNSAFE_NAME = re.compile(r"[^\w.\- ]+")
 _RUN_ID = re.compile(r"^[a-z0-9]+$")
@@ -53,10 +54,8 @@ def within(root: Path, rel: str) -> Path:
     return resolved
 
 
-# Windows drops trailing dots and spaces and refuses device names, so the saved name would
-# no longer match the one we report.
 def safe_name(name: str) -> str:
-    cleaned = _UNSAFE_NAME.sub("_", Path(name).name)[:120].strip().rstrip(". ")
+    cleaned = _UNSAFE_NAME.sub("_", Path(name).name)[:MAX_NAME_CHARS].strip().rstrip(". ")
     if _RESERVED.match(cleaned):
         cleaned = f"_{cleaned}"
     return cleaned or "file"
@@ -87,7 +86,7 @@ def kind_of(name: str) -> str:
 
 def image_mime(path: Path) -> str:
     ext = path.suffix.lower().lstrip(".")
-    return "image/jpeg" if ext == "jpg" else f"image/{ext or 'png'}"
+    return "image/jpeg" if ext == "jpg" else f"image/{ext}"
 
 
 def html_to_text(value: str) -> str:
@@ -112,24 +111,20 @@ def describe(path: Path, source: str) -> dict[str, Any]:
     }
 
 
-# A readable .txt beside the .eml, plus its attachments, so the model never decodes MIME.
 def _expand_email(path: Path) -> None:
-    try:
-        message = BytesParser(policy=policy.default).parsebytes(path.read_bytes())
-        body = message.get_body(preferencelist=("plain", "html"))
-        text = body.get_content() if body is not None else ""
-        if body is not None and body.get_content_type() == "text/html":
-            text = html_to_text(text)
+    message = BytesParser(policy=policy.default).parsebytes(path.read_bytes())
+    body = message.get_body(preferencelist=("plain", "html"))
+    text = body.get_content() if body is not None else ""
+    if body is not None and body.get_content_type() == "text/html":
+        text = html_to_text(text)
 
-        lines = [f"{header}: {message.get(header, '')}" for header in ("From", "To", "Cc", "Date")]
-        lines += [f"Subject: {message.get('Subject', '')}", "", text.strip()]
-        for part in message.iter_attachments():
-            payload = part.get_payload(decode=True)
-            if not payload:
-                continue
-            target = unique_path(path.parent, part.get_filename() or "email-attachment")
-            target.write_bytes(payload)
-            lines += ["", f"[attachment saved: {target.name}]"]
-        Path(f"{path}.txt").write_text("\n".join(lines), encoding="utf-8")
-    except Exception:
-        pass
+    lines = [f"{header}: {message.get(header, '')}" for header in ("From", "To", "Cc", "Date")]
+    lines += [f"Subject: {message.get('Subject', '')}", "", text.strip()]
+    for part in message.iter_attachments():
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+        target = unique_path(path.parent, part.get_filename() or "email-attachment")
+        target.write_bytes(payload)
+        lines += ["", f"[attachment saved: {target.name}]"]
+    Path(f"{path}.txt").write_text("\n".join(lines), encoding="utf-8")

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 
-from ...login import browser_is_installed, install_chromium
+from ...errors import EXIT_ERROR
 from ..context import Context
 from ..output import emit, note
+
+READY = {"browser": "installed", "ready": True}
+READY_TEXT = "[green]Ready.[/green] ov login"
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
@@ -14,17 +17,15 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
 
 
 def cmd_setup(ctx: Context) -> int:
+    from ...login import browser_is_installed, install_chromium
+
     if browser_is_installed():
-        emit(ctx, {"browser": "installed", "ready": True}, text="[green]Ready.[/green] ov login")
+        emit(ctx, READY, text=READY_TEXT)
         return 0
 
     if ctx.args.check:
-        emit(
-            ctx,
-            {"browser": "missing", "ready": False},
-            text="Browser not installed. Run: ov setup",
-        )
-        return 1
+        emit(ctx, {"browser": "missing", "ready": False}, text="Browser not installed. Run: ov setup")
+        return EXIT_ERROR
 
     note(ctx, "Downloading the browser used for signing in (about 150MB, one time)...")
     if not install_chromium():
@@ -33,7 +34,7 @@ def cmd_setup(ctx: Context) -> int:
             {"browser": "failed", "ready": False},
             text="[red]Download failed.[/red] Check your connection and run 'ov setup' again.",
         )
-        return 1
+        return EXIT_ERROR
 
-    emit(ctx, {"browser": "installed", "ready": True}, text="[green]Ready.[/green] ov login")
+    emit(ctx, READY, text=READY_TEXT)
     return 0

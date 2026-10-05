@@ -20,10 +20,31 @@ from .workspace import IMAGE_EXTS, image_mime, within
 MAX_OUTPUT = 24_000
 OV_TIMEOUT_SECONDS = 180
 MAX_TIME_SAVED_MINUTES = 8 * 60
+DEFAULT_SQL_ROWS = 100
+MAX_SQL_ROWS = 1000
+DEFAULT_SEARCH_LIMIT = 50
+MAX_SEARCH_LIMIT = 500
+READ_FILE_LINES = 500
+BINARY_SNIFF_BYTES = 4096
+MAP_MAX_MATCHES = 5
+MAP_LISTED_MATCHES = 20
+LOG_PATTERN_SCAN = 500
+LOG_PATTERN_GROUPS = 15
+DEFAULT_LOG_LINES = 30
+MAX_MONITORS_SHOWN = 60
+MAX_SERIES_SHOWN = 10
+DEFAULT_EVENTS = 30
+DEFAULT_ERROR_SPANS = 25
+DEFAULT_SLOW_ENDPOINTS = 10
+DEFAULT_INCIDENTS = 25
+ONCALL_LOOKBACK_DAYS = 30
+DAY_MS = 86_400_000
+LABEL_CHARS = 60
+LABEL_ARGS = 4
 
 BLOCKED_COMMANDS = {"login", "logout", "use", "config", "setup", "spec", "tenants", "agent", "ui"}
+CONFINED_FLAGS = ("--out", "--file", "--data")
 
-# Edit forms of the platform's admin grids, keyed by what the model calls the object.
 EDIT_FORMS = (
     (re.compile(r"rule", re.IGNORECASE), "/admin/rules/Form.do?id="),
     (re.compile(r"report", re.IGNORECASE), "/admin/reports/Form.do?id="),
@@ -104,10 +125,10 @@ def entity_link(entity_type: str, entity_id: str | None, instance: str | None) -
     return f"https://{host_of(instance)}{form}{entity_id.strip()}" if form else None
 
 
-# Over budget, the rest is spilled to a workspace file the model can page through.
 def clip(text: str, ctx: ToolContext, what: str) -> str:
     if len(text) <= MAX_OUTPUT:
         return text
+
     name = f"output-{int(time.time() * 1000)}-{next(_counter)}.txt"
     (ctx.work_dir / name).write_text(text, encoding="utf-8")
     return (
@@ -125,7 +146,7 @@ def _output(result: OvResult) -> str:
 
 
 def _target(instance: str | None, ctx: ToolContext) -> str:
-    target = (instance or ctx.instance or "").strip()
+    target = (instance or ctx.instance).strip()
     if not target:
         raise ToolError("No instance given. Pass instance, or ask the user which one.")
     return target
@@ -150,31 +171,34 @@ def _confine(path: str, ctx: ToolContext) -> str:
     return str(within(ctx.work_dir, Path(path).name))
 
 
-# Keeps every file ov reads or writes inside the run's workspace.
+def _confine_value(flag: str, value: str, ctx: ToolContext) -> str:
+    if flag == "--out":
+        return _confine(value, ctx)
+    if flag == "--file":
+        field, _, path = value.partition("=")
+        return f"{field}=@{_confine(path.strip().lstrip('@'), ctx)}"
+    if value.startswith("@"):
+        return "@" + _confine(value[1:], ctx)
+    return value
+
+
 def _confine_files(args: list[str], ctx: ToolContext) -> list[str]:
     out: list[str] = []
     expect = ""
     for arg in args:
         if expect:
-            if expect == "--out":
-                arg = _confine(arg, ctx)
-            elif expect == "--file":
-                field, _, path = arg.partition("=")
-                arg = f"{field}=@{_confine(path.strip().lstrip('@'), ctx)}"
-            elif arg.startswith("@"):
-                arg = "@" + _confine(arg[1:], ctx)
-            out.append(arg)
+            out.append(_confine_value(expect, arg, ctx))
             expect = ""
             continue
 
         flag, sep, value = arg.partition("=")
-        if flag in ("--out", "--file", "-d", "--data") and not sep:
+        if flag in (*CONFINED_FLAGS, "-d") and not sep:
             expect = "--data" if flag == "-d" else flag
             out.append(arg)
-        elif sep and flag in ("--out", "--file", "--data"):
-            out.extend(_confine_files([flag, value], ctx))
+        elif sep and flag in CONFINED_FLAGS:
+            out.extend([flag, _confine_value(flag, value, ctx)])
         elif arg.startswith("-d") and len(arg) > 2 and not arg.startswith("--"):
-            out.extend(_confine_files(["-d", arg[2:].removeprefix("=")], ctx))
+            out.extend(["-d", _confine_value("--data", arg[2:].removeprefix("="), ctx)])
         else:
             out.append(arg)
     return out
@@ -183,23 +207,27 @@ def _confine_files(args: list[str], ctx: ToolContext) -> list[str]:
 _SQL_ROUTE = re.compile(r"^/?(api/)?v\d+/sql/", re.IGNORECASE)
 
 
+def _check_ov_args(args: list[str], allow_sql: bool) -> None:
+    if not args:
+        raise ToolError("No ov arguments given.")
+    if args[0].startswith("-"):
+        raise ToolError('Start with the command, e.g. ["request", "GET", "/v3/..."].')
+    if args[0] in BLOCKED_COMMANDS:
+        raise ToolError(f'"{args[0]}" is not allowed from the agent.')
+    if any(a.startswith("--instance") or (a.startswith("-i") and a[:2] != "--") for a in args):
+        raise ToolError("Pass the instance in the instance parameter, not as -i.")
+    if not allow_sql and (args[0] == "sql" or any(_SQL_ROUTE.search(a) for a in args)):
+        raise ToolError("Run SQL with the ov_sql tool, not through ov.")
+
+
 def run_ov_tool(args: list[str], instance: str | None, ctx: ToolContext, allow_sql: bool = False) -> str:
     cleaned = [str(a) for a in args]
     if cleaned[:1] == ["ov"]:
         cleaned.pop(0)
-    if not cleaned:
-        raise ToolError("No ov arguments given.")
-    if cleaned[0].startswith("-"):
-        raise ToolError('Start with the command, e.g. ["request", "GET", "/v3/..."].')
-    if cleaned[0] in BLOCKED_COMMANDS:
-        raise ToolError(f'"{cleaned[0]}" is not allowed from the agent.')
-    if any(a.startswith("--instance") or (a.startswith("-i") and a[:2] != "--") for a in cleaned):
-        raise ToolError("Pass the instance in the instance parameter, not as -i.")
-    if not allow_sql and (cleaned[0] == "sql" or any(_SQL_ROUTE.search(a) for a in cleaned)):
-        raise ToolError("Run SQL with the ov_sql tool, not through ov.")
+    _check_ov_args(cleaned, allow_sql)
     cleaned = _confine_files(cleaned, ctx)
-
     target = _target(instance, ctx)
+
     for attempt in range(2):
         alias, host, tenant = _alias_for(target, ctx)
         result = run_ov(
@@ -228,11 +256,11 @@ def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
     )
     if not ctx.can_write():
         raise blocked
+
     command = f"ov -i {host} {_quoted(args)}"
     answer = ctx.ask_user(f"Apply this change on {host}?", ["Approve", "Reject"], False, command)
     if answer != "Approve":
         raise ToolError("The user rejected this change. Do not retry it.")
-    # Write access may have been switched off while the approval was pending.
     if not ctx.can_write():
         raise blocked
 
@@ -248,33 +276,32 @@ def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
     return clip(f"Applied.\n{_output(result)}", ctx, "ov output")
 
 
+def _sql_cell(value: Any) -> str:
+    if value is None:
+        return "NULL"
+    return str(value).replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n")
+
+
 def _format_sql(raw: str) -> str:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        return raw
+        raise ToolError(f"Unexpected SQL response: {raw}") from None
     if not isinstance(parsed, dict):
-        return raw
-    if parsed.get("status") != "SUCCESS":
-        return f"SQL failed: {parsed.get('error_message') or raw}"
+        raise ToolError(f"Unexpected SQL response: {raw}")
+    if parsed["status"] != "SUCCESS":
+        raise ToolError(f"SQL failed: {parsed.get('error_message') or raw}")
 
-    def cell(value: Any) -> str:
-        if value is None:
-            return "NULL"
-        return str(value).replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n")
-
-    lines = ["\t".join(parsed.get("columns") or [])]
-    lines += ["\t".join(cell(c) for c in row.get("cells", [])) for row in parsed.get("rows") or []]
-    shown = parsed.get("response_rows") or 0
-    total = parsed.get("total_rows") or 0
-    more = f", {total} total" if total > shown else ""
-    return f"{shown} rows{more} (tab separated)\n" + "\n".join(lines)
+    rows = parsed["rows"]
+    lines = ["\t".join(parsed["columns"])]
+    lines += ["\t".join(_sql_cell(c) for c in row["cells"]) for row in rows]
+    total = parsed.get("total_rows")
+    more = f", {total} total" if total and total > len(rows) else ""
+    return f"{len(rows)} rows{more} (tab separated)\n" + "\n".join(lines)
 
 
 _SELECT = re.compile(r"^(select|with)\b", re.IGNORECASE)
-# Oracle lets WITH declare a PL/SQL function, which can run DML.
 _PLSQL_IN_WITH = re.compile(r"\bwith\s+(function|procedure)\b", re.IGNORECASE)
-# Keeps stored credentials out of the model's context.
 _SECRET_SQL = re.compile(
     r"password|passwd|secret|\bselect\s+\*\s+from\s+(module|users?|auth_token\w*)\b", re.IGNORECASE
 )
@@ -287,7 +314,7 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
     if _SECRET_SQL.search(query):
         raise ToolError("Do not read credential columns. Select the non-secret columns you need.")
 
-    rows = min(max(int(args.get("rows") or 100), 1), 1000)
+    rows = min(max(int(args.get("rows") or DEFAULT_SQL_ROWS), 1), MAX_SQL_ROWS)
     raw = run_ov_tool(
         [
             "sql",
@@ -307,7 +334,7 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
 
 def _ov_search(args: dict[str, Any], ctx: ToolContext) -> str:
     trackor_type = quote(str(args["trackor_type"]), safe="")
-    limit = min(int(args.get("limit") or 50), 500)
+    limit = min(int(args.get("limit") or DEFAULT_SEARCH_LIMIT), MAX_SEARCH_LIMIT)
     return run_ov_tool(
         [
             "request",
@@ -345,7 +372,7 @@ def offered_skills() -> list[dict[str, Any]]:
     return [s for s in skills.enabled_skills() if s["name"] not in hidden]
 
 
-def _read_skill(args: dict[str, Any], _: ToolContext) -> str:
+def _read_skill(args: dict[str, Any], _ctx: ToolContext) -> str:
     name = str(args["name"]).strip()
     found = next((s for s in offered_skills() if s["name"] == name), None)
     if found is None:
@@ -355,34 +382,43 @@ def _read_skill(args: dict[str, Any], _: ToolContext) -> str:
     return f"# {found['title']}\n\n{found['content']}"
 
 
-def _read_file(args: dict[str, Any], ctx: ToolContext) -> str:
-    rel = str(args["path"])
+def _locate(rel: str, ctx: ToolContext) -> Path:
     path = within(ctx.work_dir, rel)
     if not path.exists() and (ctx.work_dir / "attachments").is_dir():
         path = within(ctx.work_dir / "attachments", Path(rel).name)
     if not path.is_file():
         listed = ", ".join(attachment_names(ctx)) or "none"
         raise ToolError(f"No such file: {rel}. Attachments: {listed}")
+
     if path.parent.name == "attachments":
         ctx.opened.add(path.name)
+    return path
 
+
+def _read_image(path: Path, ctx: ToolContext) -> str:
+    if not ctx.vision:
+        return "This model cannot view images. Switch to a vision model to read screenshots."
+
+    data = base64.b64encode(path.read_bytes()).decode("ascii")
+    ctx.attach_image(path.name, f"data:{image_mime(path)};base64,{data}")
+    return f"Image {path.name} is attached in the next message."
+
+
+def _read_file(args: dict[str, Any], ctx: ToolContext) -> str:
+    path = _locate(str(args["path"]), ctx)
     if path.suffix.lower() in IMAGE_EXTS:
-        if not ctx.vision:
-            return "This model cannot view images. Switch to a vision model to read screenshots."
-        data = base64.b64encode(path.read_bytes()).decode("ascii")
-        ctx.attach_image(path.name, f"data:{image_mime(path)};base64,{data}")
-        return f"Image {path.name} is attached in the next message."
+        return _read_image(path, ctx)
 
     expanded = Path(f"{path}.txt")
     if path.suffix.lower() == ".eml" and expanded.exists():
         path = expanded
     raw = path.read_bytes()
-    if b"\0" in raw[:4096]:
+    if b"\0" in raw[:BINARY_SNIFF_BYTES]:
         return f"Binary file {path.name} ({len(raw)} bytes); cannot be read as text."
 
     lines = raw.decode("utf-8", "replace").split("\n")
     first = max(1, int(args.get("start") or 1))
-    last = min(len(lines), int(args.get("end") or first + 499))
+    last = min(len(lines), int(args.get("end") or first + READ_FILE_LINES - 1))
     tail = f"\n... ({len(lines)} lines)" if last < len(lines) else ""
     return clip("\n".join(lines[first - 1 : last]) + tail, ctx, "file")
 
@@ -403,7 +439,7 @@ def _source_read(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(text, ctx, "file")
 
 
-def _github_clone(args: dict[str, Any], _: ToolContext) -> str:
+def _github_clone(args: dict[str, Any], _ctx: ToolContext) -> str:
     cloned = sources.clone_repo(str(args["url"]))
     return f'Use source="{cloned["repo"]}".\nFiles:\n' + "\n".join(cloned["files"])
 
@@ -411,7 +447,7 @@ def _github_clone(args: dict[str, Any], _: ToolContext) -> str:
 def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
     entity_type = str(args["entity_type"])
     entity_id = str(args["entity_id"]) if args.get("entity_id") else None
-    instance = str(args.get("instance") or ctx.instance or "") or None
+    instance = str(args.get("instance") or ctx.instance) or None
     change = {
         "id": f"chg_{int(time.time() * 1000)}_{next(_counter)}",
         "title": str(args["title"]),
@@ -420,33 +456,41 @@ def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
         "entityName": str(args["entity_name"]) if args.get("entity_name") else None,
         "instance": instance,
         "link": entity_link(entity_type, entity_id, instance) or args.get("link") or None,
-        "language": "sql" if args.get("language") == "plsql" else str(args["language"]),
+        "language": "sql" if args["language"] == "plsql" else str(args["language"]),
         "before": str(args.get("before") or ""),
         "after": str(args["after"]),
         "what": str(args["what"]),
         "why": str(args["why"]),
         "how": str(args["how"]),
     }
+
     ctx.emit({"type": "change", "change": {k: v for k, v in change.items() if v is not None}})
     return f"Change card shown ({change['id']})."
 
 
 def _ask_user(args: dict[str, Any], ctx: ToolContext) -> str:
-    options = [str(o) for o in args.get("options") or []]
+    options = [str(o) for o in args["options"]]
     return f"User answered: {ctx.ask_user(str(args['question']), options, bool(args.get('multiple')))}"
 
 
+def _existing(entries: list[Any]) -> list[dict[str, str]]:
+    if any(not isinstance(e, dict) or not e.get("key") for e in entries):
+        raise ToolError("Every existing entry needs a key.")
+    return [{k: str(e[k]) for k in ("key", "title", "covers", "note", "link") if e.get(k)} for e in entries]
+
+
 def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
-    findings = args.get("findings") or []
+    findings = args["findings"]
     if any(not f.get("evidence") for f in findings):
         raise ToolError(
             "Not finished: every finding needs evidence you verified yourself. Check, then call finish again."
         )
+
     unread = [] if ctx.has_outcome() else [n for n in attachment_names(ctx) if n not in ctx.opened]
     if unread:
         raise ToolError(f"Not finished: open every attachment first. Unread: {', '.join(unread)}")
 
-    minutes = round(float(args.get("time_saved_minutes") or 0))
+    minutes = round(float(args["time_saved_minutes"]))
     outcome = {
         "issues": [
             {
@@ -458,18 +502,15 @@ def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
             }
             for f in findings
         ],
-        "existing": [
-            {k: str(e[k]) for k in ("key", "title", "covers", "note", "link") if e.get(k)}
-            for e in args.get("existing") or []
-            if isinstance(e, dict) and e.get("key")
-        ],
+        "existing": _existing(args.get("existing") or []),
         "unrelated": [str(u) for u in args.get("unrelated") or []],
         "reply": str(args.get("reply") or ""),
         "timeSaved": {
             "minutes": min(MAX_TIME_SAVED_MINUTES, max(0, minutes)),
-            "basis": str(args.get("time_saved_basis") or ""),
+            "basis": str(args["time_saved_basis"]),
         },
     }
+
     ctx.finish(outcome)
     return "Delivered."
 
@@ -479,13 +520,15 @@ def _ov_map(args: dict[str, Any], ctx: ToolContext) -> str:
     found = find_instance(target)
     if found is None:
         raise ToolError(f"Not signed in to {target}.")
+
     data = graph.load(found["alias"]) or graph.build(found["alias"], cancel=ctx.cancel)
     matches = graph.find(data, str(args["object"]))
     if not matches:
         return f"Nothing named like {args['object']!r} on the {found['alias']} map."
-    if len(matches) > 5:
-        listed = "\n".join(f"- {m['type']} {m['name']} ({m['ref']})" for m in matches[:20])
+    if len(matches) > MAP_MAX_MATCHES:
+        listed = "\n".join(f"- {m['type']} {m['name']} ({m['ref']})" for m in matches[:MAP_LISTED_MATCHES])
         return f"{len(matches)} matches; pass the exact name or id:\n{listed}"
+
     built = time.strftime("%Y-%m-%d %H:%M", time.localtime(data["builtAt"] / 1000))
     body = "\n\n".join(graph.describe(data, m) for m in matches)
     return clip(f"Map of {found['alias']} built {built}.\n\n{body}", ctx, "map")
@@ -501,80 +544,107 @@ def _datadog(handler: Handler) -> Handler:
     return wrapped
 
 
+def _datadog_site() -> str:
+    site = datadog.load_state().get("site")
+    if not site:
+        raise ToolError("Datadog is not connected.")
+    return site
+
+
+def _datadog_scope(args: dict[str, Any], ctx: ToolContext) -> str:
+    _, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
+    return scope
+
+
 def _datadog_window(args: dict[str, Any], default: str) -> tuple[int, int]:
     return datadog.to_ms(args.get("from"), default), datadog.to_ms(args.get("to"), "now")
 
 
-def _datadog_logs(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
-    query = datadog.combine(scope, str(args.get("query") or ""))
-    start, end = _datadog_window(args, "now-1h")
-    link = datadog.logs_link(datadog.load_state().get("site") or datadog.DEFAULT_SITE, query, start, end)
-    head = f"Datadog logs, query: {query}, {datadog.iso(start)} to {datadog.iso(end)} UTC"
-    if args.get("patterns"):
-        rows = datadog.search_logs(query, start, end, 500)
-        groups = datadog.top_patterns(rows, 15)
-        if not groups:
-            return f"{head}\nNo logs matched.\nOpen: {link}"
-        lines = [f"- {g['count']}x {g['pattern']}\n  e.g. [{g['last']} {g['service']}] {g['example']}" for g in groups]
-        more = " (first 500 scanned)" if len(rows) >= 500 else ""
-        return clip(
-            f"{head}\n{len(rows)} logs{more} in {len(groups)} groups:\n" + "\n".join(lines) + f"\nOpen: {link}",
-            ctx,
-            "logs",
-        )
-    limit = max(1, min(int(args.get("limit") or 30), datadog.MAX_LOG_LINES))
+def _log_patterns(query: str, start: int, end: int) -> str:
+    rows = datadog.search_logs(query, start, end, LOG_PATTERN_SCAN)
+    groups = datadog.top_patterns(rows, LOG_PATTERN_GROUPS)
+    if not groups:
+        return "No logs matched."
+
+    lines = [f"- {g['count']}x {g['pattern']}\n  e.g. [{g['last']} {g['service']}] {g['example']}" for g in groups]
+    more = f" (first {LOG_PATTERN_SCAN} scanned)" if len(rows) >= LOG_PATTERN_SCAN else ""
+    return f"{len(rows)} logs{more} in {len(groups)} groups:\n" + "\n".join(lines)
+
+
+def _log_lines(query: str, start: int, end: int, limit: int) -> str:
     rows = datadog.search_logs(query, start, end, limit)
     if not rows:
-        return f"{head}\nNo logs matched.\nOpen: {link}"
+        return "No logs matched."
+
     lines = [
         f"{r['time']} {r['status'] or '-'} {r['host'] or '-'} {r['service'] or '-'}: "
         f"{r['message'][: datadog.MESSAGE_CHARS]}"
         for r in rows
     ]
-    return clip(f"{head}\n{len(rows)} newest:\n" + "\n".join(lines) + f"\nOpen: {link}", ctx, "logs")
+    return f"{len(rows)} newest:\n" + "\n".join(lines)
+
+
+def _datadog_logs(args: dict[str, Any], ctx: ToolContext) -> str:
+    query = datadog.combine(_datadog_scope(args, ctx), str(args.get("query") or ""))
+    start, end = _datadog_window(args, "now-1h")
+    link = datadog.logs_link(_datadog_site(), query, start, end)
+    if args.get("patterns"):
+        body = _log_patterns(query, start, end)
+    else:
+        limit = max(1, min(int(args.get("limit") or DEFAULT_LOG_LINES), datadog.MAX_LOG_LINES))
+        body = _log_lines(query, start, end, limit)
+
+    head = f"Datadog logs, query: {query}, {datadog.iso(start)} to {datadog.iso(end)} UTC"
+    return clip(f"{head}\n{body}\nOpen: {link}", ctx, "logs")
+
+
+def _metric_query(raw: str, scope: str) -> str:
+    query = raw.strip()
+    if not query:
+        raise ToolError('Give a metric query, e.g. "avg:jvm.heap_memory".')
+
+    tags = datadog.metric_scope(scope) if scope else "*"
+    if "{$scope}" in query:
+        return query.replace("{$scope}", "{" + tags + "}")
+    if "{" not in query:
+        return f"{query}{{{tags}}}"
+    return query
 
 
 def _datadog_metrics(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
-    query = str(args.get("query") or "").strip()
-    if not query:
-        raise ToolError('Give a metric query, e.g. "avg:jvm.heap_memory".')
-    tags = datadog.metric_scope(scope) if scope else "*"
-    if "{$scope}" in query:
-        query = query.replace("{$scope}", "{" + tags + "}")
-    elif "{" not in query:
-        query = f"{query}{{{tags}}}"
+    query = _metric_query(str(args["query"]), _datadog_scope(args, ctx))
     start, end = _datadog_window(args, "now-4h")
     series = datadog.query_metric(query, start, end)
     if not series:
         return f"No data for {query} between {datadog.iso(start)} and {datadog.iso(end)} UTC."
-    shown = series[:10]
-    more = f"\n({len(series) - 10} more series not shown)" if len(series) > 10 else ""
-    body = "\n".join(datadog.summarize_series(s) for s in shown)
+
+    hidden = len(series) - MAX_SERIES_SHOWN
+    more = f"\n({hidden} more series not shown)" if hidden > 0 else ""
+    body = "\n".join(datadog.summarize_series(s) for s in series[:MAX_SERIES_SHOWN])
     return clip(f"{query}, {datadog.iso(start)} to {datadog.iso(end)} UTC:\n{body}{more}", ctx, "metrics")
 
 
 def _datadog_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
+    scope = _datadog_scope(args, ctx)
     rows = datadog.monitors_for(scope, include_ok=bool(args.get("include_ok")))
-    base = datadog.app_url(datadog.load_state().get("site") or datadog.DEFAULT_SITE)
     if not rows:
         return f"No {'' if args.get('include_ok') else 'alerting or warning '}monitors for {scope or 'the org'}."
+
+    base = datadog.app_url(_datadog_site())
     lines = []
-    for m in rows[:60]:
+    for m in rows[:MAX_MONITORS_SHOWN]:
         groups = f" groups: {', '.join(m['groups'])}" if m["groups"] else ""
         lines.append(f"[{m['state']}] {m['name']} ({base}/monitors/{m['id']}){groups}")
     return clip(f"Monitors for {scope or 'the org'}:\n" + "\n".join(lines), ctx, "monitors")
 
 
 def _datadog_events(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
-    query = datadog.combine(scope, str(args.get("query") or ""))
+    query = datadog.combine(_datadog_scope(args, ctx), str(args.get("query") or ""))
     start, end = _datadog_window(args, "now-24h")
-    rows = datadog.events_for(query, start, end, int(args.get("limit") or 30))
+    rows = datadog.events_for(query, start, end, int(args.get("limit") or DEFAULT_EVENTS))
     if not rows:
         return f"No events for {query} between {datadog.iso(start)} and {datadog.iso(end)} UTC."
+
     lines = [
         f"{r['time']} [{r['source'] or '-'}{' ' + r['status'] if r['status'] else ''}] "
         f"{r['title']}{': ' + r['message'] if r['message'] and r['message'] != r['title'] else ''}"
@@ -583,26 +653,35 @@ def _datadog_events(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(f"Events for {query}:\n" + "\n".join(lines), ctx, "events")
 
 
-def _datadog_apm(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
-    query = datadog.combine(scope, str(args.get("query") or ""))
-    start, end = _datadog_window(args, "now-1h")
-    if args.get("mode") == "errors":
-        rows = datadog.error_spans(query, start, end, int(args.get("limit") or 25))
-        if not rows:
-            return f"No error spans for {query}."
-        lines = [f"{r['time']} {r['service']} {r['resource']}: {r['error']} (trace {r['trace']})" for r in rows]
-        return clip(f"Error spans for {query}:\n" + "\n".join(lines), ctx, "spans")
-    rows = datadog.slow_endpoints(query, start, end, int(args.get("limit") or 10))
+def _error_spans(query: str, start: int, end: int, limit: int, ctx: ToolContext) -> str:
+    rows = datadog.error_spans(query, start, end, limit)
+    if not rows:
+        return f"No error spans for {query}."
+
+    lines = [f"{r['time']} {r['service']} {r['resource']}: {r['error']} (trace {r['trace']})" for r in rows]
+    return clip(f"Error spans for {query}:\n" + "\n".join(lines), ctx, "spans")
+
+
+def _slow_endpoints(query: str, start: int, end: int, limit: int) -> str:
+    rows = datadog.slow_endpoints(query, start, end, limit)
     if not rows:
         return f"No spans for {query}."
+
     lines = [f"p95 {r['p95Ms']} ms, {r['count']} calls: {r['resource']}" for r in rows]
     return f"Slowest endpoints by p95 for {query}:\n" + "\n".join(lines)
 
 
+def _datadog_apm(args: dict[str, Any], ctx: ToolContext) -> str:
+    query = datadog.combine(_datadog_scope(args, ctx), str(args.get("query") or ""))
+    start, end = _datadog_window(args, "now-1h")
+    if args.get("mode") == "errors":
+        return _error_spans(query, start, end, int(args.get("limit") or DEFAULT_ERROR_SPANS), ctx)
+    return _slow_endpoints(query, start, end, int(args.get("limit") or DEFAULT_SLOW_ENDPOINTS))
+
+
 def _ov_label(a: dict[str, Any]) -> str:
     at = f" @ {a['instance']}" if a.get("instance") else ""
-    return f"ov {' '.join(str(x) for x in (a.get('args') or [])[:4])}{at}"
+    return f"ov {' '.join(str(x) for x in (a.get('args') or [])[:LABEL_ARGS])}{at}"
 
 
 INSTANCE = _str("Instance alias or host. Defaults to the run's instance, if one is set.")
@@ -616,7 +695,7 @@ TOOLS = [
         {"case": _str("Case number (e.g. 193915) or a trackor.onevizion.com case link")},
         ["case"],
         lambda a: f"Read case {a.get('case')} from trackor",
-        lambda a, ctx: ctx.load_case(str(a.get("case", ""))),
+        lambda a, ctx: ctx.load_case(str(a["case"])),
     ),
     Tool(
         "ov",
@@ -632,7 +711,7 @@ TOOLS = [
         },
         ["args"],
         _ov_label,
-        lambda a, ctx: run_ov_tool(list(a.get("args") or []), a.get("instance"), ctx),
+        lambda a, ctx: run_ov_tool(list(a["args"]), a.get("instance"), ctx),
     ),
     Tool(
         "ov_map",
@@ -661,7 +740,7 @@ TOOLS = [
         ["query"],
         lambda a: (
             f"SQL{' @ ' + a['instance'] if a.get('instance') else ''}: "
-            + re.sub(r"\s+", " ", str(a.get("query", "")))[:80]
+            + re.sub(r"\s+", " ", str(a.get("query", "")))[:LABEL_CHARS]
         ),
         _ov_sql,
     ),
@@ -677,7 +756,7 @@ TOOLS = [
             "limit": _int("Max rows, default 50"),
         },
         ["trackor_type", "fields", "condition"],
-        lambda a: f"search {a.get('trackor_type')}: {str(a.get('condition', ''))[:70]}",
+        lambda a: f"search {a.get('trackor_type')}: {str(a.get('condition', ''))[:LABEL_CHARS]}",
         _ov_search,
     ),
     Tool(
@@ -791,7 +870,7 @@ TOOLS = [
             "multiple": {"type": "boolean"},
         },
         ["question", "options"],
-        lambda a: f"ask: {str(a.get('question', ''))[:60]}",
+        lambda a: f"ask: {str(a.get('question', ''))[:LABEL_CHARS]}",
         _ask_user,
         silent=True,
     ),
@@ -881,12 +960,11 @@ def _datadog_label(kind: str) -> Callable[[dict[str, Any]], str]:
         what = a.get("query") or a.get("mode") or ""
         at = f" @ {a['instance']}" if a.get("instance") else ""
         span = f" {a['from']}" if a.get("from") else ""
-        return f"Datadog {kind}{': ' + str(what)[:60] if what else ''}{span}{at}"
+        return f"Datadog {kind}{': ' + str(what)[:LABEL_CHARS] if what else ''}{span}{at}"
 
     return label
 
 
-# area -> tools; a tool is offered only when Datadog is connected and the key can read its area.
 DATADOG_TOOLS = {
     "datadog_logs": "logs",
     "datadog_metrics": "metrics",
@@ -1003,6 +1081,7 @@ def _pagerduty_rows(args: dict[str, Any], ctx: ToolContext, default: str) -> tup
     rows = pagerduty.incidents(start, end, statuses or None)
     if alias:
         rows = pagerduty.for_instance(rows, alias)
+
     found = pagerduty.find_instance(alias) if alias else None
     where = found["host"] if found else "all instances"
     head = f"PagerDuty incidents for {where}, {pagerduty.iso_utc(start)} to {pagerduty.iso_utc(end)}"
@@ -1019,26 +1098,38 @@ def _pagerduty_incidents(args: dict[str, Any], ctx: ToolContext) -> str:
         head += f", matching {text!r}"
     if not rows:
         return f"{head}\nNone."
-    limit = max(1, min(int(args.get("limit") or 25), pagerduty.MAX_INCIDENTS))
+
+    limit = max(1, min(int(args.get("limit") or DEFAULT_INCIDENTS), pagerduty.MAX_INCIDENTS))
     more = f"\n({len(rows) - limit} more not shown)" if len(rows) > limit else ""
     body = "\n".join(_incident_line(r) for r in rows[:limit])
     return clip(f"{head}\n{body}{more}", ctx, "incidents")
 
 
+def _alert_lines(alerts: list[dict[str, Any]]) -> list[str]:
+    lines = ["", "Alerts:"]
+    for a in alerts:
+        lines.append(f"- {pagerduty.short_time(a['time'])} [{a['status']}] {a['summary']}")
+        if a["details"]:
+            lines.append("  " + a["details"].replace("\n", "\n  "))
+    return lines
+
+
 def _pagerduty_incident(args: dict[str, Any], ctx: ToolContext) -> str:
-    i = pagerduty.incident_detail(str(args.get("incident") or ""))
+    i = pagerduty.incident_detail(str(args["incident"]))
     lines = [_incident_line(i), "", "Timeline:"]
     lines += [f"- {pagerduty.short_time(e['time'])} {e['type']}: {e['summary']}" for e in i["timeline"]] or ["- none"]
     if i["alerts"]:
-        lines += ["", "Alerts:"]
-        for a in i["alerts"]:
-            lines.append(f"- {pagerduty.short_time(a['time'])} [{a['status']}] {a['summary']}")
-            if a["details"]:
-                lines.append("  " + a["details"].replace("\n", "\n  "))
+        lines += _alert_lines(i["alerts"])
     if i["notes"]:
         lines += ["", "Notes:"]
         lines += [f"- {pagerduty.short_time(n['time'])} {n['by']}: {n['text']}" for n in i["notes"]]
     return clip("\n".join(lines), ctx, "incident")
+
+
+def _instance_policies(alias: str) -> list[str]:
+    end = int(time.time() * 1000)
+    rows = pagerduty.for_instance(pagerduty.incidents(end - ONCALL_LOOKBACK_DAYS * DAY_MS, end), alias)
+    return [r["policy"] for r in rows if r["policy"]]
 
 
 def _pagerduty_oncall(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -1047,19 +1138,19 @@ def _pagerduty_oncall(args: dict[str, Any], ctx: ToolContext) -> str:
     policies: list[str] = []
     where = "every escalation policy"
     if alias:
-        end = int(time.time() * 1000)
-        rows = pagerduty.for_instance(pagerduty.incidents(end - 30 * 86_400_000, end), alias)
-        policies = [r["policy"] for r in rows if r["policy"]]
+        policies = _instance_policies(alias)
         found = pagerduty.find_instance(alias)
         where = found["host"] if found else alias
         if not policies:
             return (
-                f"No PagerDuty incident for {where} in the last 30 days, so no escalation policy "
-                "is known for it. Call again without instance for everyone on call."
+                f"No PagerDuty incident for {where} in the last {ONCALL_LOOKBACK_DAYS} days, so no escalation "
+                "policy is known for it. Call again without instance for everyone on call."
             )
+
     rows = pagerduty.oncall(policies, at)
     if not rows:
         return f"Nobody is on call for {where}."
+
     lines = [
         f"- level {r['level']} {r['user']} ({r['policy']}"
         f"{', ' + r['schedule'] if r['schedule'] else ''}"
@@ -1074,12 +1165,11 @@ def _pagerduty_label(kind: str) -> Callable[[dict[str, Any]], str]:
     def label(a: dict[str, Any]) -> str:
         what = a.get("incident") or a.get("query") or ""
         at = f" @ {a['instance']}" if a.get("instance") else ""
-        return f"PagerDuty {kind}{': ' + str(what)[:60] if what else ''}{at}"
+        return f"PagerDuty {kind}{': ' + str(what)[:LABEL_CHARS] if what else ''}{at}"
 
     return label
 
 
-# area -> tools; offered only when PagerDuty is connected and the key can read the area.
 PAGERDUTY_TOOLS = {
     "pagerduty_incidents": "incidents",
     "pagerduty_incident": "incidents",
@@ -1136,7 +1226,6 @@ TOOLS += [
 
 TOOL_SPECS = [t.spec for t in TOOLS if t.name not in DATADOG_TOOLS and t.name not in PAGERDUTY_TOOLS]
 
-# Every tool belongs to exactly one group; the prompt and the skills use the same names.
 TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     ("OV CLI", "signed-in OneVizion instances", ["ov", "ov_sql", "ov_search", "ov_map", "ov_case"]),
     ("Sources", "folders on this computer and cloned repos", ["source_search", "source_read"]),
@@ -1159,7 +1248,7 @@ def tool_specs() -> list[dict[str, Any]]:
     ):
         if linked():
             areas = allowed()
-            specs += [t.spec for t in TOOLS if t.name in names and areas.get(names[t.name])]
+            specs += [t.spec for t in TOOLS if t.name in names and areas[names[t.name]]]
     return specs
 
 

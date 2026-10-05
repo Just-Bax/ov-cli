@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from ...spec import Operation, Param
 from ..context import Context
 from ..opargs import add_invocation_flags, run_operation
 from ..output import build_table, emit, emit_payload
@@ -106,42 +107,42 @@ def cmd_show(ctx: Context) -> int:
     data["usage"] = f"ov {operation.tag} {operation.name}"
 
     def table():
-        rows = [
-            ["ref", operation.ref],
-            ["call", f"{operation.method} {operation.path}"],
-            ["usage", data["usage"]],
-        ]
-        if operation.summary:
-            rows.append(["summary", operation.summary])
-        if operation.description:
-            rows.append(["description", operation.description])
-        if operation.deprecated:
-            rows.append(["deprecated", "yes"])
-        for param in operation.params:
-            label = f"{param.location} {param.name}"
-            detail = f"{param.type}{' required' if param.required else ''}"
-            if param.enum:
-                detail += f" one of {', '.join(param.enum)}"
-            if param.description:
-                detail += f" - {param.description}"
-            rows.append([label, detail])
-        if operation.body:
-            rows.append(
-                [
-                    "body",
-                    f"{operation.body.content_type}"
-                    f"{' required' if operation.body.required else ''}"
-                    " (ov api schema shows its shape)",
-                ]
-            )
         return build_table(
             None,
             [{"header": "Field", "style": "cyan"}, {"header": "Value", "overflow": "fold"}],
-            rows,
+            _show_rows(operation, data["usage"]),
         )
 
     emit(ctx, data, table)
     return 0
+
+
+def _show_rows(operation: Operation, usage: str) -> list[list[str]]:
+    rows = [
+        ["ref", operation.ref],
+        ["call", f"{operation.method} {operation.path}"],
+        ["usage", usage],
+    ]
+    if operation.summary:
+        rows.append(["summary", operation.summary])
+    if operation.description:
+        rows.append(["description", operation.description])
+    if operation.deprecated:
+        rows.append(["deprecated", "yes"])
+    rows.extend([f"{param.location} {param.name}", _param_detail(param)] for param in operation.params)
+    if operation.body:
+        required = " required" if operation.body.required else ""
+        rows.append(["body", f"{operation.body.content_type}{required} (ov api schema shows its shape)"])
+    return rows
+
+
+def _param_detail(param: Param) -> str:
+    detail = f"{param.type}{' required' if param.required else ''}"
+    if param.enum:
+        detail += f" one of {', '.join(param.enum)}"
+    if param.description:
+        detail += f" - {param.description}"
+    return detail
 
 
 def cmd_schema(ctx: Context) -> int:

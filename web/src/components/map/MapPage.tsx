@@ -47,6 +47,13 @@ import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 import { ObjectActions } from '@/components/map/ObjectActions'
 
 const EXPAND_LIMIT = 40
+const START_POINT_ROWS = 6
+const GROUP_PREVIEW_ROWS = 8
+const SEARCH_MIN_CHARS = 2
+const SEARCH_RESULTS = 12
+const TYPE_DOTS = 5
+const FIT_DELAY_MS = 30
+const FIT_DURATION_MS = 350
 const NODE_W = 230
 const NODE_H = 44
 
@@ -57,11 +64,13 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Map<string, { x: number
   for (const n of nodes) g.setNode(n.id, { width: NODE_W, height: NODE_H })
   for (const e of edges) g.setEdge(e.source, e.target)
   dagre.layout(g)
+
   const out = new Map<string, { x: number; y: number }>()
   for (const n of nodes) {
     const p = g.node(n.id)
     out.set(n.id, { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 })
   }
+
   return out
 }
 
@@ -70,6 +79,7 @@ type MapNodeData = { node: GraphNode; hidden: number; dim: boolean }
 function MapNode({ data, selected }: NodeProps<Node<MapNodeData>>) {
   const meta = TYPES[data.node.type]
   const Icon = meta.icon
+
   return (
     <div
       className={cn(
@@ -153,6 +163,7 @@ function Canvas({
   const nodes: Node<MapNodeData>[] = shownNodes.map((n) => {
     const total = degree(idx, n.id)
     const onCanvas = (idx.links.get(n.id) ?? []).filter((l) => visible.has(l.other.id)).length
+
     return {
       id: n.id,
       type: 'map',
@@ -163,6 +174,7 @@ function Canvas({
   })
   const edges: Edge[] = shownEdges.map((e) => {
     const lit = selected && (e.source === selected || e.target === selected)
+
     return {
       id: `${e.source}>${e.target}>${e.kind}`,
       source: e.source,
@@ -179,12 +191,19 @@ function Canvas({
 
   const layoutKey = shownNodes.map((n) => n.id).join('|')
   const first = useRef(true)
+
   useEffect(() => {
     const timer = setTimeout(
-      () => void flow.fitView({ padding: 0.2, duration: first.current ? 0 : 350, maxZoom: 1.1 }),
-      30,
+      () =>
+        void flow.fitView({
+          padding: 0.2,
+          duration: first.current ? 0 : FIT_DURATION_MS,
+          maxZoom: 1.1,
+        }),
+      FIT_DELAY_MS,
     )
     first.current = false
+
     return () => clearTimeout(timer)
   }, [layoutKey, flow])
 
@@ -221,13 +240,13 @@ function StartPoints({
       .map((n) => ({ n, s: score(n) }))
       .filter((x) => x.s > 0)
       .sort((a, b) => b.s - a.s)
-      .slice(0, 6)
+      .slice(0, START_POINT_ROWS)
   const count = (id: string, kind: string) =>
     (idx.links.get(id) ?? []).filter((l) => l.kind === kind).length
   const typesByFields = top('trackor_type', (n) => count(n.id, 'field_of'))
   const hotFields = top('field', (n) => count(n.id, 'uses') + count(n.id, 'triggered_by'))
   const packages = top('db_package', (n) => (idx.links.get(n.id) ?? []).length)
-  const invalid = graph.nodes.filter((n) => n.invalid).slice(0, 6)
+  const invalid = graph.nodes.filter((n) => n.invalid).slice(0, START_POINT_ROWS)
 
   const column = (
     title: string,
@@ -309,6 +328,7 @@ function Details({
     const label = l.out ? forward : back
     groups.set(label, [...(groups.get(label) ?? []), l])
   }
+
   const hidden = links.filter((l) => !visible.has(l.other.id)).length
   const onMap = links.length - hidden
   const status = node.invalid
@@ -379,7 +399,8 @@ function Details({
           .sort((a, b) => b[1].length - a[1].length)
           .map(([label, items]) => {
             const expanded = open === label
-            const shown = expanded ? items : items.slice(0, 8)
+            const shown = expanded ? items : items.slice(0, GROUP_PREVIEW_ROWS)
+
             return (
               <div key={label}>
                 <div className="text-faint flex items-center px-2 pb-1 text-[11.5px] font-medium">
@@ -422,16 +443,18 @@ function SearchBox({ graph, onPick }: { graph: InstanceGraph; onPick: (id: strin
   const [query, setQuery] = useState('')
   const results = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (q.length < 2) return []
+    if (q.length < SEARCH_MIN_CHARS) return []
+
     const starts: GraphNode[] = []
     const contains: GraphNode[] = []
     for (const n of graph.nodes) {
       const name = n.name.toLowerCase()
       if (name.startsWith(q) || String(n.ref) === q) starts.push(n)
       else if (name.includes(q)) contains.push(n)
-      if (starts.length > 12) break
+      if (starts.length > SEARCH_RESULTS) break
     }
-    return [...starts, ...contains].slice(0, 12)
+
+    return [...starts, ...contains].slice(0, SEARCH_RESULTS)
   }, [query, graph])
 
   return (
@@ -492,10 +515,12 @@ function TypeMenu({
 
   useEffect(() => {
     if (!open) return
+
     const close = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as globalThis.Node)) setOpen(false)
     }
     document.addEventListener('mousedown', close)
+
     return () => document.removeEventListener('mousedown', close)
   }, [open])
 
@@ -512,7 +537,7 @@ function TypeMenu({
         )}
       >
         <span className="flex -space-x-1">
-          {types.slice(0, 5).map((t) => (
+          {types.slice(0, TYPE_DOTS).map((t) => (
             <span
               key={t}
               className="size-2.5 rounded-full ring-2 ring-white"
@@ -529,6 +554,7 @@ function TypeMenu({
         <div className="border-line-strong/70 absolute top-11 left-0 z-30 w-[264px] rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]">
           {types.map((t) => {
             const on = !hidden.has(t)
+
             return (
               <button
                 key={t}
@@ -580,12 +606,12 @@ export function MapPage() {
     setSelected(undefined)
   }, [alias])
 
-  // The Explorer's "Show on map" leaves the object to focus here.
   useEffect(() => {
-    const target = localStorage.getItem(FOCUS_KEY)
-    if (!idx || !target || !idx.byId.has(target)) return
+    const requestedFocus = localStorage.getItem(FOCUS_KEY)
+    if (!idx || !requestedFocus || !idx.byId.has(requestedFocus)) return
+
     localStorage.removeItem(FOCUS_KEY)
-    focus(target)
+    focus(requestedFocus)
   }, [idx])
 
   const neighbors = (id: string, have: Set<string>) =>
@@ -599,7 +625,9 @@ export function MapPage() {
     setVisible(new Set([id, ...neighbors(id, new Set([id]))]))
     setSelected(id)
   }
+
   const expand = (id: string) => setVisible((v) => new Set([...v, id, ...neighbors(id, v)]))
+
   const add = (id: string) => {
     setVisible((v) => new Set([...v, id]))
     setSelected(id)

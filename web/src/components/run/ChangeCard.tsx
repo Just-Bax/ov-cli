@@ -9,6 +9,7 @@ export function ChangeCard({ change }: { change: Change }) {
     change.entityId && `ID ${change.entityId}`,
     change.instance,
   ].filter(Boolean)
+
   return (
     <div className="border-line-strong/70 overflow-hidden rounded-2xl border">
       <div className="bg-raised flex items-start gap-3 px-4 py-3">

@@ -1,12 +1,3 @@
-"""Drives the sign-in flow with a real browser against a stand-in OneVizion.
-
-Everything else about login is tested with fakes, which proves the decisions but
-not that the Playwright calls behind them work. This one starts an actual
-Chromium and an actual server, so a wrong assumption about how the browser
-shares cookies with a page script or the request API shows up here rather than
-in front of a user.
-"""
-
 from __future__ import annotations
 
 import json
@@ -30,8 +21,6 @@ LATE_REDIRECT = (
     b"<html><body>signing in<script>setTimeout(function(){location.href='/Default.do';}, 2500);</script></body></html>"
 )
 
-# The app arrives in a second tab and the one we opened stays where it was,
-# which is what several identity providers do.
 NEW_TAB = (
     b"<html><body>signing in"
     b"<script>setTimeout(function(){window.open('/Default.do', '_blank');}, 2500);</script>"
@@ -40,13 +29,11 @@ NEW_TAB = (
 
 
 class Handler(BaseHTTPRequestHandler):
-    """A OneVizion-shaped server: login redirects, CSRF handshake, widget mint."""
-
     signed_in = False
     slow_redirect = False
     new_tab = False
 
-    def log_message(self, *args):  # noqa: A003 - silence the default stderr spam
+    def log_message(self, *args):
         pass
 
     def _send(self, status: int, body: bytes = b"", content_type: str = "text/html", **headers):
@@ -63,40 +50,34 @@ class Handler(BaseHTTPRequestHandler):
         return "mock-session" in (self.headers.get("Cookie") or "")
 
     def do_GET(self):
-        path = self.path.split("?")[0]
+        routes = {"/Login.do": self._login, "/Default.do": self._app, "/CsrfToken.do": self._csrf}
+        route = routes.get(self.path.split("?")[0])
+        if route is None:
+            self._send(404)
+        else:
+            route()
 
-        if path == "/Login.do":
-            if Handler.new_tab:
-                self._send(200, NEW_TAB)
-                return
-            if Handler.slow_redirect:
-                # The realistic shape: the browser leaves the login page some
-                # time after goto() returns, which is when a real sign-in
-                # finishes. The navigation therefore lands in the middle of the
-                # poll loop rather than inside goto().
-                self._send(200, LATE_REDIRECT)
-                return
+    def _login(self):
+        if Handler.new_tab:
+            self._send(200, NEW_TAB)
+        elif Handler.slow_redirect:
+            self._send(200, LATE_REDIRECT)
+        else:
             Handler.signed_in = True
             self._send(302, b"", Set_Cookie=SESSION_COOKIE, Location="/Default.do")
-            return
 
-        if path == "/Default.do":
-            Handler.signed_in = True
-            self._send(200, b"<html><body>app</body></html>", Set_Cookie=SESSION_COOKIE)
-            return
+    def _app(self):
+        Handler.signed_in = True
+        self._send(200, b"<html><body>app</body></html>", Set_Cookie=SESSION_COOKIE)
 
-        if path == "/CsrfToken.do":
-            if self.headers.get("X-Requested-With") != "XMLHttpRequest":
-                self._send(404)
-                return
-            if not self._has_session():
-                self._send(302, b"", Location="/Login.do")
-                return
+    def _csrf(self):
+        if self.headers.get("X-Requested-With") != "XMLHttpRequest":
+            self._send(404)
+        elif not self._has_session():
+            self._send(302, b"", Location="/Login.do")
+        else:
             body = json.dumps({"headerName": CSRF_HEADER, "token": CSRF_VALUE, "parameterName": "_csrf"}).encode()
             self._send(200, body, content_type="application/json")
-            return
-
-        self._send(404)
 
     def do_POST(self):
         if self.path != "/widget/GenerateApiTokenForWebSession":
@@ -140,26 +121,16 @@ def test_a_real_browser_completes_the_token_exchange(instance, ov_home):
     assert session.bearer_token == BEARER
     assert session.expires_text == EXPIRES
     assert session.base_url == instance
-    # The cookies have to come back too: they are what refreshes the token later.
     assert session.cookies.get("JSESSIONID") == "mock-session"
 
 
 def test_a_sign_in_that_completes_after_goto_is_still_noticed(instance, ov_home):
-    """The navigation that ends a real sign-in happens during the wait.
-
-    Reading page.url without letting Playwright process its events returns the
-    URL from whenever the loop last talked to the driver, so a browser that has
-    long since moved on still looks parked on the login page.
-    """
     Handler.slow_redirect = True
-
     session = interactive_login(instance, timeout_ms=30_000, headless=True)
     assert session.bearer_token == BEARER
 
 
 def test_the_app_arriving_in_a_second_tab_is_found(instance, ov_home):
-    """Only the tab we opened used to be watched, so this looked like a hang."""
     Handler.new_tab = True
-
     session = interactive_login(instance, timeout_ms=30_000, headless=True)
     assert session.bearer_token == BEARER

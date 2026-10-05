@@ -24,6 +24,7 @@ const COVERS: Record<string, { label: string; tone: Tone }> = {
 
 export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: string }) {
   const { settings } = useSettings()
+
   return (
     <div className="space-y-3">
       <div className="border-line-strong/70 divide-line divide-y overflow-hidden rounded-2xl border">
@@ -136,10 +137,12 @@ function ApprovalCard({ runId, question }: { runId: string; question: Question }
   const [sending, setSending] = useState(false)
   const answered = question.answer !== undefined
   const approved = question.answer === 'Approve'
+
   const send = async (answer: string) => {
     setSending(true)
     await api.answer(runId, question.id, answer).catch(() => setSending(false))
   }
+
   return (
     <div
       className={cn(
@@ -199,6 +202,7 @@ export function QuestionCard({ runId, question }: { runId: string; question: Que
       <div className="mt-2 flex flex-wrap gap-1.5">
         {question.options.map((o) => {
           const on = picked.includes(o)
+
           return (
             <button
               key={o}
@@ -256,6 +260,7 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
       </div>
     )
   }
+
   return (
     <div className="border-warn/50 bg-warn-soft/40 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3">
       <KeyIcon className="text-warn size-4" />

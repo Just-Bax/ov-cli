@@ -5,7 +5,8 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -13,20 +14,41 @@ import httpx
 
 from .. import credentials
 from ..paths import agent_dir, write_atomic
+from . import datadog
 from .ovproc import find_instance, instances
 
 CREDENTIAL_KEY = "agent:pagerduty"
 TIMEOUT_SECONDS = 30
+RATE_LIMIT_WAIT_SECONDS = 2
+PAGE_SIZE = 100
 MAX_INCIDENTS = 50
+INCIDENTS_LIMIT = 1000
+SERVICES_LIMIT = 2000
+ONCALLS_LIMIT = 200
+LOG_ENTRIES_LIMIT = 100
+ALERTS_LIMIT = 25
 TEXT_CHARS = 600
+DETAIL_CHARS = 300
+DESCRIPTION_CHARS = 200
+ERROR_BODY_CHARS = 200
 SERVICES_TTL_SECONDS = 600
 HEALTH_TTL_SECONDS = 60
 OPEN_LOOKBACK_DAYS = 30
+DAY_MS = 86_400_000
+ONCALL_WINDOW_MS = 60_000
 
 REGIONS = {"us": "https://api.pagerduty.com", "eu": "https://api.eu.pagerduty.com"}
+DEFAULT_REGION = "us"
+NON_ACCOUNT_SUBDOMAINS = ("app", "www", "eu", "api")
 AREAS = ("incidents", "services", "oncall")
+PROBE_PATHS = {"incidents": "/incidents", "services": "/services", "oncall": "/oncalls"}
+OPEN_STATUSES = ["triggered", "acknowledged"]
+STATUS_MESSAGES = {
+    401: "PagerDuty rejected the API key (wrong key, or a key for the other region).",
+    404: "PagerDuty has no such incident or object.",
+    429: "PagerDuty rate limit reached. Try again in a minute.",
+}
 
-# Tests swap in a fake PagerDuty here.
 TRANSPORT: httpx.BaseTransport | None = None
 
 _lock = threading.Lock()
@@ -38,34 +60,44 @@ class PagerDutyError(Exception):
     pass
 
 
-# Accepts "onevizion", "onevizion.pagerduty.com" or any URL from the account.
 def account_of(value: str) -> tuple[str, str]:
     text = value.strip().lower()
     if not text:
-        return "", "us"
-    host = urlsplit(text if "://" in text else f"https://{text}").hostname or text
-    if host in ("api.pagerduty.com", "api.eu.pagerduty.com"):
-        return "", "eu" if ".eu." in host else "us"
-    if not host.endswith("pagerduty.com"):
-        if re.fullmatch(r"[a-z0-9-]+", host):
-            return host, "us"
-        raise PagerDutyError(f"Not a PagerDuty address: {value}")
-    region = "eu" if host.endswith(".eu.pagerduty.com") else "us"
-    sub = host.split(".")[0]
-    return ("" if sub in ("app", "www", "eu") else sub), region
+        return "", DEFAULT_REGION
+
+    host = urlsplit(text if "://" in text else f"https://{text}").hostname
+    if host and host.endswith("pagerduty.com"):
+        region = "eu" if host.endswith(".eu.pagerduty.com") else DEFAULT_REGION
+        sub = host.split(".")[0]
+        return ("" if sub in NON_ACCOUNT_SUBDOMAINS else sub), region
+
+    if host and re.fullmatch(r"[a-z0-9-]+", host):
+        return host, DEFAULT_REGION
+
+    raise PagerDutyError(f"Not a PagerDuty address: {value}")
 
 
-def _state_file():
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _state_file() -> Path:
     return agent_dir() / "pagerduty.json"
 
 
 def load_state() -> dict[str, Any]:
     path = _state_file()
+    if not path.exists():
+        return {}
+
     try:
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except (OSError, json.JSONDecodeError):
-        data = {}
-    return data if isinstance(data, dict) else {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PagerDutyError(f"Cannot read the PagerDuty settings in {path}: {exc}") from None
+    if isinstance(data, dict):
+        return data
+
+    raise PagerDutyError(f"The PagerDuty settings in {path} are not a JSON object.")
 
 
 def _save_state(state: dict[str, Any]) -> None:
@@ -73,23 +105,43 @@ def _save_state(state: dict[str, Any]) -> None:
         write_atomic(_state_file(), json.dumps(state, indent=2))
 
 
+def _stored(state: dict[str, Any], key: str) -> Any:
+    if key not in state:
+        raise PagerDutyError(f"The PagerDuty settings have no {key}. Reconnect PagerDuty in Settings > Integrations.")
+    return state[key]
+
+
+def _field(data: dict[str, Any], key: str) -> Any:
+    if key not in data:
+        raise PagerDutyError(f"PagerDuty returned a response without {key}.")
+    return data[key]
+
+
 def _key() -> str | None:
-    secret = (credentials.get(CREDENTIAL_KEY) or {}).get("api_key")
-    return str(secret) if secret else None
+    secrets = credentials.get(CREDENTIAL_KEY)
+    if secrets is None:
+        return None
+
+    if not secrets.get("api_key"):
+        raise PagerDutyError("The stored PagerDuty key is empty. Reconnect PagerDuty in Settings > Integrations.")
+    return str(secrets["api_key"])
 
 
 def connected() -> bool:
-    return bool(load_state().get("region")) and _key() is not None
+    return "region" in load_state() and _key() is not None
 
 
 def permissions() -> dict[str, bool]:
-    stored = load_state().get("permissions") or {}
-    return {area: bool(stored.get(area)) for area in AREAS}
+    state = load_state()
+    if "region" not in state:
+        return dict.fromkeys(AREAS, False)
+
+    stored = _stored(state, "permissions")
+    return {area: bool(stored[area]) for area in AREAS}
 
 
-def web_url(state: dict[str, Any] | None = None) -> str:
-    state = state if state is not None else load_state()
-    sub = state.get("subdomain") or ""
+def web_url(state: dict[str, Any]) -> str:
+    sub = state.get("subdomain", "")
     eu = ".eu" if state.get("region") == "eu" else ""
     return f"https://{sub}{eu}.pagerduty.com" if sub else f"https://app{eu}.pagerduty.com"
 
@@ -112,63 +164,66 @@ class Client:
     def __exit__(self, *_: Any) -> None:
         self._http.close()
 
-    def get(self, path: str, area: str = "", **params: Any) -> dict[str, Any]:
-        for attempt in range(2):
-            try:
-                response = self._http.get(path, params=params)
-            except httpx.HTTPError as exc:
-                raise PagerDutyError(f"Could not reach PagerDuty: {exc}") from None
-            if response.status_code == 429 and attempt == 0:
-                time.sleep(2)
-                continue
-            break
-        if response.status_code < 400:
-            return response.json() if response.content else {}
-        raise PagerDutyError(_explain(response, area))
+    def _send(self, path: str, params: dict[str, Any]) -> httpx.Response:
+        try:
+            return self._http.get(path, params=params)
+        except httpx.HTTPError as exc:
+            raise PagerDutyError(f"Could not reach PagerDuty: {exc}") from None
 
-    def pages(self, path: str, key: str, area: str, limit: int, **params: Any) -> list[dict]:
+    def get(self, path: str, area: str = "", **params: Any) -> dict[str, Any]:
+        response = self._send(path, params)
+        if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+            time.sleep(RATE_LIMIT_WAIT_SECONDS)
+            response = self._send(path, params)
+
+        if response.status_code >= httpx.codes.BAD_REQUEST:
+            raise PagerDutyError(_explain(response, area))
+        return response.json() if response.content else {}
+
+    def pages(self, path: str, key: str, area: str, limit: int, **params: Any) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
-        offset = 0
         while len(out) < limit:
-            data = self.get(path, area, limit=min(100, limit - len(out)), offset=offset, **params)
-            rows = data.get(key) or []
+            data = self.get(path, area, limit=min(PAGE_SIZE, limit - len(out)), offset=len(out), **params)
+            rows = _field(data, key)
             out += rows
-            if not data.get("more") or not rows:
+            if not _field(data, "more") or not rows:
                 break
-            offset += len(rows)
         return out
 
 
 def _explain(response: httpx.Response, area: str) -> str:
+    code = response.status_code
+    if code in STATUS_MESSAGES:
+        return STATUS_MESSAGES[code]
+
+    if code == httpx.codes.FORBIDDEN:
+        what = f" ({area})" if area else ""
+        return f"PagerDuty refused this request{what}: your user cannot read it."
+
+    return f"PagerDuty returned {code}: {_error_detail(response)}"
+
+
+def _error_detail(response: httpx.Response) -> str:
     try:
         error = response.json().get("error") or {}
     except ValueError:
-        error = {}
+        return response.text[:ERROR_BODY_CHARS]
+
     detail = "; ".join([str(error.get("message") or ""), *map(str, error.get("errors") or [])])
-    if response.status_code == 401:
-        return "PagerDuty rejected the API key (wrong key, or a key for the other region)."
-    if response.status_code == 403:
-        what = f" ({area})" if area else ""
-        return f"PagerDuty refused this request{what}: your user cannot read it."
-    if response.status_code == 404:
-        return "PagerDuty has no such incident or object."
-    if response.status_code == 429:
-        return "PagerDuty rate limit reached. Try again in a minute."
-    return f"PagerDuty returned {response.status_code}: {detail.strip('; ') or response.text[:200]}"
+    return detail.strip("; ") or response.text[:ERROR_BODY_CHARS]
 
 
 def client() -> Client:
     state = load_state()
     key = _key()
-    if not state.get("region") or key is None:
+    if "region" not in state or key is None:
         raise PagerDutyError("PagerDuty is not connected. Connect it in Settings > Integrations.")
     return Client(state["region"], key)
 
 
 def _probe(pd: Client, area: str) -> bool:
-    path = {"incidents": "/incidents", "services": "/services", "oncall": "/oncalls"}[area]
     try:
-        pd.get(path, area, limit=1)
+        pd.get(PROBE_PATHS[area], area, limit=1)
     except PagerDutyError:
         return False
     return True
@@ -178,9 +233,10 @@ def check(region: str, api_key: str) -> tuple[dict[str, Any], dict[str, bool]]:
     api_key = api_key.strip()
     if not api_key:
         raise PagerDutyError("Paste your API user token.")
+
     with Client(region, api_key) as pd:
         try:
-            me = pd.get("/users/me").get("user") or {}
+            me = _field(pd.get("/users/me"), "user")
         except PagerDutyError as exc:
             raise PagerDutyError(f"{exc} Use a User API token from My Profile > User Settings.") from None
         with ThreadPoolExecutor(max_workers=len(AREAS)) as pool:
@@ -190,21 +246,22 @@ def check(region: str, api_key: str) -> tuple[dict[str, Any], dict[str, bool]]:
 
 def connect(account: str, api_key: str) -> dict[str, Any]:
     sub, region = account_of(account)
+    api_key = api_key.strip()
     me, found = check(region, api_key)
-    credentials.put(CREDENTIAL_KEY, {"api_key": api_key.strip()})
-    html = str(me.get("html_url") or "")
-    if not sub and ".pagerduty.com" in html:
-        sub = urlsplit(html).hostname.split(".")[0]  # type: ignore[union-attr]
+    credentials.put(CREDENTIAL_KEY, {"api_key": api_key})
+    if not sub:
+        sub = account_of(_field(me, "html_url"))[0]
+
     state = load_state()
     state.update(
         {
             "region": region,
             "subdomain": sub,
-            "user": me.get("name") or me.get("email") or "",
+            "user": _field(me, "name"),
             "email": me.get("email") or "",
-            "keyLast4": api_key.strip()[-4:],
+            "keyLast4": api_key[-4:],
             "permissions": found,
-            "checkedAt": int(time.time() * 1000),
+            "checkedAt": _now_ms(),
             "error": None,
         }
     )
@@ -216,14 +273,15 @@ def connect(account: str, api_key: str) -> dict[str, Any]:
 def retest() -> dict[str, Any]:
     state = load_state()
     key = _key()
-    if not state.get("region") or key is None:
-        raise PagerDutyError("PagerDuty is not connected.")
+    if "region" not in state or key is None:
+        raise PagerDutyError("PagerDuty is not connected. Connect it in Settings > Integrations.")
+
     try:
         _, state["permissions"] = check(state["region"], key)
         state["error"] = None
     except PagerDutyError as exc:
         state["error"] = str(exc)
-    state["checkedAt"] = int(time.time() * 1000)
+    state["checkedAt"] = _now_ms()
     _save_state(state)
     _forget_caches()
     return status()
@@ -232,7 +290,7 @@ def retest() -> dict[str, Any]:
 def disconnect() -> dict[str, Any]:
     credentials.delete(CREDENTIAL_KEY)
     state = load_state()
-    _save_state({"subdomain": state.get("subdomain")})
+    _save_state({"subdomain": state["subdomain"]} if "subdomain" in state else {})
     _forget_caches()
     return status()
 
@@ -246,17 +304,16 @@ def _forget_caches() -> None:
 def status() -> dict[str, Any]:
     state = load_state()
     on = connected()
+    private = ("user", "email", "keyLast4", "checkedAt", "error")
+    details = {key: _stored(state, key) for key in private} if on else dict.fromkeys(private)
+
     return {
         "connected": on,
-        "region": state.get("region") or "us",
-        "subdomain": state.get("subdomain") or "",
+        "region": state.get("region", DEFAULT_REGION),
+        "subdomain": state.get("subdomain", ""),
         "webUrl": web_url(state),
-        "user": state.get("user") if on else None,
-        "email": state.get("email") if on else None,
-        "keyLast4": state.get("keyLast4") if on else None,
-        "permissions": permissions() if on else {a: False for a in AREAS},
-        "checkedAt": state.get("checkedAt") if on else None,
-        "error": state.get("error") if on else None,
+        **details,
+        "permissions": permissions() if on else dict.fromkeys(AREAS, False),
     }
 
 
@@ -264,28 +321,25 @@ def services(refresh: bool = False) -> list[dict[str, Any]]:
     global _services_cache
     if _services_cache and not refresh and time.time() - _services_cache[0] < SERVICES_TTL_SECONDS:
         return _services_cache[1]
+
     with client() as pd:
-        rows = pd.pages("/services", "services", "services", 2000)
+        rows = pd.pages("/services", "services", "services", SERVICES_LIMIT)
     out = [
         {
-            "id": s.get("id"),
+            "id": _field(s, "id"),
             "name": s.get("name") or s.get("summary") or "",
-            "description": str(s.get("description") or "")[:200],
+            "description": str(s.get("description") or "")[:DESCRIPTION_CHARS],
             "status": s.get("status") or "",
             "policy": (s.get("escalation_policy") or {}).get("id") or "",
             "url": s.get("html_url") or "",
         }
         for s in rows
-        if s.get("id")
     ]
     out.sort(key=lambda s: s["name"].lower())
     _services_cache = (time.time(), out)
     return out
 
 
-# Services are shared, so incidents are tied to instances by what their alert names:
-# OV monitoring sends details.website (or details.database for database alerts), and
-# Datadog names the host, a tag such as dbinstanceidentifier:<name>, or [Instance].
 _HOST = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+\b")
 _TAG = re.compile(r"\[([a-z0-9][a-z0-9 _-]*)\]")
 _PAIR = re.compile(r"\b[a-z_]+:([a-z0-9][a-z0-9_-]*)")
@@ -293,51 +347,56 @@ WEBSITE_KEYS = ("website", "host", "hostname", "url", "client_url")
 EMPTY = {"", "none", "null", "n/a", "na", "-", "unknown"}
 
 
-def main_alias(alias: str) -> str:
+def _instance_of(alias: str) -> dict[str, Any]:
     found = find_instance(alias)
     if found is None:
-        return alias
-    same = [i for i in instances() if i["host"] == found["host"]]
-    same.sort(key=lambda i: bool(i["tenant"]))
-    return same[0]["alias"] if same else alias
+        raise PagerDutyError(f"No signed-in instance matches {alias}.")
+    return found
+
+
+def main_alias(alias: str) -> str:
+    found = _instance_of(alias)
+    same_host = [i for i in instances() if i["host"] == found["host"]]
+    return min(same_host, key=lambda i: bool(i["tenant"]))["alias"]
 
 
 def _channel(row: dict[str, Any]) -> dict[str, Any]:
     return (row.get("first_trigger_log_entry") or {}).get("channel") or {}
 
 
-def websites_of(row: dict[str, Any]) -> list[str]:
+def _details(row: dict[str, Any]) -> dict[str, Any]:
     details = _channel(row).get("details")
-    found: list[str] = []
-    if isinstance(details, dict):
-        for key in WEBSITE_KEYS:
-            value = str(details.get(key) or "").strip().lower()
-            if value not in EMPTY:
-                found.append(urlsplit(value if "://" in value else f"//{value}").hostname or value)
-    return [w for w in dict.fromkeys(found) if w and w not in EMPTY]
+    return details if isinstance(details, dict) else {}
+
+
+def _hostname(value: str) -> str:
+    return urlsplit(value if "://" in value else f"//{value}").hostname or value
+
+
+def websites_of(row: dict[str, Any]) -> list[str]:
+    details = _details(row)
+    values = [str(details.get(key) or "").strip().lower() for key in WEBSITE_KEYS]
+    hosts = [_hostname(v) for v in values if v not in EMPTY]
+    return [h for h in dict.fromkeys(hosts) if h not in EMPTY]
 
 
 def database_of(row: dict[str, Any]) -> str:
-    details = _channel(row).get("details")
-    value = str(details.get("database") or "").strip().lower() if isinstance(details, dict) else ""
+    value = str(_details(row).get("database") or "").strip().lower()
     return "" if value in EMPTY else value
 
 
-# Website alerts name both the website and its database; remember the pairs so a later
-# database-only alert can be tied to every instance on that database.
 def learn_databases(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
     state = load_state()
-    known: dict[str, list[str]] = {k: list(v) for k, v in (state.get("databases") or {}).items()}
-    changed = False
-    for r in rows:
-        if r["database"]:
-            for site in r["websites"]:
-                if r["database"] not in known.setdefault(site, []):
-                    known[site].append(r["database"])
-                    changed = True
-    if changed:
-        state["databases"] = known
-        _save_state(state)
+    known: dict[str, list[str]] = {k: list(v) for k, v in state.get("databases", {}).items()}
+    pairs = [(site, r["database"]) for r in rows if r["database"] for site in r["websites"]]
+    new = [(site, db) for site, db in dict.fromkeys(pairs) if db not in known.get(site, [])]
+    if not new:
+        return known
+
+    for site, db in new:
+        known.setdefault(site, []).append(db)
+    state["databases"] = known
+    _save_state(state)
     return known
 
 
@@ -348,60 +407,57 @@ def _text_of(row: dict[str, Any]) -> str:
 
 
 def _datadog_hosts(alias: str) -> list[tuple[str, bool]]:
-    from . import datadog
+    scope = datadog.filter_for(alias)
+    grouped = datadog.hosts_in(scope)
+    if grouped is not None:
+        return [(host.lower(), False) for host in grouped]
 
-    try:
-        scope = datadog.filter_for(alias)
-    except Exception:
-        return []
-    out = []
-    for tag in scope.split():
-        name, _, value = tag.partition(":")
-        if name == "host" and value:
-            out.append((value.lower().rstrip("*"), value.endswith("*")))
-    return out
+    tags = [tag.partition(":") for tag in scope.split()]
+    return [(value.lower().rstrip("*"), value.endswith("*")) for name, _, value in tags if name == "host" and value]
 
 
-def belongs_to(incident: dict[str, Any], host: str, alias: str = "", databases: list[str] | None = None) -> bool:
+def _named_by_datadog(hosts: set[str], alias: str) -> bool:
+    return any(h == value or (prefix and h.startswith(value)) for value, prefix in _datadog_hosts(alias) for h in hosts)
+
+
+def _named_in_text(text: str, host: str, label: str, alias: str) -> bool:
+    hosts = set(_HOST.findall(text))
+    if host in hosts or _named_by_datadog(hosts, alias):
+        return True
+    return any(tag.strip() == label for tag in _TAG.findall(text)) or label in _PAIR.findall(text)
+
+
+def belongs_to(incident: dict[str, Any], host: str, alias: str, databases: list[str]) -> bool:
     host = host.split(":")[0].lower()
     label = host.split(".")[0]
-    if host in incident["websites"]:
-        return True
     if incident["websites"]:
-        return False
+        return host in incident["websites"]
     if incident["database"]:
-        return incident["database"] in {label, *(databases or [])}
-    text = incident["text"]
-    hosts = set(_HOST.findall(text))
-    if host in hosts:
-        return True
-    for value, prefix in _datadog_hosts(alias) if alias else []:
-        if any(h == value or (prefix and h.startswith(value)) for h in hosts):
-            return True
-    if any(tag.strip() == label for tag in _TAG.findall(text)):
-        return True
-    return label in _PAIR.findall(text)
+        return incident["database"] in {label, *databases}
+    return _named_in_text(incident["text"], host, label, alias)
 
 
 def iso_utc(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def short_time(value: str | None) -> str:
-    return str(value or "")[:16].replace("T", " ")
+def short_time(value: str) -> str:
+    return value[:16].replace("T", " ")
 
 
 def _incident(row: dict[str, Any]) -> dict[str, Any]:
     assignees = [a.get("assignee", {}).get("summary") for a in row.get("assignments") or []]
+    service = row.get("service") or {}
+
     return {
-        "id": row.get("id") or "",
+        "id": _field(row, "id"),
         "number": row.get("incident_number"),
-        "title": str(row.get("title") or row.get("summary") or "").strip()[:300],
+        "title": str(row.get("title") or row.get("summary") or "").strip()[:DETAIL_CHARS],
         "status": row.get("status") or "",
         "urgency": row.get("urgency") or "",
         "priority": (row.get("priority") or {}).get("summary") or "",
-        "service": (row.get("service") or {}).get("summary") or "",
-        "serviceId": (row.get("service") or {}).get("id") or "",
+        "service": service.get("summary") or "",
+        "serviceId": service.get("id") or "",
         "policy": (row.get("escalation_policy") or {}).get("id") or "",
         "created": row.get("created_at") or "",
         "changed": row.get("last_status_change_at") or "",
@@ -421,7 +477,7 @@ def incidents(
     start: int,
     end: int,
     statuses: list[str] | None = None,
-    limit: int = 1000,
+    limit: int = INCIDENTS_LIMIT,
 ) -> list[dict[str, Any]]:
     params: dict[str, Any] = {
         "since": iso_utc(start),
@@ -432,48 +488,61 @@ def incidents(
     }
     if statuses:
         params["statuses[]"] = statuses
+
     with client() as pd:
         rows = [_incident(r) for r in pd.pages("/incidents", "incidents", "incidents", limit, **params)]
     learn_databases(rows)
     return rows
 
 
+def _host_key(host: str) -> str:
+    return host.split(":")[0].lower()
+
+
 def for_instance(rows: list[dict[str, Any]], alias: str) -> list[dict[str, Any]]:
-    found = find_instance(alias)
-    if found is None:
-        return []
+    found = _instance_of(alias)
     main = main_alias(found["alias"])
-    databases = (load_state().get("databases") or {}).get(found["host"].split(":")[0].lower())
+    databases = load_state().get("databases", {}).get(_host_key(found["host"]), [])
     return [r for r in rows if belongs_to(r, found["host"], main, databases)]
 
 
-# Which signed-in instances (and other websites) recent incidents point at.
 def website_map(days: int = 7) -> dict[str, Any]:
-    end = int(time.time() * 1000)
-    rows = incidents(end - days * 86_400_000, end)
-    hosts: dict[str, dict[str, Any]] = {}
-    signed = {}
+    end = _now_ms()
+    rows = incidents(end - days * DAY_MS, end)
+    known = load_state().get("databases", {})
+    signed: dict[str, str] = {}
     for inst in instances():
         signed.setdefault(inst["host"], main_alias(inst["alias"]))
+
+    hosts: dict[str, dict[str, Any]] = {}
     matched_ids: set[str] = set()
-    known = load_state().get("databases") or {}
     for host, alias in signed.items():
-        mine = [r for r in rows if belongs_to(r, host, alias, known.get(host))]
+        mine = [r for r in rows if belongs_to(r, host, alias, known.get(host, []))]
         if mine:
             matched_ids.update(r["id"] for r in mine)
             hosts[host] = _summary(host, alias, mine)
+
+    site_of_db = {db: site for site, dbs in known.items() for db in dbs if len(dbs) == 1}
     for r in rows:
-        if r["id"] in matched_ids:
-            continue
-        site_of_db = {d: s for s, dbs in known.items() for d in dbs if len(dbs) == 1}
-        fallback = site_of_db.get(r["database"]) or (f"database {r['database']}" if r["database"] else "other")
-        names = r["websites"] or [fallback]
-        for site in names:
-            entry = hosts.setdefault(site, _summary(site, None, []))
-            entry["count"] += 1
-            entry["open"] += r["status"] != "resolved"
+        if r["id"] not in matched_ids:
+            _count_unmatched(hosts, r, site_of_db)
+
     ordered = sorted(hosts.values(), key=lambda h: (h["alias"] is None, -h["open"], -h["count"]))
     return {"days": days, "total": len(rows), "matched": len(matched_ids), "websites": ordered}
+
+
+def _unmatched_label(incident: dict[str, Any], site_of_db: dict[str, str]) -> str:
+    database = incident["database"]
+    if not database:
+        return "other"
+    return site_of_db.get(database, f"database {database}")
+
+
+def _count_unmatched(hosts: dict[str, dict[str, Any]], incident: dict[str, Any], site_of_db: dict[str, str]) -> None:
+    for site in incident["websites"] or [_unmatched_label(incident, site_of_db)]:
+        entry = hosts.setdefault(site, _summary(site, None, []))
+        entry["count"] += 1
+        entry["open"] += incident["status"] != "resolved"
 
 
 def _summary(host: str, alias: str | None, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -487,72 +556,65 @@ def _summary(host: str, alias: str | None, rows: list[dict[str, Any]]) -> dict[s
 
 def _incident_ref(value: str) -> str:
     text = value.strip()
-    match = re.search(r"/incidents/([A-Za-z0-9]+)", text)
-    return match.group(1) if match else text.lstrip("#")
+    link = re.search(r"/incidents/([A-Za-z0-9]+)", text)
+    return link.group(1) if link else text.lstrip("#")
+
+
+def _timeline_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "time": entry.get("created_at") or "",
+        "type": str(entry.get("type") or "").replace("_log_entry", ""),
+        "summary": str(entry.get("summary") or "")[:DETAIL_CHARS],
+        "by": (entry.get("agent") or {}).get("summary") or "",
+    }
+
+
+def _alert_entry(alert: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "time": alert.get("created_at") or "",
+        "status": alert.get("status") or "",
+        "summary": str(alert.get("summary") or "")[:DETAIL_CHARS],
+        "details": _alert_details(alert),
+    }
+
+
+def _note_entry(note: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "time": note.get("created_at") or "",
+        "by": (note.get("user") or {}).get("summary") or "",
+        "text": str(note.get("content") or "")[:TEXT_CHARS],
+    }
 
 
 def incident_detail(ref: str) -> dict[str, Any]:
     ident = _incident_ref(ref)
     if not ident:
         raise PagerDutyError("Give an incident number, id or link.")
+
     with client() as pd:
-        incident = _incident(pd.get(f"/incidents/{ident}", "incidents").get("incident") or {})
-        key = incident["id"] or ident
+        incident = _incident(_field(pd.get(f"/incidents/{ident}", "incidents"), "incident"))
+        base = f"/incidents/{incident['id']}"
+        sections = [
+            (f"{base}/log_entries", "log_entries", {"limit": LOG_ENTRIES_LIMIT}),
+            (f"{base}/alerts", "alerts", {"limit": ALERTS_LIMIT}),
+            (f"{base}/notes", "notes", {}),
+        ]
+        with ThreadPoolExecutor(max_workers=len(sections)) as pool:
+            parts = {key: pool.submit(pd.get, path, "incidents", **params) for path, key, params in sections}
+            found = {key: _field(part.result(), key) for key, part in parts.items()}
 
-        def logs() -> list[dict[str, Any]]:
-            data = pd.get(f"/incidents/{key}/log_entries", "incidents", limit=100)
-            return data.get("log_entries") or []
-
-        def alerts() -> list[dict[str, Any]]:
-            return pd.get(f"/incidents/{key}/alerts", "incidents", limit=25).get("alerts") or []
-
-        def notes() -> list[dict[str, Any]]:
-            return pd.get(f"/incidents/{key}/notes", "incidents").get("notes") or []
-
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            parts = [pool.submit(f) for f in (logs, alerts, notes)]
-            timeline, raw_alerts, raw_notes = (_safe(p) for p in parts)
-    incident["timeline"] = [
-        {
-            "time": e.get("created_at") or "",
-            "type": str(e.get("type") or "").replace("_log_entry", ""),
-            "summary": str(e.get("summary") or "")[:300],
-            "by": (e.get("agent") or {}).get("summary") or "",
-        }
-        for e in reversed(timeline)
-    ]
-    incident["alerts"] = [
-        {
-            "time": a.get("created_at") or "",
-            "status": a.get("status") or "",
-            "summary": str(a.get("summary") or "")[:300],
-            "details": _details(a),
-        }
-        for a in raw_alerts
-    ]
-    incident["notes"] = [
-        {
-            "time": n.get("created_at") or "",
-            "by": (n.get("user") or {}).get("summary") or "",
-            "text": str(n.get("content") or "")[:TEXT_CHARS],
-        }
-        for n in raw_notes
-    ]
+    incident["timeline"] = [_timeline_entry(e) for e in reversed(found["log_entries"])]
+    incident["alerts"] = [_alert_entry(a) for a in found["alerts"]]
+    incident["notes"] = [_note_entry(n) for n in found["notes"]]
     return incident
 
 
-def _safe(future: Any) -> list[dict[str, Any]]:
-    try:
-        return future.result()
-    except PagerDutyError:
-        return []
-
-
-def _details(alert: dict[str, Any]) -> str:
+def _alert_details(alert: dict[str, Any]) -> str:
     body = alert.get("body") or {}
     details = body.get("details") if isinstance(body, dict) else None
     if details is None:
         return ""
+
     text = details if isinstance(details, str) else json.dumps(details, indent=1)
     return text[:TEXT_CHARS]
 
@@ -561,11 +623,12 @@ def oncall(policy_ids: list[str], at: int | None = None) -> list[dict[str, Any]]
     params: dict[str, Any] = {"earliest": "true"}
     if policy_ids:
         params["escalation_policy_ids[]"] = sorted(set(policy_ids))
-    if at:
+    if at is not None:
         params["since"] = iso_utc(at)
-        params["until"] = iso_utc(at + 60_000)
+        params["until"] = iso_utc(at + ONCALL_WINDOW_MS)
+
     with client() as pd:
-        rows = pd.pages("/oncalls", "oncalls", "oncall", 200, **params)
+        rows = pd.pages("/oncalls", "oncalls", "oncall", ONCALLS_LIMIT, **params)
     out = [
         {
             "user": (r.get("user") or {}).get("summary") or "",
@@ -579,40 +642,51 @@ def oncall(policy_ids: list[str], at: int | None = None) -> list[dict[str, Any]]
     return sorted(out, key=lambda r: (r["policy"], r["level"], r["user"]))
 
 
+def _add_incidents(report: dict[str, Any], alias: str, start: int, end: int) -> None:
+    open_since = end - OPEN_LOOKBACK_DAYS * DAY_MS
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            opened = pool.submit(incidents, open_since, end, OPEN_STATUSES)
+            window = pool.submit(incidents, start, end)
+            report["open"] = [public(r) for r in for_instance(opened.result(), alias)]
+            report["incidents"] = [public(r) for r in for_instance(window.result(), alias)]
+    except PagerDutyError as exc:
+        report["errors"]["incidents"] = str(exc)
+
+
+def _add_oncall(report: dict[str, Any]) -> None:
+    policies = [r["policy"] for r in report.get("open", []) + report.get("incidents", [])]
+    if not policies:
+        return
+
+    try:
+        report["oncall"] = [o for o in oncall(policies) if o["level"] == 1]
+    except PagerDutyError as exc:
+        report["errors"]["oncall"] = str(exc)
+
+
 def health(alias: str, start: int, end: int, key: str) -> dict[str, Any] | None:
     if not connected():
         return None
+
     cache_key = (alias, key)
     cached = _health_cache.get(cache_key)
     if cached and time.time() - cached[0] < HEALTH_TTL_SECONDS:
         return cached[1]
-    report: dict[str, Any] = {"webUrl": web_url(), "errors": {}}
+
+    report: dict[str, Any] = {"webUrl": web_url(load_state()), "errors": {}}
     allowed = permissions()
     if allowed["incidents"]:
-        try:
-            open_since = end - OPEN_LOOKBACK_DAYS * 86_400_000
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                opened = pool.submit(incidents, open_since, end, ["triggered", "acknowledged"])
-                window = pool.submit(incidents, start, end)
-                report["open"] = [public(r) for r in for_instance(opened.result(), alias)]
-                report["incidents"] = [public(r) for r in for_instance(window.result(), alias)]
-        except PagerDutyError as exc:
-            report["errors"]["incidents"] = str(exc)
-    policies = [r["policy"] for r in report.get("open", []) + report.get("incidents", [])]
-    if allowed["oncall"] and policies:
-        try:
-            report["oncall"] = [o for o in oncall(policies) if o["level"] == 1]
-        except PagerDutyError as exc:
-            report["errors"]["oncall"] = str(exc)
+        _add_incidents(report, alias, start, end)
+    if allowed["oncall"]:
+        _add_oncall(report)
+
     _health_cache[cache_key] = (time.time(), report)
     return report
 
 
-def resolve_host(instance: str | None, fallback: str) -> str:
-    target = (instance or fallback or "").strip()
+def resolve_host(instance: str | None, current: str) -> str:
+    target = (instance or current).strip()
     if not target:
         return ""
-    found = find_instance(target)
-    if found is None:
-        raise PagerDutyError(f"No signed-in instance matches {target}.")
-    return found["alias"]
+    return _instance_of(target)["alias"]

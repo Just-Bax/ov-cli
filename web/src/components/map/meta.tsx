@@ -44,7 +44,6 @@ export const TYPES: Record<
   },
 }
 
-// Admin edit forms; keep in sync with FORMS in src/ov/agent/graph.py.
 export const FORMS: Record<GraphNodeType, string> = {
   trackor_type: '/admin/trackortypes/Form.do?id=',
   field: '/admin/configfields/Form.do?id=',
@@ -101,6 +100,7 @@ export function index(graph: InstanceGraph): Index {
     if (list) list.push(link)
     else links.set(from, [link])
   }
+
   for (const e of graph.edges) {
     const source = byId.get(e.source)
     const target = byId.get(e.target)
@@ -108,6 +108,7 @@ export function index(graph: InstanceGraph): Index {
     add(source.id, { other: target, kind: e.kind, out: true, code: Boolean(e.code) })
     add(target.id, { other: source, kind: e.kind, out: false, code: Boolean(e.code) })
   }
+
   return { byId, links }
 }
 
@@ -118,6 +119,7 @@ export function degree(idx: Index, id: string): number {
 export function TypeDot({ type }: { type: GraphNodeType }) {
   const meta = TYPES[type]
   const Icon = meta.icon
+
   return (
     <span
       className="flex size-6 shrink-0 items-center justify-center rounded-full"

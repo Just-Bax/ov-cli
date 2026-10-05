@@ -21,16 +21,11 @@ NO_WIDGET_PRIV = (
 )
 
 
-# The token dies with the web session, so nothing longer-lived than the login reaches disk.
 def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
     if session.tenant_id:
         switch_tenant(http, session.tenant_id)
 
-    csrf = _csrf_token(http)
-    headers = dict(AJAX_HEADERS)
-    headers[csrf["headerName"]] = csrf["token"]
-
-    response = http.post(MINT_PATH, headers=headers)
+    response = http.post(MINT_PATH, headers=_csrf_headers(http))
     _guard(response)
     if response.status_code == 403:
         raise Forbidden(NO_WIDGET_PRIV)
@@ -39,10 +34,10 @@ def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
 
     payload = _json(response, MINT_PATH)
     token = payload.get("bearerToken")
-    if not token:
-        raise SessionExpired("token endpoint returned no bearerToken")
+    expires_text = payload.get("expirationTime")
+    if not token or not expires_text:
+        raise SessionExpired("token endpoint returned no bearerToken or expirationTime")
 
-    expires_text = payload.get("expirationTime") or ""
     session.bearer_token = token
     session.expires_text = expires_text
     session.expires_at = expiry_to_epoch(expires_text)
@@ -50,13 +45,8 @@ def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
     return session
 
 
-# Re-run before every mint: a wrong-tenant token looks valid but returns another tenant's data.
 def switch_tenant(http: httpx.Client, tenant_id: str) -> None:
-    csrf = _csrf_token(http)
-    headers = dict(AJAX_HEADERS)
-    headers[csrf["headerName"]] = csrf["token"]
-
-    response = http.post(SWITCH_PATH, params={"pid": tenant_id}, headers=headers)
+    response = http.post(SWITCH_PATH, params={"pid": tenant_id}, headers=_csrf_headers(http))
     _guard(response)
     if response.status_code == 403:
         raise Forbidden(f"Not allowed into tenant {tenant_id}. It needs a user with your email address.")
@@ -72,7 +62,7 @@ def list_tenants(http: httpx.Client) -> dict[str, str]:
     return parse_program_menu(response.text)
 
 
-def _csrf_token(http: httpx.Client) -> dict[str, str]:
+def _csrf_headers(http: httpx.Client) -> dict[str, str]:
     response = http.get(CSRF_PATH, headers=AJAX_HEADERS)
     _guard(response)
     if response.status_code >= 400:
@@ -83,10 +73,9 @@ def _csrf_token(http: httpx.Client) -> dict[str, str]:
     token = payload.get("token")
     if not header or not token:
         raise SessionExpired("CSRF endpoint returned no token")
-    return {"headerName": header, "token": token}
+    return {**AJAX_HEADERS, header: token}
 
 
-# An expired web session redirects to the login page instead of answering 401.
 def _guard(response: httpx.Response) -> None:
     if LOGIN_PATH.lower() in str(response.url).lower():
         raise SessionExpired("redirected to the login page")
@@ -102,7 +91,6 @@ def _json(response: httpx.Response, path: str) -> dict[str, Any]:
     return payload
 
 
-# Not Cookies.get(): it raises CookieConflict when a redirect chain set a name under two domains.
 def _cookies_of(http: httpx.Client, previous: dict[str, str]) -> dict[str, str]:
     current = dict(previous)
     for cookie in http.cookies.jar:

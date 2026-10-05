@@ -25,6 +25,7 @@ import { go, href, type Route } from '@/lib/route'
 import { useSettings } from '@/lib/settings'
 
 const RECENT_LIMIT = 40
+const RUNS_POLL_MS = 3000
 
 export function StatusIcon({
   status,
@@ -43,12 +44,14 @@ export function StatusIcon({
     return <NoSymbolIcon className={cn('text-faint size-3.5', className)} />
   if (detailed && status === 'error')
     return <ExclamationCircleIcon className={cn('text-danger size-3.5', className)} />
+
   const dot: Record<string, string> = {
     waiting: 'bg-warn',
     error: 'bg-danger',
     cancelled: 'bg-line-strong',
     done: 'bg-ok',
   }
+
   return <span className={cn('block size-1.5 rounded-full', dot[status], className)} />
 }
 
@@ -57,6 +60,7 @@ function dayLabel(ts: number): string {
   const today = new Date().setHours(0, 0, 0, 0)
   if (day === today) return 'Today'
   if (day === today - 86_400_000) return 'Yesterday'
+
   const sameYear = new Date(ts).getFullYear() === new Date().getFullYear()
   return new Date(ts).toLocaleDateString(undefined, {
     month: 'short',
@@ -73,6 +77,7 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
       : dayLabel(r.createdAt)
     groups.set(label, [...(groups.get(label) ?? []), r])
   }
+
   const active = groups.get('In progress')
   groups.delete('In progress')
   return active ? [['In progress', active], ...groups] : [...groups]
@@ -86,11 +91,13 @@ function useRuns(): [RunSummary[] | undefined, () => void] {
       .then(setRuns)
       .catch(() => undefined)
   }, [])
+
   useEffect(() => {
     load()
-    const timer = setInterval(load, 3000)
+    const timer = setInterval(load, RUNS_POLL_MS)
     return () => clearInterval(timer)
   }, [load])
+
   return [runs, load]
 }
 
@@ -101,20 +108,23 @@ const NOTICE: Partial<Record<RunStatus, string>> = {
   waiting: 'Run needs you',
 }
 
-// Only while the tab is in the background; in front, the sidebar already shows it.
 function useRunNotifications(runs: RunSummary[] | undefined, enabled: boolean) {
   const previous = useRef(new Map<string, RunStatus>())
+
   useEffect(() => {
     if (!runs) return
+
     const before = previous.current
     previous.current = new Map(runs.map((r) => [r.id, r.status]))
+    const tabInBackground = document.visibilityState === 'hidden'
     const allowed =
       enabled &&
       before.size > 0 &&
-      document.visibilityState === 'hidden' &&
+      tabInBackground &&
       'Notification' in window &&
       Notification.permission === 'granted'
     if (!allowed) return
+
     for (const run of runs) {
       const was = before.get(run.id)
       const title = NOTICE[run.status]
@@ -130,6 +140,7 @@ function useRunNotifications(runs: RunSummary[] | undefined, enabled: boolean) {
 
 function Avatar({ user }: { user?: string }) {
   const [broken, setBroken] = useState(false)
+
   if (!user || broken)
     return (
       <span className="bg-brand-soft text-brand-strong flex size-8 items-center justify-center rounded-full text-[13px] font-semibold">
@@ -164,6 +175,7 @@ function RunItem({
       tone: 'danger',
     })
     if (!ok) return
+
     await api.deleteRun(run.id)
     onChanged()
     if (active) go({ page: 'home' })
@@ -212,7 +224,6 @@ export function isSidebarCollapsed(): boolean {
   return localStorage.getItem(COLLAPSED_KEY) === '1'
 }
 
-// The label of an icon-only control, shown beside it on hover.
 function RailTip({ label }: { label: string }) {
   return (
     <span className="bg-fg pointer-events-none absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2 rounded-full px-3 py-1 text-[12px] font-medium whitespace-nowrap text-white opacity-0 shadow-[0_4px_14px_rgba(38,50,56,0.18)] transition-opacity group-hover/rail:opacity-100">
@@ -263,9 +274,10 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const [runs, reload] = useRuns()
   useRunNotifications(runs, useSettings().settings.notify)
   const [showAll, setShowAll] = useState(false)
+  const [collapsed, setCollapsed] = useState(isSidebarCollapsed)
+
   const shown = showAll ? (runs ?? []) : (runs ?? []).slice(0, RECENT_LIMIT)
   const onSettings = route.page === 'settings'
-  const [collapsed, setCollapsed] = useState(isSidebarCollapsed)
   const toggle = () =>
     setCollapsed((c) => {
       localStorage.setItem(COLLAPSED_KEY, c ? '0' : '1')

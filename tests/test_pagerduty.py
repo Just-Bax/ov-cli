@@ -13,6 +13,7 @@ from ov.agent.tools import TOOLS_BY_NAME, tool_specs
 
 KEY = "u+abcdefghijklmn1234"
 HOST = "acme.onevizion.test"
+AREAS_BY_PATH = {"/incidents": "incidents", "/services": "services", "/oncalls": "oncall"}
 
 
 def incident(number: int, status: str, title: str, details: dict | str | None, policy: str = "PPOL1") -> dict[str, Any]:
@@ -33,15 +34,10 @@ def incident(number: int, status: str, title: str, details: dict | str | None, p
 
 
 INCIDENTS = [
-    # OV monitoring website alert: website and database together.
     incident(7, "triggered", "Unhealthy Hosts", {"website": HOST, "database": "acmedb"}),
-    # Database alert for the same database: no website.
     incident(6, "resolved", "High CPU", {"website": "none", "database": "acmedb"}),
-    # Datadog alert naming the host in its title.
     incident(5, "acknowledged", f"[Synthetics] Latency for {HOST}", {"body": "slow"}, "PPOL2"),
-    # Another customer.
     incident(4, "resolved", "Unhealthy Hosts", {"website": "globex.onevizion.test"}),
-    # A Datadog alert with a tag naming the instance's first label.
     incident(3, "resolved", "[AWS] RDS CPU high on dbinstanceidentifier:acme", "x"),
 ]
 
@@ -53,67 +49,78 @@ class FakePagerDuty:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        path = request.url.path
         if request.headers.get("Authorization") != f"Token token={KEY}":
             return httpx.Response(401, json={"error": {"message": "Unauthorized"}})
-        path = request.url.path
-        area = {"/incidents": "incidents", "/services": "services", "/oncalls": "oncall"}.get(path)
-        if area in self.denied:
+        if AREAS_BY_PATH.get(path) in self.denied:
             return httpx.Response(403, json={"error": {"message": "Forbidden"}})
+
         params = request.url.params
-        if path == "/users/me":
-            user = {"name": "Bax", "html_url": "https://onevizion.pagerduty.com/users/P1"}
-            return httpx.Response(200, json={"user": user})
-        if path == "/services":
-            return httpx.Response(200, json={"services": [], "more": False})
-        if path == "/incidents":
-            if params.get("limit") != "1":
-                assert params.get_list("include[]") == ["first_trigger_log_entries"]
-            statuses = params.get_list("statuses[]")
-            rows = [r for r in INCIDENTS if not statuses or r["status"] in statuses]
-            return httpx.Response(200, json={"incidents": rows, "more": False})
-        if path == "/incidents/PINC7":
-            return httpx.Response(200, json={"incident": INCIDENTS[0]})
-        if path.endswith("/log_entries"):
-            entries = [
-                {
-                    "type": "acknowledge_log_entry",
-                    "created_at": "2026-10-04T10:05:00Z",
-                    "summary": "Acknowledged by Pat",
-                },
-                {
-                    "type": "trigger_log_entry",
-                    "created_at": "2026-10-04T10:00:00Z",
-                    "summary": "Triggered through the API",
-                },
-            ]
-            return httpx.Response(200, json={"log_entries": entries})
-        if path.endswith("/alerts"):
-            alert = {
+        routes = {
+            "/users/me": lambda: {"user": {"name": "Bax", "html_url": "https://onevizion.pagerduty.com/users/P1"}},
+            "/services": lambda: {"services": [], "more": False},
+            "/incidents": lambda: self._incidents(params),
+            "/incidents/PINC7": lambda: {"incident": INCIDENTS[0]},
+            "/incidents/PINC7/log_entries": self._log_entries,
+            "/incidents/PINC7/alerts": self._alerts,
+            "/incidents/PINC7/notes": lambda: {"notes": []},
+            "/oncalls": lambda: self._oncalls(params.get_list("escalation_policy_ids[]")),
+        }
+        route = routes.get(path)
+        if route is None:
+            return httpx.Response(404, json={"error": {"message": "Not found"}})
+        return httpx.Response(200, json=route())
+
+    @staticmethod
+    def _incidents(params: httpx.QueryParams) -> dict[str, Any]:
+        if params.get("limit") != "1":
+            assert params.get_list("include[]") == ["first_trigger_log_entries"]
+        statuses = params.get_list("statuses[]")
+        rows = [r for r in INCIDENTS if not statuses or r["status"] in statuses]
+        return {"incidents": rows, "more": False}
+
+    @staticmethod
+    def _log_entries() -> dict[str, Any]:
+        entries = [
+            {
+                "type": "acknowledge_log_entry",
+                "created_at": "2026-10-04T10:05:00Z",
+                "summary": "Acknowledged by Pat",
+            },
+            {
+                "type": "trigger_log_entry",
                 "created_at": "2026-10-04T10:00:00Z",
-                "status": "triggered",
-                "summary": "[Datadog] JVM heap",
-                "body": {"details": {"query": "avg:jvm"}},
-            }
-            return httpx.Response(200, json={"alerts": [alert]})
-        if path.endswith("/notes"):
-            return httpx.Response(200, json={"notes": []})
-        if path == "/oncalls":
-            policies = params.get_list("escalation_policy_ids[]")
-            rows = [
-                {
-                    "user": {"summary": "Pat"},
-                    "escalation_level": 1,
-                    "escalation_policy": {"summary": f"policies {','.join(policies) or 'all'}"},
-                    "schedule": {"summary": "Primary"},
-                },
-                {
-                    "user": {"summary": "Sam"},
-                    "escalation_level": 2,
-                    "escalation_policy": {"summary": "ACME"},
-                },
-            ]
-            return httpx.Response(200, json={"oncalls": rows, "more": False})
-        return httpx.Response(404, json={"error": {"message": "Not found"}})
+                "summary": "Triggered through the API",
+            },
+        ]
+        return {"log_entries": entries}
+
+    @staticmethod
+    def _alerts() -> dict[str, Any]:
+        alert = {
+            "created_at": "2026-10-04T10:00:00Z",
+            "status": "triggered",
+            "summary": "[Datadog] JVM heap",
+            "body": {"details": {"query": "avg:jvm"}},
+        }
+        return {"alerts": [alert]}
+
+    @staticmethod
+    def _oncalls(policies: list[str]) -> dict[str, Any]:
+        rows = [
+            {
+                "user": {"summary": "Pat"},
+                "escalation_level": 1,
+                "escalation_policy": {"summary": f"policies {','.join(policies) or 'all'}"},
+                "schedule": {"summary": "Primary"},
+            },
+            {
+                "user": {"summary": "Sam"},
+                "escalation_level": 2,
+                "escalation_policy": {"summary": "ACME"},
+            },
+        ]
+        return {"oncalls": rows, "more": False}
 
 
 @pytest.fixture
@@ -166,7 +173,6 @@ def test_incidents_are_tied_to_instances_by_website_database_and_host(linked):
     rows = pagerduty.incidents(0, 1_791_108_000_000)
     mine = pagerduty.for_instance(rows, "acme")
     assert [r["number"] for r in mine] == [7, 6, 5, 3]
-    # The database seen on a website alert is remembered for later database-only alerts.
     assert pagerduty.load_state()["databases"] == {HOST: ["acmedb"]}
     assert [r["number"] for r in pagerduty.for_instance(rows[1:2], "acme")] == [6]
 

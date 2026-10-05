@@ -7,13 +7,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import API_PREFIX
 from .errors import Ambiguous, NotFound, SpecUnavailable
-from .paths import spec_file
+from .paths import spec_file, write_atomic
 
 SPEC_PATH = "/api/docs/openapi"
 SWAGGER_CONFIG_PATH = "/api/docs/swagger-config"
 
 METHODS = ("get", "put", "post", "delete", "patch", "head", "options", "trace")
+
+DEFAULT_TAG = "default"
+DEFAULT_TYPE = "string"
+AMBIGUOUS_LISTED = 15
+MAX_EXPAND_DEPTH = 6
+MAX_REF_CHAIN = 8
 
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _JAVA_SIGNATURE = re.compile(r"([A-Za-z_$][\w$]*)\s*\(")
@@ -22,8 +29,6 @@ _TAG = re.compile(r"<[^>]+>")
 
 
 def plain(text: str) -> str:
-    if not text:
-        return ""
     cleaned = _TAG.sub("", text.replace("<br>", " ").replace("<br/>", " "))
     return re.sub(r"\s+", " ", cleaned).strip()
 
@@ -33,7 +38,7 @@ class Param:
     name: str
     location: str
     required: bool = False
-    type: str = "string"
+    type: str = DEFAULT_TYPE
     description: str = ""
     enum: list[str] = field(default_factory=list)
     default: Any = None
@@ -59,10 +64,6 @@ class Body:
     content_type: str
     required: bool = False
     schema: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def is_multipart(self) -> bool:
-        return self.content_type.startswith("multipart/")
 
     @property
     def is_json(self) -> bool:
@@ -146,29 +147,25 @@ class Spec:
         if not needle:
             raise NotFound("No operation given.")
 
-        exact = [o for o in self.operations if o.ref == needle]
-        if len(exact) == 1:
-            return exact[0]
-
-        if " " in needle:
-            method, _, path = needle.partition(" ")
-            matches = [o for o in self.operations if o.method == method.upper().strip() and o.path == path.strip()]
+        tiers = (
+            ([o for o in self.operations if o.ref == needle], False),
+            (self._by_call(needle), False),
+            ([o for o in self.operations if o.name == needle], True),
+            ([o for o in self.operations if needle.lower() in o.ref.lower()], True),
+        )
+        for matches, decisive in tiers:
             if len(matches) == 1:
                 return matches[0]
-
-        by_name = [o for o in self.operations if o.name == needle]
-        if len(by_name) == 1:
-            return by_name[0]
-        if len(by_name) > 1:
-            raise Ambiguous(_ambiguous(needle, by_name))
-
-        loose = [o for o in self.operations if needle.lower() in o.ref.lower()]
-        if len(loose) == 1:
-            return loose[0]
-        if len(loose) > 1:
-            raise Ambiguous(_ambiguous(needle, loose))
+            if decisive and matches:
+                raise Ambiguous(_ambiguous(needle, matches))
 
         raise NotFound(f"No operation matches {ref!r}. Run 'ov api list' to see them.")
+
+    def _by_call(self, needle: str) -> list[Operation]:
+        method, found, path = needle.partition(" ")
+        if not found:
+            return []
+        return [o for o in self.operations if o.method == method.upper().strip() and o.path == path.strip()]
 
     def search(self, text: str) -> list[Operation]:
         needle = text.lower()
@@ -191,8 +188,9 @@ class Spec:
 
 
 def _ambiguous(ref: str, matches: list[Operation]) -> str:
-    listed = "\n".join(f"  {o.ref}  {o.method} {o.path}" for o in matches[:15])
-    more = "" if len(matches) <= 15 else f"\n  ... and {len(matches) - 15} more"
+    listed = "\n".join(f"  {o.ref}  {o.method} {o.path}" for o in matches[:AMBIGUOUS_LISTED])
+    hidden = len(matches) - AMBIGUOUS_LISTED
+    more = f"\n  ... and {hidden} more" if hidden > 0 else ""
     return f"{ref!r} matches {len(matches)} operations:\n{listed}{more}"
 
 
@@ -201,9 +199,8 @@ def kebab(value: str) -> str:
     return re.sub(r"-+", "-", spaced).strip("-").lower()
 
 
-# OneVizion's operationId is the Java handler's full signature; only the method name is usable.
 def operation_name(operation_id: str, method: str, path: str) -> str:
-    match = _JAVA_SIGNATURE.search(operation_id or "")
+    match = _JAVA_SIGNATURE.search(operation_id)
     if match:
         return kebab(match.group(1))
     if operation_id and not re.search(r"[\s().]", operation_id):
@@ -217,30 +214,50 @@ def path_param_names(path: str) -> list[str]:
     return _PATH_PARAM.findall(path)
 
 
-def parse(document: dict[str, Any], group: str = "") -> Spec:
-    info = document.get("info") or {}
-    servers = document.get("servers") or [{}]
+def parse(document: dict[str, Any], group: str) -> Spec:
+    try:
+        return _parse(document, group)
+    except KeyError as exc:
+        raise SpecUnavailable(f"The schema is missing the required field {exc}.") from exc
+
+
+def _parse(document: dict[str, Any], group: str) -> Spec:
+    info = document["info"]
+    servers = document.get("servers")
     spec = Spec(
-        title=info.get("title") or "OneVizion API",
-        version=info.get("version") or "",
+        title=info["title"],
+        version=info["version"],
         group=group,
-        server=(servers[0] or {}).get("url") or "/api",
+        server=servers[0]["url"] if servers else API_PREFIX,
         fetched_at=time.time(),
     )
 
     used: set[str] = set()
-    for path, item in (document.get("paths") or {}).items():
-        if not isinstance(item, dict):
-            continue
-        shared = _params(item.get("parameters"), document)
+    for path, item in document["paths"].items():
+        shared = _params(item.get("parameters", []), document)
         for method in METHODS:
-            raw = item.get(method)
-            if not isinstance(raw, dict):
+            if method not in item:
                 continue
-            spec.operations.append(_operation(raw, method, path, document, shared, used))
+            operation = _operation(item[method], method, path, document, shared)
+            operation.name = _unique_name(operation, used)
+            spec.operations.append(operation)
 
     spec.operations.sort(key=lambda o: (o.tag, o.name, o.method))
     return spec
+
+
+def _unique_name(operation: Operation, used: set[str]) -> str:
+    name = operation.name
+    if f"{operation.tag}:{name}" in used:
+        name = f"{name}-{operation.method.lower()}"
+
+    suffix = 2
+    while f"{operation.tag}:{name}" in used:
+        name = f"{name}-{suffix}"
+        suffix += 1
+
+    used.add(f"{operation.tag}:{name}")
+    return name
 
 
 def _operation(
@@ -249,48 +266,31 @@ def _operation(
     path: str,
     document: dict[str, Any],
     shared: list[Param],
-    used: set[str],
 ) -> Operation:
-    tags = raw.get("tags") or ["default"]
-    tag = kebab(str(tags[0]))
-    operation_id = raw.get("operationId") or ""
-
-    name = operation_name(operation_id, method, path)
-    # Java overloads, or fallback names from paths differing only in params, can collide.
-    if f"{tag}:{name}" in used:
-        name = f"{name}-{method.lower()}"
-    suffix = 2
-    while f"{tag}:{name}" in used:
-        name = f"{name}-{suffix}"
-        suffix += 1
-    used.add(f"{tag}:{name}")
-
-    params = _merge(shared, _params(raw.get("parameters"), document))
+    operation_id = raw.get("operationId", "")
+    params = _merge(shared, _params(raw.get("parameters", []), document))
     declared = {p.name for p in params}
-    for missing in path_param_names(path):
-        if missing not in declared:
-            params.append(Param(name=missing, location="path", required=True))
+    params.extend(
+        Param(name=name, location="path", required=True) for name in path_param_names(path) if name not in declared
+    )
 
     return Operation(
-        name=name,
-        tag=tag,
+        name=operation_name(operation_id, method, path),
+        tag=kebab(str(raw.get("tags", [DEFAULT_TAG])[0])),
         method=method.upper(),
         path=path,
-        summary=plain(raw.get("summary") or ""),
-        description=plain(raw.get("description") or ""),
+        summary=plain(raw.get("summary", "")),
+        description=plain(raw.get("description", "")),
         operation_id=operation_id,
         deprecated=bool(raw.get("deprecated")),
         params=params,
         body=_body(raw.get("requestBody"), document),
-        produces=sorted(
-            {
-                media
-                for response in (raw.get("responses") or {}).values()
-                if isinstance(response, dict)
-                for media in (response.get("content") or {})
-            }
-        ),
+        produces=_produces(raw),
     )
+
+
+def _produces(raw: dict[str, Any]) -> list[str]:
+    return sorted({media for response in raw.get("responses", {}).values() for media in response.get("content", {})})
 
 
 def _merge(shared: list[Param], own: list[Param]) -> list[Param]:
@@ -299,87 +299,81 @@ def _merge(shared: list[Param], own: list[Param]) -> list[Param]:
     return list(merged.values())
 
 
-def _params(raw: Any, document: dict[str, Any]) -> list[Param]:
-    if not isinstance(raw, list):
-        return []
-    params = []
-    for entry in raw:
-        entry = resolve(entry, document)
-        if not isinstance(entry, dict) or not entry.get("name"):
-            continue
-        schema = resolve(entry.get("schema") or {}, document)
-        if not isinstance(schema, dict):
-            schema = {}
-        params.append(
-            Param(
-                name=str(entry["name"]),
-                location=str(entry.get("in") or "query"),
-                required=bool(entry.get("required")),
-                type=_type_of(schema),
-                description=plain(entry.get("description") or ""),
-                enum=[str(v) for v in (schema.get("enum") or [])],
-                default=schema.get("default"),
-            )
-        )
-    return params
+def _params(raw: list[Any], document: dict[str, Any]) -> list[Param]:
+    return [_param(resolve(entry, document), document) for entry in raw]
+
+
+def _param(entry: dict[str, Any], document: dict[str, Any]) -> Param:
+    schema = resolve(entry.get("schema", {}), document)
+    return Param(
+        name=str(entry["name"]),
+        location=str(entry["in"]),
+        required=bool(entry.get("required")),
+        type=_type_of(schema),
+        description=plain(entry.get("description", "")),
+        enum=[str(v) for v in schema.get("enum", [])],
+        default=schema.get("default"),
+    )
 
 
 def _body(raw: Any, document: dict[str, Any]) -> Body | None:
-    raw = resolve(raw, document)
-    if not isinstance(raw, dict):
+    if raw is None:
         return None
-    content = raw.get("content") or {}
+
+    raw = resolve(raw, document)
+    content = raw["content"]
     if not content:
         return None
 
     chosen = next((c for c in content if "json" in c), next(iter(content)))
-    media = content.get(chosen) or {}
-    schema = expand(media.get("schema") or {}, document)
     return Body(
         content_type=chosen,
         required=bool(raw.get("required")),
-        schema=schema if isinstance(schema, dict) else {},
+        schema=expand(content[chosen].get("schema", {}), document),
     )
 
 
-def expand(node: Any, document: dict[str, Any], depth: int = 0, seen: tuple = ()) -> Any:
-    if depth > 6 or not isinstance(node, (dict, list)):
+def expand(node: Any, document: dict[str, Any], depth: int = 0, seen: tuple[str, ...] = ()) -> Any:
+    if depth > MAX_EXPAND_DEPTH or not isinstance(node, (dict, list)):
         return node
     if isinstance(node, list):
         return [expand(item, document, depth + 1, seen) for item in node]
 
     ref = node.get("$ref")
-    if isinstance(ref, str):
-        if ref in seen:
-            return {"$ref": ref, "description": "recursive, see above"}
-        return expand(resolve(node, document), document, depth + 1, seen + (ref,))
-
-    return {key: expand(value, document, depth + 1, seen) for key, value in node.items()}
+    if not isinstance(ref, str):
+        return {key: expand(value, document, depth + 1, seen) for key, value in node.items()}
+    if ref in seen:
+        return {"$ref": ref, "description": "recursive, see above"}
+    return expand(resolve(node, document), document, depth + 1, (*seen, ref))
 
 
 def _type_of(schema: dict[str, Any]) -> str:
-    kind = schema.get("type")
+    kind = schema.get("type", DEFAULT_TYPE)
     if isinstance(kind, list):
-        kind = next((k for k in kind if k != "null"), "string")
+        kind = next((k for k in kind if k != "null"), DEFAULT_TYPE)
     if kind == "array":
-        items = schema.get("items") or {}
-        return f"array[{_type_of(items) if isinstance(items, dict) else 'string'}]"
-    return str(kind or "string")
+        return f"array[{_type_of(schema.get('items', {}))}]"
+    return str(kind)
 
 
-def resolve(node: Any, document: dict[str, Any], depth: int = 0) -> Any:
-    if depth > 8 or not isinstance(node, dict):
-        return node
-    ref = node.get("$ref")
-    if not isinstance(ref, str) or not ref.startswith("#/"):
-        return node
+def resolve(node: Any, document: dict[str, Any]) -> Any:
+    for _ in range(MAX_REF_CHAIN):
+        if not isinstance(node, dict) or "$ref" not in node:
+            return node
+        node = _target(node["$ref"], document)
+    raise SpecUnavailable(f"$ref chain longer than {MAX_REF_CHAIN} links in the schema.")
+
+
+def _target(ref: str, document: dict[str, Any]) -> Any:
+    if not ref.startswith("#/"):
+        raise SpecUnavailable(f"External $ref {ref!r} in the schema is not supported.")
 
     target: Any = document
     for part in ref[2:].split("/"):
         if not isinstance(target, dict) or part not in target:
-            return node
+            raise SpecUnavailable(f"The schema's $ref {ref!r} points at nothing.")
         target = target[part]
-    return resolve(target, document, depth + 1)
+    return target
 
 
 def cached_path(base_url: str, group: str) -> Path:
@@ -390,21 +384,13 @@ def load_cached(base_url: str, group: str, ttl_seconds: int) -> Spec | None:
     path = cached_path(base_url, group)
     if not path.exists():
         return None
-    try:
-        record = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+
+    record = _read_record(path)
+    if ttl_seconds > 0 and time.time() - record["fetched_at"] > ttl_seconds:
         return None
 
-    fetched_at = float(record.get("fetched_at") or 0)
-    if ttl_seconds > 0 and time.time() - fetched_at > ttl_seconds:
-        return None
-
-    document = record.get("document")
-    if not isinstance(document, dict):
-        return None
-
-    spec = parse(document, group)
-    spec.fetched_at = fetched_at
+    spec = parse(record["document"], group)
+    spec.fetched_at = record["fetched_at"]
     return spec
 
 
@@ -416,7 +402,7 @@ def save_cached(base_url: str, group: str, document: dict[str, Any]) -> Path:
         "fetched_at": time.time(),
         "document": document,
     }
-    path.write_text(json.dumps(record), encoding="utf-8")
+    write_atomic(path, json.dumps(record))
     return path
 
 
@@ -424,11 +410,15 @@ def raw_document(base_url: str, group: str) -> dict[str, Any]:
     path = cached_path(base_url, group)
     if not path.exists():
         raise SpecUnavailable("No schema cached yet. Run 'ov spec fetch'.")
+    return _read_record(path)["document"]
+
+
+def _read_record(path: Path) -> dict[str, Any]:
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        raise SpecUnavailable(f"Cached schema is unreadable: {exc}") from exc
-    document = record.get("document")
-    if not isinstance(document, dict):
-        raise SpecUnavailable("Cached schema is missing its document.")
-    return document
+        raise SpecUnavailable(f"Cached schema {path} is unreadable: {exc}. Run 'ov spec fetch'.") from exc
+
+    if not isinstance(record, dict) or not isinstance(record.get("document"), dict) or "fetched_at" not in record:
+        raise SpecUnavailable(f"Cached schema {path} is incomplete. Run 'ov spec fetch'.")
+    return record

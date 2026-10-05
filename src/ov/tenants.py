@@ -6,11 +6,9 @@ from typing import Any
 
 from .errors import Ambiguous, NotFound, OvError
 
-# Tenant switching swaps the web session's user; there is no API for it.
 SWITCH_PATH = "/program/FormProg.do"
 DEFAULT_PATH = "/Default.do"
 
-# Only source of the tenant list; single-tenant accounts get `var programMenu = null`.
 _PROGRAM_MENU = re.compile(r"var\s+programMenu\s*=\s*(null|\{.*?\})\s*;", re.S)
 
 NO_TENANTS = (
@@ -20,28 +18,27 @@ NO_TENANTS = (
 
 
 def parse_program_menu(page: str) -> dict[str, str]:
-    match = _PROGRAM_MENU.search(page or "")
+    match = _PROGRAM_MENU.search(page)
     if not match:
-        return {}
+        raise OvError(f"{DEFAULT_PATH} did not contain the tenant list (programMenu).")
+
     raw = match.group(1)
     if raw == "null":
         return {}
+
     try:
         menu = json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(menu, dict):
-        return {}
+    except json.JSONDecodeError as exc:
+        raise OvError(f"The tenant list on {DEFAULT_PATH} is not valid JSON: {exc}") from exc
     return {str(pid): str(name) for pid, name in menu.items() if name}
 
 
 def resolve_tenant(tenants: dict[str, str], ref: str) -> tuple[str, str]:
-    needle = (ref or "").strip()
+    needle = ref.strip()
     if not needle:
         raise NotFound("No tenant given.")
     if not tenants:
         raise OvError(NO_TENANTS)
-
     if needle in tenants:
         return needle, tenants[needle]
 
@@ -61,7 +58,7 @@ def resolve_tenant(tenants: dict[str, str], ref: str) -> tuple[str, str]:
     raise NotFound(f"No tenant matches {ref!r}. Available: {known}.")
 
 
-def tenant_rows(tenants: dict[str, str], current_id: str = "") -> list[dict[str, Any]]:
+def tenant_rows(tenants: dict[str, str], current_id: str) -> list[dict[str, Any]]:
     return [
         {"tenant_id": pid, "name": name, "current": pid == current_id}
         for pid, name in sorted(tenants.items(), key=lambda x: x[1].lower())

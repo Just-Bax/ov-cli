@@ -67,14 +67,11 @@ def test_links_come_from_keys_and_code():
     assert ("rule:500", "field:100100100", "uses") in edges
     assert ("rule:500", "field:100100101", "uses") in edges
     assert ("import:7", "trackor_type:1", "loads") in edges
-    # Package bodies are joined window by window, so a name split across windows still links.
     assert ("db_package:900", "trackor_type:2", "uses") in edges
     assert ("db_package:900", "import:7", "uses") in edges
     assert ("db_package:900", "db_package:901", "calls") in edges
     assert ("db_package:901", "trackor_type:1", "uses") in edges
-    # Bare words are not links; only quoted names, ids, id.* references and package calls.
     assert ("rule:500", "trackor_type:2", "uses") not in edges
-    # A name two fields share cannot be resolved from code.
     assert not any(t in ("field:100100102", "field:100100103") for _, t, k in edges if k == "uses")
 
 

@@ -54,7 +54,6 @@ export interface Outcome {
   issues: IssueFinding[]
   existing?: ExistingMatch[]
   unrelated: string[]
-  /** The case chat comment, or a message to forward; empty when there is none. */
   reply: string
 }
 
@@ -64,7 +63,6 @@ export interface Question {
   options: string[]
   multiple: boolean
   answer?: string
-  /** Exact change awaiting approval, shown as code. */
   detail?: string
 }
 
@@ -113,7 +111,6 @@ export interface StoredEvent {
   event: RunEvent
 }
 
-/** The thread in display order; each entry points into the matching collection. */
 export type ThreadItem =
   | { kind: 'user'; id: string }
   | { kind: 'text'; id: string }
@@ -165,9 +162,7 @@ export interface RunState {
   error?: string
   feedback?: { rating: Rating; note: string }
   writeAccess: boolean
-  /** Follow-ups sent while the agent was busy, waiting to be picked up. */
   queued: ChatMessage[]
-  /** Per-turn ratings, keyed by the user message that started the turn. */
   ratings: Record<string, { rating: Rating; note?: string }>
 }
 
@@ -396,15 +391,6 @@ export interface PagerDutyWebsites {
   total: number
   matched: number
   websites: { host: string; alias: string | null; count: number; open: number }[]
-}
-
-export interface PagerDutyService {
-  id: string
-  name: string
-  description: string
-  status: string
-  policy: string
-  url: string
 }
 
 export interface PagerDutyIncident {

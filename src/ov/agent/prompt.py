@@ -16,10 +16,26 @@ def _servers(scope: str) -> str:
     hosts = datadog.hosts_in(scope)
     if not hosts:
         return scope
+
     roles: dict[str, list[str]] = {}
     for host in hosts:
         roles.setdefault(datadog.role_of(host), []).append(host)
     return "; ".join(f"{role}: {', '.join(names)}" for role, names in sorted(roles.items()))
+
+
+def _datadog_text() -> str:
+    if not datadog.connected():
+        return "not connected"
+
+    matches = datadog.load_state().get("matches") or {}
+    matched = "\n".join(f"- {alias}: {_servers(scope)}" for alias, scope in sorted(matches.items()))
+    return f"connected. Instance filters:\n{matched or 'none matched yet'}"
+
+
+def _pagerduty_text() -> str:
+    if not pagerduty.connected():
+        return "not connected"
+    return "connected. Incidents are tied to instances by the website in their alert."
 
 
 def system_prompt(write_access: bool, instance: str) -> str:
@@ -30,8 +46,6 @@ def system_prompt(write_access: bool, instance: str) -> str:
     configured = "\n".join(
         f"- {s['name']}: {s['description'] or 'no description'}" for s in sources.list_sources() if s["ready"]
     )
-    linked = datadog.connected()
-    paged = pagerduty.connected()
     skill_list = "\n".join(f"- {s['name']}: {s['description'] or s['title']}" for s in offered_skills())
     offered = {spec["function"]["name"] for spec in tool_specs()}
     groups = "\n".join(
@@ -39,16 +53,6 @@ def system_prompt(write_access: bool, instance: str) -> str:
         for title, about, names in TOOL_GROUPS
         if any(n in offered for n in names)
     )
-    if linked:
-        matches = datadog.load_state().get("matches") or {}
-        matched = "\n".join(f"- {alias}: {_servers(scope)}" for alias, scope in sorted(matches.items()))
-        dd_text = f"connected. Instance filters:\n{matched or 'none matched yet'}"
-    else:
-        dd_text = "not connected"
-    if paged:
-        pd_text = "connected. Incidents are tied to instances by the website in their alert."
-    else:
-        pd_text = "not connected"
 
     return f"""You are OV Agent, a senior OneVizion Tier 3 engineer (TCE). You troubleshoot \
 support cases and answer questions about OneVizion instances by investigating them yourself \
@@ -73,9 +77,9 @@ Signed-in instances:
 Sources you can search with source_search and source_read:
 {configured or "none configured"}
 
-Datadog: {dd_text}
+Datadog: {_datadog_text()}
 
-PagerDuty: {pd_text}
+PagerDuty: {_pagerduty_text()}
 
 # Skills
 

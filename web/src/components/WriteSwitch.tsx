@@ -3,7 +3,6 @@ import { dialog } from '@/components/Dialog'
 import { Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
-/** `onChange` may be async; if it throws, the switch flips back and the error is shown. */
 export function WriteSwitch({
   value,
   onChange,
@@ -32,6 +31,7 @@ export function WriteSwitch({
       })
       if (!ok) return
     }
+
     setLocal(next)
     setSaving(true)
     try {

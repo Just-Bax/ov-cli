@@ -7,12 +7,15 @@ import { monaco } from '@/lib/monaco'
 
 const MAX_LINKS = 6000
 const CARD_WIDTH = 320
+const HIDE_DELAY_MS = 300
+const SWITCH_DELAY_MS = 250
 
-// Per-type colors for the pill behind a reference and its text, generated once from TYPES.
-let stylesAdded = false
-function addStyles() {
-  if (stylesAdded) return
-  stylesAdded = true
+let refTypeStylesAdded = false
+
+function addRefTypeStyles() {
+  if (refTypeStylesAdded) return
+
+  refTypeStylesAdded = true
   const css = (Object.keys(TYPES) as GraphNodeType[])
     .map((type) => {
       const color = TYPES[type].color
@@ -23,6 +26,7 @@ function addStyles() {
       ].join('\n')
     })
     .join('\n')
+
   const style = document.createElement('style')
   style.textContent = css
   document.head.appendChild(style)
@@ -65,34 +69,32 @@ export function CodeView({
   openRef.current = onOpen
   const [hover, setHover] = useState<Hover>()
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-
   const switchTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const shown = useRef<Hover>(undefined)
   shown.current = hover
-  // Monaco throttles mouse moves, so a stale move from the text under the card can arrive after
-  // the pointer is already on the card; the card must win.
-  const overCard = useRef(false)
+  const pointerOnCard = useRef(false)
 
   const keep = () => clearTimeout(hideTimer.current)
   const hideSoon = () => {
     clearTimeout(switchTimer.current)
     clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => {
-      if (!overCard.current) setHover(undefined)
-    }, 300)
+      if (!pointerOnCard.current) setHover(undefined)
+    }, HIDE_DELAY_MS)
   }
   const enterCard = () => {
-    overCard.current = true
+    pointerOnCard.current = true
     clearTimeout(switchTimer.current)
     keep()
   }
   const leaveCard = () => {
-    overCard.current = false
+    pointerOnCard.current = false
     hideSoon()
   }
 
   useEffect(() => {
-    addStyles()
+    addRefTypeStyles()
+
     const editor = monaco.editor.create(host.current!, {
       readOnly: true,
       theme: 'ov-light',
@@ -125,7 +127,8 @@ export function CodeView({
         : undefined
 
     const move = editor.onMouseMove((e) => {
-      if (overCard.current) return
+      if (pointerOnCard.current) return
+
       const position = e.target.position
       const onText = e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT
       const ref = onText ? refAt(position) : undefined
@@ -133,10 +136,12 @@ export function CodeView({
         hideSoon()
         return
       }
+
       keep()
       const show = () =>
         setHover((current) => {
           if (current?.ref === ref) return current
+
           const at = editor.getScrolledVisiblePosition({
             lineNumber: position.lineNumber,
             column: ref.start + 1,
@@ -145,22 +150,24 @@ export function CodeView({
           return { ref, line: position.lineNumber, top: at.top + at.height + 2, left: at.left }
         })
       clearTimeout(switchTimer.current)
-      // Crossing another reference on the way to the open card must not replace it at once.
-      if (shown.current && shown.current.ref !== ref) switchTimer.current = setTimeout(show, 250)
+      const switchingAwayFromOpenCard = shown.current && shown.current.ref !== ref
+      if (switchingAwayFromOpenCard) switchTimer.current = setTimeout(show, SWITCH_DELAY_MS)
       else show()
     })
     const leave = editor.onMouseLeave(hideSoon)
     const scroll = editor.onDidScrollChange(() => setHover(undefined))
-    // A plain click on a reference opens it, as long as the user is not selecting text.
-    const click = editor.onMouseUp((e) => {
-      if (!editor.getSelection()?.isEmpty()) return
+    const openOnPlainClick = editor.onMouseUp((e) => {
+      const selectingText = !editor.getSelection()?.isEmpty()
+      if (selectingText) return
+
       const ref = refAt(e.target.position)
       if (ref) openRef.current(ref.node)
     })
+
     return () => {
       clearTimeout(hideTimer.current)
       clearTimeout(switchTimer.current)
-      for (const d of [move, leave, scroll, click]) d.dispose()
+      for (const d of [move, leave, scroll, openOnPlainClick]) d.dispose()
       editor.getModel()?.dispose()
       editor.dispose()
     }
@@ -169,6 +176,7 @@ export function CodeView({
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
+
     const previous = editor.getModel()
     const model = monaco.editor.createModel(code.replace(/\r\n/g, '\n'), 'sql')
     editor.setModel(model)
@@ -180,6 +188,7 @@ export function CodeView({
     for (let line = 1; line <= model.getLineCount() && decorations.length < MAX_LINKS; line++) {
       const found = findRefs(model.getLineContent(line), refs)
       if (!found.length) continue
+
       byLine.current.set(line, found)
       for (const r of found)
         decorations.push({
@@ -198,6 +207,7 @@ export function CodeView({
       'ov-hints',
       hints.map((h) => {
         const line = Math.min(Math.max(h.line, 1), model.getLineCount())
+
         return {
           severity: severity(h.severity),
           message: `${h.title}\n${h.detail}`,
@@ -232,12 +242,14 @@ export function CodeView({
   useEffect(() => {
     const editor = editorRef.current
     if (!editor || !revealLine) return
+
     editor.revealLineInCenter(revealLine.line)
     editor.setSelection(new monaco.Range(revealLine.line, 1, revealLine.line, 1))
     editor.focus()
   }, [revealLine])
 
   const width = frame.current?.clientWidth ?? 0
+
   return (
     <div ref={frame} className="relative h-full w-full">
       <div ref={host} className="h-full w-full" />
@@ -253,7 +265,7 @@ export function CodeView({
           onEnter={enterCard}
           onLeave={leaveCard}
           onOpen={() => {
-            overCard.current = false
+            pointerOnCard.current = false
             setHover(undefined)
             onOpen(hover.ref.node)
           }}
@@ -286,6 +298,7 @@ function RefCard({
 }) {
   const { node, kind, text } = hover.ref
   const meta = TYPES[node.type]
+
   return (
     <div
       onMouseEnter={onEnter}

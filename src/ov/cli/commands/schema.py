@@ -86,7 +86,5 @@ def cmd_dump(ctx: Context) -> int:
     return 0
 
 
-def _stamp(epoch: float) -> str | None:
-    if not epoch:
-        return None
+def _stamp(epoch: float) -> str:
     return datetime.fromtimestamp(epoch).isoformat(timespec="seconds")

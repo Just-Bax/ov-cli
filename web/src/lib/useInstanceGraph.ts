@@ -4,10 +4,10 @@ import { useInstances } from '@/components/InstancePicker'
 import { api } from '@/lib/api'
 
 const INSTANCE_KEY = 'ov-agent.map-instance'
+const BUILD_POLL_MS = 2000
 export const FOCUS_KEY = 'ov-agent.map-focus'
 export const EXPLORE_KEY = 'ov-agent.explorer-open'
 
-// One instance choice and one copy of its map for the Map and Explorer pages.
 export function useInstanceGraph() {
   const { instances } = useInstances()
   const signedIn = useMemo(() => (instances ?? []).filter((i) => i.valid), [instances])
@@ -25,6 +25,7 @@ export function useInstanceGraph() {
 
   useEffect(() => {
     if (!alias) return
+
     let alive = true
     setGraph(undefined)
     setError(undefined)
@@ -33,32 +34,35 @@ export function useInstanceGraph() {
       .graphStatus(alias)
       .then((s) => alive && setStatus(s))
       .catch((e: Error) => alive && setError(e.message))
+
     return () => {
       alive = false
     }
   }, [alias])
 
-  // Follow a build until it finishes, then load the new map without clearing the view.
   useEffect(() => {
     if (!alias || !status) return
+
     let alive = true
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let pollTimer: ReturnType<typeof setTimeout> | undefined
+    const builtMapIsNewer = status.builtAt && graph?.builtAt !== status.builtAt
     if (status.state === 'building') {
-      timer = setTimeout(() => {
+      pollTimer = setTimeout(() => {
         api
           .graphStatus(alias)
           .then((s) => alive && setStatus(s))
-          .catch(() => undefined)
-      }, 2000)
-    } else if (status.builtAt && graph?.builtAt !== status.builtAt) {
+          .catch((e: Error) => alive && setError(e.message))
+      }, BUILD_POLL_MS)
+    } else if (builtMapIsNewer) {
       api
         .graph(alias)
         .then((g) => alive && setGraph(g))
         .catch((e: Error) => alive && setError(e.message))
     }
+
     return () => {
       alive = false
-      clearTimeout(timer)
+      clearTimeout(pollTimer)
     }
   }, [alias, status])
 
@@ -77,5 +81,6 @@ export function useInstanceGraph() {
       ? `${current.host} / ${current.tenant}`
       : current.host
     : ''
+
   return { instances, signedIn, alias, setAlias, label, status, graph, error, build }
 }

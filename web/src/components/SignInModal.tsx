@@ -18,7 +18,7 @@ export type SignInTarget = { url: string; host: string; tenant?: string; mode?: 
 
 export const signInKey = (t: SignInTarget) => `${t.host}|${(t.tenant ?? '').toLowerCase()}`
 
-export function hostOf(value: string): string {
+function hostOf(value: string): string {
   return value
     .trim()
     .replace(/^[a-z]+:\/\//i, '')
@@ -29,6 +29,8 @@ export function hostOf(value: string): string {
 type Phase = 'intro' | 'waiting' | 'done' | 'error'
 
 const LIMIT_SECONDS = 300
+const CLOCK_TICK_MS = 1000
+const CLOSE_AFTER_SUCCESS_MS = 1400
 
 function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
@@ -41,8 +43,7 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
   )
 }
 
-// Likely fixes for the ways a sign-in fails, matched on what ov login printed.
-function tips(message: string, tenant?: string): string[] {
+function likelyFixes(message: string, tenant?: string): string[] {
   const text = message.toLowerCase()
   const out: string[] = []
   if (tenant && /tenant|not allowed|no tenant/.test(text))
@@ -59,6 +60,7 @@ function tips(message: string, tenant?: string): string[] {
     out.push('The sign-in browser may be missing. Run "ov setup" in a terminal, then try again.')
   if (!out.length)
     out.push('Check that the address is right and that you can sign in to it in a normal browser.')
+
   return out
 }
 
@@ -85,12 +87,16 @@ export function SignInModal({
   const startedAt = useRef(0)
   const current = useRef(target)
   current.current = target
+  const targetKey = target && signInKey(target)
+  const stillShowing = (t: SignInTarget) =>
+    current.current !== undefined && signInKey(current.current) === signInKey(t)
 
   useEffect(() => {
     if (!target) {
       setShown(false)
       return
     }
+
     setPhase(pending ? 'waiting' : 'intro')
     setMessage('')
     setMethod(target.tenant ? 'browser' : (target.mode ?? 'browser'))
@@ -98,27 +104,29 @@ export function SignInModal({
     setSecretKey('')
     const frame = requestAnimationFrame(() => setShown(true))
     return () => cancelAnimationFrame(frame)
-    // Reset only when a different target opens, not on every pending change.
-  }, [target && signInKey(target)])
+  }, [targetKey])
 
   useEffect(() => {
     if (phase !== 'waiting') return
+
     if (!startedAt.current) startedAt.current = Date.now()
     const timer = setInterval(
       () => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)),
-      1000,
+      CLOCK_TICK_MS,
     )
     return () => clearInterval(timer)
   }, [phase])
 
   useEffect(() => {
     if (!target) return
+
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [target, onClose])
 
   if (!target) return null
+
   const { host, tenant } = target
   const byToken = method === 'token'
   const ready = !byToken || (accessKey.trim() && secretKey.trim())
@@ -129,6 +137,7 @@ export function SignInModal({
     setElapsed(0)
     setPhase('waiting')
     onStart(t)
+
     const res = await api
       .loginInstance(
         t.url,
@@ -138,13 +147,13 @@ export function SignInModal({
       .catch((e: Error) => ({ ok: false, message: e.message }))
     onFinished(t, res.ok)
     startedAt.current = 0
-    // The modal may have been hidden or moved on to another instance meanwhile.
-    if (!current.current || signInKey(current.current) !== signInKey(t)) return
+    if (!stillShowing(t)) return
+
     if (res.ok) {
       setPhase('done')
       setTimeout(() => {
-        if (current.current && signInKey(current.current) === signInKey(t)) onClose()
-      }, 1400)
+        if (stillShowing(t)) onClose()
+      }, CLOSE_AFTER_SUCCESS_MS)
     } else {
       setMessage(res.message || 'Sign-in failed.')
       setPhase('error')
@@ -305,7 +314,7 @@ export function SignInModal({
               {message}
             </div>
             <ul className="space-y-1.5">
-              {tips(message, tenant).map((tip) => (
+              {likelyFixes(message, tenant).map((tip) => (
                 <li key={tip} className="text-muted flex gap-2 text-[12.5px] leading-relaxed">
                   <span className="bg-brand mt-2 size-1.5 shrink-0 rounded-full" />
                   {tip}
@@ -378,6 +387,7 @@ export function AddInstanceForm({
 }) {
   const [url, setUrl] = useState('')
   const [tenant, setTenant] = useState('')
+
   return (
     <form
       className={cn('flex flex-wrap gap-2', className)}

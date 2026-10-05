@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
 
-/** Double-click to rename; Enter or leaving the field saves, Escape cancels. */
+const MAX_TITLE_LENGTH = 120
+
 export function EditableTitle({
   value,
   onSave,
@@ -46,7 +47,7 @@ export function EditableTitle({
     <input
       ref={inputRef}
       value={draft}
-      maxLength={120}
+      maxLength={MAX_TITLE_LENGTH}
       onChange={(e) => setDraft(e.target.value)}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {

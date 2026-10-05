@@ -3,20 +3,19 @@ import type { Instance } from '@shared/types.ts'
 import { Dropdown } from '@/components/Dropdown'
 import { api } from '@/lib/api'
 
-export function useInstances(): { instances?: Instance[]; reload: () => void } {
+export function useInstances(): { instances?: Instance[] } {
   const [instances, setInstances] = useState<Instance[]>()
-  const load = () =>
+
+  useEffect(() => {
     api
       .instances()
       .then(setInstances)
       .catch(() => setInstances([]))
-  useEffect(() => {
-    void load()
   }, [])
-  return { instances, reload: () => void load() }
+
+  return { instances }
 }
 
-// Signed-in instances first; an empty value lets the agent pick from context.
 export function InstancePicker({
   value,
   onChange,
@@ -26,9 +25,10 @@ export function InstancePicker({
   onChange: (v: string) => void
   instances: Instance[]
 }) {
-  const sorted = [...instances].sort(
+  const signedInFirst = [...instances].sort(
     (a, b) => Number(b.valid) - Number(a.valid) || a.host.localeCompare(b.host),
   )
+
   return (
     <Dropdown
       value={value}
@@ -39,7 +39,7 @@ export function InstancePicker({
       prefix={<span className="text-faint font-normal">Instance</span>}
       options={[
         { value: '', label: 'Auto', hint: 'from context' },
-        ...sorted.map((i) => ({
+        ...signedInFirst.map((i) => ({
           value: i.alias,
           label: i.tenant ? `${i.host} / ${i.tenant}` : i.host,
           hint: i.valid ? '' : 'expired',

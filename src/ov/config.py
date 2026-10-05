@@ -8,6 +8,9 @@ from . import store
 from .errors import OvError
 from .paths import downloads_dir
 
+TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
+FALSE_WORDS = frozenset({"0", "false", "no", "off"})
+
 
 @dataclass
 class Config:
@@ -20,11 +23,11 @@ class Config:
     verify_tls: bool = True
 
     def resolved_download_dir(self) -> Path:
-        if self.download_dir:
-            path = Path(self.download_dir).expanduser()
-            path.mkdir(parents=True, exist_ok=True)
-            return path
-        return downloads_dir()
+        if not self.download_dir:
+            return downloads_dir()
+        path = Path(self.download_dir).expanduser()
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -40,36 +43,44 @@ def load() -> Config:
     return Config(**{k: v for k, v in data.items() if k in known})
 
 
-def save(config: Config) -> None:
-    store.update(**config.to_dict())
-
-
 def set_value(config: Config, key: str, raw: str) -> Config:
     known = _known()
     if key not in known:
         options = ", ".join(sorted(known))
         raise OvError(f"Unknown setting '{key}'. Valid settings: {options}")
 
-    current = getattr(config, key)
-    if isinstance(current, bool):
-        value: Any = raw.strip().lower() in ("1", "true", "yes", "on")
-    elif isinstance(current, int):
-        try:
-            value = int(raw)
-        except ValueError:
-            raise OvError(f"'{key}' expects a whole number, got {raw!r}") from None
-    else:
-        value = raw
-
+    value = _parse(key, raw, getattr(config, key))
     setattr(config, key, value)
     store.update(**{key: value})
     return config
 
 
+def _parse(key: str, raw: str, current: Any) -> Any:
+    if isinstance(current, bool):
+        return _parse_bool(key, raw)
+    if not isinstance(current, int):
+        return raw
+
+    try:
+        return int(raw)
+    except ValueError:
+        raise OvError(f"'{key}' expects a whole number, got {raw!r}") from None
+
+
+def _parse_bool(key: str, raw: str) -> bool:
+    word = raw.strip().lower()
+    if word in TRUE_WORDS:
+        return True
+    if word in FALSE_WORDS:
+        return False
+    raise OvError(f"'{key}' expects true or false, got {raw!r}")
+
+
 def normalize_base_url(raw: str) -> str:
     value = raw.strip().rstrip("/")
     if not value:
-        return ""
+        raise OvError("No instance URL given.")
+
     if "://" not in value:
         value = f"https://{value}"
     if not value.startswith(("http://", "https://")):

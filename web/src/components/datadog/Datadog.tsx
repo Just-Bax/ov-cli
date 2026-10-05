@@ -24,8 +24,11 @@ import { hostsIn, roleOf, scopeOf, shortHost } from '@/lib/servers'
 import { cn } from '@/lib/cn'
 
 export const DATADOG_PURPLE = '#632CA6'
+const DEFAULT_SITE = 'datadoghq.com'
+const DEFAULT_APP_HOST = 'app.datadoghq.com'
+const COPIED_FEEDBACK_MS = 1500
 
-export const siteAddress = (status: DatadogStatus) =>
+const siteAddress = (status: DatadogStatus) =>
   status.sites.find((s) => s.id === status.site)?.app ?? status.site
 
 export const AREA_LABELS: Record<DatadogArea, string> = {
@@ -37,10 +40,10 @@ export const AREA_LABELS: Record<DatadogArea, string> = {
   hosts: 'Hosts',
 }
 
-// Integration cards start collapsed and remember whether the user opened them.
 export function useOpen(name: string): [boolean, () => void] {
   const key = `ov-agent.integration-${name}`
   const [open, setOpen] = useState(() => localStorage.getItem(key) === '1')
+
   return [
     open,
     () =>
@@ -65,7 +68,7 @@ export function CollapseButton({ open, onClick }: { open: boolean; onClick: () =
   )
 }
 
-export function DatadogMark({ className }: { className?: string }) {
+function DatadogMark({ className }: { className?: string }) {
   return <img src={datadogMark} alt="Datadog" className={cn('size-5', className)} />
 }
 
@@ -79,15 +82,15 @@ export function DatadogBadge({ size = 'md' }: { size?: 'md' | 'lg' }) {
 
 export function useDatadog() {
   const [status, setStatus] = useState<DatadogStatus>()
-  const load = () =>
+
+  useEffect(() => {
     api
       .datadog()
       .then(setStatus)
       .catch(() => undefined)
-  useEffect(() => {
-    void load()
   }, [])
-  return { status, setStatus, reload: load }
+
+  return { status, setStatus }
 }
 
 export function KeyField({
@@ -109,6 +112,7 @@ export function KeyField({
 }) {
   const [shown, setShown] = useState(false)
   const id = useId()
+
   return (
     <div>
       <div className="flex items-center gap-2">
@@ -160,7 +164,7 @@ export function DatadogConnectModal({
   onClose: () => void
   onConnected: (status: DatadogStatus) => void
 }) {
-  const [site, setSite] = useState(status?.site ?? 'datadoghq.com')
+  const [site, setSite] = useState(status?.site ?? DEFAULT_SITE)
   const [apiKey, setApiKey] = useState('')
   const [appKey, setAppKey] = useState('')
   const [busy, setBusy] = useState(false)
@@ -173,13 +177,15 @@ export function DatadogConnectModal({
       setShown(false)
       return
     }
-    setSite(status?.site ?? 'datadoghq.com')
+
+    setSite(status?.site ?? DEFAULT_SITE)
     setApiKey('')
     setAppKey('')
     setError(undefined)
     const frame = requestAnimationFrame(() => setShown(true))
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !busy && onClose()
     window.addEventListener('keydown', onKey)
+
     return () => {
       cancelAnimationFrame(frame)
       window.removeEventListener('keydown', onKey)
@@ -187,7 +193,8 @@ export function DatadogConnectModal({
   }, [open])
 
   if (!open) return null
-  const app = `https://${status?.sites.find((s) => s.id === site)?.app ?? 'app.datadoghq.com'}`
+
+  const app = `https://${status?.sites.find((s) => s.id === site)?.app ?? DEFAULT_APP_HOST}`
   const scopes = status?.scopes ?? []
 
   const connect = async () => {
@@ -254,7 +261,7 @@ export function DatadogConnectModal({
               options={(status?.sites ?? []).map((s) => ({
                 value: s.id,
                 label: s.app,
-                hint: s.id === 'datadoghq.com' ? 'Most accounts' : undefined,
+                hint: s.id === DEFAULT_SITE ? 'Most accounts' : undefined,
               }))}
             />
             <div className="text-muted mt-1.5 px-1 text-[11.5px]">
@@ -291,7 +298,7 @@ export function DatadogConnectModal({
                 onClick={() => {
                   void navigator.clipboard.writeText(scopes.join(' '))
                   setCopied(true)
-                  setTimeout(() => setCopied(false), 1500)
+                  setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS)
                 }}
                 className="text-brand-strong hover:bg-brand-soft ml-auto inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11.5px] font-medium"
               >
@@ -385,6 +392,7 @@ export function ServerChips({
 }) {
   const picked = scope.trim() ? hostsIn(scope) : []
   const [custom, setCustom] = useState(Boolean(scope) && picked === null)
+
   if (custom || picked === null)
     return (
       <div className="flex min-w-[200px] flex-1 items-center gap-1.5">
@@ -407,9 +415,11 @@ export function ServerChips({
         </Button>
       </div>
     )
+
   const options = hosts
     .filter((h) => !picked.includes(h.name))
     .map((h) => ({ value: h.name, label: h.name, hint: h.role }))
+
   return (
     <div className="flex min-w-[200px] flex-1 flex-wrap items-center gap-1.5">
       {picked.map((name) => (
@@ -453,7 +463,7 @@ export function ServerChips({
   )
 }
 
-export function DatadogMatches({
+function DatadogMatches({
   status,
   onSaved,
 }: {
@@ -468,14 +478,14 @@ export function DatadogMatches({
 
   useEffect(() => setDraft(status.matches), [status.matches])
 
-  // Servers belong to hosts, not tenants: one row per host, under its main sign-in.
   const rows: Row[] = useMemo(() => {
     const byHost = new Map<string, Row>()
-    const list = [...(instances ?? [])].sort(
+    const mainSignInsFirst = [...(instances ?? [])].sort(
       (a, b) => Number(Boolean(a.tenant)) - Number(Boolean(b.tenant)),
     )
-    for (const i of list)
+    for (const i of mainSignInsFirst)
       if (!byHost.has(i.host)) byHost.set(i.host, { alias: i.alias, host: i.host })
+
     return [...byHost.values()].sort((a, b) => a.host.localeCompare(b.host))
   }, [instances])
 
@@ -720,6 +730,7 @@ export function DatadogAccountRow({
   setStatus: (s: DatadogStatus) => void
 }) {
   const [connecting, setConnecting] = useState(false)
+
   return (
     <>
       <AccountRow

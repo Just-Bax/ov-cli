@@ -1,7 +1,5 @@
 import type { RunInput, RunState, RunSummary, StoredEvent, ThreadItem } from './types.ts'
 
-// Mirrored by src/ov/agent/state.py; keep the two in sync.
-
 export function emptyState(summary: RunSummary, input: RunInput): RunState {
   return {
     summary,
@@ -28,7 +26,6 @@ function withItem(items: ThreadItem[], item: ThreadItem): ThreadItem[] {
   return items.some((x) => x.kind === item.kind && x.id === item.id) ? items : [...items, item]
 }
 
-/** Fold one event into run state. Pure: returns a new object. */
 export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunState {
   switch (event.type) {
     case 'status':
@@ -63,6 +60,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
               { id: event.messageId, role: 'assistant' as const, text: event.delta, ts },
             ]
           : state.chat.map((m, j) => (j === i ? { ...m, text: m.text + event.delta } : m))
+
       return { ...state, chat, items: withItem(state.items, { kind: 'text', id: event.messageId }) }
     }
     case 'user':
@@ -109,9 +107,11 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
     case 'rewind': {
       const i = state.items.findIndex((x) => x.kind === 'user' && x.id === event.itemId)
       if (i < 0) return state
+
       const items = state.items.slice(0, i)
       const keep = new Set(items.map((x) => `${x.kind}:${x.id}`))
       const outcomeKept = state.outcomeId && keep.has(`outcome:${state.outcomeId}`)
+
       return {
         ...state,
         items,
@@ -129,7 +129,6 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
     case 'access':
       return { ...state, writeAccess: event.write }
     default:
-      // Unknown or retired event types (older runs) are ignored.
       return state
   }
 }

@@ -9,7 +9,6 @@ export function Composer({
   onSend,
   onStop,
   busy,
-  disabled,
   allowFiles,
   extras,
   autoFocus,
@@ -21,24 +20,22 @@ export function Composer({
   onSend: (text: string, files: File[]) => void | Promise<void>
   onStop?: () => void
   busy?: boolean
-  disabled?: boolean
   allowFiles?: boolean
   extras?: ReactNode
   autoFocus?: boolean
   size?: 'md' | 'lg'
-  /** Allow sending while busy; the message is queued as a follow-up. */
   queueWhileBusy?: boolean
-  /** Text to put in the box for the user to edit; a new `at` replaces it again. */
   draft?: { text: string; at: number }
 }) {
   const [text, setText] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
-  const canSend =
-    (!busy || Boolean(queueWhileBusy)) && !disabled && (text.trim().length > 0 || files.length > 0)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+  const canSend = (!busy || Boolean(queueWhileBusy)) && (text.trim().length > 0 || files.length > 0)
 
   const send = async () => {
     if (!canSend) return
+
     const value = text.trim()
     const attached = files
     setText('')
@@ -46,10 +43,9 @@ export function Composer({
     await onSend(value, attached)
   }
 
-  const textRef = useRef<HTMLTextAreaElement>(null)
-
   useEffect(() => {
     if (!draft) return
+
     setText(draft.text)
     requestAnimationFrame(() => {
       const el = textRef.current
@@ -59,37 +55,38 @@ export function Composer({
       el.scrollTop = el.scrollHeight
     })
   }, [draft?.at])
+
   const addFiles = (list: FileList | File[] | null) => {
     if (allowFiles && list?.length) setFiles((f) => [...f, ...Array.from(list)])
   }
 
-  /** Files from a paste: screenshots, copied images, or files copied in Explorer. Returns true if any. */
   const takeClipboardFiles = (data: DataTransfer | null): boolean => {
     if (!allowFiles || !data) return false
+
     const found: File[] = []
     for (const item of Array.from(data.items)) {
       if (item.kind !== 'file') continue
       const file = item.getAsFile()
       if (!file) continue
-      // Screenshots arrive as "image.png"; give each a unique, readable name.
-      const generic = /^image\.\w+$/i.test(file.name) || !file.name
+      const unnamedScreenshot = /^image\.\w+$/i.test(file.name) || !file.name
       const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
       const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, '')
       found.push(
-        generic
+        unnamedScreenshot
           ? new File([file], `pasted-${stamp}-${++pasteCounter}.${ext}`, { type: file.type })
           : file,
       )
     }
+
     if (!found.length) return false
     addFiles(found)
     return true
   }
 
-  // Ctrl+V anywhere on the page attaches files here, unless another field has focus.
   useEffect(() => {
     if (!allowFiles) return
-    const onPaste = (e: ClipboardEvent) => {
+
+    const onPagePaste = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target === textRef.current) return
       if (
@@ -102,9 +99,9 @@ export function Composer({
         textRef.current?.focus()
       }
     }
-    document.addEventListener('paste', onPaste)
-    return () => document.removeEventListener('paste', onPaste)
-    // takeClipboardFiles only depends on allowFiles and the stable setFiles.
+    document.addEventListener('paste', onPagePaste)
+
+    return () => document.removeEventListener('paste', onPagePaste)
   }, [allowFiles])
 
   const previews = useMemo(
@@ -168,9 +165,9 @@ export function Composer({
         value={text}
         onChange={(e) => setText(e.target.value)}
         onPaste={(e) => {
-          // Keep pasted text as text; only take over when the clipboard holds files.
-          if (takeClipboardFiles(e.clipboardData) && !e.clipboardData.getData('text/plain'))
-            e.preventDefault()
+          const tookFiles = takeClipboardFiles(e.clipboardData)
+          const hasText = Boolean(e.clipboardData.getData('text/plain'))
+          if (tookFiles && !hasText) e.preventDefault()
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {

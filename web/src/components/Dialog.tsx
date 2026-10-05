@@ -21,12 +21,11 @@ interface DialogRequest {
 
 let push: ((req: DialogRequest) => void) | undefined
 
-/** Promise-based replacements for window.confirm / window.alert. */
 export const dialog = {
   confirm(opts: Omit<DialogRequest, 'resolve'>): Promise<boolean> {
-    return new Promise((resolve) =>
-      push ? push({ ...opts, resolve }) : resolve(window.confirm(opts.title)),
-    )
+    if (!push) throw new Error('DialogHost is not mounted')
+    const show = push
+    return new Promise((resolve) => show({ ...opts, resolve }))
   },
   alert(title: string, body?: ReactNode, tone: Tone = 'danger'): Promise<void> {
     return dialog
@@ -53,7 +52,6 @@ const CONFIRM_CLASS: Record<Tone, string> = {
   danger: 'bg-danger hover:bg-danger hover:brightness-95',
 }
 
-/** Mount once at the app root. */
 export function DialogHost() {
   const [queue, setQueue] = useState<DialogRequest[]>([])
   const [shown, setShown] = useState(false)
@@ -69,15 +67,17 @@ export function DialogHost() {
 
   useEffect(() => {
     if (!current) return
-    const t = requestAnimationFrame(() => setShown(true))
+
+    const frame = requestAnimationFrame(() => setShown(true))
     confirmRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close(false)
       if (e.key === 'Enter') close(true)
     }
     window.addEventListener('keydown', onKey)
+
     return () => {
-      cancelAnimationFrame(t)
+      cancelAnimationFrame(frame)
       window.removeEventListener('keydown', onKey)
     }
   }, [current])
@@ -90,7 +90,9 @@ export function DialogHost() {
   }
 
   if (!current) return null
+
   const tone = current.tone ?? 'default'
+
   return createPortal(
     <div
       className={cn(

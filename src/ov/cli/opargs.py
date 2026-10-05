@@ -3,14 +3,16 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+import httpx
+
 from ..errors import OvError
 from ..invoke import RequestPlan, build_plan, dest_name, flag_name
+from ..service import payload_of
 from ..spec import Operation, Param
 from .context import Context
-from .output import emit, emit_payload, note, rows_from
+from .output import console, emit, emit_payload, note, rows_from
 
 
-# Kept even beside per-param flags: a param named like ours (--json, --out) cannot get one.
 def add_invocation_flags(parser: argparse.ArgumentParser, with_path: bool = True) -> None:
     if with_path:
         parser.add_argument("-p", "--param", action="append", metavar="NAME=VALUE", help="path parameter")
@@ -46,22 +48,20 @@ def add_param_flags(parser: argparse.ArgumentParser, operation: Operation) -> No
         )
 
     for param in operation.params:
-        if param.location == "path":
-            continue
         slug = flag_name(param)
-        if slug is None:
-            continue
-        kwargs: dict[str, Any] = {
-            "dest": dest_name(param),
-            "help": _describe(param),
-            "metavar": param.type.upper().split("[")[0],
-        }
-        if param.type.startswith("array"):
-            kwargs["action"] = "append"
-        if param.enum:
-            kwargs["choices"] = param.enum
-            kwargs.pop("metavar")
-        parser.add_argument(f"--{slug}", **kwargs)
+        if param.location != "path" and slug is not None:
+            parser.add_argument(f"--{slug}", **_flag_options(param))
+
+
+def _flag_options(param: Param) -> dict[str, Any]:
+    options: dict[str, Any] = {"dest": dest_name(param), "help": _describe(param)}
+    if param.type.startswith("array"):
+        options["action"] = "append"
+    if param.enum:
+        options["choices"] = param.enum
+    else:
+        options["metavar"] = param.type.upper().split("[")[0]
+    return options
 
 
 def _describe(param: Param) -> str:
@@ -77,43 +77,39 @@ def plan_for(args: argparse.Namespace, operation: Operation) -> RequestPlan:
     return build_plan(
         operation,
         vars(args),
-        query=getattr(args, "query", None),
+        query=args.query,
         path_values=getattr(args, "param", None),
-        headers=getattr(args, "header", None),
-        fields=getattr(args, "field", None),
-        data=getattr(args, "data", None),
-        files=getattr(args, "file", None),
-        accept=getattr(args, "accept", None),
+        headers=args.header,
+        fields=args.field,
+        data=args.data,
+        files=args.file,
+        accept=args.accept,
     )
 
 
 def run_operation(ctx: Context, operation: Operation) -> int:
     plan = plan_for(ctx.args, operation)
-
-    if getattr(ctx.args, "dry_run", False):
+    if ctx.args.dry_run:
         emit(ctx, {"operation": operation.ref, **plan.to_dict()})
         return 0
 
     destination = ctx.out_path()
-    if destination is not None:
-        saved = ctx.service.download(plan, destination)
-        emit(
-            ctx,
-            {"operation": operation.ref, "path": str(saved), "bytes": saved.stat().st_size},
-            text=f"[green]Saved[/green] {saved}",
-        )
-        return 0
+    if destination is None:
+        return emit_response(ctx, ctx.service.run(plan))
 
-    response = ctx.service.run(plan)
-    return emit_response(ctx, response)
+    saved = ctx.service.download(plan, destination)
+    emit(
+        ctx,
+        {"operation": operation.ref, "path": str(saved), "bytes": saved.stat().st_size},
+        text=f"[green]Saved[/green] {saved}",
+    )
+    return 0
 
 
-def emit_response(ctx: Context, response: Any) -> int:
-    if getattr(ctx.args, "raw", False):
+def emit_response(ctx: Context, response: httpx.Response) -> int:
+    if ctx.args.raw:
         print(response.text)
         return 0
-
-    from ..service import payload_of
 
     payload = payload_of(response)
     if payload is None:
@@ -122,14 +118,12 @@ def emit_response(ctx: Context, response: Any) -> int:
             print("null")
         return 0
 
-    if getattr(ctx.args, "table", False) and not ctx.as_json:
+    if ctx.args.table and not ctx.as_json:
         table = rows_from(payload)
-        if table is not None:
-            from .output import console
-
-            console(ctx).print(table)
-            return 0
-        raise OvError("That response is not a flat list, so --table has nothing to render.")
+        if table is None:
+            raise OvError("That response is not a flat list, so --table has nothing to render.")
+        console(ctx).print(table)
+        return 0
 
     emit_payload(ctx, payload)
     return 0

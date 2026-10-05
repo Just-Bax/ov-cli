@@ -14,6 +14,9 @@ import { Button, Card, GithubMark, Label, Select, Spinner } from '@/components/u
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 
+const SLOW_DOWN_STEP_MS = 5000
+const COPIED_FEEDBACK_MS = 2000
+
 function Step({
   n,
   done,
@@ -89,12 +92,13 @@ function CopilotSignIn({ onDone }: { onDone: () => void }) {
       const flow = await api.deviceStart()
       setCode(flow)
       setStarting(false)
+
       let interval = flow.interval * 1000
       for (;;) {
         await new Promise((r) => setTimeout(r, interval))
         const res = await api.devicePoll(flow.deviceCode)
         if (res.status === 'ok') return onDone()
-        if (res.status === 'slow_down') interval += 5000
+        if (res.status === 'slow_down') interval += SLOW_DOWN_STEP_MS
         if (res.status === 'error') throw new Error(res.message)
       }
     } catch (e) {
@@ -108,7 +112,7 @@ function CopilotSignIn({ onDone }: { onDone: () => void }) {
     if (!code) return
     void navigator.clipboard.writeText(code.userCode)
     setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS)
   }
 
   if (!code)
@@ -170,6 +174,7 @@ function pickModel(models: ModelInfo[]): string {
 function InstanceSignIn({ onDone }: { onDone: () => void }) {
   const [target, setTarget] = useState<SignInTarget>()
   const [pending, setPending] = useState(false)
+
   return (
     <div>
       <AddInstanceForm onSubmit={setTarget} />
@@ -190,7 +195,6 @@ function InstanceSignIn({ onDone }: { onDone: () => void }) {
   )
 }
 
-/** Shown until the user finishes step 3, even if the server already counts as ready. */
 export function Setup({
   status,
   onDone,
@@ -210,6 +214,7 @@ export function Setup({
 
   useEffect(() => {
     if (!copilotOk) return
+
     api
       .models()
       .then((m) => {
@@ -222,6 +227,7 @@ export function Setup({
   useEffect(() => setAdding(false), [status.instances.total])
 
   const current = !copilotOk ? 1 : !instancesOk ? 2 : 3
+
   const finish = async () => {
     setSaving(true)
     await api.saveSettings({ defaultModel: model })

@@ -14,6 +14,20 @@ from ov.agent.tools import TOOLS_BY_NAME, ToolError, tool_specs
 
 API_KEY = "a" * 28 + "1234"
 APP_KEY = "b" * 36 + "5678"
+AREAS_BY_PATH = {
+    "/api/v2/logs/events/search": "logs",
+    "/api/v2/logs/analytics/aggregate": "logs",
+    "/api/v1/query": "metrics",
+    "/api/v1/monitor": "monitors",
+    "/api/v2/events": "events",
+    "/api/v2/spans/events/search": "apm",
+    "/api/v2/spans/analytics/aggregate": "apm",
+    "/api/v1/hosts": "hosts",
+}
+
+
+def forbidden() -> httpx.Response:
+    return httpx.Response(403, json={"errors": ["Forbidden"]})
 
 
 class FakeDatadog:
@@ -28,93 +42,64 @@ class FakeDatadog:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        if request.headers.get("DD-API-KEY") != API_KEY:
-            return httpx.Response(403, json={"errors": ["Forbidden"]})
         path = request.url.path
+        if request.headers.get("DD-API-KEY") != API_KEY:
+            return forbidden()
         if path == "/api/v1/validate":
             return httpx.Response(200, json={"valid": True})
-        if request.headers.get("DD-APPLICATION-KEY") != APP_KEY:
-            return httpx.Response(403, json={"errors": ["Forbidden"]})
-        area = {
-            "/api/v2/logs/events/search": "logs",
-            "/api/v2/logs/analytics/aggregate": "logs",
-            "/api/v1/query": "metrics",
-            "/api/v1/monitor": "monitors",
-            "/api/v2/events": "events",
-            "/api/v2/spans/events/search": "apm",
-            "/api/v2/spans/analytics/aggregate": "apm",
-            "/api/v1/hosts": "hosts",
-        }.get(path)
-        if area in self.denied:
-            return httpx.Response(403, json={"errors": ["Forbidden"]})
-        body = json.loads(request.content) if request.content else {}
-        if path == "/api/v2/logs/events/search":
-            return httpx.Response(200, json={"data": [self._log(row) for row in self.logs]})
-        if path == "/api/v2/logs/analytics/aggregate":
-            return httpx.Response(200, json=self._aggregate(body))
-        if path == "/api/v1/query":
-            return httpx.Response(
-                200,
-                json={
-                    "series": [
-                        {
-                            "expression": request.url.params["query"],
-                            "scope": "host:acme-app-01",
-                            "pointlist": [[1_700_000_000_000, 10.0], [1_700_000_060_000, 30.0]],
-                        }
-                    ]
-                },
-            )
-        if path == "/api/v1/hosts":
-            names = [
-                "web01.acme-net.example",
-                "web02.acme-net.example",
-                "app01.acme-net.example",
-                "web01.dev-acme-net.example",
-                "acme-net-123.lb.example",
-                "db01.other.example",
-            ]
-            rows = [{"name": n} for n in names]
-            return httpx.Response(200, json={"host_list": rows, "total_matching": len(rows)})
-        if path == "/api/v1/monitor":
-            return httpx.Response(200, json=self._monitors())
-        if path == "/api/v2/events":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "attributes": {
-                                "timestamp": "2026-10-04T10:00:00Z",
-                                "message": "Deployed 26.4",
-                                "attributes": {"title": "Deploy acme", "source_type_name": "ci"},
-                            }
-                        }
-                    ]
-                },
-            )
-        if path == "/api/v2/spans/analytics/aggregate" and "@span.kind:server" in request.content.decode():
+        if request.headers.get("DD-APPLICATION-KEY") != APP_KEY or AREAS_BY_PATH.get(path) in self.denied:
+            return forbidden()
+
+        routes = {
+            "/api/v2/logs/events/search": lambda: {"data": [self._log(row) for row in self.logs]},
+            "/api/v2/logs/analytics/aggregate": lambda: self._aggregate(json.loads(request.content)),
+            "/api/v1/query": lambda: self._query(request.url.params["query"]),
+            "/api/v1/hosts": self._hosts,
+            "/api/v1/monitor": self._monitors,
+            "/api/v2/events": self._events,
+            "/api/v2/spans/analytics/aggregate": lambda: self._spans(request.content.decode()),
+        }
+        route = routes.get(path)
+        return httpx.Response(200, json=route() if route else {"data": []})
+
+    @staticmethod
+    def _query(query: str) -> dict[str, Any]:
+        series = {
+            "expression": query,
+            "scope": "host:acme-app-01",
+            "pointlist": [[1_700_000_000_000, 10.0], [1_700_000_060_000, 30.0]],
+        }
+        return {"series": [series]}
+
+    @staticmethod
+    def _hosts() -> dict[str, Any]:
+        names = [
+            "web01.acme-net.example",
+            "web02.acme-net.example",
+            "app01.acme-net.example",
+            "web01.dev-acme-net.example",
+            "acme-net-123.lb.example",
+            "db01.other.example",
+        ]
+        return {"host_list": [{"name": n} for n in names], "total_matching": len(names)}
+
+    @staticmethod
+    def _events() -> dict[str, Any]:
+        event = {
+            "timestamp": "2026-10-04T10:00:00Z",
+            "message": "Deployed 26.4",
+            "attributes": {"title": "Deploy acme", "source_type_name": "ci"},
+        }
+        return {"data": [{"attributes": event}]}
+
+    @staticmethod
+    def _spans(body: str) -> dict[str, Any]:
+        if "@span.kind:server" in body:
             points = [{"time": "2026-10-04T10:00:00Z", "value": 2_000_000_000}]
-            return httpx.Response(
-                200,
-                json={"data": [{"attributes": {"compute": {"c0": points, "c1": points}}}]},
-            )
-        if path == "/api/v2/spans/analytics/aggregate":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "type": "bucket",
-                            "attributes": {
-                                "by": {"resource_name": "GET /trackor"},
-                                "compute": {"c0": 2_500_000_000, "c1": 40},
-                            },
-                        }
-                    ]
-                },
-            )
-        return httpx.Response(200, json={"data": []})
+            return {"data": [{"attributes": {"compute": {"c0": points, "c1": points}}}]}
+
+        bucket = {"by": {"resource_name": "GET /trackor"}, "compute": {"c0": 2_500_000_000, "c1": 40}}
+        return {"data": [{"type": "bucket", "attributes": bucket}]}
 
     @staticmethod
     def _log(row: dict[str, str]) -> dict[str, Any]:
@@ -198,7 +183,6 @@ def test_connect_checks_both_keys_and_reports_what_it_can_read(fake, ov_home):
         "hosts": False,
     }
     assert credentials.get(datadog.CREDENTIAL_KEY) == {"api_key": API_KEY, "app_key": APP_KEY}
-    # Secrets stay in the credential store, never in the plain state file.
     assert API_KEY not in (ov_home / "agent" / "datadog.json").read_text(encoding="utf-8")
     assert all(r.url.host == "api.datadoghq.com" for r in fake.requests)
 
@@ -228,7 +212,6 @@ def test_servers_are_grouped_per_instance(linked):
     }
     roles = {h["name"]: (h["role"], h["alias"]) for h in found["hosts"]}
     assert roles["web02.acme-net.example"] == ("web", "acme")
-    # A machine whose own name merely contains the instance name is not one of its servers.
     assert roles["acme-net-123.lb.example"][1] is None
     assert roles["db01.other.example"] == ("db", None)
 
@@ -348,7 +331,6 @@ def test_health_report(linked):
     assert [(s["host"], s["role"], s["cpu"]) for s in report["servers"]] == [("acme-app-01", "acme-app", 30.0)]
     assert report["traffic"]["p95Ms"][0]["v"] == 2000.0
 
-    # Cached: a second call makes no requests.
     before = len(linked.requests)
     datadog.health("acme", "24h")
     assert len(linked.requests) == before

@@ -30,25 +30,17 @@ class Cancel:
             self._event.set()
             hooks = list(self._hooks)
         for hook in hooks:
-            _quietly(hook)
+            hook()
 
-    # Lets a blocking read or a child process be torn down from another thread.
     @contextmanager
     def hook(self, fn: Callable[[], None]) -> Iterator[None]:
         with self._lock:
             fire = self._event.is_set()
             self._hooks.append(fn)
-        if fire:
-            _quietly(fn)
         try:
+            if fire:
+                fn()
             yield
         finally:
             with self._lock:
                 self._hooks.remove(fn)
-
-
-def _quietly(fn: Callable[[], None]) -> None:
-    try:
-        fn()
-    except Exception:
-        pass

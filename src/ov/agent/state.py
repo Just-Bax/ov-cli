@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-# Mirrors web/shared/reduce.ts; keep the two in sync.
+State = dict[str, Any]
+Stored = dict[str, Any]
 
 
-def empty_state(summary: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+def empty_state(summary: dict[str, Any], data: dict[str, Any]) -> State:
     return {
         "summary": summary,
         "input": data,
@@ -29,82 +31,83 @@ def _upsert(items: list[dict[str, Any]], new: dict[str, Any], merge: bool = Fals
     items.append(new)
 
 
-def _add_item(state: dict[str, Any], kind: str, item_id: str) -> None:
+def _add_item(state: State, kind: str, item_id: str) -> None:
     if not any(x["kind"] == kind and x["id"] == item_id for x in state["items"]):
         state["items"].append({"kind": kind, "id": item_id})
 
 
-def reduce(state: dict[str, Any], stored: dict[str, Any]) -> dict[str, Any]:
-    event, ts, seq = stored["event"], stored["ts"], stored["seq"]
-    kind = event.get("type")
-
-    if kind == "status":
-        state["summary"] = {**state["summary"], "status": event["status"], "updatedAt": ts}
-        if event["status"] == "error":
-            state["error"] = event.get("error")
-    elif kind == "meta":
-        for key in ("title", "instance", "caseKey"):
-            if event.get(key) is not None:
-                state["summary"][key] = event[key]
-        if event.get("caseUrl"):
-            state["caseUrl"] = event["caseUrl"]
-    elif kind == "tool":
-        _upsert(state["tools"], event["tool"], merge=True)
-        _add_item(state, "tool", event["tool"]["id"])
-    elif kind == "text":
-        _append_text(state, event, ts)
-    elif kind == "user":
-        message = event["message"]
-        state["queued"] = [m for m in state["queued"] if m["id"] != message["id"]]
-        state["chat"] = [m for m in state["chat"] if m["id"] != message["id"]] + [message]
-        _add_item(state, "user", message["id"])
-    elif kind == "change":
-        _upsert(state["changes"], event["change"])
-        _add_item(state, "change", event["change"]["id"])
-    elif kind == "outcome":
-        state["outcome"], state["outcomeId"] = event["outcome"], f"o{seq}"
-        _add_item(state, "outcome", state["outcomeId"])
-    elif kind == "question":
-        _upsert(state["questions"], event["question"])
-        _add_item(state, "question", event["question"]["id"])
-    elif kind == "login":
-        _upsert(state["logins"], event["login"])
-        _add_item(state, "login", event["login"]["id"])
-    elif kind == "queued":
-        message = event["message"]
-        state["queued"] = [m for m in state["queued"] if m["id"] != message["id"]] + [message]
-    elif kind == "unqueue":
-        state["queued"] = [m for m in state["queued"] if m["id"] != event["id"]]
-    elif kind == "rewind":
-        _rewind(state, event["itemId"])
-    elif kind == "rate":
-        if event.get("rating"):
-            state["ratings"][event["turnId"]] = {
-                "rating": event["rating"],
-                "note": event.get("note"),
-            }
-        else:
-            state["ratings"].pop(event["turnId"], None)
-    elif kind == "access":
-        state["writeAccess"] = event["write"]
-    return state
+def _without(messages: list[dict[str, Any]], message_id: str) -> list[dict[str, Any]]:
+    return [m for m in messages if m["id"] != message_id]
 
 
-def _append_text(state: dict[str, Any], event: dict[str, Any], ts: int) -> None:
+def _on_status(state: State, stored: Stored) -> None:
+    event = stored["event"]
+    state["summary"] = {**state["summary"], "status": event["status"], "updatedAt": stored["ts"]}
+    if event["status"] == "error":
+        state["error"] = event["error"]
+
+
+def _on_meta(state: State, stored: Stored) -> None:
+    event = stored["event"]
+    for key in ("title", "instance", "caseKey"):
+        if event.get(key) is not None:
+            state["summary"][key] = event[key]
+    if event.get("caseUrl"):
+        state["caseUrl"] = event["caseUrl"]
+
+
+def _on_tool(state: State, stored: Stored) -> None:
+    tool = stored["event"]["tool"]
+    _upsert(state["tools"], tool, merge=True)
+    _add_item(state, "tool", tool["id"])
+
+
+def _on_text(state: State, stored: Stored) -> None:
+    event = stored["event"]
     for message in state["chat"]:
         if message["id"] == event["messageId"]:
             message["text"] += event["delta"]
             break
     else:
-        state["chat"].append({"id": event["messageId"], "role": "assistant", "text": event["delta"], "ts": ts})
+        state["chat"].append(
+            {"id": event["messageId"], "role": "assistant", "text": event["delta"], "ts": stored["ts"]}
+        )
     _add_item(state, "text", event["messageId"])
 
 
-def _rewind(state: dict[str, Any], item_id: str) -> None:
-    index = next(
-        (i for i, x in enumerate(state["items"]) if x["kind"] == "user" and x["id"] == item_id),
-        -1,
-    )
+def _on_user(state: State, stored: Stored) -> None:
+    message = stored["event"]["message"]
+    state["queued"] = _without(state["queued"], message["id"])
+    state["chat"] = [*_without(state["chat"], message["id"]), message]
+    _add_item(state, "user", message["id"])
+
+
+def _on_outcome(state: State, stored: Stored) -> None:
+    state["outcome"], state["outcomeId"] = stored["event"]["outcome"], f"o{stored['seq']}"
+    _add_item(state, "outcome", state["outcomeId"])
+
+
+def _upserter(kind: str, collection: str) -> Callable[[State, Stored], None]:
+    def apply(state: State, stored: Stored) -> None:
+        entry = stored["event"][kind]
+        _upsert(state[collection], entry)
+        _add_item(state, kind, entry["id"])
+
+    return apply
+
+
+def _on_queued(state: State, stored: Stored) -> None:
+    message = stored["event"]["message"]
+    state["queued"] = [*_without(state["queued"], message["id"]), message]
+
+
+def _on_unqueue(state: State, stored: Stored) -> None:
+    state["queued"] = _without(state["queued"], stored["event"]["id"])
+
+
+def _on_rewind(state: State, stored: Stored) -> None:
+    item_id = stored["event"]["itemId"]
+    index = next((i for i, x in enumerate(state["items"]) if x["kind"] == "user" and x["id"] == item_id), -1)
     if index < 0:
         return
 
@@ -114,3 +117,40 @@ def _rewind(state: dict[str, Any], item_id: str) -> None:
     if not (state.get("outcomeId") and f"outcome:{state['outcomeId']}" in keep):
         state.pop("outcome", None)
         state.pop("outcomeId", None)
+
+
+def _on_rate(state: State, stored: Stored) -> None:
+    event = stored["event"]
+    if event["rating"]:
+        state["ratings"][event["turnId"]] = {"rating": event["rating"], "note": event["note"]}
+    else:
+        state["ratings"].pop(event["turnId"], None)
+
+
+def _on_access(state: State, stored: Stored) -> None:
+    state["writeAccess"] = stored["event"]["write"]
+
+
+_REDUCERS: dict[str, Callable[[State, Stored], None]] = {
+    "status": _on_status,
+    "meta": _on_meta,
+    "tool": _on_tool,
+    "text": _on_text,
+    "user": _on_user,
+    "change": _upserter("change", "changes"),
+    "outcome": _on_outcome,
+    "question": _upserter("question", "questions"),
+    "login": _upserter("login", "logins"),
+    "queued": _on_queued,
+    "unqueue": _on_unqueue,
+    "rewind": _on_rewind,
+    "rate": _on_rate,
+    "access": _on_access,
+}
+
+
+def reduce(state: State, stored: Stored) -> State:
+    reducer = _REDUCERS.get(stored["event"]["type"])
+    if reducer is not None:
+        reducer(state, stored)
+    return state

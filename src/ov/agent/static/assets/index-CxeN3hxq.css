@@ -1035,9 +1035,6 @@ svg.react-flow__connectionline {
   .inline-flex {
     display: inline-flex;
   }
-  .table {
-    display: table;
-  }
   .field-sizing-content {
     field-sizing: content;
   }
@@ -1526,9 +1523,6 @@ svg.react-flow__connectionline {
   }
   .justify-end {
     justify-content: flex-end;
-  }
-  .justify-start {
-    justify-content: flex-start;
   }
   .gap-0\.5 {
     gap: calc(var(--spacing) * 0.5);
@@ -2621,10 +2615,6 @@ svg.react-flow__connectionline {
     background-position: -220px 0;
     animation: shimmer 1.6s ease-in-out infinite;
     border-radius: 6px;
-  }
-  .skeleton-dim {
-    background-color: rgba(38, 50, 56, 0.07);
-    background-image: linear-gradient( 90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.45) 50%, rgba(255, 255, 255, 0) 100% );
   }
   .ov-spinner {
     animation: ov-spin 1s linear infinite;

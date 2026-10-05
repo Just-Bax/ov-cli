@@ -52,6 +52,30 @@ const RANGE_WORDS: Record<Range, string> = { '1h': 'hour', '24h': '24 hours', '7
 
 const BLUE = '#42a5f5'
 const RED = '#e53935'
+const CHART_WIDTH = 600
+const CHART_HEIGHT = 190
+const SPARKLINE_WIDTH = 240
+const SPARKLINE_HEIGHT = 44
+
+const ERROR_SPIKE_PERCENT = 50
+const ERROR_SPIKE_MIN_ERRORS = 10
+const SLOW_P95_MS = 10_000
+const SLUGGISH_P95_MS = 3000
+const FAILED_RUNS_DANGER = 50
+const CPU_HIGH = 85
+const CPU_WARN = 65
+const DISK_FULL = 90
+const DISK_WARN = 80
+const MEMORY_LOW = 10
+const MEMORY_WARN = 20
+const LOAD_HIGH = 1.5
+const LOAD_WARN = 1
+
+const SIGNAL_FAILURE_TYPES = 2
+const INCIDENT_ROWS = 8
+const MONITOR_ROWS = 6
+const TOP_ERROR_ROWS = 3
+const EVENT_ROWS = 4
 
 function count(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -78,10 +102,14 @@ function fmt(value: number, unit: string): string {
     }
     return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`
   }
+
   return value >= 100 ? count(value) : value.toFixed(2)
 }
 
 const total = (points?: HealthPoint[]) => (points ?? []).reduce((sum, p) => sum + p.v, 0)
+
+const isErrorSpike = (errorChange: number | null, errors: number) =>
+  errorChange !== null && errorChange > ERROR_SPIKE_PERCENT && errors >= ERROR_SPIKE_MIN_ERRORS
 
 function clock(ms: number, range: Range): string {
   const d = new Date(ms)
@@ -90,7 +118,6 @@ function clock(ms: number, range: Range): string {
     : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
-/** Bars with an optional line on its own scale, time labels and a hover readout. */
 function TimeChart({
   bars,
   line,
@@ -101,7 +128,6 @@ function TimeChart({
   formatBar,
   formatLine,
   range,
-  height = 190,
 }: {
   bars: HealthPoint[]
   line?: HealthPoint[]
@@ -112,13 +138,14 @@ function TimeChart({
   formatBar: (v: number) => string
   formatLine?: (v: number) => string
   range: Range
-  height?: number
 }) {
   const [hover, setHover] = useState<number>()
-  const width = 600
+  const width = CHART_WIDTH
+  const height = CHART_HEIGHT
   const n = bars.length
   if (!n)
     return <div className="text-faint py-12 text-center text-[12.5px]">No data in this window.</div>
+
   const barMax = Math.max(...bars.map((p) => p.v), 1)
   const lineMax = Math.max(...(line ?? []).map((p) => p.v), 1)
   const slot = width / n
@@ -131,6 +158,7 @@ function TimeChart({
     .join(' ')
   const at = hover ?? -1
   const point = bars[at]
+
   return (
     <div>
       <div className="text-faint flex justify-between pb-1 text-[11px]">
@@ -170,6 +198,7 @@ function TimeChart({
           ))}
           {bars.map((p, i) => {
             const top = y(p.v, barMax)
+
             return (
               <rect
                 key={p.t}
@@ -238,17 +267,11 @@ function TimeChart({
   )
 }
 
-function Sparkline({
-  points,
-  color,
-  height = 44,
-}: {
-  points: HealthPoint[]
-  color: string
-  height?: number
-}) {
-  const width = 240
+function Sparkline({ points, color }: { points: HealthPoint[]; color: string }) {
+  const width = SPARKLINE_WIDTH
+  const height = SPARKLINE_HEIGHT
   if (points.length < 2) return <div style={{ height }} />
+
   const ys = points.map((p) => p.v)
   const [lo, hi] = [Math.min(...ys), Math.max(...ys)]
   const pad = (hi - lo) * 0.15 || Math.abs(hi) * 0.1 || 1
@@ -256,6 +279,7 @@ function Sparkline({
   const x = (i: number) => (i / (points.length - 1)) * width
   const y = (v: number) => height - ((v - y0) / (y1 - y0)) * height
   const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`)
+
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
@@ -329,9 +353,10 @@ function signalsOf(report: InstanceHealth, errorChange: number | null): Signal[]
   const failures = report.onevizion ?? []
   const metric = (title: string) => report.metrics?.find((m) => m.title === title)
   const latest = (title: string) => metric(title)?.points.at(-1)?.v
-  const out: Signal[] = []
   const open = report.pagerduty?.open ?? []
   const triggered = open.filter((i) => i.status === 'triggered').length
+  const out: Signal[] = []
+
   if (triggered)
     out.push({
       tone: 'danger',
@@ -342,23 +367,27 @@ function signalsOf(report: InstanceHealth, errorChange: number | null): Signal[]
   if (alerts)
     out.push({ tone: 'danger', text: `${alerts} monitor${alerts > 1 ? 's' : ''} alerting` })
   if (warns) out.push({ tone: 'warn', text: `${warns} monitor${warns > 1 ? 's' : ''} warning` })
-  if (errorChange !== null && errorChange > 50 && errors >= 10)
+
+  if (isErrorSpike(errorChange, errors))
     out.push({ tone: 'warn', text: `Error logs up ${errorChange}%` })
-  if (slowest && slowest.p95Ms >= 10_000)
+  if (slowest && slowest.p95Ms >= SLOW_P95_MS)
     out.push({ tone: 'warn', text: `Slowest endpoint ${duration(slowest.p95Ms)} p95` })
-  for (const f of failures.slice(0, 2))
+  for (const f of failures.slice(0, SIGNAL_FAILURE_TYPES))
     out.push({
-      tone: f.count >= 50 ? 'danger' : 'warn',
+      tone: f.count >= FAILED_RUNS_DANGER ? 'danger' : 'warn',
       text: `${count(f.count)} failed ${f.type.toLowerCase()} runs`,
     })
+
   const cpu = latest('CPU')
-  if (cpu !== undefined && cpu >= 85) out.push({ tone: 'warn', text: `CPU at ${fmt(cpu, '%')}` })
+  if (cpu !== undefined && cpu >= CPU_HIGH)
+    out.push({ tone: 'warn', text: `CPU at ${fmt(cpu, '%')}` })
   const disk = latest('Disk in use')
-  if (disk !== undefined && disk >= 90)
+  if (disk !== undefined && disk >= DISK_FULL)
     out.push({ tone: 'danger', text: `Disk ${fmt(disk, '%')} full` })
   const memory = latest('Memory usable')
-  if (memory !== undefined && memory <= 10)
+  if (memory !== undefined && memory <= MEMORY_LOW)
     out.push({ tone: 'warn', text: `Only ${fmt(memory, '%')} memory free` })
+
   return out
 }
 
@@ -424,8 +453,9 @@ function Incidents({ data, range }: { data: PagerDutyHealth; range: Range }) {
   const open = data.open ?? []
   const openIds = new Set(open.map((i) => i.id))
   const recent = (data.incidents ?? []).filter((i) => !openIds.has(i.id))
-  const rows = [...open, ...recent].slice(0, 8)
+  const rows = [...open, ...recent].slice(0, INCIDENT_ROWS)
   const primary = data.oncall ?? []
+
   return (
     <Card className="p-5">
       <div className="flex items-start gap-3 pb-3">
@@ -567,7 +597,7 @@ function Report({
                   ? 'No earlier data'
                   : `${errorChange > 0 ? '+' : ''}${errorChange}% vs previous`
               }
-              tone={errorChange !== null && errorChange > 50 && errors >= 10 ? 'warn' : undefined}
+              tone={isErrorSpike(errorChange, errors) ? 'warn' : undefined}
             />
             <Stat
               label="Slowest p95"
@@ -575,13 +605,13 @@ function Report({
               sub={
                 slowest ? slowest.resource : status.permissions.apm ? 'No traces' : 'No APM access'
               }
-              tone={slowest && slowest.p95Ms >= 10_000 ? 'warn' : undefined}
+              tone={slowest && slowest.p95Ms >= SLOW_P95_MS ? 'warn' : undefined}
             />
             <Stat
               label="Failed runs"
               value={report.errors.onevizion ? '-' : count(failed)}
               sub={failures[0] ? `Most: ${failures[0].type}` : 'OneVizion processes'}
-              tone={failed >= 50 ? 'danger' : failed ? 'warn' : undefined}
+              tone={failed >= FAILED_RUNS_DANGER ? 'danger' : failed ? 'warn' : undefined}
             />
           </div>
         </div>
@@ -666,6 +696,7 @@ function Report({
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {report.metrics.map((m) => {
             const latest = m.points.at(-1)?.v ?? 0
+
             return (
               <Card key={m.title} className="p-4">
                 <div className="text-muted text-[12px] font-medium">{m.title}</div>
@@ -713,7 +744,11 @@ function Report({
                     <div
                       className={cn(
                         'h-full rounded-full',
-                        s.p95Ms >= 10_000 ? 'bg-danger' : s.p95Ms >= 3000 ? 'bg-warn' : 'bg-brand',
+                        s.p95Ms >= SLOW_P95_MS
+                          ? 'bg-danger'
+                          : s.p95Ms >= SLUGGISH_P95_MS
+                            ? 'bg-warn'
+                            : 'bg-brand',
                       )}
                       style={{ width: `${Math.max(3, (s.p95Ms / slowMax) * 100)}%` }}
                     />
@@ -735,7 +770,7 @@ function Report({
               <div className="text-faint text-[12.5px]">The key cannot read monitors.</div>
             ) : alerting.length ? (
               <div className="-mx-2 space-y-0.5">
-                {alerting.slice(0, 6).map((m) => (
+                {alerting.slice(0, MONITOR_ROWS).map((m) => (
                   <a
                     key={m.id}
                     href={`${report.appUrl}/monitors/${m.id}`}
@@ -760,7 +795,7 @@ function Report({
             <SubHead>Top errors</SubHead>
             {report.topErrors?.length ? (
               <div className="space-y-2">
-                {report.topErrors.slice(0, 3).map((e) => (
+                {report.topErrors.slice(0, TOP_ERROR_ROWS).map((e) => (
                   <div key={e.pattern} className="flex items-start gap-2.5">
                     <span className="bg-danger-soft text-danger inline-flex h-5 min-w-8 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold">
                       {count(e.count)}
@@ -789,7 +824,7 @@ function Report({
             <SubHead>Events</SubHead>
             {report.events?.length ? (
               <div className="space-y-2">
-                {report.events.slice(0, 4).map((e, i) => (
+                {report.events.slice(0, EVENT_ROWS).map((e, i) => (
                   <div key={i} className="min-w-0">
                     <div className="text-fg truncate text-[12.5px]">{e.title || e.message}</div>
                     <div className="text-faint text-[11px]">{e.time} UTC</div>
@@ -829,7 +864,6 @@ const PREVIEW = [
   },
 ]
 
-// Latest value per server; the tone marks a server that stands out.
 const SERVER_COLUMNS: {
   key: keyof HealthServer
   title: string
@@ -840,31 +874,32 @@ const SERVER_COLUMNS: {
     key: 'cpu',
     title: 'CPU',
     unit: '%',
-    tone: (v) => (v >= 85 ? 'danger' : v >= 65 ? 'warn' : null),
+    tone: (v) => (v >= CPU_HIGH ? 'danger' : v >= CPU_WARN ? 'warn' : null),
   },
   {
     key: 'memory',
     title: 'Memory usable',
     unit: '%',
-    tone: (v) => (v <= 10 ? 'danger' : v <= 20 ? 'warn' : null),
+    tone: (v) => (v <= MEMORY_LOW ? 'danger' : v <= MEMORY_WARN ? 'warn' : null),
   },
   {
     key: 'disk',
     title: 'Disk in use',
     unit: '%',
-    tone: (v) => (v >= 90 ? 'danger' : v >= 80 ? 'warn' : null),
+    tone: (v) => (v >= DISK_FULL ? 'danger' : v >= DISK_WARN ? 'warn' : null),
   },
   {
     key: 'load',
     title: 'Load',
     unit: '',
-    tone: (v) => (v >= 1.5 ? 'danger' : v >= 1 ? 'warn' : null),
+    tone: (v) => (v >= LOAD_HIGH ? 'danger' : v >= LOAD_WARN ? 'warn' : null),
   },
   { key: 'heap', title: 'JVM heap', unit: 'B', tone: () => null },
 ]
 
 function Servers({ servers }: { servers: HealthServer[] }) {
   const columns = SERVER_COLUMNS.filter((c) => servers.some((s) => typeof s[c.key] === 'number'))
+
   return (
     <Card className="p-5">
       <CardHeader title="Servers" hint="latest value per server" />
@@ -892,6 +927,7 @@ function Servers({ servers }: { servers: HealthServer[] }) {
                 {columns.map((c) => {
                   const v = s[c.key]
                   const tone = typeof v === 'number' ? c.tone(v) : null
+
                   return (
                     <td
                       key={c.key}
@@ -1049,6 +1085,12 @@ function MatchInstance({
   )
 }
 
+function serverCount(scope: string): ReactNode {
+  const hosts = hostsIn(scope)
+  if (!hosts) return <span className="font-mono">{scope}</span>
+  return `${hosts.length} server${hosts.length === 1 ? '' : 's'}`
+}
+
 export function HealthPage() {
   const { status, setStatus } = useDatadog()
   const { instances } = useInstances()
@@ -1059,6 +1101,7 @@ export function HealthPage() {
       (a, b) => Number(Boolean(a.tenant)) - Number(Boolean(b.tenant)),
     ))
       if (!byHost.has(i.host)) byHost.set(i.host, i)
+
     return [...byHost.values()].sort((a, b) => a.host.localeCompare(b.host))
   }, [instances])
   const [alias, setAlias] = useState(() => localStorage.getItem(INSTANCE_KEY) ?? '')
@@ -1071,6 +1114,7 @@ export function HealthPage() {
 
   useEffect(() => {
     if (!instances || signedIn.some((i) => i.alias === alias)) return
+
     const host = instances.find((i) => i.alias === alias)?.host
     setAlias((signedIn.find((i) => i.host === host) ?? signedIn[0])?.alias ?? '')
   }, [instances])
@@ -1083,6 +1127,7 @@ export function HealthPage() {
 
   useEffect(() => {
     if (!status?.connected || !alias) return
+
     let alive = true
     setLoading(true)
     setError(undefined)
@@ -1091,6 +1136,7 @@ export function HealthPage() {
       .then((r) => alive && setReport(r))
       .catch((e: Error) => alive && setError(e.message))
       .finally(() => alive && setLoading(false))
+
     return () => {
       alive = false
     }
@@ -1146,9 +1192,9 @@ export function HealthPage() {
     <span className="inline-flex items-center gap-1.5">
       {report?.scope && label ? (
         <>
-          {label} - <span className="font-mono">{report.scope}</span>
+          {label} - {serverCount(report.scope)}
           <a href={href({ page: 'settings' })} className="text-brand-strong hover:underline">
-            Change match
+            Change servers
           </a>
         </>
       ) : (

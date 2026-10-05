@@ -3,12 +3,15 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable
+from typing import Any
 
 from ... import session as session_store
+from ...cache import Cache
+from ...client import Client
 from ...config import normalize_base_url
 from ...errors import EXIT_AUTH, LoginFailed, NotConfigured, NotLoggedIn, OvError, SessionExpired
-from ...login import interactive_login
 from ...paths import config_file
+from ...service import AUTHORIZE_PATH, OvService
 from ...session import Session
 from ...tenants import NO_TENANTS, resolve_tenant, tenant_rows
 from ..context import Context, build_client
@@ -16,6 +19,8 @@ from ..dynamic import reset_cache
 from ..output import build_table, emit, note, warn
 
 LOGOFF_PATH = "/LogOff.do"
+LOGIN_TIMEOUT_SECONDS = 300
+BEARER_PREFIX = "bearer "
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
@@ -36,7 +41,12 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
         "--token",
         help="skip the browser and use an accessKey:secretKey pair from Admin > Auth Tokens; - reads it from stdin",
     )
-    login.add_argument("--timeout", type=int, default=300, help="seconds to wait for sign-in (default 300)")
+    login.add_argument(
+        "--timeout",
+        type=int,
+        default=LOGIN_TIMEOUT_SECONDS,
+        help=f"seconds to wait for sign-in (default {LOGIN_TIMEOUT_SECONDS})",
+    )
     login.add_argument("--no-spec", action="store_true", help="do not download the OpenAPI schema after signing in")
     login.add_argument(
         "--tenant",
@@ -85,31 +95,13 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
 
 def cmd_login(ctx: Context) -> int:
     args = ctx.args
-    base_url = _target_url(ctx)
-    # Fail before opening a browser if --as names someone else's instance.
-    session_store.unique_alias(base_url, args.alias or "")
-
-    session = _token_login(ctx, base_url) if args.token else _browser_login(ctx, base_url)
-    if args.tenant:
-        _choose_tenant(ctx, session, args.tenant)
-
-    # Must precede the mint, which persists under this alias; the host may differ after a redirect.
-    session.alias = session_store.unique_alias(session.base_url, args.alias or "", session.tenant, session.tenant_id)
-    if args.tenant:
-        note(ctx, f"Switching to tenant [cyan]{session.tenant}[/cyan]...")
-        _mint_in_tenant(ctx, session)
+    current = not args.keep_current
+    session = _signed_in_session(ctx)
 
     note(ctx, "Checking the credentials...")
-    with build_client(ctx.config, session) as client:
-        try:
-            client.api("GET", "/authorize", accept="text/plain")
-        except SessionExpired as exc:
-            raise LoginFailed(f"The credentials were not accepted: {exc}") from None
-        except OvError as exc:
-            # /authorize needs Web Services at Read; other access is still useful, so only warn.
-            warn(ctx, f"[yellow]Signed in, but /api/authorize said:[/yellow] {exc}")
+    _check_credentials(ctx, session)
 
-    session_store.save(session, make_current=not args.keep_current)
+    session_store.save(session, make_current=current)
     reset_cache()
     ctx.cache.clear()
 
@@ -126,33 +118,58 @@ def cmd_login(ctx: Context) -> int:
         "mode": session.mode,
         "access_key": session.access_key,
         "expires": session.expires_text or None,
-        "current": not args.keep_current,
+        "current": current,
         "operations": fetched or None,
         "config_file": str(config_file()),
     }
-    emit(ctx, data, text=_login_text(session, fetched, current=not args.keep_current))
+    emit(ctx, data, text=_login_text(session, fetched, current=current))
     return 0
+
+
+def _signed_in_session(ctx: Context) -> Session:
+    args = ctx.args
+    base_url = _target_url(ctx)
+    session_store.unique_alias(base_url, args.alias or "")
+
+    session = _token_login(ctx, base_url) if args.token else _browser_login(ctx, base_url)
+    if args.tenant:
+        _choose_tenant(ctx, session, args.tenant)
+
+    session.alias = session_store.unique_alias(session.base_url, args.alias or "", session.tenant, session.tenant_id)
+    if args.tenant:
+        note(ctx, f"Switching to tenant [cyan]{session.tenant}[/cyan]...")
+        with build_client(ctx.config, session) as client:
+            client.refresh_token()
+    return session
+
+
+def _check_credentials(ctx: Context, session: Session) -> None:
+    with build_client(ctx.config, session) as client:
+        try:
+            _authorize(client)
+        except SessionExpired as exc:
+            raise LoginFailed(f"The credentials were not accepted: {exc}") from None
+        except OvError as exc:
+            warn(ctx, f"[yellow]Signed in, but /api/authorize said:[/yellow] {exc}")
+
+
+def _authorize(client: Client) -> None:
+    client.api("GET", AUTHORIZE_PATH, accept="text/plain")
 
 
 def _choose_tenant(ctx: Context, session: Session, wanted: str) -> None:
     if session.is_static:
         raise OvError("--tenant needs a browser sign-in. An API token is already tied to one tenant.")
-
     note(ctx, "Reading the tenant list...")
     with build_client(ctx.config, session) as client:
         session.tenant_id, session.tenant = resolve_tenant(client.tenants(), wanted)
-
-
-# Tokens are tenant-scoped, and sign-in always lands in the account's own tenant.
-def _mint_in_tenant(ctx: Context, session: Session) -> None:
-    with build_client(ctx.config, session) as client:
-        client.refresh_token()
 
 
 def _login_text(session: Session, fetched: int, current: bool) -> str:
     where = session.base_url
     if session.tenant:
         where += f" tenant [cyan]{session.tenant}[/cyan]"
+
     lines = [f"[green]Logged in[/green] to {where} as [cyan]{session.alias}[/cyan] ({session.mode} credential)."]
     if session.expires_text:
         lines.append(f"Token expires {session.expires_text}.")
@@ -170,14 +187,14 @@ def _target_url(ctx: Context) -> str:
     if ctx.args.url:
         return normalize_base_url(ctx.args.url)
     try:
-        return session_store.load(ctx.instance).base_url
-    except (NotLoggedIn, OvError) as exc:
-        if isinstance(exc, NotLoggedIn):
-            raise NotConfigured from None
-        raise
+        return session_store.find(ctx.instance).base_url
+    except NotLoggedIn:
+        raise NotConfigured from None
 
 
 def _browser_login(ctx: Context, base_url: str) -> Session:
+    from ...login import interactive_login
+
     note(
         ctx,
         f"Opening a browser at [cyan]{base_url}/Login.do[/cyan].\n"
@@ -194,13 +211,11 @@ def _browser_login(ctx: Context, base_url: str) -> Session:
     )
 
 
-# A five minute wait with no output reads as a hang.
 def _progress(ctx: Context) -> Callable[[str], None]:
     def report(message: str) -> None:
         if ctx.args.verbose:
             warn(ctx, f"[dim]{message}[/dim]")
         else:
-            # Keep the elapsed seconds: a line that never changes looks like a stopped process.
             warn(ctx, f"[dim]{message.split(':')[0]}, still waiting for sign-in[/dim]")
 
     return report
@@ -208,8 +223,8 @@ def _progress(ctx: Context) -> Callable[[str], None]:
 
 def _token_login(ctx: Context, base_url: str) -> Session:
     token = (sys.stdin.readline() if ctx.args.token == "-" else ctx.args.token).strip()
-    if token.lower().startswith("bearer "):
-        token = token[7:].strip()
+    if token.lower().startswith(BEARER_PREFIX):
+        token = token[len(BEARER_PREFIX) :].strip()
     if token.count(":") != 1 or not all(token.split(":")):
         raise OvError("--token expects accessKey:secretKey, as shown in Admin > Auth Tokens.")
     return Session(base_url=base_url, mode="token", bearer_token=token)
@@ -218,10 +233,9 @@ def _token_login(ctx: Context, base_url: str) -> Session:
 def _prefetch_spec(ctx: Context, session: Session) -> int:
     try:
         with build_client(ctx.config, session) as client:
-            from ...service import OvService
-
             service = OvService(
                 client,
+                cache=Cache(ttl_seconds=0),
                 spec_group=ctx.config.spec_group,
                 spec_ttl_seconds=ctx.config.spec_ttl_seconds,
             )
@@ -239,9 +253,8 @@ def cmd_logout(ctx: Context) -> int:
     if ctx.args.all:
         return _logout_all(ctx)
 
-    ref = ctx.args.instance_ref or ctx.instance
     try:
-        session = session_store.load(ref)
+        session = session_store.find(ctx.args.instance_ref or ctx.instance)
     except NotLoggedIn:
         emit(ctx, {"status": "not_logged_in"}, text="Not signed in to anything.")
         return 0
@@ -279,16 +292,10 @@ def _logout_text(session: Session, revoked: bool, remaining: str | None) -> str:
 
 
 def _logout_all(ctx: Context) -> int:
-    sessions = session_store.all_sessions()
-    results = []
-    for session in list(sessions.values()):
-        results.append(
-            {
-                "alias": session.alias,
-                "base_url": session.base_url,
-                "token_revoked": _revoke(ctx, session),
-            }
-        )
+    results = [
+        {"alias": session.alias, "base_url": session.base_url, "token_revoked": _revoke(ctx, session)}
+        for session in session_store.listed().values()
+    ]
     session_store.clear()
     reset_cache()
     ctx.cache.clear()
@@ -301,12 +308,12 @@ def _logout_all(ctx: Context) -> int:
     return 0
 
 
-# Ending the web session invalidates every token it minted, so this is a real revocation.
 def _revoke(ctx: Context, session: Session) -> bool:
     if session.is_static:
         return False
+
     try:
-        with build_client(ctx.config, session) as client:
+        with build_client(ctx.config, session_store.load(session.alias)) as client:
             client.web_get(LOGOFF_PATH, accept="text/html")
     except OvError:
         return False
@@ -321,7 +328,7 @@ def cmd_whoami(ctx: Context) -> int:
 
     try:
         with build_client(ctx.config, session) as client:
-            client.api("GET", "/authorize", accept="text/plain")
+            _authorize(client)
         data["authorized"] = True
     except OvError as exc:
         data["authorized"] = False
@@ -341,45 +348,45 @@ def cmd_instances(ctx: Context) -> int:
 
     rows = []
     for alias in sorted(sessions):
-        session = sessions[alias]
-        row = session.redacted()
+        row = sessions[alias].redacted()
         row["current"] = alias == current
         if ctx.args.check:
-            row["authorized"] = _authorized(ctx, session)
+            row["authorized"] = _authorized(ctx, sessions[alias])
         rows.append(row)
 
-    def table():
-        columns = [
-            {"header": "", "style": "green"},
-            {"header": "Alias", "style": "cyan"},
-            {"header": "URL", "overflow": "fold"},
-            {"header": "Mode"},
-            {"header": "Expires"},
-        ]
-        if ctx.args.check:
-            columns.append({"header": "OK"})
-        body = []
-        for row in rows:
-            cells = [
-                "*" if row["current"] else "",
-                row["alias"],
-                row["base_url"],
-                row["mode"],
-                row["expires"] or "-",
-            ]
-            if ctx.args.check:
-                cells.append("yes" if row.get("authorized") else "no")
-            body.append(cells)
-        return build_table(None, columns, body)
-
-    emit(ctx, rows, table, empty="Not signed in to anything. Run 'ov login <url>'.")
+    emit(
+        ctx,
+        rows,
+        lambda: _instances_table(rows, ctx.args.check),
+        empty="Not signed in to anything. Run 'ov login <url>'.",
+    )
     return 0
+
+
+def _instances_table(rows: list[dict[str, Any]], check: bool) -> Any:
+    columns = [
+        {"header": "", "style": "green"},
+        {"header": "Alias", "style": "cyan"},
+        {"header": "URL", "overflow": "fold"},
+        {"header": "Mode"},
+        {"header": "Expires"},
+    ]
+    if check:
+        columns.append({"header": "OK"})
+
+    body = []
+    for row in rows:
+        cells = ["*" if row["current"] else "", row["alias"], row["base_url"], row["mode"], row["expires"] or "-"]
+        if check:
+            cells.append("yes" if row["authorized"] else "no")
+        body.append(cells)
+    return build_table(None, columns, body)
 
 
 def _authorized(ctx: Context, session: Session) -> bool:
     try:
         with build_client(ctx.config, session) as client:
-            client.api("GET", "/authorize", accept="text/plain")
+            _authorize(client)
     except OvError:
         return False
     return True
@@ -390,8 +397,7 @@ def cmd_tenants(ctx: Context) -> int:
     if session.is_static:
         raise OvError("Listing tenants needs a browser sign-in; an API token cannot switch.")
 
-    available = ctx.client.tenants()
-    rows = tenant_rows(available, session.tenant_id)
+    rows = tenant_rows(ctx.client.tenants(), session.tenant_id)
 
     def table():
         return build_table(

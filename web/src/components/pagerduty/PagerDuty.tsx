@@ -15,7 +15,12 @@ import { Button, Card, Chip, IconBadge, Input, Skeleton, Spinner, timeAgo } from
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 
-export const PAGERDUTY_GREEN = '#06AC38'
+const PAGERDUTY_GREEN = '#06AC38'
+const DEFAULT_WEB_URL = 'https://app.pagerduty.com'
+const DAY_WINDOWS = [1, 7, 30]
+const DEFAULT_DAYS = 7
+const TOP_WEBSITES = 10
+const MIN_BAR_PERCENT = 3
 
 const AREA_LABELS: Record<PagerDutyArea, string> = {
   incidents: 'Incidents',
@@ -23,7 +28,7 @@ const AREA_LABELS: Record<PagerDutyArea, string> = {
   oncall: 'On-call',
 }
 
-export function PagerDutyMark({ className }: { className?: string }) {
+function PagerDutyMark({ className }: { className?: string }) {
   return <img src={pagerdutyMark} alt="PagerDuty" className={cn('size-5', className)} />
 }
 
@@ -37,16 +42,18 @@ export function PagerDutyBadge({ size = 'md' }: { size?: 'md' | 'lg' }) {
 
 export function usePagerDuty() {
   const [status, setStatus] = useState<PagerDutyStatus>()
+
   useEffect(() => {
     api
       .pagerduty()
       .then(setStatus)
       .catch(() => undefined)
   }, [])
+
   return { status, setStatus }
 }
 
-export function PagerDutyConnectModal({
+function PagerDutyConnectModal({
   open,
   status,
   onClose,
@@ -68,12 +75,14 @@ export function PagerDutyConnectModal({
       setShown(false)
       return
     }
+
     setAccount(status?.subdomain ? `${status.subdomain}.pagerduty.com` : '')
     setApiKey('')
     setError(undefined)
     const frame = requestAnimationFrame(() => setShown(true))
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !busy && onClose()
     window.addEventListener('keydown', onKey)
+
     return () => {
       cancelAnimationFrame(frame)
       window.removeEventListener('keydown', onKey)
@@ -81,11 +90,12 @@ export function PagerDutyConnectModal({
   }, [open])
 
   if (!open) return null
+
   const host = account
     .trim()
     .replace(/^https?:\/\//, '')
     .split('/')[0]
-  const base = host.includes('pagerduty.com') ? `https://${host}` : 'https://app.pagerduty.com'
+  const base = host.includes('pagerduty.com') ? `https://${host}` : DEFAULT_WEB_URL
 
   const connect = async () => {
     setBusy(true)
@@ -214,8 +224,8 @@ function Permissions({ status }: { status: PagerDutyStatus }) {
   )
 }
 
-export function WebsiteMap({ status }: { status: PagerDutyStatus }) {
-  const [days, setDays] = useState(7)
+function WebsiteMap({ status }: { status: PagerDutyStatus }) {
+  const [days, setDays] = useState(DEFAULT_DAYS)
   const [data, setData] = useState<PagerDutyWebsites>()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
@@ -235,7 +245,7 @@ export function WebsiteMap({ status }: { status: PagerDutyStatus }) {
   }
 
   const rows = data?.websites ?? []
-  const shown = all ? rows : rows.slice(0, 10)
+  const shown = all ? rows : rows.slice(0, TOP_WEBSITES)
   const max = Math.max(1, ...rows.map((r) => r.count))
 
   return (
@@ -253,7 +263,7 @@ export function WebsiteMap({ status }: { status: PagerDutyStatus }) {
         </div>
         {data ? (
           <div className="bg-raised flex rounded-full p-1">
-            {[1, 7, 30].map((d) => (
+            {DAY_WINDOWS.map((d) => (
               <button
                 key={d}
                 type="button"
@@ -305,7 +315,7 @@ export function WebsiteMap({ status }: { status: PagerDutyStatus }) {
                 <div className="bg-raised h-1.5 min-w-[80px] flex-1 overflow-hidden rounded-full">
                   <div
                     className={cn('h-full rounded-full', r.open ? 'bg-danger' : 'bg-brand')}
-                    style={{ width: `${Math.max(3, (r.count / max) * 100)}%` }}
+                    style={{ width: `${Math.max(MIN_BAR_PERCENT, (r.count / max) * 100)}%` }}
                   />
                 </div>
                 <span className="text-fg w-10 shrink-0 text-right text-[12px] font-semibold tabular-nums">
@@ -320,7 +330,7 @@ export function WebsiteMap({ status }: { status: PagerDutyStatus }) {
                 </span>
               </div>
             ))}
-            {rows.length > 10 ? (
+            {rows.length > TOP_WEBSITES ? (
               <button
                 type="button"
                 onClick={() => setAll((v) => !v)}
@@ -440,6 +450,7 @@ export function PagerDutyAccountRow({
   setStatus: (s: PagerDutyStatus) => void
 }) {
   const [connecting, setConnecting] = useState(false)
+
   return (
     <>
       <AccountRow

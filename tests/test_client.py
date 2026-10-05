@@ -38,8 +38,6 @@ def test_api_calls_carry_the_bearer_token():
 
 
 def test_web_calls_carry_cookies_and_no_bearer():
-    """An Authorization header would route the schema request to the token
-    chain, which rejects a web session token as the wrong type."""
     recorder = Recorder()
     with client(recorder) as api:
         api.web_get("/api/docs/openapi/v3")
@@ -53,9 +51,8 @@ def test_a_login_redirect_is_read_as_an_expired_session():
             return httpx.Response(200, text="<html>login</html>", request=request)
         return httpx.Response(302, headers={"location": f"{BASE_URL}/Login.do"}, request=request)
 
-    with Client(session(), transport=httpx.MockTransport(handler)) as api:
-        with pytest.raises(SessionExpired):
-            api.web_get("/api/docs/openapi/v3")
+    with Client(session(), transport=httpx.MockTransport(handler)) as api, pytest.raises(SessionExpired):
+        api.web_get("/api/docs/openapi/v3")
 
 
 def test_a_rejected_token_is_reminted_once_and_the_call_retried():
@@ -93,9 +90,8 @@ def test_a_static_token_is_never_reminted():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, text="nope", request=request)
 
-    with Client(session("token"), transport=httpx.MockTransport(handler)) as api:
-        with pytest.raises(SessionExpired):
-            api.api("GET", "/v3/users")
+    with Client(session("token"), transport=httpx.MockTransport(handler)) as api, pytest.raises(SessionExpired):
+        api.api("GET", "/v3/users")
 
 
 def test_status_codes_map_onto_distinct_errors():
@@ -103,41 +99,37 @@ def test_status_codes_map_onto_distinct_errors():
     for status, expected in cases.items():
         recorder = Recorder()
         recorder.route("GET", "/api/v3/users", status, "no")
-        with client(recorder) as api:
-            with pytest.raises(expected):
-                api.api("GET", "/v3/users")
+        with client(recorder) as api, pytest.raises(expected):
+            api.api("GET", "/v3/users")
 
 
 def test_a_text_plain_error_body_becomes_the_message():
-    """OneVizion answers API errors with text/plain, so the body is the message."""
     recorder = Recorder()
     recorder.route("GET", "/api/v3/users", 400, "Trackor Type [X] not found")
-    with client(recorder) as api:
-        with pytest.raises(ApiError, match="Trackor Type"):
-            api.api("GET", "/v3/users")
+    with client(recorder) as api, pytest.raises(ApiError, match="Trackor Type"):
+        api.api("GET", "/v3/users")
 
 
 def test_an_html_error_body_is_not_shown_as_the_message():
     recorder = Recorder()
     recorder.route("GET", "/api/v3/users", 500, "<html><body>Error</body></html>")
-    with client(recorder) as api:
-        with pytest.raises(ApiError, match="HTTP 500"):
-            api.api("GET", "/v3/users")
+    with client(recorder) as api, pytest.raises(ApiError, match="HTTP 500"):
+        api.api("GET", "/v3/users")
 
 
 def test_an_unreachable_instance_is_reported_not_raised_raw():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("getaddrinfo failed", request=request)
 
-    with Client(session(), transport=httpx.MockTransport(handler)) as api:
-        with pytest.raises(Unreachable, match="Could not reach"):
-            api.api("GET", "/v3/users")
+    transport = httpx.MockTransport(handler)
+    with Client(session(), transport=transport) as api, pytest.raises(Unreachable, match="Could not reach"):
+        api.api("GET", "/v3/users")
 
 
 def test_a_timeout_says_which_setting_to_raise():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("too slow", request=request)
 
-    with Client(session(), transport=httpx.MockTransport(handler)) as api:
-        with pytest.raises(Unreachable, match="timeout_seconds"):
-            api.api("GET", "/v3/users")
+    transport = httpx.MockTransport(handler)
+    with Client(session(), transport=transport) as api, pytest.raises(Unreachable, match="timeout_seconds"):
+        api.api("GET", "/v3/users")

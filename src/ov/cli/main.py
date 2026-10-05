@@ -4,11 +4,11 @@ import argparse
 import json
 import os
 import sys
-from typing import Any
+from typing import Any, NoReturn
 
 from .. import __version__
 from .. import config as config_module
-from ..errors import EXIT_USAGE, ApiError, OvError
+from ..errors import EXIT_INTERRUPTED, EXIT_USAGE, ApiError, OvError
 from ..paths import home
 from .commands import BUILTIN_NAMES, GROUPS
 from .context import INSTANCE_ENV, Context
@@ -18,12 +18,11 @@ from .output import console
 DESCRIPTION = "Command line client for the OneVizion API."
 
 INSTANCE_HELP = "which signed-in instance to use (alias, hostname or URL)"
+ERROR_BODY_SHOWN = 2000
 
-# The only pre-subcommand flag that takes a value, so argv scans must skip its argument.
 _INSTANCE_FLAGS = ("-i", "--instance")
 
 
-# SUPPRESS keeps the subparser default from overwriting a root-level -i value.
 def add_instance_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-i",
@@ -43,16 +42,14 @@ def build_common() -> argparse.ArgumentParser:
     return common
 
 
-# Generated groups differ per instance, so an unknown name may still exist on another one.
 class RootParser(argparse.ArgumentParser):
     hint: str = ""
 
-    # Subparsers inherit this class; prefixes like --ou would let callers dodge argv checks.
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs.setdefault("allow_abbrev", False)
         super().__init__(*args, **kwargs)
 
-    def error(self, message: str) -> None:  # type: ignore[override]
+    def error(self, message: str) -> NoReturn:
         if self.hint and "invalid choice" in message:
             self.print_usage(sys.stderr)
             self.exit(EXIT_USAGE, f"{self.prog}: error: {message}\n{self.hint}\n")
@@ -82,7 +79,6 @@ def build_parser(argv: list[str]) -> argparse.ArgumentParser:
     return parser
 
 
-# Only the invoked tag is built, so runs like 'ov login' never parse the whole schema.
 def _register_dynamic(
     subparsers: argparse._SubParsersAction,
     common: argparse.ArgumentParser,
@@ -92,26 +88,20 @@ def _register_dynamic(
     wanted = _first_positional(argv)
     if not wanted or wanted in BUILTIN_NAMES:
         return
-
     spec = cached_spec(config, _instance_in(argv))
-    if spec is None or wanted not in spec.tags:
-        return
-    register_tag(subparsers, common, spec, wanted)
+    if spec is not None and wanted in spec.tags:
+        register_tag(subparsers, common, spec, wanted)
 
 
 def _first_positional(argv: list[str]) -> str | None:
     skip = False
     for token in argv:
-        if skip:
+        if skip or token == "--":
             skip = False
             continue
-        if token == "--":
-            continue
-        if token.startswith("-"):
-            if token in _INSTANCE_FLAGS:
-                skip = True
-            continue
-        return token
+        if not token.startswith("-"):
+            return token
+        skip = token in _INSTANCE_FLAGS
     return None
 
 
@@ -133,7 +123,6 @@ def _unknown_group_hint(config: config_module.Config, argv: list[str]) -> str:
 
     instance = _instance_in(argv)
     named = f"instance '{instance}'" if instance else "the current instance"
-
     spec = cached_spec(config, instance)
     if spec is None:
         return (
@@ -146,13 +135,13 @@ def _unknown_group_hint(config: config_module.Config, argv: list[str]) -> str:
 
 
 def _epilog(config: config_module.Config, argv: list[str]) -> str:
-    # Only root help shows the epilog, so skip parsing the spec for anything else.
     spec = None if _first_positional(argv) else cached_spec(config, _instance_in(argv))
     if spec is None or not spec.tags:
         return (
             "Every API operation is also reachable as 'ov <tag> <operation>' once an "
             "instance is signed in. Start with 'ov login https://yours.onevizion.com'."
         )
+
     tags = ", ".join(spec.tags)
     return (
         f"Generated groups ({len(spec.operations)} operations): {tags}\n"
@@ -161,24 +150,23 @@ def _epilog(config: config_module.Config, argv: list[str]) -> str:
     )
 
 
-# Windows consoles and pipes default to a legacy codepage that aborts on non-ASCII output.
 def force_utf8_output() -> None:
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
-            continue
-        try:
+        if reconfigure is not None:
             reconfigure(encoding="utf-8", errors="replace")
-        except (ValueError, OSError):
-            pass
 
 
 def main(argv: list[str] | None = None) -> int:
     force_utf8_output()
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = build_parser(argv)
-    args = parser.parse_args(argv)
+    try:
+        parser = build_parser(argv)
+    except OvError as exc:
+        _report_early(argv, exc)
+        return exc.exit_code
 
+    args = parser.parse_args(argv)
     if args.home:
         print(home())
         return 0
@@ -194,21 +182,31 @@ def main(argv: list[str] | None = None) -> int:
         return exc.exit_code
     except KeyboardInterrupt:
         _report(ctx, OvError("Cancelled."))
-        return 130
+        return EXIT_INTERRUPTED
     finally:
         ctx.close()
 
 
+def _error_payload(exc: OvError) -> dict[str, Any]:
+    return exc.to_dict() if isinstance(exc, ApiError) else {"error": str(exc), "exit_code": exc.exit_code}
+
+
+def _report_early(argv: list[str], exc: OvError) -> None:
+    if "--json" in argv:
+        print(json.dumps(_error_payload(exc), ensure_ascii=False, indent=2, default=str))
+    else:
+        print(f"ov: error: {exc}", file=sys.stderr)
+
+
 def _report(ctx: Context, exc: OvError) -> None:
     if ctx.as_json:
-        payload = exc.to_dict() if isinstance(exc, ApiError) else {"error": str(exc), "exit_code": exc.exit_code}
-        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        print(json.dumps(_error_payload(exc), ensure_ascii=False, indent=2, default=str))
         return
 
     out = console(ctx, stderr=True)
     out.print(f"[red]{exc}[/red]")
     if isinstance(exc, ApiError) and exc.body:
-        out.print(f"[dim]{json.dumps(exc.body, ensure_ascii=False, default=str)[:2000]}[/dim]")
+        out.print(f"[dim]{json.dumps(exc.body, ensure_ascii=False, default=str)[:ERROR_BODY_SHOWN]}[/dim]")
 
 
 if __name__ == "__main__":

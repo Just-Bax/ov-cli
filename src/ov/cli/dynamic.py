@@ -6,32 +6,28 @@ from collections.abc import Callable
 from .. import session as session_store
 from .. import spec as spec_module
 from ..config import Config
-from ..errors import OvError
+from ..errors import NotLoggedIn
 from ..spec import Operation, Spec
 from .context import Context
 from .opargs import add_invocation_flags, add_param_flags, run_operation
+from .output import build_table, emit
 
-# Reading the cached document costs a few hundred milliseconds on a large
-# schema, so only the tag actually being invoked is ever expanded.
 _cached: dict[str, Spec | None] = {}
 
 
-# An expired cache still names the commands; refreshing is 'ov spec fetch'.
 def cached_spec(config: Config, instance: str | None = None) -> Spec | None:
     key = instance or ""
-    if key in _cached:
-        return _cached[key]
+    if key not in _cached:
+        _cached[key] = _load_spec(config, instance)
+    return _cached[key]
 
-    spec: Spec | None = None
+
+def _load_spec(config: Config, instance: str | None) -> Spec | None:
     try:
         base_url = session_store.find(instance).base_url
-    except OvError:
-        base_url = ""
-    if base_url:
-        spec = spec_module.load_cached(base_url, config.spec_group, ttl_seconds=0)
-
-    _cached[key] = spec
-    return spec
+    except NotLoggedIn:
+        return None
+    return spec_module.load_cached(base_url, config.spec_group, ttl_seconds=0)
 
 
 def reset_cache() -> None:
@@ -45,9 +41,6 @@ def register_tag(
     tag: str,
 ) -> None:
     operations = spec.by_tag(tag)
-    if not operations:
-        return
-
     group = subparsers.add_parser(
         tag,
         parents=[common],
@@ -84,24 +77,20 @@ def _runner(operation: Operation) -> Callable[[Context], int]:
 
 
 def _lister(tag: str, operations: list[Operation]) -> Callable[[Context], int]:
+    def table():
+        return build_table(
+            f"ov {tag}",
+            [
+                {"header": "Command", "style": "cyan"},
+                {"header": "Method"},
+                {"header": "Path", "overflow": "fold"},
+                {"header": "Summary", "overflow": "fold"},
+            ],
+            [[o.name, o.method, o.path, o.summary] for o in operations],
+        )
+
     def run(ctx: Context) -> int:
-        from .output import build_table, emit
-
-        data = [o.to_dict() for o in operations]
-
-        def table():
-            return build_table(
-                f"ov {tag}",
-                [
-                    {"header": "Command", "style": "cyan"},
-                    {"header": "Method"},
-                    {"header": "Path", "overflow": "fold"},
-                    {"header": "Summary", "overflow": "fold"},
-                ],
-                [[o.name, o.method, o.path, o.summary] for o in operations],
-            )
-
-        emit(ctx, data, table)
+        emit(ctx, [o.to_dict() for o in operations], table)
         return 0
 
     return run

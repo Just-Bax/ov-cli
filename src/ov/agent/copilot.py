@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -12,8 +12,6 @@ import httpx
 from .. import credentials
 from .cancel import Cancel, Cancelled
 
-# The OAuth app VS Code's Copilot extension uses: Copilot only issues API tokens to
-# OAuth tokens minted for a Copilot-enabled app.
 CLIENT_ID = "Iv1.b507a08c87ecfe98"
 EDITOR_HEADERS = {
     "Editor-Version": "vscode/1.104.0",
@@ -22,8 +20,19 @@ EDITOR_HEADERS = {
     "Copilot-Integration-Id": "vscode-chat",
 }
 CREDENTIAL_KEY = "github-copilot"
-DEFAULT_API = "https://api.githubcopilot.com"
+DEVICE_CODE_URL = "https://github.com/login/device/code"
+ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_USER_URL = "https://api.github.com/user"
+COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
+HTTP_TIMEOUT_SECONDS = 30
+CHAT_READ_TIMEOUT_SECONDS = 300
 MODELS_TTL_SECONDS = 600
+TOKEN_REFRESH_MARGIN_SECONDS = 120
+MAX_TOKENS = 16000
+CHAT_ATTEMPTS = 4
+RETRY_BASE_SECONDS = 2
+ERROR_DETAIL_CHARS = 500
+PENDING_STATUSES = {"authorization_pending": "pending", "slow_down": "slow_down"}
 
 
 class CopilotError(Exception):
@@ -42,13 +51,9 @@ _token: dict[str, Any] | None = None
 _models: tuple[float, list[dict[str, Any]]] | None = None
 
 
-def _auth() -> dict[str, Any]:
-    return credentials.get(CREDENTIAL_KEY) or {}
-
-
 def user() -> str | None:
-    auth = _auth()
-    return (auth.get("user") or "signed in") if auth.get("github_token") else None
+    auth = credentials.get(CREDENTIAL_KEY)
+    return auth["user"] if auth else None
 
 
 def sign_out() -> None:
@@ -60,34 +65,35 @@ def sign_out() -> None:
 
 def start_device_flow() -> dict[str, Any]:
     response = httpx.post(
-        "https://github.com/login/device/code",
+        DEVICE_CODE_URL,
         headers={"Accept": "application/json"},
         json={"client_id": CLIENT_ID, "scope": "read:user"},
-        timeout=30,
+        timeout=HTTP_TIMEOUT_SECONDS,
     )
     if response.status_code >= 400:
         raise CopilotError(f"GitHub device code request failed: {response.status_code}")
+
     body = response.json()
     return {
         "deviceCode": body["device_code"],
         "userCode": body["user_code"],
         "verificationUri": body["verification_uri"],
-        "interval": body.get("interval", 5),
-        "expiresIn": body.get("expires_in", 900),
+        "interval": body["interval"],
+        "expiresIn": body["expires_in"],
     }
 
 
 def poll_device_flow(device_code: str) -> dict[str, Any]:
     global _token
     response = httpx.post(
-        "https://github.com/login/oauth/access_token",
+        ACCESS_TOKEN_URL,
         headers={"Accept": "application/json"},
         json={
             "client_id": CLIENT_ID,
             "device_code": device_code,
             "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
         },
-        timeout=30,
+        timeout=HTTP_TIMEOUT_SECONDS,
     )
     body = response.json()
     if body.get("access_token"):
@@ -97,36 +103,41 @@ def poll_device_flow(device_code: str) -> dict[str, Any]:
             _token = None
         _copilot_token()
         return {"status": "ok", "user": login}
-    if body.get("error") in ("authorization_pending", "slow_down"):
-        return {"status": "pending" if body["error"] == "authorization_pending" else "slow_down"}
-    return {
-        "status": "error",
-        "message": body.get("error_description") or body.get("error") or "unknown error",
-    }
+
+    error = body.get("error")
+    if error in PENDING_STATUSES:
+        return {"status": PENDING_STATUSES[error]}
+    if error is None:
+        raise CopilotError(f"GitHub sign-in returned neither a token nor an error ({response.status_code}).")
+
+    return {"status": "error", "message": body.get("error_description") or error}
 
 
-def _github_login(token: str) -> str | None:
+def _github_login(token: str) -> str:
     response = httpx.get(
-        "https://api.github.com/user",
+        GITHUB_USER_URL,
         headers={"Authorization": f"token {token}", "User-Agent": "ov-agent"},
-        timeout=30,
+        timeout=HTTP_TIMEOUT_SECONDS,
     )
-    return response.json().get("login") if response.status_code < 400 else None
+    if response.status_code >= 400:
+        raise CopilotError(f"Reading the GitHub user failed: {response.status_code}")
+    return response.json()["login"]
 
 
 def _copilot_token() -> dict[str, Any]:
     global _token
     with _lock:
-        if _token and _token["expires_at"] - 120 > time.time():
+        if _token and _token["expires_at"] - TOKEN_REFRESH_MARGIN_SECONDS > time.time():
             return _token
 
-    github_token = _auth().get("github_token")
-    if not github_token:
+    auth = credentials.get(CREDENTIAL_KEY)
+    if auth is None:
         raise CopilotError("Not signed in to GitHub Copilot. Open Setup to sign in.")
+
     response = httpx.get(
-        "https://api.github.com/copilot_internal/v2/token",
-        headers={"Authorization": f"token {github_token}", **EDITOR_HEADERS},
-        timeout=30,
+        COPILOT_TOKEN_URL,
+        headers={"Authorization": f"token {auth['github_token']}", **EDITOR_HEADERS},
+        timeout=HTTP_TIMEOUT_SECONDS,
     )
     if response.status_code == 401:
         sign_out()
@@ -137,11 +148,7 @@ def _copilot_token() -> dict[str, Any]:
         )
 
     body = response.json()
-    token = {
-        "token": body["token"],
-        "expires_at": float(body.get("expires_at") or time.time() + 600),
-        "api": (body.get("endpoints") or {}).get("api") or DEFAULT_API,
-    }
+    token = {"token": body["token"], "expires_at": float(body["expires_at"]), "api": body["endpoints"]["api"]}
     with _lock:
         _token = token
     return token
@@ -159,6 +166,27 @@ def _headers(**extra: str) -> tuple[str, dict[str, str]]:
     return token["api"], headers
 
 
+def _usable(model: dict[str, Any]) -> bool:
+    capabilities = model.get("capabilities") or {}
+    return bool(
+        capabilities.get("type") == "chat"
+        and (capabilities.get("supports") or {}).get("tool_calls")
+        and model.get("model_picker_enabled") is not False
+        and (model.get("policy") or {}).get("state") != "disabled"
+    )
+
+
+def _model_entry(model: dict[str, Any]) -> dict[str, Any]:
+    supports = model["capabilities"].get("supports") or {}
+    return {
+        "id": model["id"],
+        "name": model.get("name") or model["id"],
+        "vendor": model.get("vendor") or "",
+        "vision": bool(supports.get("vision")),
+        "premium": (model.get("billing") or {}).get("multiplier"),
+    }
+
+
 def list_models() -> list[dict[str, Any]]:
     global _models
     with _lock:
@@ -166,44 +194,60 @@ def list_models() -> list[dict[str, Any]]:
             return _models[1]
 
     api, headers = _headers()
-    response = httpx.get(f"{api}/models", headers=headers, timeout=30)
+    response = httpx.get(f"{api}/models", headers=headers, timeout=HTTP_TIMEOUT_SECONDS)
     if response.status_code >= 400:
         raise CopilotError(f"Copilot /models failed: {response.status_code}")
 
-    models: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for model in response.json().get("data", []):
-        capabilities = model.get("capabilities") or {}
-        supports = capabilities.get("supports") or {}
-        usable = (
-            capabilities.get("type") == "chat"
-            and supports.get("tool_calls")
-            and model.get("model_picker_enabled") is not False
-            and (model.get("policy") or {}).get("state") != "disabled"
-        )
-        if not usable or model["id"] in seen:
-            continue
-        seen.add(model["id"])
-        models.append(
-            {
-                "id": model["id"],
-                "name": model.get("name") or model["id"],
-                "vendor": model.get("vendor") or "",
-                "vision": bool(supports.get("vision")),
-                "premium": (model.get("billing") or {}).get("multiplier"),
-            }
-        )
+    models: dict[str, dict[str, Any]] = {}
+    for model in response.json()["data"]:
+        if _usable(model) and model["id"] not in models:
+            models[model["id"]] = _model_entry(model)
+
+    listed = list(models.values())
     with _lock:
-        _models = (time.time(), models)
-    return models
+        _models = (time.time(), listed)
+    return listed
 
 
 def supports_vision(model_id: str) -> bool:
-    try:
-        models = list_models()
-    except Exception:
-        return True
-    return next((m["vision"] for m in models if m["id"] == model_id), True)
+    model = next((m for m in list_models() if m["id"] == model_id), None)
+    if model is None:
+        raise CopilotError(f"Model {model_id} is not available on this Copilot account.")
+    return model["vision"]
+
+
+def _has_images(messages: list[dict[str, Any]]) -> bool:
+    return any(
+        m["role"] == "user"
+        and isinstance(m["content"], list)
+        and any(p.get("type") == "image_url" for p in m["content"])
+        for m in messages
+    )
+
+
+def _post(
+    http: httpx.Client, url: str, headers: dict[str, str], payload: dict[str, Any], cancel: Cancel
+) -> httpx.Response:
+    cancel.check()
+    request = http.build_request("POST", url, json=payload)
+    request.headers.update(headers)
+    return http.send(request, stream=True)
+
+
+def _retryable(response: httpx.Response) -> bool:
+    return response.status_code == 429 or response.status_code >= 500
+
+
+def _send_with_retries(
+    http: httpx.Client, url: str, headers: dict[str, str], payload: dict[str, Any], cancel: Cancel
+) -> httpx.Response:
+    for attempt in range(CHAT_ATTEMPTS - 1):
+        response = _post(http, url, headers, payload, cancel)
+        if not _retryable(response):
+            return response
+        response.close()
+        cancel.wait(RETRY_BASE_SECONDS * 2**attempt)
+    return _post(http, url, headers, payload, cancel)
 
 
 def stream_chat(
@@ -211,17 +255,12 @@ def stream_chat(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     initiator: str,
+    *,
     cancel: Cancel,
     on_text: Callable[[str], None],
 ) -> StreamResult:
-    has_images = any(
-        m["role"] == "user"
-        and isinstance(m["content"], list)
-        and any(p.get("type") == "image_url" for p in m["content"])
-        for m in messages
-    )
     extra = {"X-Initiator": initiator}
-    if has_images:
+    if _has_images(messages):
         extra["Copilot-Vision-Request"] = "true"
     api, headers = _headers(**extra)
     payload = {
@@ -230,48 +269,51 @@ def stream_chat(
         "tools": tools,
         "tool_choice": "auto",
         "stream": True,
-        "max_tokens": 16000,
+        "max_tokens": MAX_TOKENS,
     }
 
-    with httpx.Client(timeout=httpx.Timeout(30, read=300)) as http:
-        for attempt in range(4):
-            cancel.check()
-            request = http.build_request("POST", f"{api}/chat/completions", json=payload)
-            request.headers.update(headers)
-            response = http.send(request, stream=True)
-            with cancel.hook(response.close):
-                retryable = response.status_code == 429 or response.status_code >= 500
-                if retryable and attempt < 3:
-                    response.close()
-                    cancel.wait(2 * 2**attempt)
-                    continue
-                if response.status_code >= 400:
-                    detail = response.read().decode("utf-8", "replace")[:500]
-                    raise CopilotError(f"Copilot chat failed ({response.status_code}): {detail}")
-                try:
-                    return _read_stream(response, on_text)
-                except httpx.HTTPError:
-                    if cancel.is_set():
-                        raise Cancelled from None
-                    raise
-    raise CopilotError("Copilot chat failed after retries.")
+    with httpx.Client(timeout=httpx.Timeout(HTTP_TIMEOUT_SECONDS, read=CHAT_READ_TIMEOUT_SECONDS)) as http:
+        response = _send_with_retries(http, f"{api}/chat/completions", headers, payload, cancel)
+        with cancel.hook(response.close):
+            if response.status_code >= 400:
+                detail = response.read().decode("utf-8", "replace")[:ERROR_DETAIL_CHARS]
+                raise CopilotError(f"Copilot chat failed ({response.status_code}): {detail}")
+            try:
+                return _read_stream(response, on_text)
+            except httpx.HTTPError:
+                if cancel.is_set():
+                    raise Cancelled from None
+                raise
+
+
+def _chunks(response: httpx.Response) -> Iterator[dict[str, Any]]:
+    for line in response.iter_lines():
+        stripped = line.strip()
+        if not stripped.startswith("data:"):
+            continue
+        data = stripped[len("data:") :].strip()
+        if data == "[DONE]":
+            continue
+        try:
+            yield json.loads(data)
+        except json.JSONDecodeError:
+            raise CopilotError(f"Copilot sent a malformed stream chunk: {data[:ERROR_DETAIL_CHARS]}") from None
+
+
+def _merge_tool_call(calls: dict[tuple[int, int], dict[str, Any]], choice: int, part: dict[str, Any]) -> None:
+    key = (choice, part.get("index") or 0)
+    call = calls.setdefault(key, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+    if part.get("id"):
+        call["id"] = part["id"]
+    function = part.get("function") or {}
+    call["function"]["name"] += function.get("name") or ""
+    call["function"]["arguments"] += function.get("arguments") or ""
 
 
 def _read_stream(response: httpx.Response, on_text: Callable[[str], None]) -> StreamResult:
     result = StreamResult()
     calls: dict[tuple[int, int], dict[str, Any]] = {}
-    for line in response.iter_lines():
-        line = line.strip()
-        if not line.startswith("data:"):
-            continue
-        data = line[5:].strip()
-        if data == "[DONE]":
-            continue
-        try:
-            chunk = json.loads(data)
-        except json.JSONDecodeError:
-            continue
-
+    for chunk in _chunks(response):
         for choice in chunk.get("choices") or []:
             if choice.get("finish_reason"):
                 result.finish_reason = choice["finish_reason"]
@@ -279,15 +321,8 @@ def _read_stream(response: httpx.Response, on_text: Callable[[str], None]) -> St
             if delta.get("content"):
                 result.text += delta["content"]
                 on_text(delta["content"])
-            # Some models put each call under its own choice index, others share one choice.
             for part in delta.get("tool_calls") or []:
-                key = (choice.get("index") or 0, part.get("index") or 0)
-                call = calls.setdefault(key, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
-                if part.get("id"):
-                    call["id"] = part["id"]
-                function = part.get("function") or {}
-                call["function"]["name"] += function.get("name") or ""
-                call["function"]["arguments"] += function.get("arguments") or ""
+                _merge_tool_call(calls, choice.get("index") or 0, part)
 
     stamp = int(time.time() * 1000)
     for index, call in enumerate(c for c in calls.values() if c["function"]["name"]):

@@ -16,23 +16,17 @@ INSTANCE_ENV = "OV_INSTANCE"
 
 
 def build_client(config: Config, session: Session) -> Client:
-    return Client(
-        session,
-        timeout=float(config.timeout_seconds),
-        verify=config.verify_tls,
-    )
+    return Client(session, timeout=float(config.timeout_seconds), verify=config.verify_tls)
 
 
-def instance_ref(args: argparse.Namespace | None = None) -> str | None:
-    explicit = getattr(args, "instance", None) if args is not None else None
-    return explicit or os.environ.get(INSTANCE_ENV) or None
+def instance_ref(args: argparse.Namespace) -> str | None:
+    return getattr(args, "instance", None) or os.environ.get(INSTANCE_ENV) or None
 
 
-# API access is lazy so offline commands (config, help) need no stored session.
 class Context:
-    def __init__(self, args: argparse.Namespace, config: Config | None = None) -> None:
+    def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.config = config if config is not None else config_module.load()
+        self.config = config_module.load()
         self._session: Session | None = None
         self._client: Client | None = None
         self._service: OvService | None = None
@@ -55,8 +49,7 @@ class Context:
 
     @property
     def cache(self) -> Cache:
-        ttl = 0 if self.refresh else self.config.cache_ttl_seconds
-        return Cache(ttl_seconds=ttl)
+        return Cache(ttl_seconds=0 if self.refresh else self.config.cache_ttl_seconds)
 
     @property
     def session(self) -> Session:

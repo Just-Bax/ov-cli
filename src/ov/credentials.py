@@ -103,7 +103,6 @@ def _stored_key() -> bytes | None:
     if _uses_file():
         path = key_file()
         return base64.b64decode(path.read_text(encoding="utf-8").strip()) if path.exists() else None
-
     stored = _keyring().get_password(SERVICE, KEY_NAME)
     return base64.b64decode(stored) if stored else None
 

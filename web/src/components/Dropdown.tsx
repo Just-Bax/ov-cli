@@ -3,13 +3,18 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 're
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/cn'
 
-export interface Option {
+interface Option {
   value: string
   label: string
   hint?: string
 }
 
 type Variant = 'chip' | 'field' | 'plain'
+
+const SEARCH_MIN_OPTIONS = 10
+const MENU_FLIP_SPACE = 300
+const MENU_GAP = 4
+const MENU_MIN_WIDTH = 180
 
 const TRIGGER: Record<Variant, string> = {
   chip: 'h-7 rounded-full bg-brand-chip px-2.5 text-[12px] font-medium text-brand-strong hover:bg-brand hover:text-white',
@@ -18,7 +23,6 @@ const TRIGGER: Record<Variant, string> = {
   plain: 'h-8 rounded-full bg-raised px-3 text-[12px] font-medium text-text hover:bg-line',
 }
 
-/** OneVizion-style dropdown: chip or field trigger, floating menu, check on the selected item. */
 export function Dropdown({
   value,
   onChange,
@@ -38,7 +42,6 @@ export function Dropdown({
   className?: string
   prefix?: ReactNode
   searchable?: boolean
-  /** Shrinks and truncates its label when the row is tight, instead of pushing others. */
   fluid?: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -49,7 +52,7 @@ export function Dropdown({
   const menuRef = useRef<HTMLDivElement>(null)
 
   const current = options.find((o) => o.value === value)
-  const showSearch = searchable ?? options.length > 10
+  const showSearch = searchable ?? options.length > SEARCH_MIN_OPTIONS
   const shown = query
     ? options.filter((o) =>
         `${o.label} ${o.hint ?? ''}`.toLowerCase().includes(query.toLowerCase()),
@@ -58,9 +61,15 @@ export function Dropdown({
 
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) return
+
     const r = triggerRef.current.getBoundingClientRect()
-    const up = r.bottom + 300 > window.innerHeight && r.top > 300
-    setPos({ left: r.left, top: up ? r.top - 4 : r.bottom + 4, minWidth: r.width, up })
+    const up = r.bottom + MENU_FLIP_SPACE > window.innerHeight && r.top > MENU_FLIP_SPACE
+    setPos({
+      left: r.left,
+      top: up ? r.top - MENU_GAP : r.bottom + MENU_GAP,
+      minWidth: r.width,
+      up,
+    })
     setActive(
       Math.max(
         0,
@@ -71,6 +80,7 @@ export function Dropdown({
 
   useEffect(() => {
     if (!open) return
+
     const close = (e: MouseEvent) => {
       if (
         !menuRef.current?.contains(e.target as Node) &&
@@ -84,6 +94,7 @@ export function Dropdown({
     document.addEventListener('mousedown', close)
     window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', () => setOpen(false), { once: true })
+
     return () => {
       document.removeEventListener('mousedown', close)
       window.removeEventListener('scroll', onScroll, true)
@@ -111,6 +122,7 @@ export function Dropdown({
       }
       return
     }
+
     if (e.key === 'Escape') {
       e.preventDefault()
       setOpen(false)
@@ -160,7 +172,7 @@ export function Dropdown({
                 left: pos.left,
                 top: pos.up ? undefined : pos.top,
                 bottom: pos.up ? window.innerHeight - pos.top : undefined,
-                minWidth: Math.max(pos.minWidth, 180),
+                minWidth: Math.max(pos.minWidth, MENU_MIN_WIDTH),
               }}
               className="border-line-strong/70 fixed z-[200] max-w-[360px] overflow-hidden rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]"
             >

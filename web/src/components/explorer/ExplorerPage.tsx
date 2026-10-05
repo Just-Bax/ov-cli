@@ -61,6 +61,9 @@ const TREE_ORDER: GraphNodeType[] = [
 ]
 const WITH_ACTIVITY = new Set<GraphNodeType>(['rule', 'import', 'report', 'module', 'automation'])
 const GROUP_LIMIT = 300
+const GROUP_PREVIEW_ROWS = 8
+const FIELD_ROWS = 200
+const TREE_INDENT = 14
 
 type Loaded<T> =
   { state: 'loading' } | { state: 'ready'; value: T } | { state: 'error'; error: string }
@@ -84,11 +87,12 @@ function TreeItem({
   onOpen: (id: string) => void
 }) {
   const status = statusOf(node)
+
   return (
     <button
       type="button"
       onClick={() => onOpen(node.id)}
-      style={{ paddingLeft: 12 + depth * 14 }}
+      style={{ paddingLeft: 12 + depth * TREE_INDENT }}
       className={cn(
         'flex h-8 w-full items-center gap-2 rounded-full pr-3 text-left text-[12.5px] transition-colors',
         active ? 'bg-brand-soft text-brand-strong font-medium' : 'text-text hover:bg-raised',
@@ -129,7 +133,7 @@ function GroupHeader({
     <button
       type="button"
       onClick={onToggle}
-      style={{ paddingLeft: 6 + depth * 14 }}
+      style={{ paddingLeft: 6 + depth * TREE_INDENT }}
       className="text-text hover:bg-raised flex h-8 w-full items-center gap-2 rounded-full pr-3 text-left text-[12.5px] font-medium transition-colors"
     >
       <ChevronRightIcon
@@ -179,7 +183,10 @@ function Tree({
         <TreeItem key={n.id} node={n} active={n.id === active} depth={depth} onOpen={onOpen} />
       ))}
       {nodes.length > GROUP_LIMIT ? (
-        <div className="text-faint py-1 text-[11.5px]" style={{ paddingLeft: 26 + depth * 14 }}>
+        <div
+          className="text-faint py-1 text-[11.5px]"
+          style={{ paddingLeft: 26 + depth * TREE_INDENT }}
+        >
           {nodes.length - GROUP_LIMIT} more; filter to narrow down
         </div>
       ) : null}
@@ -209,7 +216,9 @@ function Tree({
           const all = byType.get(type) ?? []
           const shown = all.filter(matches)
           if (q && !shown.length) return null
+
           const isOpen = Boolean(q) || open.has(type)
+
           return (
             <div key={type}>
               <GroupHeader
@@ -226,6 +235,7 @@ function Tree({
                   ? [...groupBy(shown, (n) => n.trigger || 'Other')].map(([trigger, rules]) => {
                       const key = `rule:${trigger}`
                       const subOpen = Boolean(q) || open.has(key)
+
                       return (
                         <div key={key}>
                           <GroupHeader
@@ -247,6 +257,7 @@ function Tree({
                           .map((l) => l.other)
                           .sort((a, b) => a.name.localeCompare(b.name))
                         const ttOpen = open.has(key)
+
                         return (
                           <div key={key}>
                             <div className="flex items-center">
@@ -255,7 +266,7 @@ function Tree({
                                 aria-label={ttOpen ? 'Collapse' : 'Expand'}
                                 onClick={() => toggle(key)}
                                 className="text-faint hover:text-fg flex size-6 shrink-0 items-center justify-center rounded-full"
-                                style={{ marginLeft: 6 + 14 }}
+                                style={{ marginLeft: 6 + TREE_INDENT }}
                               >
                                 <ChevronRightIcon
                                   className={cn(
@@ -289,6 +300,7 @@ function Tree({
 function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
   const out = new Map<string, T[]>()
   for (const item of items) out.set(key(item), [...(out.get(key(item)) ?? []), item])
+
   return new Map([...out.entries()].sort((a, b) => b[1].length - a[1].length))
 }
 
@@ -327,9 +339,10 @@ function Inspector({
     const label = l.out ? forward : back
     groups.set(label, [...(groups.get(label) ?? []), l])
   }
+
   const hints =
     sections?.state === 'ready'
-      ? sections.value.flatMap((s, i) => s.hints.map((h) => ({ ...h, section: i, title: h.title })))
+      ? sections.value.flatMap((s, i) => s.hints.map((h) => ({ ...h, section: i })))
       : []
 
   const subject = `the ${meta.label.toLowerCase()} "${node.name}" (id ${node.ref}) on ${host}`
@@ -453,6 +466,7 @@ function Inspector({
               <div className="space-y-1">
                 {activity.value.map((a, i) => {
                   const failed = /error|exception|interrupt/i.test(a.status ?? '')
+
                   return (
                     <div key={i} className="rounded-2xl px-2.5 py-1.5">
                       <div className="flex items-center gap-2 text-[12px]">
@@ -487,7 +501,8 @@ function Inspector({
           .sort((a, b) => b[1].length - a[1].length)
           .map(([label, items]) => {
             const expanded = openGroup === label
-            const shown = expanded ? items : items.slice(0, 8)
+            const shown = expanded ? items : items.slice(0, GROUP_PREVIEW_ROWS)
+
             return (
               <section key={label}>
                 <div className="text-faint flex items-center px-2 pb-1 text-[11.5px] font-medium">
@@ -539,7 +554,9 @@ function Tabs({
       {tabs.map((id) => {
         const node = idx.byId.get(id)
         if (!node) return null
+
         const on = id === active
+
         return (
           <div
             key={id}
@@ -595,6 +612,7 @@ function NoCode({
     .filter((l) => l.kind === 'field_of' && !l.out)
     .map((l) => l.other)
     .sort((a, b) => degree(idx, b.id) - degree(idx, a.id))
+
   return (
     <div className="h-full overflow-y-auto p-6">
       <Card className="mx-auto max-w-[720px] p-5">
@@ -611,7 +629,7 @@ function NoCode({
         </div>
         {fields.length ? (
           <div className="mt-4 grid gap-x-2 sm:grid-cols-2">
-            {fields.slice(0, 200).map((f) => (
+            {fields.slice(0, FIELD_ROWS).map((f) => (
               <ObjectRow
                 key={f.id}
                 node={f}
@@ -648,6 +666,7 @@ export function ExplorerPage() {
     setTabs((t) => (t.includes(id) ? t : [...t, id]))
     setActive(id)
   }, [])
+
   const close = (id: string) => {
     setTabs((t) => {
       const next = t.filter((x) => x !== id)
@@ -657,16 +676,18 @@ export function ExplorerPage() {
   }
 
   useEffect(() => {
-    const target = localStorage.getItem(EXPLORE_KEY)
-    if (!idx || !target || !idx.byId.has(target)) return
+    const requested = localStorage.getItem(EXPLORE_KEY)
+    if (!idx || !requested || !idx.byId.has(requested)) return
+
     localStorage.removeItem(EXPLORE_KEY)
-    open(target)
+    open(requested)
   }, [idx])
 
   const node = active ? idx?.byId.get(active) : undefined
 
   useEffect(() => {
     if (!node || !alias) return
+
     if (WITH_CODE.has(node.type) && !sources[node.id]) {
       setSources((s) => ({ ...s, [node.id]: { state: 'loading' } }))
       api
@@ -678,6 +699,7 @@ export function ExplorerPage() {
           setSources((s) => ({ ...s, [node.id]: { state: 'error', error: e.message } })),
         )
     }
+
     if (WITH_ACTIVITY.has(node.type) && !activity[node.id]) {
       setActivity((a) => ({ ...a, [node.id]: { state: 'loading' } }))
       api
@@ -699,6 +721,7 @@ export function ExplorerPage() {
       const usedBy = count('uses', false)
       const calledBy = count('calls', false)
       const fields = count('field_of', false)
+
       return [
         owner ? `Field of ${owner.name}` : '',
         fields ? `${fields.toLocaleString()} fields` : '',
