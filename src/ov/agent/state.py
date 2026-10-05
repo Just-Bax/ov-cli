@@ -96,9 +96,7 @@ def _append_text(state: dict[str, Any], event: dict[str, Any], ts: int) -> None:
             message["text"] += event["delta"]
             break
     else:
-        state["chat"].append(
-            {"id": event["messageId"], "role": "assistant", "text": event["delta"], "ts": ts}
-        )
+        state["chat"].append({"id": event["messageId"], "role": "assistant", "text": event["delta"], "ts": ts})
     _add_item(state, "text", event["messageId"])
 
 
@@ -112,9 +110,7 @@ def _rewind(state: dict[str, Any], item_id: str) -> None:
 
     state["items"] = state["items"][:index]
     keep = {f"{x['kind']}:{x['id']}" for x in state["items"]}
-    state["chat"] = [
-        m for m in state["chat"] if f"{'user' if m['role'] == 'user' else 'text'}:{m['id']}" in keep
-    ]
+    state["chat"] = [m for m in state["chat"] if f"{'user' if m['role'] == 'user' else 'text'}:{m['id']}" in keep]
     if not (state.get("outcomeId") and f"outcome:{state['outcomeId']}" in keep):
         state.pop("outcome", None)
         state.pop("outcomeId", None)

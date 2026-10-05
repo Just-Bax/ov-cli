@@ -51,6 +51,7 @@ def run_ov(
     read_only: bool = True,
     cancel: Cancel | None = None,
     cwd: Path | None = None,
+    stdin: str | None = None,
 ) -> OvResult:
     env = {
         **os.environ,
@@ -67,12 +68,16 @@ def run_ov(
             # -P keeps a stray ov.py in the working directory from shadowing the package.
             [sys.executable, "-P", "-m", "ov", *args],
             cwd=cwd or agent_dir(),
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE,
             stdout=out,
             stderr=err,
             env=env,
             creationflags=flags,
         )
+        if stdin is not None:
+            process.stdin.write(stdin.encode())
+            process.stdin.close()
+
         timed_out = _wait(process, timeout, cancel)
         out.seek(0)
         err.seek(0)
@@ -119,6 +124,7 @@ def instances() -> list[dict[str, Any]]:
                 "current": alias == current,
                 "expires": session.expires_text or None,
                 "valid": session.is_static or (left is not None and left > 0),
+                "mode": session.mode,
             }
         )
     return rows
@@ -134,9 +140,7 @@ def find_instance(ref: str) -> dict[str, Any] | None:
     host = host_of(ref)
     rows = instances()
     by_alias = [r for r in rows if r["alias"].lower() == wanted]
-    by_host = [r for r in rows if r["host"] == host and not r["tenant"]] or [
-        r for r in rows if r["host"] == host
-    ]
+    by_host = [r for r in rows if r["host"] == host and not r["tenant"]] or [r for r in rows if r["host"] == host]
     found = by_alias or by_host
     return found[0] if found else None
 
@@ -147,7 +151,7 @@ _logins_lock = threading.Lock()
 
 # Opens a browser for the user; concurrent requests for the same host share one sign-in.
 # The URL goes to ov login as given: instances can sit on any domain, port or path.
-def login(url: str, tenant: str = "") -> OvResult:
+def login(url: str, tenant: str = "", token: str = "") -> OvResult:
     url = url.strip().rstrip("/")
     tenant = tenant.strip()
     key = (url.lower(), tenant.lower())
@@ -174,9 +178,11 @@ def login(url: str, tenant: str = "") -> OvResult:
                     "--timeout",
                     "280",
                     *(["--tenant", tenant] if tenant else []),
+                    *(["--token", "-"] if token else []),
                 ],
                 timeout=LOGIN_TIMEOUT_SECONDS,
                 read_only=False,
+                stdin=token or None,
             )
         )
     finally:

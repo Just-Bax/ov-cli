@@ -141,8 +141,7 @@ def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
             value = bool(value)
         if key in DEFAULT_SETTINGS:
             _run(
-                "INSERT INTO settings (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 key,
                 json.dumps(value),
             )
@@ -236,9 +235,7 @@ def append_event(run_id: str, seq: int, event: dict[str, Any]) -> dict[str, Any]
 
 
 def load_events(run_id: str, after: int = -1) -> list[dict[str, Any]]:
-    rows = _all(
-        "SELECT seq, ts, data FROM events WHERE run_id = ? AND seq > ? ORDER BY seq", run_id, after
-    )
+    rows = _all("SELECT seq, ts, data FROM events WHERE run_id = ? AND seq > ? ORDER BY seq", run_id, after)
     return [{"seq": r["seq"], "ts": r["ts"], "event": json.loads(r["data"])} for r in rows]
 
 

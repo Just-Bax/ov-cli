@@ -18,7 +18,7 @@ from .ovproc import login as ov_login
 from .ovproc import url_for
 from .prompt import system_prompt
 from .state import empty_state, reduce
-from .tools import LEGACY_NAMES, tool_named, tool_specs
+from .tools import tool_named, tool_specs
 from .workspace import (
     IMAGE_EXTS,
     attachments_dir,
@@ -39,9 +39,7 @@ WRITE_ON_NOTE = (
     "The user turned ON write access for this run. You may now apply changes with ov; each "
     "change still waits for their approval. Only apply what is needed."
 )
-WRITE_OFF_NOTE = (
-    "The user turned OFF write access for this run. Do not attempt changes; propose them instead."
-)
+WRITE_OFF_NOTE = "The user turned OFF write access for this run. Do not attempt changes; propose them instead."
 
 _ids = itertools.count(1)
 
@@ -65,7 +63,7 @@ class Run:
         self.vision = True
         self._lock = threading.RLock()
         self._listeners: list[queue.Queue[dict[str, Any]]] = []
-        self._messages = _renamed(_answered(db.load_conversation(run_id) or []))
+        self._messages = _answered(db.load_conversation(run_id) or [])
         turns = db.load_conversation(f"{run_id}#turns")
         self._turns: dict[str, dict[str, Any]] = turns if isinstance(turns, dict) else {}
         self._pending_images: list[tuple[str, str]] = []
@@ -178,9 +176,7 @@ class Run:
         waiter[1].append(answer)
         waiter[0].set()
 
-    def ask_user(
-        self, question: str, options: list[str], multiple: bool, detail: str | None = None
-    ) -> str:
+    def ask_user(self, question: str, options: list[str], multiple: bool, detail: str | None = None) -> str:
         entry: dict[str, Any] = {
             "id": _uid("q"),
             "question": question,
@@ -237,9 +233,7 @@ class Run:
         if prompt is None:
             raise RunError("No such login prompt.")
         if skip:
-            self.emit(
-                {"type": "login", "login": {**prompt, "state": "failed", "message": "Skipped"}}
-            )
+            self.emit({"type": "login", "login": {**prompt, "state": "failed", "message": "Skipped"}})
             self._resolve_login(login_id, False)
             return
 
@@ -288,9 +282,7 @@ class Run:
 
             ref = None if uploaded else cases.case_ref(text)
             content = self._preload_case(ref) if ref else self._user_content(text, uploaded)
-            self._messages = [
-                {"role": "system", "content": system_prompt(self.can_write(), self.instance)}
-            ]
+            self._messages = [{"role": "system", "content": system_prompt(self.can_write(), self.instance)}]
             self._push_turn("u_start", content)
             self._loop("user")
         except Exception as exc:
@@ -383,9 +375,7 @@ class Run:
 
     def retry(self, item_id: str) -> None:
         turn = self._turns.get(item_id)
-        message = next(
-            (m for m in self.state["chat"] if m["id"] == item_id and m["role"] == "user"), None
-        )
+        message = next((m for m in self.state["chat"] if m["id"] == item_id and m["role"] == "user"), None)
         if turn is None or message is None:
             raise RunError("This message cannot be retried.")
         if not self._claim():
@@ -445,9 +435,8 @@ class Run:
         if not uploaded:
             return text
         lines = [f"{a['name']} ({a['kind']}, {a['size']} bytes)" for a in uploaded]
-        body = (
-            f"{text or 'See the attached files.'}\n\nAttached files (open with read_file):\n"
-            + "\n".join(f"- {line}" for line in lines)
+        body = f"{text or 'See the attached files.'}\n\nAttached files (open with read_file):\n" + "\n".join(
+            f"- {line}" for line in lines
         )
         images = [a for a in uploaded if a["name"].lower().endswith(tuple(IMAGE_EXTS))]
         if not images or not self.vision:
@@ -514,14 +503,10 @@ class Run:
             with ThreadPoolExecutor(max_workers=TOOL_WORKERS) as pool:
                 outputs = list(pool.map(self._call_tool, result.tool_calls))
             for call, content in zip(result.tool_calls, outputs, strict=True):
-                self._messages.append(
-                    {"role": "tool", "tool_call_id": call["id"], "content": content}
-                )
+                self._messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
             if self._pending_images:
                 images, self._pending_images = self._pending_images, []
-                parts: list[dict[str, Any]] = [
-                    {"type": "text", "text": f"Attached: {', '.join(n for n, _ in images)}"}
-                ]
+                parts: list[dict[str, Any]] = [{"type": "text", "text": f"Attached: {', '.join(n for n, _ in images)}"}]
                 parts += [{"type": "image_url", "image_url": {"url": url}} for _, url in images]
                 self._messages.append({"role": "user", "content": parts})
             self._save(self.id, self._messages)
@@ -583,9 +568,7 @@ class Run:
                 break
             content = message.get("content")
             if message["role"] == "tool" and len(content or "") > TRIMMED_TOOL_OUTPUT:
-                message["content"] = (
-                    content[:TRIMMED_TOOL_OUTPUT] + "\n[older output trimmed to save context]"
-                )
+                message["content"] = content[:TRIMMED_TOOL_OUTPUT] + "\n[older output trimmed to save context]"
             elif message["role"] == "user" and isinstance(content, list):
                 message["content"] = [
                     {"type": "text", "text": "[image removed to save context]"}
@@ -596,16 +579,6 @@ class Run:
 
 
 # Copilot rejects a conversation whose tool calls lack results, e.g. after a crash mid-turn.
-# Continued runs carry tool calls under their old names; the model should see the current ones.
-def _renamed(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    for message in messages:
-        for call in message.get("tool_calls") or []:
-            function = call.get("function") or {}
-            if function.get("name") in LEGACY_NAMES:
-                function["name"] = LEGACY_NAMES[function["name"]]
-    return messages
-
-
 def _answered(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     fixed: list[dict[str, Any]] = []
     pending: list[str] = []

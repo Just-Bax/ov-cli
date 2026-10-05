@@ -102,11 +102,9 @@ def interactive_login(
             try:
                 page.goto(f"{base_url}{LOGIN_PATH}", wait_until="domcontentloaded", timeout=60000)
             except Exception as exc:
-                raise LoginFailed(
-                    f"Could not open {base_url}{LOGIN_PATH}: {str(exc).splitlines()[0]}"
-                ) from exc
+                raise LoginFailed(f"Could not open {base_url}{LOGIN_PATH}: {str(exc).splitlines()[0]}") from exc
             minted = _await_token(context, base_url, host, timeout_ms, report, verify)
-            cookies = cookies_from_playwright(context.cookies())
+            cookies = cookies_from_playwright(context.cookies(base_url), host)
             report("signed in, closing the browser")
         finally:
             _close(context)
@@ -216,9 +214,7 @@ def _looks_signed_in(url: str, host: str) -> bool:
 
 
 # Page fetch mirrors the product, context request survives navigation, HTTP mirrors refresh.
-def _mint(
-    context: Any, page: Any, base_url: str, verify: bool = True
-) -> tuple[dict[str, Any] | None, str]:
+def _mint(context: Any, page: Any, base_url: str, verify: bool = True) -> tuple[dict[str, Any] | None, str]:
     minted, page_error = _mint_from_page(page)
     if minted is not None:
         return minted, ""
@@ -241,7 +237,7 @@ def _mint_over_http(context: Any, base_url: str, verify: bool) -> tuple[dict[str
     from .errors import Forbidden
 
     try:
-        cookies = cookies_from_playwright(context.cookies())
+        cookies = cookies_from_playwright(context.cookies(base_url), urlsplit(base_url).hostname or "")
     except Exception as exc:
         return None, f"http: could not read cookies: {str(exc).splitlines()[0]}"
     if not cookies:
@@ -358,10 +354,7 @@ def _fetch_browser(report: Progress | None) -> None:
     if report:
         report("sign-in browser missing, downloading it once (about 150MB)")
     if not install_chromium():
-        raise LoginFailed(
-            "The sign-in browser could not be downloaded.\n"
-            "Check your connection, then run: ov setup"
-        )
+        raise LoginFailed("The sign-in browser could not be downloaded.\nCheck your connection, then run: ov setup")
 
 
 def _close(context: Any) -> None:

@@ -13,15 +13,9 @@ from .output import emit, emit_payload, note, rows_from
 # Kept even beside per-param flags: a param named like ours (--json, --out) cannot get one.
 def add_invocation_flags(parser: argparse.ArgumentParser, with_path: bool = True) -> None:
     if with_path:
-        parser.add_argument(
-            "-p", "--param", action="append", metavar="NAME=VALUE", help="path parameter"
-        )
-    parser.add_argument(
-        "-q", "--query", action="append", metavar="NAME=VALUE", help="query parameter"
-    )
-    parser.add_argument(
-        "-H", "--header", action="append", metavar="NAME:VALUE", help="request header"
-    )
+        parser.add_argument("-p", "--param", action="append", metavar="NAME=VALUE", help="path parameter")
+    parser.add_argument("-q", "--query", action="append", metavar="NAME=VALUE", help="query parameter")
+    parser.add_argument("-H", "--header", action="append", metavar="NAME:VALUE", help="request header")
     parser.add_argument(
         "-d",
         "--data",
@@ -33,19 +27,14 @@ def add_invocation_flags(parser: argparse.ArgumentParser, with_path: bool = True
         "--field",
         action="append",
         metavar="NAME=VALUE",
-        help="build the body one field at a time; NAME:=VALUE parses VALUE as JSON, "
-        "and a dotted NAME nests",
+        help="build the body one field at a time; NAME:=VALUE parses VALUE as JSON, and a dotted NAME nests",
     )
-    parser.add_argument(
-        "--file", action="append", metavar="FIELD=@path", help="upload a file as multipart"
-    )
+    parser.add_argument("--file", action="append", metavar="FIELD=@path", help="upload a file as multipart")
     parser.add_argument("--accept", help="override the Accept header")
     parser.add_argument("--out", metavar="PATH", help="write the response body to a file")
     parser.add_argument("--raw", action="store_true", help="print the response body unformatted")
     parser.add_argument("--table", action="store_true", help="render a list response as a table")
-    parser.add_argument(
-        "--dry-run", action="store_true", help="print the request that would be sent"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="print the request that would be sent")
 
 
 def add_param_flags(parser: argparse.ArgumentParser, operation: Operation) -> None:

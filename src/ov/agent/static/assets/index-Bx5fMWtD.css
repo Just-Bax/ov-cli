@@ -894,9 +894,6 @@ svg.react-flow__connectionline {
   .z-\[200\] {
     z-index: 200;
   }
-  .col-span-2 {
-    grid-column: span 2 / span 2;
-  }
   .-mx-2 {
     margin-inline: calc(var(--spacing) * -2);
   }
@@ -965,6 +962,9 @@ svg.react-flow__connectionline {
   }
   .mr-1\.5 {
     margin-right: calc(var(--spacing) * 1.5);
+  }
+  .mr-2 {
+    margin-right: calc(var(--spacing) * 2);
   }
   .mr-auto {
     margin-right: auto;
@@ -1040,6 +1040,9 @@ svg.react-flow__connectionline {
   }
   .field-sizing-content {
     field-sizing: content;
+  }
+  .aspect-square {
+    aspect-ratio: 1 / 1;
   }
   .\!size-1 {
     width: var(--spacing) !important;
@@ -1201,8 +1204,8 @@ svg.react-flow__connectionline {
   .max-h-\[320px\] {
     max-height: 320px;
   }
-  .max-h-\[340px\] {
-    max-height: 340px;
+  .max-h-\[380px\] {
+    max-height: 380px;
   }
   .max-h-\[520px\] {
     max-height: 520px;
@@ -1302,9 +1305,6 @@ svg.react-flow__connectionline {
   }
   .w-\[110px\] {
     width: 110px;
-  }
-  .w-\[150px\] {
-    width: 150px;
   }
   .w-\[240px\] {
     width: 240px;
@@ -1416,9 +1416,6 @@ svg.react-flow__connectionline {
   }
   .min-w-\[220px\] {
     min-width: 220px;
-  }
-  .min-w-\[260px\] {
-    min-width: 260px;
   }
   .min-w-\[280px\] {
     min-width: 280px;
@@ -1895,6 +1892,9 @@ svg.react-flow__connectionline {
   .p-7 {
     padding: calc(var(--spacing) * 7);
   }
+  .px-0 {
+    padding-inline: 0px;
+  }
   .px-1 {
     padding-inline: var(--spacing);
   }
@@ -1988,14 +1988,14 @@ svg.react-flow__connectionline {
   .pr-1 {
     padding-right: var(--spacing);
   }
-  .pr-2 {
-    padding-right: calc(var(--spacing) * 2);
-  }
   .pr-3 {
     padding-right: calc(var(--spacing) * 3);
   }
   .pr-3\.5 {
     padding-right: calc(var(--spacing) * 3.5);
+  }
+  .pr-4 {
+    padding-right: calc(var(--spacing) * 4);
   }
   .pr-6 {
     padding-right: calc(var(--spacing) * 6);
@@ -2453,6 +2453,9 @@ svg.react-flow__connectionline {
     }
     .hover\:bg-warn:hover {
       background-color: #e46b00;
+    }
+    .hover\:bg-white:hover {
+      background-color: var(--color-white);
     }
     .hover\:text-brand-strong:hover {
       color: #1e88e5;

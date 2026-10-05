@@ -114,9 +114,7 @@ def test_request_reaches_a_path_the_schema_does_not_describe(capsys, logged_in, 
 def test_out_writes_the_body_to_a_file(capsys, logged_in, server, tmp_path):
     target = tmp_path / "out.json"
     server.route("GET", "/api/v3/server_info", 200, {"version": "2026.1"})
-    code, data = payload(
-        capsys, "request", "GET", "/v3/server_info", "--out", str(target), "--json"
-    )
+    code, data = payload(capsys, "request", "GET", "/v3/server_info", "--out", str(target), "--json")
 
     assert code == 0
     assert json.loads(target.read_text(encoding="utf-8")) == {"version": "2026.1"}
@@ -154,6 +152,15 @@ def test_login_with_a_token_stores_a_static_session(capsys, ov_home, server, mon
     from ov import session as session_store
 
     assert session_store.load().is_static
+
+
+def test_login_reads_the_token_from_stdin(capsys, ov_home, server, monkeypatch):
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("PIPED:SECRET\n"))
+    code, data = payload(capsys, "login", BASE_URL, "--token", "-", "--no-spec", "--json")
+    assert code == 0
+    assert data["access_key"] == "PIPED"
 
 
 def test_login_rejects_a_malformed_token(capsys, ov_home, server):

@@ -220,6 +220,7 @@ export interface Instance {
   current: boolean
   expires?: string
   valid: boolean
+  mode: 'session' | 'token'
 }
 
 export interface Status {
@@ -317,8 +318,18 @@ export interface DatadogStatus {
 }
 
 export interface DatadogDiscovery {
-  values: { kind: 'host' | 'service'; value: string; count: number }[]
-  suggestions: { alias: string; filter: string; count: number; why: string }[]
+  hosts: { name: string; role: string; alias: string | null }[]
+  groups: Record<string, string>
+}
+
+export interface HealthServer {
+  host: string
+  role: string
+  cpu?: number | null
+  load?: number | null
+  memory?: number | null
+  disk?: number | null
+  heap?: number | null
 }
 
 export interface HealthPoint {
@@ -359,6 +370,7 @@ export interface InstanceHealth {
     max: number
     hosts: number
   }[]
+  servers?: HealthServer[]
   traffic?: { requests: HealthPoint[]; p95Ms: HealthPoint[] }
   pagerduty?: PagerDutyHealth | null
   onevizion?: { type: string; count: number; last?: string }[]

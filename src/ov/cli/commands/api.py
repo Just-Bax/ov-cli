@@ -30,9 +30,7 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     show.add_argument("operation", help="tag:name, a bare name, or 'GET /v3/users'")
     show.set_defaults(func=cmd_show)
 
-    schema = actions.add_parser(
-        "schema", parents=[common], help="print an operation's request body schema"
-    )
+    schema = actions.add_parser("schema", parents=[common], help="print an operation's request body schema")
     schema.add_argument("operation", help="tag:name, a bare name, or 'GET /v3/users'")
     schema.set_defaults(func=cmd_schema)
 

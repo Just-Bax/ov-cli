@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 
 const INSTANCE_KEY = 'ov-agent.map-instance'
 export const FOCUS_KEY = 'ov-agent.map-focus'
+export const EXPLORE_KEY = 'ov-agent.explorer-open'
 
 // One instance choice and one copy of its map for the Map and Explorer pages.
 export function useInstanceGraph() {

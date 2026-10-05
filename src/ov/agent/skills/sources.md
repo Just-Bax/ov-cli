@@ -1,6 +1,6 @@
 ---
 title: Sources
-description: Searching the code and docs the user configured, and cloned repos, with source_search and source_read.
+description: Read before searching configured code, docs or cloned repos with source_search and source_read.
 ---
 
 Sources are folders on this computer the user added in Settings (for example the platform code or module checkouts), each with a description of what it holds; the list is in "Sources" above. A repo cloned with github_clone is a source too, named "repo:<name>".

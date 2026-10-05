@@ -334,99 +334,114 @@ def filter_for(alias: str) -> str:
     return matches[same_host[0]["alias"]] if same_host else ""
 
 
-def _label(host: str) -> str:
-    return host.split(":")[0].split(".")[0].lower()
+# An instance usually runs on several servers (web, app, replicas). Its Datadog filter
+# holds them as host:(a OR b ...), so logs, events, APM and monitors take it as is and
+# metrics get host IN (...). Nothing here assumes a naming scheme beyond what is below.
+HOSTS_PAGE = 1000
+_HOSTS = re.compile(r"^host:\(([^()]+)\)$")
+_ONE_HOST = re.compile(r"^host:([^\s*()]+)$")
 
 
-def _tokens(value: str) -> set[str]:
-    return {t for t in re.split(r"[^a-z0-9]+", value.lower()) if t}
+def hosts_in(scope: str) -> list[str] | None:
+    text = scope.strip()
+    match = _HOSTS.match(text)
+    if match:
+        return [h.strip() for h in match.group(1).split(" OR ") if h.strip()]
+    match = _ONE_HOST.match(text)
+    return [match.group(1)] if match else None
 
 
-def _bucket_counts(dd: Client, facet: str) -> list[tuple[str, int]]:
-    data = dd.call(
-        "POST",
-        "/api/v2/logs/analytics/aggregate",
-        "logs",
-        json={
-            "compute": [{"aggregation": "count", "type": "total"}],
-            "filter": {"from": "now-24h", "to": "now", "query": "*"},
-            "group_by": [{"facet": facet, "limit": 500}],
-        },
-    )
-    out = []
-    for bucket in (data.get("data") or {}).get("buckets") or []:
-        value = (bucket.get("by") or {}).get(facet)
-        count = (bucket.get("computes") or {}).get("c0") or 0
-        if value:
-            out.append((str(value), int(count)))
-    return out
+def scope_of(hosts: list[str]) -> str:
+    hosts = sorted(dict.fromkeys(h.strip() for h in hosts if h.strip()))
+    if not hosts:
+        return ""
+    return f"host:{hosts[0]}" if len(hosts) == 1 else f"host:({' OR '.join(hosts)})"
+
+
+# The leading words of the machine's own name: web01 -> web, acme-app-2 -> acme-app,
+# db-3f9a -> db.
+def role_of(host: str) -> str:
+    first = host.split(".")[0].lower()
+    words: list[str] = []
+    for part in re.split(r"[-_]", first):
+        if part.isalpha():
+            words.append(part)
+            continue
+        lead = re.match(r"[a-z]*", part).group(0)  # type: ignore[union-attr]
+        if lead and not words:
+            words.append(lead)
+        break
+    return "-".join(words) or first
+
+
+def with_role(scope: str, role: str | None) -> str:
+    if not role or role == "all":
+        return scope
+    hosts = hosts_in(scope)
+    if hosts is None:
+        raise DatadogError("This instance's Datadog filter is not a list of servers, so it has no roles.")
+    picked = [h for h in hosts if role_of(h) == role.lower()]
+    if not picked:
+        roles = ", ".join(sorted({role_of(h) for h in hosts}))
+        raise DatadogError(f"No {role} servers. This instance has: {roles}.")
+    return scope_of(picked)
+
+
+def _instance_label(website: str) -> str:
+    return website.split(":")[0].split(".")[0].lower()
+
+
+# A Datadog host belongs to an instance when one of its name parts after the first (the
+# machine's own name) is the instance name, alone or followed by "-something"; the longest
+# instance name wins, so "lumen" never takes hosts of "dev-lumen". The instance's own
+# website as a host name also counts.
+def owner_of(host: str, instances_by_label: dict[str, str], websites: dict[str, str]) -> str | None:
+    name = host.lower()
+    if name in websites:
+        return websites[name]
+    parts = name.split(".")[1:]
+    best: tuple[str, str] | None = None
+    for label, alias in instances_by_label.items():
+        if any(p == label or p.startswith(label + "-") for p in parts):
+            if best is None or len(label) > len(best[0]):
+                best = (label, alias)
+    return best[1] if best else None
+
+
+def _all_hosts(dd: Client) -> list[str]:
+    if not permissions().get("hosts"):
+        raise DatadogError("Finding servers needs the hosts_read scope on the application key.")
+
+    names: list[str] = []
+    while True:
+        data = dd.call("GET", "/api/v1/hosts", "hosts", params={"count": HOSTS_PAGE, "start": len(names)})
+        rows = data["host_list"]
+        names += [row["name"] for row in rows]
+        if not rows or len(names) >= data["total_matching"]:
+            return sorted(set(names))
+
+
+def _main_instances() -> list[dict[str, Any]]:
+    seen: dict[str, dict[str, Any]] = {}
+    for inst in sorted(instances(), key=lambda i: bool(i["tenant"])):
+        seen.setdefault(inst["host"], inst)
+    return list(seen.values())
 
 
 def discover() -> dict[str, Any]:
     with client() as dd:
-        if not permissions().get("logs"):
-            raise DatadogError("Matching needs log access (logs_read_data) to see what exists.")
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            hosts, services = pool.map(lambda f: _bucket_counts(dd, f), ["host", "service"])
-
-    values = [{"kind": "host", "value": v, "count": c} for v, c in hosts] + [
-        {"kind": "service", "value": v, "count": c} for v, c in services
-    ]
-    values.sort(key=lambda v: -v["count"])
-    suggestions = []
-    for inst in instances():
-        if inst["tenant"]:
-            continue
-        suggestions.append({"alias": inst["alias"], **_suggest(inst["host"], hosts, services)})
-    return {"values": values[:400], "suggestions": suggestions}
-
-
-def _suggest(host: str, hosts: list[tuple[str, int]], services: list[tuple[str, int]]) -> dict:
-    bare = host.split(":")[0].lower()
-    label = _label(host)
-    for value, count in hosts:
-        if value.lower() == bare:
-            return {"filter": f"host:{value}", "count": count, "why": "Host name matches"}
-    for kind, rows in (("service", services), ("host", hosts)):
-        exact = [(v, c) for v, c in rows if v.lower() in (label, bare)]
-        if exact:
-            return {"filter": f"{kind}:{exact[0][0]}", "count": exact[0][1], "why": f"{kind} name"}
-    related = [(v, c) for v, c in hosts if label in _tokens(v) or v.lower().startswith(label)]
-    if related:
-        prefix = _common_prefix([v for v, _ in related])
-        total = sum(c for _, c in related)
-        if len(related) > 1 and len(prefix) >= len(label):
-            return {"filter": f"host:{prefix}*", "count": total, "why": f"{len(related)} hosts"}
-        best = max(related, key=lambda r: r[1])
-        return {"filter": f"host:{best[0]}", "count": best[1], "why": "Host name contains it"}
-    related = [(v, c) for v, c in services if label in _tokens(v)]
-    if related:
-        best = max(related, key=lambda r: r[1])
-        return {"filter": f"service:{best[0]}", "count": best[1], "why": "Service contains it"}
-    return {"filter": "", "count": 0, "why": "No match found"}
-
-
-def _common_prefix(values: list[str]) -> str:
-    first, last = min(values), max(values)
-    size = 0
-    while size < min(len(first), len(last)) and first[size] == last[size]:
-        size += 1
-    return first[:size]
-
-
-def count_logs(query: str) -> int:
-    with client() as dd:
-        data = dd.call(
-            "POST",
-            "/api/v2/logs/analytics/aggregate",
-            "logs",
-            json={
-                "compute": [{"aggregation": "count", "type": "total"}],
-                "filter": {"from": "now-24h", "to": "now", "query": query or "*"},
-            },
-        )
-    buckets = (data.get("data") or {}).get("buckets") or []
-    return int((buckets[0].get("computes") or {}).get("c0") or 0) if buckets else 0
+        names = _all_hosts(dd)
+    mains = _main_instances()
+    by_label = {_instance_label(i["host"]): i["alias"] for i in mains}
+    websites = {i["host"].split(":")[0].lower(): i["alias"] for i in mains}
+    hosts = []
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        alias = owner_of(name, by_label, websites)
+        hosts.append({"name": name, "role": role_of(name), "alias": alias})
+        if alias:
+            groups.setdefault(alias, []).append(name)
+    return {"hosts": hosts, "groups": {k: scope_of(v) for k, v in groups.items()}}
 
 
 # Time windows accept "now", "now-2h", ISO dates or epoch values; Datadog wants epoch ms.
@@ -523,9 +538,7 @@ def top_patterns(rows: list[dict[str, Any]], limit: int = 8) -> list[dict[str, A
     counts: Counter[str] = Counter()
     sample: dict[str, dict[str, Any]] = {}
     for row in rows:
-        key = pattern_of(
-            row["errorKind"] + " " + row["message"] if row["errorKind"] else row["message"]
-        )
+        key = pattern_of(row["errorKind"] + " " + row["message"] if row["errorKind"] else row["message"])
         if not key:
             continue
         counts[key] += 1
@@ -558,6 +571,9 @@ def log_timeseries(query: str, start: int, end: int, interval: str) -> list[dict
 
 
 def metric_scope(scope: str) -> str:
+    hosts = hosts_in(scope)
+    if hosts:
+        return f"host:{hosts[0]}" if len(hosts) == 1 else f"host IN ({','.join(hosts)})"
     tags = [t for t in scope.split() if ":" in t and not t.startswith(("-", "("))]
     return ",".join(tags) or "*"
 
@@ -593,9 +609,7 @@ def summarize_series(series: dict[str, Any], samples: int = 12) -> str:
     if not values:
         return f"{series['name']} [{series['scope']}]: no data"
     step = max(1, len(series["points"]) // samples)
-    sampled = ", ".join(
-        f"{iso(p['t'])[11:16]}={_num(p['v'])}" for p in series["points"][::step][:samples]
-    )
+    sampled = ", ".join(f"{iso(p['t'])[11:16]}={_num(p['v'])}" for p in series["points"][::step][:samples])
     unit = f" {series['unit']}" if series["unit"] else ""
     return (
         f"{series['name']} [{series['scope']}]{unit}: min {_num(min(values))}, "
@@ -624,7 +638,12 @@ def monitors_for(scope: str, include_ok: bool) -> list[dict[str, Any]]:
             "monitors",
             params={"group_states": "alert,warn,no data", "page": 0, "page_size": 1000},
         )
-    needles = [t.split(":", 1)[1].rstrip("*").lower() for t in scope.split() if ":" in t]
+    hosts = hosts_in(scope)
+    needles = (
+        [h.lower() for h in hosts]
+        if hosts
+        else [t.split(":", 1)[1].rstrip("*").lower() for t in scope.split() if ":" in t]
+    )
     needles = [n for n in needles if n]
     out = []
     for mon in data if isinstance(data, list) else []:
@@ -765,11 +784,11 @@ def error_spans(query: str, start: int, end: int, limit: int) -> list[dict[str, 
 # Health page: one report per instance and range, cached briefly to stay inside rate limits.
 RANGES = {"1h": (3600, "1m"), "24h": (86400, "30m"), "7d": (604800, "6h")}
 METRICS = [
-    ("cpu", "CPU", "avg:system.cpu.user{%s}", "%"),
-    ("load", "Load (per core)", "avg:system.load.norm.1{%s}", ""),
-    ("memory", "Memory usable", "avg:system.mem.pct_usable{%s}*100", "%"),
-    ("disk", "Disk in use", "max:system.disk.in_use{%s}*100", "%"),
-    ("heap", "JVM heap", "avg:jvm.heap_memory{%s}", "B"),
+    ("cpu", "CPU", "avg:system.cpu.user{%s} by {host}", "%"),
+    ("load", "Load (per core)", "avg:system.load.norm.1{%s} by {host}", ""),
+    ("memory", "Memory usable", "avg:system.mem.pct_usable{%s} by {host}*100", "%"),
+    ("disk", "Disk in use", "max:system.disk.in_use{%s} by {host}*100", "%"),
+    ("heap", "JVM heap", "avg:jvm.heap_memory{%s} by {host}", "B"),
 ]
 
 
@@ -824,10 +843,7 @@ def health(alias: str, range_key: str, ov_side: Any = None) -> dict[str, Any]:
             ("logSeries", lambda: log_timeseries(scope, start, end, interval)),
             (
                 "previousErrors",
-                lambda: sum(
-                    p["v"]
-                    for p in log_timeseries(errors_query, start - seconds * 1000, start, interval)
-                ),
+                lambda: sum(p["v"] for p in log_timeseries(errors_query, start - seconds * 1000, start, interval)),
             ),
             ("topErrors", lambda: top_patterns(search_logs(errors_query, start, end, 300))),
         ]
@@ -852,8 +868,18 @@ def health(alias: str, range_key: str, ov_side: Any = None) -> dict[str, Any]:
         list(pool.map(lambda job: run(*job), jobs))
 
     # Fixed order: jobs finish in any order.
-    cards = [report.pop(f"metric:{name}", None) for name, *_ in METRICS]
-    report["metrics"] = [m for m in cards if m and m["points"]]
+    cards = {name: report.pop(f"metric:{name}", None) for name, *_ in METRICS}
+    report["metrics"] = [m for m in cards.values() if m and m["points"]]
+    # One row per server, so a busy replica stands out from its quiet siblings.
+    names = hosts_in(scope) or sorted({h for m in report["metrics"] for h in m["byHost"]})
+    report["servers"] = [
+        {
+            "host": name,
+            "role": role_of(name),
+            **{key: (card["byHost"].get(name) or {}).get("latest") if card else None for key, card in cards.items()},
+        }
+        for name in names
+    ]
     for name in [k for k in list(report["errors"]) if k.startswith("metric:")]:
         report["errors"].pop(name)
     _health_cache[key] = (time.time(), report)
@@ -869,7 +895,16 @@ def _metric_card(title: str, query: str, unit: str, start: int, end: int) -> dic
     merged = [{"t": t, "v": sum(v) / len(v)} for t, v in sorted(points.items())]
     if not merged:
         return None
+    by_host = {}
+    for s in series:
+        name = next((p.split(":", 1)[1] for p in s["scope"].split(",") if p.startswith("host:")), "")
+        if name and s["points"]:
+            by_host[name] = {
+                "latest": s["points"][-1]["v"],
+                "max": max(p["v"] for p in s["points"]),
+            }
     return {
+        "byHost": by_host,
         "title": title,
         "query": query,
         "unit": unit,
@@ -880,9 +915,7 @@ def _metric_card(title: str, query: str, unit: str, start: int, end: int) -> dic
 
 
 # Charts read better as averaged buckets than as hundreds of raw points.
-def downsample(
-    points: list[dict[str, float]], buckets: int = CHART_POINTS
-) -> list[dict[str, float]]:
+def downsample(points: list[dict[str, float]], buckets: int = CHART_POINTS) -> list[dict[str, float]]:
     if len(points) <= buckets:
         return points
     size = len(points) / buckets
@@ -897,11 +930,7 @@ def _series(compute: Any) -> list[dict[str, float]]:
     out = []
     for point in compute if isinstance(compute, list) else []:
         stamp = point.get("time")
-        ms = (
-            to_ms(stamp, "now")
-            if isinstance(stamp, str) and not stamp.isdigit()
-            else int(stamp or 0)
-        )
+        ms = to_ms(stamp, "now") if isinstance(stamp, str) and not stamp.isdigit() else int(stamp or 0)
         out.append({"t": ms, "v": float(point.get("value") or 0)})
     return out
 
@@ -949,7 +978,7 @@ def traffic(query: str, start: int, end: int, interval: str) -> dict[str, Any]:
     return found
 
 
-def resolve_scope(instance: str | None, fallback: str) -> tuple[str, str]:
+def resolve_scope(instance: str | None, fallback: str, role: str | None = None) -> tuple[str, str]:
     target = (instance or fallback or "").strip()
     if not target:
         return "", ""
@@ -961,4 +990,4 @@ def resolve_scope(instance: str | None, fallback: str) -> tuple[str, str]:
             f"{found['host']} is not matched to Datadog yet. Match it in Settings > "
             "Integrations > Datadog, or pass a query with its host or service tag."
         )
-    return alias or host_of(target), scope
+    return alias or host_of(target), with_role(scope, role) if scope else scope

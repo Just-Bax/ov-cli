@@ -48,9 +48,7 @@ def cmd_show(ctx: Context) -> int:
     def table():
         rows = [[k, str(v)] for k, v in data.items() if k != "paths"]
         rows += [[f"paths.{k}", v] for k, v in data["paths"].items()]
-        return build_table(
-            None, [{"header": "Setting", "style": "cyan"}, {"header": "Value"}], rows
-        )
+        return build_table(None, [{"header": "Setting", "style": "cyan"}, {"header": "Value"}], rows)
 
     emit(ctx, data, table)
     return 0

@@ -34,8 +34,7 @@ def _clob(sql: SqlReader, table: str, column: str, where: str) -> str:
 
     def read(offset: int, with_length: bool = False) -> dict[str, Any]:
         columns = ", ".join(
-            f"dbms_lob.substr({column}, {CHUNK}, {offset + i * CHUNK}) c{i}"
-            for i in range(CODE_CHUNKS)
+            f"dbms_lob.substr({column}, {CHUNK}, {offset + i * CHUNK}) c{i}" for i in range(CODE_CHUNKS)
         )
         if with_length:
             columns = f"dbms_lob.getlength({column}) n, {columns}"
@@ -61,9 +60,7 @@ def _clobs(sql: SqlReader, table: str, where: str, columns: dict[str, str]) -> l
 
 
 def _pieces(sql: SqlReader, query: str, title: str, code_column: str) -> list[dict[str, str]]:
-    columns = ", ".join(
-        f"dbms_lob.substr({code_column}, {CHUNK}, {1 + i * CHUNK}) c{i}" for i in range(CODE_CHUNKS)
-    )
+    columns = ", ".join(f"dbms_lob.substr({code_column}, {CHUNK}, {1 + i * CHUNK}) c{i}" for i in range(CODE_CHUNKS))
     rows = sql.rows(query.format(code=columns), 200)
     parts = []
     for row in rows:
@@ -114,8 +111,7 @@ def _sections(sql: SqlReader, kind: str, ref: int) -> list[dict[str, str]]:
     if kind == "workflow":
         return _pieces(
             sql,
-            "select step_name name, {code} from wf_template_step where wf_template_id = "
-            + str(ref),
+            "select step_name name, {code} from wf_template_step where wf_template_id = " + str(ref),
             "NAME",
             "plsql_block",
         )
@@ -159,8 +155,7 @@ def source(alias: str, node_id: str) -> dict[str, Any]:
     known = {n["ref"] for n in graph["nodes"]} if graph else set()
     result = {
         "sections": [
-            {**section, "hints": hints(section["code"], node or {"type": kind}, known)}
-            for section in sections
+            {**section, "hints": hints(section["code"], node or {"type": kind}, known)} for section in sections
         ]
     }
     with _cache_lock:
@@ -241,9 +236,7 @@ def activity(alias: str, node_id: str) -> list[dict[str, Any]]:
 
 _LOOP_START = re.compile(r"\b(for\b.*\bloop|while\b.*\bloop|loop)\s*$", re.IGNORECASE)
 _LOOP_END = re.compile(r"\bend\s+loop\b", re.IGNORECASE)
-_LOOKUP = re.compile(
-    r"\b(util|rpt|pkg_config_field_rpt)\s*\.\s*getval\w*\s*\(|\bselect\b", re.IGNORECASE
-)
+_LOOKUP = re.compile(r"\b(util|rpt|pkg_config_field_rpt)\s*\.\s*getval\w*\s*\(|\bselect\b", re.IGNORECASE)
 _SELECT_STAR = re.compile(r"\bselect\s+\*", re.IGNORECASE)
 _SELECT_INTO = re.compile(r"\bselect\b(?:(?!\bfrom\b).)*?\binto\b", re.IGNORECASE | re.DOTALL)
 _AGGREGATE = re.compile(r"\b(max|min|count|sum|avg)\s*\(", re.IGNORECASE)
@@ -296,8 +289,7 @@ def hints(code: str, node: dict[str, Any], known: set[int] | None = None) -> lis
                     number,
                     "warn",
                     "Query inside a loop",
-                    "This runs once per row. Join the data into the loop's cursor instead of "
-                    "looking it up row by row.",
+                    "This runs once per row. Join the data into the loop's cursor instead of looking it up row by row.",
                 )
             )
         if _SELECT_STAR.search(line):
@@ -306,8 +298,7 @@ def hints(code: str, node: dict[str, Any], known: set[int] | None = None) -> lis
                     number,
                     "info",
                     "SELECT *",
-                    "Name the columns you need: it reads less and does not break when columns "
-                    "are added.",
+                    "Name the columns you need: it reads less and does not break when columns are added.",
                 )
             )
         if _COMMIT.search(line):
@@ -350,9 +341,7 @@ def hints(code: str, node: dict[str, Any], known: set[int] | None = None) -> lis
                 )
             )
         # Config ids are how rules name fields and types; only unknown numbers are suspicious.
-        literal = next(
-            (m for m in _LITERAL.finditer(line) if int(m.group(1)) not in (known or set())), None
-        )
+        literal = next((m for m in _LITERAL.finditer(line) if int(m.group(1)) not in (known or set())), None)
         if literal and "id." not in line.lower():
             found.append(
                 _hint(

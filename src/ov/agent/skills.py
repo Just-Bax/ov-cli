@@ -96,9 +96,7 @@ def create(title: str, description: str, content: str) -> str:
     name, index = base, 2
     while name in taken:
         name, index = f"{base}-{index}", index + 1
-    db.put_skill(
-        name, title=title, description=description.strip(), content=content.strip(), enabled=1
-    )
+    db.put_skill(name, title=title, description=description.strip(), content=content.strip(), enabled=1)
     return name
 
 

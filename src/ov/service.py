@@ -85,8 +85,7 @@ class OvService:
 
         detail = "\n  ".join(errors) or "no candidate URLs"
         raise SpecUnavailable(
-            "Could not read the OpenAPI schema. The account needs the API Docs module "
-            f"at Read.\n  {detail}"
+            f"Could not read the OpenAPI schema. The account needs the API Docs module at Read.\n  {detail}"
         )
 
     def _spec_paths(self) -> list[str]:

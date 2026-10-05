@@ -63,8 +63,7 @@ def cmd_fetch(ctx: Context) -> int:
     emit(
         ctx,
         data,
-        text=f"[green]Fetched[/green] {len(spec.operations)} operations "
-        f"in {len(spec.tags)} tags -> {path}",
+        text=f"[green]Fetched[/green] {len(spec.operations)} operations in {len(spec.tags)} tags -> {path}",
     )
     return 0
 

@@ -15,16 +15,14 @@ KEY = "u+abcdefghijklmn1234"
 HOST = "acme.onevizion.test"
 
 
-def incident(
-    number: int, status: str, title: str, details: dict | str | None, policy: str = "PPOL1"
-) -> dict[str, Any]:
+def incident(number: int, status: str, title: str, details: dict | str | None, policy: str = "PPOL1") -> dict[str, Any]:
     return {
         "id": f"PINC{number}",
         "incident_number": number,
         "title": title,
         "status": status,
         "urgency": "high",
-        "service": {"id": "PSVC1", "summary": "OV-Monitoring High & Critical"},
+        "service": {"id": "PSVC1", "summary": "Monitoring High & Critical"},
         "escalation_policy": {"id": policy},
         "created_at": "2026-10-04T10:00:00Z",
         "last_status_change_at": "2026-10-04T10:05:00Z",
@@ -180,16 +178,16 @@ def test_a_tenant_sees_its_host_incidents(linked):
     session_store.save(
         Session(
             base_url=BASE_URL,
-            alias="acme/mtrac",
+            alias="acme/north",
             mode="session",
             bearer_token="T:S",
             expires_at=4102444800.0,
-            tenant="mTRAC",
+            tenant="North",
             tenant_id="9",
         )
     )
     rows = pagerduty.incidents(0, 1_791_108_000_000)
-    assert len(pagerduty.for_instance(rows, "acme/mtrac")) == 4
+    assert len(pagerduty.for_instance(rows, "acme/north")) == 4
 
 
 def test_website_map_lists_signed_in_instances_first(linked):
@@ -211,15 +209,13 @@ def test_tools_are_offered_only_when_connected(fake, logged_in):
     assert {"pagerduty_incidents", "pagerduty_incident"} <= names
     assert "pagerduty_oncall" not in names
     text = prompt.system_prompt(False, "")
-    assert "## PagerDuty" in text and "PagerDuty (incidents and on-call)" in text
+    assert "- pagerduty: " in text and "PagerDuty (incidents and on-call)" in text
 
 
 def test_incident_tools(linked, tmp_path):
     ctx = Ctx(tmp_path)
     out = TOOLS_BY_NAME["pagerduty_incidents"].handler({}, ctx)
-    assert (
-        f"for {HOST}" in out and "#7 [triggered, high] Unhealthy Hosts" in out and "#4" not in out
-    )
+    assert f"for {HOST}" in out and "#7 [triggered, high] Unhealthy Hosts" in out and "#4" not in out
 
     open_only = TOOLS_BY_NAME["pagerduty_incidents"].handler({"statuses": ["triggered"]}, ctx)
     assert "#7" in open_only and "#6" not in open_only

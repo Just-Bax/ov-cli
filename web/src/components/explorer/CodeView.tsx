@@ -1,8 +1,7 @@
-import { ArrowUpRightIcon, MapIcon } from '@heroicons/react/24/outline'
 import { useEffect, useRef, useState } from 'react'
 import type { CodeHint, GraphNode, GraphNodeType } from '@shared/types.ts'
 import { TypeDot, TYPES } from '@/components/map/meta'
-import { Button } from '@/components/ui'
+import { ObjectActions } from '@/components/map/ObjectActions'
 import { findRefs, type Ref, type RefIndex, REF_KINDS } from '@/lib/references'
 import { monaco } from '@/lib/monaco'
 
@@ -43,15 +42,17 @@ export function CodeView({
   refs,
   facts,
   onOpen,
-  onShowOnMap,
+  instanceHost,
+  alias,
   revealLine,
 }: {
+  instanceHost: string
+  alias: string
   code: string
   hints: CodeHint[]
   refs: RefIndex
   facts: (node: GraphNode) => string[]
   onOpen: (node: GraphNode) => void
-  onShowOnMap: (node: GraphNode) => void
   revealLine?: { line: number; at: number }
 }) {
   const frame = useRef<HTMLDivElement>(null)
@@ -256,7 +257,8 @@ export function CodeView({
             setHover(undefined)
             onOpen(hover.ref.node)
           }}
-          onShowOnMap={() => onShowOnMap(hover.ref.node)}
+          instanceHost={instanceHost}
+          alias={alias}
         />
       ) : null}
     </div>
@@ -270,7 +272,8 @@ function RefCard({
   onEnter,
   onLeave,
   onOpen,
-  onShowOnMap,
+  instanceHost,
+  alias,
 }: {
   hover: Hover
   facts: string[]
@@ -278,7 +281,8 @@ function RefCard({
   onEnter: () => void
   onLeave: () => void
   onOpen: () => void
-  onShowOnMap: () => void
+  instanceHost: string
+  alias: string
 }) {
   const { node, kind, text } = hover.ref
   const meta = TYPES[node.type]
@@ -319,13 +323,14 @@ function RefCard({
           ))}
         </div>
       ) : null}
-      <div className="mt-3 flex gap-2">
-        <Button size="sm" variant="primary" onClick={onOpen}>
-          <ArrowUpRightIcon className="size-3.5" /> Open
-        </Button>
-        <Button size="sm" variant="secondary" onClick={onShowOnMap}>
-          <MapIcon className="size-3.5" /> Show on map
-        </Button>
+      <div className="mt-3">
+        <ObjectActions
+          node={node}
+          host={instanceHost}
+          alias={alias}
+          page="explorer"
+          onExplore={onOpen}
+        />
       </div>
     </div>
   )

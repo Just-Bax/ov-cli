@@ -1,9 +1,9 @@
 ---
 title: PagerDuty
-description: When and how to use PagerDuty incidents and on-call next to Datadog and OneVizion data.
+description: Read before reviewing an incident, an alert or who is on call: how incidents tie to instances and what to check next.
 ---
 
-The PagerDuty tools (pagerduty_incidents, pagerduty_incident, pagerduty_oncall) are available only when the user connected PagerDuty in Settings. PagerDuty services here are shared (OV-Monitoring, DataDog, ...), so incidents are tied to an instance by the website in their alert: OV monitoring alerts carry a website field, Datadog alerts name the host. pagerduty_incidents takes an instance; all_instances=true lists everything. Times are UTC.
+The PagerDuty tools (pagerduty_incidents, pagerduty_incident, pagerduty_oncall) are available only when the user connected PagerDuty in Settings. PagerDuty services are usually shared by many instances, so incidents are tied to an instance by what their alert names: a website field, a database, or a Datadog host. pagerduty_incidents takes an instance; all_instances=true lists everything. Times are UTC.
 
 When to use them:
 - A case or question says something is down, slow, erroring for everyone, or "since this morning": check pagerduty_incidents for the instance around that time, open ones first (statuses triggered and acknowledged).

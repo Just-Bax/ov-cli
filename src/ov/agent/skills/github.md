@@ -1,6 +1,6 @@
 ---
 title: GitHub
-description: Cloning module and project repositories with github_clone so they can be read like sources.
+description: Read before cloning or reading a module or project repository with github_clone.
 ---
 
 github_clone clones a repository, or pulls it if it is already cloned, and returns its file list. It uses this computer's git and its credentials, so private repos work only if this computer can already reach them; if the clone is refused, say so and ask the user for access instead of guessing at the code.

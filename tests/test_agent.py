@@ -129,9 +129,7 @@ def test_reducer_rewind_drops_later_items():
 
 
 def test_entity_links_use_admin_forms():
-    assert entity_link("rule", "123", "acme.onevizion.com") == (
-        "https://acme.onevizion.com/admin/rules/Form.do?id=123"
-    )
+    assert entity_link("rule", "123", "acme.onevizion.com") == ("https://acme.onevizion.com/admin/rules/Form.do?id=123")
     assert entity_link("field", "123", "acme") is None
 
 
@@ -159,9 +157,7 @@ def test_a_blocked_write_needs_access_then_approval(logged_in, tmp_path, monkeyp
     assert "DELETE /v3/users/1" in ctx.asked[0]
 
     with pytest.raises(ToolError, match="rejected"):
-        run_ov_tool(
-            ["request", "DELETE", "/v3/users/1"], "acme", FakeContext(tmp_path, True, "Reject")
-        )
+        run_ov_tool(["request", "DELETE", "/v3/users/1"], "acme", FakeContext(tmp_path, True, "Reject"))
 
 
 def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
@@ -221,13 +217,9 @@ def test_the_api_lists_instances_and_rejects_cross_site_posts(agent_server):
     rows = httpx.get(f"{agent_server}/api/instances").json()
     assert rows[0]["alias"] == "acme" and rows[0]["valid"]
 
-    forged = httpx.post(
-        f"{agent_server}/api/runs", content="{}", headers={"Content-Type": "text/plain"}
-    )
+    forged = httpx.post(f"{agent_server}/api/runs", content="{}", headers={"Content-Type": "text/plain"})
     assert forged.status_code == 403
-    foreign = httpx.post(
-        f"{agent_server}/api/runs", json={}, headers={"Origin": "https://evil.test"}
-    )
+    foreign = httpx.post(f"{agent_server}/api/runs", json={}, headers={"Origin": "https://evil.test"})
     assert foreign.status_code == 403
 
 
@@ -245,18 +237,14 @@ def test_uploads_round_trip(agent_server):
 
 
 def test_settings_ignore_unknown_keys(agent_server):
-    saved = httpx.put(
-        f"{agent_server}/api/settings", json={"defaultModel": "m", "secret": "x"}
-    ).json()
+    saved = httpx.put(f"{agent_server}/api/settings", json={"defaultModel": "m", "secret": "x"}).json()
     assert saved["defaultModel"] == "m" and "secret" not in saved
     assert json.loads(json.dumps(saved))
 
 
 def test_ov_tool_keeps_files_in_the_workspace(logged_in, tmp_path, monkeypatch):
     seen = []
-    monkeypatch.setattr(
-        "ov.agent.tools.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", "")
-    )
+    monkeypatch.setattr("ov.agent.tools.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", ""))
     ctx = FakeContext(tmp_path)
     run_ov_tool(["request", "GET", "/x", "--out=C:/evil/a.bin"], "acme", ctx)
     run_ov_tool(["request", "POST", "/x", "-d", "@~/.ov/credentials.json"], "acme", ctx)
@@ -372,35 +360,31 @@ def test_boolean_settings_are_stored_as_booleans():
 
 def test_instance_sign_in_keeps_the_url_and_tenant(agent_server, monkeypatch):
     seen: list[list[str]] = []
-    monkeypatch.setattr(
-        "ov.agent.ovproc.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", "")
-    )
+    monkeypatch.setattr("ov.agent.ovproc.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", ""))
     url = "http://portal.customer.example:8443/ov"
-    res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "tenant": "mTRAC"})
+    res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "tenant": "North"})
     assert res.json()["ok"]
     assert seen[-1][:2] == ["login", url]
-    assert seen[-1][-2:] == ["--tenant", "mTRAC"]
+    assert seen[-1][-2:] == ["--tenant", "North"]
 
     httpx.post(f"{agent_server}/api/instances/login", json={"url": url})
     assert "--tenant" not in seen[-1]
 
 
-def test_tenant_suggestions_come_from_a_live_sign_in_on_the_host(agent_server, monkeypatch):
-    seed_session(BASE_URL)
-    rows = [{"name": "Main", "tenant_id": "1", "current": True}, {"name": "mTRAC"}]
-    seen: list[list[str]] = []
+def test_instance_sign_in_passes_a_token_on_stdin(agent_server, monkeypatch):
+    seen: list[tuple[list[str], str | None]] = []
 
-    def fake(args, **_):
-        seen.append(args)
-        return OvResult(0, json.dumps(rows), "")
+    def fake(args, **kwargs):
+        seen.append((args, kwargs.get("stdin")))
+        return OvResult(0, "ok", "")
 
-    monkeypatch.setattr("ov.agent.server.run_ov", fake)
-    host = "acme.onevizion.test"
-    names = httpx.get(f"{agent_server}/api/instances/tenants", params={"host": host}).json()
-    assert names == [{"name": "Main"}, {"name": "mTRAC"}]
-    assert seen[-1] == ["-i", "acme", "tenants", "--json"]
-    other = httpx.get(f"{agent_server}/api/instances/tenants", params={"host": "nope.test"})
-    assert other.json() == []
+    monkeypatch.setattr("ov.agent.ovproc.run_ov", fake)
+    url = "https://acme.onevizion.test"
+    res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "token": "K:S"})
+    assert res.json()["ok"]
+    assert seen[-1] == (["login", url, "--keep-current", "--timeout", "280", "--token", "-"], "K:S")
+    both = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "token": "K:S", "tenant": "x"})
+    assert both.status_code == 400
 
 
 def test_an_instance_can_be_removed(agent_server, monkeypatch):
@@ -422,30 +406,29 @@ def test_an_instance_can_be_removed(agent_server, monkeypatch):
     assert missing.status_code == 404
 
 
-def test_every_tool_is_in_one_group_and_old_names_still_work():
-    from ov.agent.run import _renamed
-    from ov.agent.tools import LEGACY_NAMES, TOOL_GROUPS, TOOLS, tool_named
+def test_every_tool_is_in_one_group():
+    from ov.agent.tools import TOOL_GROUPS, TOOLS
 
     grouped = [name for _, _, names in TOOL_GROUPS for name in names]
     assert sorted(grouped) == sorted(t.name for t in TOOLS)
     assert len(grouped) == len(set(grouped))
-    for old, new in LEGACY_NAMES.items():
-        assert tool_named(old) is tool_named(new) is not None
-
-    history = [
-        {"role": "assistant", "tool_calls": [{"id": "1", "function": {"name": "graph_query"}}]}
-    ]
-    assert _renamed(history)[0]["tool_calls"][0]["function"]["name"] == "ov_map"
 
 
 def test_the_prompt_lists_tools_by_group(logged_in):
     from ov.agent.prompt import system_prompt
 
     text = system_prompt(False, "")
-    assert (
-        "- OV CLI (signed-in OneVizion instances): ov, ov_sql, ov_search, ov_map, ov_case" in text
-    )
+    assert "- OV CLI (signed-in OneVizion instances): ov, ov_sql, ov_search, ov_map, ov_case" in text
     assert "- GitHub (module and project repositories): github_clone" in text
     assert "Datadog (logs" not in text
-    for title in ("## OV CLI", "## Sources", "## GitHub"):
-        assert title in text
+    assert "- ov-cli: " in text and "- datadog: " not in text
+    assert "## OV CLI" not in text
+
+
+def test_skills_are_read_on_demand(logged_in):
+    from ov.agent.tools import ToolError, tool_named
+
+    skill = tool_named("read_skill")
+    assert skill.handler({"name": "ov-cli"}, None).startswith("# OV CLI\n\n")
+    with pytest.raises(ToolError, match="Skills: onevizion"):
+        skill.handler({"name": "datadog"}, None)

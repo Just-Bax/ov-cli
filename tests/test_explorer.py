@@ -123,22 +123,16 @@ def test_rule_trigger_hints():
     assert "Runs on every update" not in hint_titles("null;", {**node, "filtered": True})
     long_code = "null;\n" * (explorer.LONG_SYNC_LINES + 1)
     assert "Long rule runs while the user waits" in hint_titles(long_code, node)
-    assert "Long rule runs while the user waits" not in hint_titles(
-        long_code, {**node, "async": True}
-    )
+    assert "Long rule runs while the user waits" not in hint_titles(long_code, {**node, "async": True})
 
 
 def test_explorer_api(agent_server, reader):
-    ok = httpx.get(
-        f"{agent_server}/api/explorer/source", params={"instance": "acme", "id": "rule:1"}
-    )
+    ok = httpx.get(f"{agent_server}/api/explorer/source", params={"instance": "acme", "id": "rule:1"})
     assert ok.status_code == 200
     assert ok.json()["sections"][0]["title"] == "Rule SQL"
     bad = httpx.get(f"{agent_server}/api/explorer/source", params={"instance": "acme", "id": "x"})
     assert bad.status_code == 400
-    runs = httpx.get(
-        f"{agent_server}/api/explorer/activity", params={"instance": "acme", "id": "rule:1"}
-    )
+    runs = httpx.get(f"{agent_server}/api/explorer/activity", params={"instance": "acme", "id": "rule:1"})
     assert runs.json()[0]["status"] == "Error"
 
 

@@ -25,7 +25,7 @@ from .cancel import Cancel
 from .copilot import CopilotError
 from .datadog import DatadogError
 from .explorer import ExplorerError
-from .ovproc import host_of, instances, login, run_ov, version
+from .ovproc import instances, login, run_ov, version
 from .pagerduty import PagerDutyError
 from .run import RunError, runs
 from .skills import SkillError
@@ -299,7 +299,11 @@ def login_instance(h: Handler) -> dict[str, Any]:
     if not url:
         raise HttpError(400, "Give an instance URL.")
     tenant = str(data.get("tenant") or "").strip()
-    result = login(url, tenant)
+    token = str(data.get("token") or "").strip()
+    if token and tenant:
+        raise HttpError(400, "An API token is tied to its own tenant; leave the tenant out.")
+
+    result = login(url, tenant, token)
     return {"ok": result.code == 0, "message": result.message[-400:]}
 
 
@@ -311,24 +315,6 @@ def logout_instance(h: Handler) -> list[dict[str, Any]]:
     if result.code != 0:
         raise HttpError(400, result.message[-300:] or "Could not remove the instance.")
     return instances()
-
-
-# Suggestions for the tenant field: what a live sign-in on the same host can reach.
-@route("GET", "/api/instances/tenants")
-def instance_tenants(h: Handler) -> list[dict[str, Any]]:
-    host = host_of(h.query.get("host", ""))
-    live = [i for i in instances() if i["host"] == host and i["valid"]]
-    live.sort(key=lambda i: bool(i["tenant"]))
-    if not live:
-        return []
-    result = run_ov(["-i", live[0]["alias"], "tenants", "--json"], timeout=60)
-    try:
-        rows = json.loads(result.stdout) if result.code == 0 else []
-    except json.JSONDecodeError:
-        return []
-    return [
-        {"name": str(r.get("name") or "")} for r in rows if isinstance(r, dict) and r.get("name")
-    ]
 
 
 @route("GET", "/api/settings")
@@ -349,9 +335,7 @@ def list_skills(_: Handler) -> list[dict[str, Any]]:
 @route("POST", "/api/skills")
 def create_skill(h: Handler) -> dict[str, Any]:
     data = h.json()
-    name = skills.create(
-        str(data.get("title", "")), str(data.get("description", "")), str(data.get("content", ""))
-    )
+    name = skills.create(str(data.get("title", "")), str(data.get("description", "")), str(data.get("content", "")))
     return {"name": name, "skills": skills.list_skills()}
 
 
@@ -375,9 +359,7 @@ def list_sources(_: Handler) -> list[dict[str, Any]]:
 @route("POST", "/api/sources")
 def add_source(h: Handler) -> list[dict[str, Any]]:
     data = h.json()
-    sources.add(
-        str(data.get("name", "")), str(data.get("description", "")), str(data.get("location", ""))
-    )
+    sources.add(str(data.get("name", "")), str(data.get("description", "")), str(data.get("location", "")))
     return sources.list_sources()
 
 
@@ -454,9 +436,7 @@ def datadog_status(_: Handler) -> dict[str, Any]:
 @route("POST", "/api/datadog/connect")
 def datadog_connect(h: Handler) -> dict[str, Any]:
     data = h.json()
-    return datadog.connect(
-        str(data.get("site") or ""), str(data.get("apiKey") or ""), str(data.get("appKey") or "")
-    )
+    return datadog.connect(str(data.get("site") or ""), str(data.get("apiKey") or ""), str(data.get("appKey") or ""))
 
 
 @route("POST", "/api/datadog/test")
@@ -482,11 +462,6 @@ def datadog_matches(h: Handler) -> dict[str, Any]:
     return datadog.save_matches({str(k): str(v) for k, v in matches.items()})
 
 
-@route("GET", "/api/datadog/count")
-def datadog_count(h: Handler) -> dict[str, int]:
-    return {"count": datadog.count_logs(h.query.get("query", ""))}
-
-
 # Failed OneVizion processes for the same window, read with the instance's own Test SQL.
 def _ov_failures(alias: str, seconds: int) -> Any:
     def read() -> list[dict[str, Any]]:
@@ -501,10 +476,7 @@ def _ov_failures(alias: str, seconds: int) -> Any:
             0,
             20,
         )
-        return [
-            {"type": r.get("PROCESS_TYPE"), "count": int(r.get("N") or 0), "last": r.get("LAST_AT")}
-            for r in rows
-        ]
+        return [{"type": r.get("PROCESS_TYPE"), "count": int(r.get("N") or 0), "last": r.get("LAST_AT")} for r in rows]
 
     return read
 

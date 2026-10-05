@@ -66,8 +66,8 @@ export const api = {
   copilotLogout: () => post('/copilot/logout'),
   models: () => request<ModelInfo[]>('/models'),
   instances: () => request<Instance[]>('/instances'),
-  loginInstance: (url: string, tenant?: string) =>
-    post<{ ok: boolean; message: string }>('/instances/login', { url, tenant }),
+  loginInstance: (url: string, tenant?: string, token?: string) =>
+    post<{ ok: boolean; message: string }>('/instances/login', { url, tenant, token }),
   datadog: () => request<DatadogStatus>('/datadog'),
   datadogConnect: (site: string, apiKey: string, appKey: string) =>
     post<DatadogStatus>('/datadog/connect', { site, apiKey, appKey }),
@@ -76,7 +76,6 @@ export const api = {
   datadogDiscover: () => request<DatadogDiscovery>('/datadog/discover'),
   datadogMatches: (matches: Record<string, string>) =>
     put<DatadogStatus>('/datadog/matches', { matches }),
-  datadogCount: (query: string) => request<{ count: number }>(`/datadog/count?query=${seg(query)}`),
   pagerduty: () => request<PagerDutyStatus>('/pagerduty'),
   pagerdutyConnect: (account: string, apiKey: string) =>
     post<PagerDutyStatus>('/pagerduty/connect', { account, apiKey }),
@@ -86,8 +85,6 @@ export const api = {
   instanceHealth: (instance: string, range: string) =>
     request<InstanceHealth>(`/instance-health?instance=${seg(instance)}&range=${seg(range)}`),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),
-  instanceTenants: (host: string) =>
-    request<{ name: string }[]>(`/instances/tenants?host=${seg(host)}`),
   settings: () => request<Settings>('/settings'),
   saveSettings: (patch: Partial<Settings>) => put<Settings>('/settings', patch),
   skills: () => request<SkillInfo[]>('/skills'),

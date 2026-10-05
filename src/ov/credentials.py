@@ -1,163 +1,132 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
-import sys
-from collections.abc import Callable
+import secrets as random
+from pathlib import Path
 from typing import Any
 
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 from . import store
-from .paths import credentials_file, write_atomic
+from .errors import OvError
+from .paths import home, restrict, write_atomic
 
 SERVICE = "ov-cli"
+KEY_NAME = "vault-key"
 BACKEND_ENV = "OV_CREDENTIALS"
+FILE_BACKEND = "file"
+VAULT_VERSION = 1
+ASSOCIATED_DATA = b"ov-vault-v1"
+NONCE_BYTES = 12
+KEY_BYTES = 32
 
-# Windows Credential Manager caps a blob at 2560 bytes, stored as UTF-16.
-CHUNK_CHARS = 1000
 
-_warned = False
+class CredentialsError(OvError):
+    pass
 
 
-# Every access holds the config lock: parallel ov processes refresh tokens, and a reader
-# must never see one writer's chunks mixed with another's.
 def get(key: str) -> dict[str, Any] | None:
     with store.lock():
-        backend = _keyring()
-        if backend is not None:
-            try:
-                found = _decoded(_read_chunks(backend, key) or "")
-            except Exception:
-                found = None
-            if found is not None:
-                return found
-        return _file_entries().get(key)
+        return _read().get(key)
 
 
 def put(key: str, secrets: dict[str, Any]) -> None:
     with store.lock():
-        backend = _keyring()
-        if backend is not None:
-            try:
-                _write_chunks(backend, key, json.dumps(secrets, separators=(",", ":")))
-            except Exception:
-                _forget_keyring(backend, key)
-            else:
-                _file_change(lambda entries: entries.pop(key, None))
-                return
-
-        def store_entry(entries: dict[str, Any]) -> None:
-            entries[key] = secrets
-
-        _warn_once()
-        _file_change(store_entry)
+        vault = _read()
+        vault[key] = secrets
+        _write(vault)
 
 
 def delete(key: str) -> None:
     with store.lock():
-        backend = _keyring()
-        if backend is not None:
-            _forget_keyring(backend, key)
-        _file_change(lambda entries: entries.pop(key, None))
+        vault = _read()
+        if vault.pop(key, None) is not None:
+            _write(vault)
 
 
-def _forget_keyring(backend: Any, key: str) -> None:
+def keys() -> list[str]:
+    with store.lock():
+        return sorted(_read())
+
+
+def vault_file() -> Path:
+    return home() / "vault"
+
+
+def key_file() -> Path:
+    return home() / "vault.key"
+
+
+def _read() -> dict[str, Any]:
+    path = vault_file()
+    if not path.exists():
+        return {}
+
+    key = _stored_key()
+    if key is None:
+        raise CredentialsError(f"The key for {path} is missing. Delete the vault to sign in again.")
+
+    envelope = json.loads(path.read_text(encoding="utf-8"))
     try:
-        _forget_chunks(backend, key, 0, _count(backend, key))
-    except Exception:
-        pass
-    _forget(backend, key)
+        plain = AESGCM(key).decrypt(
+            base64.b64decode(envelope["nonce"]),
+            base64.b64decode(envelope["data"]),
+            ASSOCIATED_DATA,
+        )
+    except InvalidTag as exc:
+        raise CredentialsError(f"{path} does not match its key. Delete the vault to sign in again.") from exc
+
+    return json.loads(plain)
+
+
+def _write(vault: dict[str, Any]) -> None:
+    key = _stored_key() or _new_key()
+    nonce = random.token_bytes(NONCE_BYTES)
+    data = AESGCM(key).encrypt(nonce, json.dumps(vault, separators=(",", ":")).encode(), ASSOCIATED_DATA)
+
+    envelope = {
+        "version": VAULT_VERSION,
+        "nonce": base64.b64encode(nonce).decode(),
+        "data": base64.b64encode(data).decode(),
+    }
+    write_atomic(vault_file(), json.dumps(envelope))
+
+
+def _uses_file() -> bool:
+    return os.environ.get(BACKEND_ENV, "").strip().lower() == FILE_BACKEND
+
+
+def _stored_key() -> bytes | None:
+    if _uses_file():
+        path = key_file()
+        return base64.b64decode(path.read_text(encoding="utf-8").strip()) if path.exists() else None
+
+    stored = _keyring().get_password(SERVICE, KEY_NAME)
+    return base64.b64decode(stored) if stored else None
+
+
+def _new_key() -> bytes:
+    key = random.token_bytes(KEY_BYTES)
+    encoded = base64.b64encode(key).decode()
+    if _uses_file():
+        write_atomic(key_file(), encoded)
+        restrict(key_file())
+        return key
+
+    _keyring().set_password(SERVICE, KEY_NAME, encoded)
+    return key
 
 
 def _keyring() -> Any:
-    if os.environ.get(BACKEND_ENV, "").strip().lower() == "file":
-        return None
-    try:
-        import keyring
-        from keyring.backends import fail
+    import keyring
+    from keyring.backends import fail
 
-        backend = keyring.get_keyring()
-        if isinstance(backend, fail.Keyring) or backend.priority < 1:
-            return None
-    except Exception:
-        return None
+    backend = keyring.get_keyring()
+    if isinstance(backend, fail.Keyring) or backend.priority < 1:
+        raise CredentialsError(
+            f"No system keyring is available. Set {BACKEND_ENV}={FILE_BACKEND} to keep the vault key in {key_file()}."
+        )
     return backend
-
-
-def _count(backend: Any, key: str) -> int:
-    count = backend.get_password(SERVICE, key)
-    return int(count) if count and count.isdigit() else 0
-
-
-def _read_chunks(backend: Any, key: str) -> str | None:
-    count = _count(backend, key)
-    if not count:
-        return None
-
-    parts = [backend.get_password(SERVICE, f"{key}#{index}") for index in range(count)]
-    if any(part is None for part in parts):
-        return None
-    return "".join(parts)
-
-
-# Chunks first and the count last, so a concurrent reader never sees a half-written entry.
-def _write_chunks(backend: Any, key: str, text: str) -> None:
-    previous = _count(backend, key)
-    parts = [text[i : i + CHUNK_CHARS] for i in range(0, len(text), CHUNK_CHARS)] or [""]
-    for index, part in enumerate(parts):
-        backend.set_password(SERVICE, f"{key}#{index}", part)
-    backend.set_password(SERVICE, key, str(len(parts)))
-    _forget_chunks(backend, key, len(parts), previous)
-
-
-def _forget_chunks(backend: Any, key: str, start: int, stop: int) -> None:
-    for index in range(start, stop):
-        _forget(backend, f"{key}#{index}")
-
-
-def _forget(backend: Any, name: str) -> None:
-    try:
-        backend.delete_password(SERVICE, name)
-    except Exception:
-        pass
-
-
-def _decoded(text: str) -> dict[str, Any] | None:
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def _file_entries() -> dict[str, Any]:
-    path = credentials_file()
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _file_change(change: Callable[[dict[str, Any]], Any]) -> None:
-    with store.lock():
-        path = credentials_file()
-        entries = _file_entries()
-        change(entries)
-        if entries:
-            write_atomic(path, json.dumps(entries, indent=2))
-        elif path.exists():
-            path.unlink()
-
-
-def _warn_once() -> None:
-    global _warned
-    if _warned or os.environ.get(BACKEND_ENV) or credentials_file().exists():
-        return
-    _warned = True
-    print(
-        f"ov: no system keyring available, so credentials are kept in {credentials_file()} "
-        "(owner-only).",
-        file=sys.stderr,
-    )

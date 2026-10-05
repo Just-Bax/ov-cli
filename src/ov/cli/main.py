@@ -201,11 +201,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _report(ctx: Context, exc: OvError) -> None:
     if ctx.as_json:
-        payload = (
-            exc.to_dict()
-            if isinstance(exc, ApiError)
-            else {"error": str(exc), "exit_code": exc.exit_code}
-        )
+        payload = exc.to_dict() if isinstance(exc, ApiError) else {"error": str(exc), "exit_code": exc.exit_code}
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
         return
 

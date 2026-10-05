@@ -16,9 +16,7 @@ class OvError(Exception):
 
 class NotConfigured(OvError):
     def __init__(self) -> None:
-        super().__init__(
-            "No OneVizion instance configured. Run 'ov login https://yours.onevizion.com'."
-        )
+        super().__init__("No OneVizion instance configured. Run 'ov login https://yours.onevizion.com'.")
 
 
 class NotLoggedIn(OvError):

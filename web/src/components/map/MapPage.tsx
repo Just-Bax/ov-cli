@@ -13,20 +13,17 @@ import {
 } from '@xyflow/react'
 import {
   ArrowPathIcon,
-  ArrowTopRightOnSquareIcon,
   ArrowUturnLeftIcon,
   CheckIcon,
   ChevronDownIcon,
   MagnifyingGlassIcon,
   MapIcon,
-  SparklesIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GraphEdge, GraphNode, GraphNodeType, InstanceGraph } from '@shared/types.ts'
 import {
   degree,
-  FORMS,
   index,
   type Index,
   LABELS,
@@ -46,8 +43,8 @@ import {
   timeAgo,
 } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { openDraft } from '@/lib/draft'
 import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
+import { ObjectActions } from '@/components/map/ObjectActions'
 
 const EXPAND_LIMIT = 40
 const NODE_W = 230
@@ -322,12 +319,6 @@ function Details({
         ? { label: 'Enabled', dot: 'bg-ok' }
         : undefined
 
-  const ask = () =>
-    openDraft({
-      prompt: `Explain the ${meta.label.toLowerCase()} "${node.name}" (id ${node.ref}) on ${host}: what it does, what triggers or feeds it, and what depends on it. Start with ov_map, then confirm on the instance.`,
-      instance: alias,
-    })
-
   return (
     <aside className="border-line-strong/60 flex w-[340px] shrink-0 flex-col border-l bg-white">
       <div className="flex items-start gap-3 px-4 pt-4 pb-3">
@@ -375,24 +366,10 @@ function Details({
           ) : null}
         </dd>
       </dl>
-      <div className="grid grid-cols-2 gap-2 px-4 pt-3 pb-4">
-        <Button className="min-w-0" variant="primary" onClick={ask}>
-          <SparklesIcon className="size-3.5" />
-          <span className="truncate">Ask the agent</span>
-        </Button>
-        <a
-          href={`https://${host}${FORMS[node.type]}${node.ref}`}
-          target="_blank"
-          rel="noreferrer"
-          className="contents"
-        >
-          <Button className="min-w-0" variant="secondary">
-            <ArrowTopRightOnSquareIcon className="size-3.5" />
-            <span className="truncate">Open link</span>
-          </Button>
-        </a>
+      <div className="space-y-2 px-4 pt-3 pb-4">
+        <ObjectActions node={node} host={host} alias={alias} page="map" />
         {hidden ? (
-          <Button className="col-span-2" variant="ghost" onClick={() => onExpand(node.id)}>
+          <Button className="w-full" variant="ghost" onClick={() => onExpand(node.id)}>
             <MapIcon className="size-3.5" /> Show {Math.min(hidden, EXPAND_LIMIT)} more linked
           </Button>
         ) : null}

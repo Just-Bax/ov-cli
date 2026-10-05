@@ -22,10 +22,6 @@ def config_file() -> Path:
     return home() / "config.json"
 
 
-def credentials_file() -> Path:
-    return home() / "credentials.json"
-
-
 def downloads_dir() -> Path:
     return _ensure(home() / "downloads")
 

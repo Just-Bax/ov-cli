@@ -33,9 +33,7 @@ RESULTS = rows(
         {"CONFIG_FIELD_ID": "100100102", "CONFIG_FIELD_NAME": "DUPE", "XITOR_TYPE_ID": "1"},
         {"CONFIG_FIELD_ID": "100100103", "CONFIG_FIELD_NAME": "DUPE", "XITOR_TYPE_ID": "2"},
     ],
-    rules=[
-        {"RULE_ID": "500", "RULE": "Set status", "IS_ENABLED": "1", "RULE_TYPE": "Field updated"}
-    ],
+    rules=[{"RULE_ID": "500", "RULE": "Set status", "IS_ENABLED": "1", "RULE_TYPE": "Field updated"}],
     rule_bindings=[{"RULE_ID": "500", "ID_NUM": "100100101"}],
     rule_code=[
         {

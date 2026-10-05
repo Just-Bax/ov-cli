@@ -152,11 +152,7 @@ class Spec:
 
         if " " in needle:
             method, _, path = needle.partition(" ")
-            matches = [
-                o
-                for o in self.operations
-                if o.method == method.upper().strip() and o.path == path.strip()
-            ]
+            matches = [o for o in self.operations if o.method == method.upper().strip() and o.path == path.strip()]
             if len(matches) == 1:
                 return matches[0]
 

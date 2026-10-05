@@ -8,9 +8,7 @@ from ..output import emit, note
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
-    group = subparsers.add_parser(
-        "setup", parents=[common], help="download the browser needed for signing in"
-    )
+    group = subparsers.add_parser("setup", parents=[common], help="download the browser needed for signing in")
     group.add_argument("--check", action="store_true", help="report readiness without downloading")
     group.set_defaults(func=cmd_setup)
 

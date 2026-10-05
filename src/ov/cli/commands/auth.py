@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Callable
 
 from ... import session as session_store
@@ -18,9 +19,7 @@ LOGOFF_PATH = "/LogOff.do"
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
-    login = subparsers.add_parser(
-        "login", parents=[common], help="sign in to a OneVizion instance through a browser"
-    )
+    login = subparsers.add_parser("login", parents=[common], help="sign in to a OneVizion instance through a browser")
     login.add_argument(
         "url",
         nargs="?",
@@ -35,14 +34,10 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     )
     login.add_argument(
         "--token",
-        help="skip the browser and use an accessKey:secretKey pair from Admin > Auth Tokens",
+        help="skip the browser and use an accessKey:secretKey pair from Admin > Auth Tokens; - reads it from stdin",
     )
-    login.add_argument(
-        "--timeout", type=int, default=300, help="seconds to wait for sign-in (default 300)"
-    )
-    login.add_argument(
-        "--no-spec", action="store_true", help="do not download the OpenAPI schema after signing in"
-    )
+    login.add_argument("--timeout", type=int, default=300, help="seconds to wait for sign-in (default 300)")
+    login.add_argument("--no-spec", action="store_true", help="do not download the OpenAPI schema after signing in")
     login.add_argument(
         "--tenant",
         metavar="NAME",
@@ -61,9 +56,7 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     )
     login.set_defaults(func=cmd_login)
 
-    logout = subparsers.add_parser(
-        "logout", parents=[common], help="revoke the token and forget one instance"
-    )
+    logout = subparsers.add_parser("logout", parents=[common], help="revoke the token and forget one instance")
     logout.add_argument("instance_ref", nargs="?", metavar="INSTANCE", help="defaults to current")
     logout.add_argument("--all", action="store_true", help="sign out of every instance")
     logout.set_defaults(func=cmd_logout)
@@ -74,12 +67,8 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     whoami.add_argument("instance_ref", nargs="?", metavar="INSTANCE", help="defaults to current")
     whoami.set_defaults(func=cmd_whoami)
 
-    instances = subparsers.add_parser(
-        "instances", parents=[common], help="list every instance you are signed in to"
-    )
-    instances.add_argument(
-        "--check", action="store_true", help="call each instance to confirm its token still works"
-    )
+    instances = subparsers.add_parser("instances", parents=[common], help="list every instance you are signed in to")
+    instances.add_argument("--check", action="store_true", help="call each instance to confirm its token still works")
     instances.set_defaults(func=cmd_instances)
 
     tenants = subparsers.add_parser(
@@ -89,9 +78,7 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     )
     tenants.set_defaults(func=cmd_tenants)
 
-    use = subparsers.add_parser(
-        "use", parents=[common], help="make one instance the default for later commands"
-    )
+    use = subparsers.add_parser("use", parents=[common], help="make one instance the default for later commands")
     use.add_argument("instance_ref", metavar="INSTANCE", help="alias, hostname or URL")
     use.set_defaults(func=cmd_use)
 
@@ -107,9 +94,7 @@ def cmd_login(ctx: Context) -> int:
         _choose_tenant(ctx, session, args.tenant)
 
     # Must precede the mint, which persists under this alias; the host may differ after a redirect.
-    session.alias = session_store.unique_alias(
-        session.base_url, args.alias or "", session.tenant, session.tenant_id
-    )
+    session.alias = session_store.unique_alias(session.base_url, args.alias or "", session.tenant, session.tenant_id)
     if args.tenant:
         note(ctx, f"Switching to tenant [cyan]{session.tenant}[/cyan]...")
         _mint_in_tenant(ctx, session)
@@ -151,9 +136,7 @@ def cmd_login(ctx: Context) -> int:
 
 def _choose_tenant(ctx: Context, session: Session, wanted: str) -> None:
     if session.is_static:
-        raise OvError(
-            "--tenant needs a browser sign-in. An API token is already tied to one tenant."
-        )
+        raise OvError("--tenant needs a browser sign-in. An API token is already tied to one tenant.")
 
     note(ctx, "Reading the tenant list...")
     with build_client(ctx.config, session) as client:
@@ -170,10 +153,7 @@ def _login_text(session: Session, fetched: int, current: bool) -> str:
     where = session.base_url
     if session.tenant:
         where += f" tenant [cyan]{session.tenant}[/cyan]"
-    lines = [
-        f"[green]Logged in[/green] to {where} "
-        f"as [cyan]{session.alias}[/cyan] ({session.mode} credential)."
-    ]
+    lines = [f"[green]Logged in[/green] to {where} as [cyan]{session.alias}[/cyan] ({session.mode} credential)."]
     if session.expires_text:
         lines.append(f"Token expires {session.expires_text}.")
     if fetched:
@@ -227,7 +207,7 @@ def _progress(ctx: Context) -> Callable[[str], None]:
 
 
 def _token_login(ctx: Context, base_url: str) -> Session:
-    token = ctx.args.token.strip()
+    token = (sys.stdin.readline() if ctx.args.token == "-" else ctx.args.token).strip()
     if token.lower().startswith("bearer "):
         token = token[7:].strip()
     if token.count(":") != 1 or not all(token.split(":")):
@@ -349,9 +329,7 @@ def cmd_whoami(ctx: Context) -> int:
 
     def table():
         rows = [[k.replace("_", " ").title(), str(v)] for k, v in data.items() if v is not None]
-        return build_table(
-            "Signed in", [{"header": "Field", "style": "dim"}, {"header": "Value"}], rows
-        )
+        return build_table("Signed in", [{"header": "Field", "style": "dim"}, {"header": "Value"}], rows)
 
     emit(ctx, data, table)
     return 0 if data["authorized"] else EXIT_AUTH

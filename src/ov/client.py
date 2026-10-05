@@ -183,9 +183,7 @@ class Client:
             raise Forbidden(detail or "Forbidden. The account lacks a privilege this call needs.")
         if response.status_code == 404:
             raise NotFound(detail or f"No such endpoint or record: {url}")
-        raise ApiError(
-            response.status_code, detail or f"HTTP {response.status_code}", _body(response), url
-        )
+        raise ApiError(response.status_code, detail or f"HTTP {response.status_code}", _body(response), url)
 
 
 # httpx transport errors are not OvError; unwrapped they end in a traceback, not an exit code.
@@ -194,9 +192,7 @@ def _reachable(base_url: str) -> Iterator[None]:
     try:
         yield
     except httpx.TimeoutException as exc:
-        raise Unreachable(
-            f"{base_url} timed out. Raise timeout_seconds, or check the URL."
-        ) from exc
+        raise Unreachable(f"{base_url} timed out. Raise timeout_seconds, or check the URL.") from exc
     except httpx.RequestError as exc:
         raise Unreachable(f"Could not reach {base_url}: {exc}") from exc
 

@@ -11,14 +11,16 @@ import {
   Square2StackIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
-import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { DatadogArea, DatadogDiscovery, DatadogStatus, Instance } from '@shared/types.ts'
+import type { DatadogArea, DatadogDiscovery, DatadogStatus } from '@shared/types.ts'
 import datadogMark from '@/assets/datadog.svg'
 import { dialog } from '@/components/Dialog'
+import { Dropdown } from '@/components/Dropdown'
 import { useInstances } from '@/components/InstancePicker'
 import { Button, Card, Chip, IconBadge, Select, Skeleton, Spinner, timeAgo } from '@/components/ui'
 import { api } from '@/lib/api'
+import { hostsIn, roleOf, scopeOf, shortHost } from '@/lib/servers'
 import { cn } from '@/lib/cn'
 
 export const DATADOG_PURPLE = '#632CA6'
@@ -370,95 +372,144 @@ function Permissions({ status }: { status: DatadogStatus }) {
   )
 }
 
-function formatCount(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n)
-}
-
 type Row = { alias: string; host: string }
+
+export function ServerChips({
+  scope,
+  hosts,
+  onChange,
+}: {
+  scope: string
+  hosts: DatadogDiscovery['hosts']
+  onChange: (scope: string) => void
+}) {
+  const picked = scope.trim() ? hostsIn(scope) : []
+  const [custom, setCustom] = useState(Boolean(scope) && picked === null)
+  if (custom || picked === null)
+    return (
+      <div className="flex min-w-[200px] flex-1 items-center gap-1.5">
+        <input
+          value={scope}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Any Datadog filter, e.g. service:name env:prod"
+          spellCheck={false}
+          className="border-line-strong focus:border-brand placeholder:text-faint h-8 min-w-0 flex-1 rounded-full border bg-white px-3.5 font-mono text-[12px] outline-none"
+        />
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setCustom(false)
+            if (picked === null) onChange('')
+          }}
+        >
+          Servers
+        </Button>
+      </div>
+    )
+  const options = hosts
+    .filter((h) => !picked.includes(h.name))
+    .map((h) => ({ value: h.name, label: h.name, hint: h.role }))
+  return (
+    <div className="flex min-w-[200px] flex-1 flex-wrap items-center gap-1.5">
+      {picked.map((name) => (
+        <span
+          key={name}
+          title={name}
+          className="bg-raised text-text inline-flex h-7 items-center gap-1.5 rounded-full pr-1 pl-1.5 text-[12px]"
+        >
+          <span className="bg-brand-soft text-brand-strong rounded-full px-1.5 text-[10.5px] font-medium">
+            {roleOf(name)}
+          </span>
+          {shortHost(name)}
+          <button
+            type="button"
+            aria-label={`Remove ${name}`}
+            onClick={() => onChange(scopeOf(picked.filter((h) => h !== name)))}
+            className="text-faint hover:text-fg flex size-5 items-center justify-center rounded-full hover:bg-white"
+          >
+            <XMarkIcon className="size-3" />
+          </button>
+        </span>
+      ))}
+      {hosts.length ? (
+        <Dropdown
+          variant="plain"
+          searchable
+          value=""
+          placeholder={picked.length ? 'Add' : 'Pick servers'}
+          options={options}
+          onChange={(name) => onChange(scopeOf([...picked, name]))}
+        />
+      ) : null}
+      <button
+        type="button"
+        onClick={() => setCustom(true)}
+        className="text-faint hover:text-brand-strong px-1 text-[11.5px]"
+      >
+        Custom filter
+      </button>
+    </div>
+  )
+}
 
 export function DatadogMatches({
   status,
   onSaved,
-  only,
 }: {
   status: DatadogStatus
   onSaved: (s: DatadogStatus) => void
-  only?: string
 }) {
   const { instances } = useInstances()
   const [draft, setDraft] = useState<Record<string, string>>(status.matches)
-  const [counts, setCounts] = useState<Record<string, number | 'busy' | 'error'>>({})
-  const [why, setWhy] = useState<Record<string, string>>({})
   const [found, setFound] = useState<DatadogDiscovery>()
-  const [discovering, setDiscovering] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [busy, setBusy] = useState<'detect' | 'save'>()
   const [error, setError] = useState<string>()
-  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
-  const listId = useId()
 
   useEffect(() => setDraft(status.matches), [status.matches])
 
-  // Datadog sees servers, not tenants: one row per host, stored under its main sign-in.
+  // Servers belong to hosts, not tenants: one row per host, under its main sign-in.
   const rows: Row[] = useMemo(() => {
-    const list = instances ?? []
-    const wanted = only ? list.find((i: Instance) => i.alias === only)?.host : undefined
     const byHost = new Map<string, Row>()
-    for (const i of [...list].sort(
+    const list = [...(instances ?? [])].sort(
       (a, b) => Number(Boolean(a.tenant)) - Number(Boolean(b.tenant)),
-    )) {
-      if (wanted && i.host !== wanted) continue
+    )
+    for (const i of list)
       if (!byHost.has(i.host)) byHost.set(i.host, { alias: i.alias, host: i.host })
-    }
     return [...byHost.values()].sort((a, b) => a.host.localeCompare(b.host))
-  }, [instances, only])
+  }, [instances])
 
-  const preview = (alias: string, filter: string) => {
-    clearTimeout(timers.current[alias])
-    if (!filter.trim()) {
-      setCounts((c) => ({ ...c, [alias]: 0 }))
-      return
-    }
-    setCounts((c) => ({ ...c, [alias]: 'busy' }))
-    timers.current[alias] = setTimeout(() => {
-      api
-        .datadogCount(filter)
-        .then((r) => setCounts((c) => ({ ...c, [alias]: r.count })))
-        .catch(() => setCounts((c) => ({ ...c, [alias]: 'error' })))
-    }, 600)
-  }
-
-  const discover = async () => {
-    setDiscovering(true)
+  const detect = async () => {
+    setBusy('detect')
     setError(undefined)
     try {
       const result = await api.datadogDiscover()
       setFound(result)
-      const next = { ...draft }
-      for (const s of result.suggestions) {
-        if (only && s.alias !== only) continue
-        if (!next[s.alias] && s.filter) next[s.alias] = s.filter
-        setWhy((w) => ({ ...w, [s.alias]: s.why }))
-        setCounts((c) => ({ ...c, [s.alias]: s.count }))
-      }
-      setDraft(next)
+      setDraft((d) => {
+        const next = { ...d }
+        for (const [alias, scope] of Object.entries(result.groups))
+          if (!next[alias]) next[alias] = scope
+        return next
+      })
     } catch (e) {
       setError((e as Error).message)
     } finally {
-      setDiscovering(false)
+      setBusy(undefined)
     }
   }
 
   const dirty = rows.some((r) => (draft[r.alias] ?? '') !== (status.matches[r.alias] ?? ''))
+  const unclaimed = (found?.hosts ?? []).filter((h) => !h.alias).length
 
   const save = async () => {
-    setSaving(true)
+    setBusy('save')
     setError(undefined)
     try {
       onSaved(await api.datadogMatches({ ...status.matches, ...draft }))
     } catch (e) {
       setError((e as Error).message)
     } finally {
-      setSaving(false)
+      setBusy(undefined)
     }
   }
 
@@ -466,77 +517,65 @@ export function DatadogMatches({
     <div>
       <div className="flex flex-wrap items-center gap-2 px-5 py-3">
         <div className="min-w-0 flex-1">
-          <div className="text-fg text-[13px] font-medium">
-            {only ? 'Match this instance' : 'Instances'}
-          </div>
+          <div className="text-fg text-[13px] font-medium">Servers per instance</div>
           <div className="text-muted text-[12px]">
-            The Datadog filter that selects each instance's servers, e.g. host:acme-app-* or
-            service:acme.
+            The Datadog hosts an instance runs on, such as its web and app servers and replicas.
+            {found
+              ? ` ${found.hosts.length} hosts in Datadog, ${unclaimed} not tied to a signed-in instance.`
+              : ''}
           </div>
         </div>
         <Button
           size="sm"
           variant="secondary"
-          disabled={discovering || !status.permissions.logs}
-          onClick={() => void discover()}
+          disabled={Boolean(busy)}
+          onClick={() => void detect()}
         >
-          {discovering ? <Spinner className="size-3.5" /> : <SparklesIcon className="size-3.5" />}
-          Suggest matches
+          {busy === 'detect' ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <SparklesIcon className="size-3.5" />
+          )}
+          Detect servers
         </Button>
-        <Button size="sm" variant="primary" disabled={!dirty || saving} onClick={() => void save()}>
-          {saving ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />} Save
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={!dirty || Boolean(busy)}
+          onClick={() => void save()}
+        >
+          {busy === 'save' ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />}{' '}
+          Save
         </Button>
       </div>
-      <datalist id={listId}>
-        {(found?.values ?? []).map((v) => (
-          <option key={`${v.kind}:${v.value}`} value={`${v.kind}:${v.value}`}>
-            {formatCount(v.count)} logs / 24h
-          </option>
-        ))}
-      </datalist>
-      <div className="divide-line border-line max-h-[340px] scrollbar-thin divide-y overflow-y-auto border-t">
+      <div className="divide-line border-line max-h-[380px] scrollbar-thin divide-y overflow-y-auto border-t">
         {!instances ? (
           <div className="space-y-3 px-5 py-4">
             <Skeleton className="h-3 w-1/2" />
             <Skeleton className="h-3 w-2/3" />
           </div>
         ) : null}
-        {rows.map((r) => {
-          const value = draft[r.alias] ?? ''
-          const count = counts[r.alias]
-          return (
-            <div key={r.alias} className="flex flex-wrap items-center gap-2.5 px-5 py-2.5">
-              <div className="flex w-[260px] min-w-0 items-center gap-2">
-                <span className="text-fg truncate text-[13px] font-medium">{r.host}</span>
-              </div>
-              <input
-                value={value}
-                list={listId}
-                onChange={(e) => {
-                  setDraft((d) => ({ ...d, [r.alias]: e.target.value }))
-                  setWhy((w) => ({ ...w, [r.alias]: '' }))
-                  preview(r.alias, e.target.value)
-                }}
-                placeholder="host:name* or service:name"
-                spellCheck={false}
-                className="border-line-strong focus:border-brand placeholder:text-faint h-9 min-w-[200px] flex-1 rounded-full border bg-white px-3.5 font-mono text-[12px] outline-none"
-              />
-              <span className="flex w-[150px] shrink-0 items-center justify-end gap-1.5 text-[11.5px]">
-                {count === 'busy' ? (
-                  <Spinner className="text-faint size-3" />
-                ) : count === 'error' ? (
-                  <span className="text-danger">Query failed</span>
-                ) : typeof count === 'number' && value ? (
-                  <span className={count ? 'text-ok' : 'text-warn'}>
-                    {count ? `${formatCount(count)} logs / 24h` : 'No logs in 24h'}
-                  </span>
-                ) : (
-                  <span className="text-faint">{why[r.alias] || (value ? '' : 'Not matched')}</span>
-                )}
-              </span>
-            </div>
-          )
-        })}
+        {rows.map((r) => (
+          <div key={r.alias} className="flex flex-wrap items-center gap-2.5 px-5 py-2.5">
+            <span className="text-fg w-[240px] min-w-0 truncate text-[13px] font-medium">
+              {r.host}
+            </span>
+            <ServerChips
+              scope={draft[r.alias] ?? ''}
+              hosts={found?.hosts ?? []}
+              onChange={(scope) => setDraft((d) => ({ ...d, [r.alias]: scope }))}
+            />
+            {found?.groups[r.alias] && found.groups[r.alias] !== (draft[r.alias] ?? '') ? (
+              <button
+                type="button"
+                onClick={() => setDraft((d) => ({ ...d, [r.alias]: found.groups[r.alias] }))}
+                className="text-brand-strong hover:bg-brand-soft h-7 shrink-0 rounded-full px-2.5 text-[11.5px] font-medium"
+              >
+                Use {hostsIn(found.groups[r.alias])?.length} detected
+              </button>
+            ) : null}
+          </div>
+        ))}
         {instances && !rows.length ? (
           <div className="text-muted px-5 py-4 text-[12.5px]">
             Sign in to an instance first, in the Instances section above.

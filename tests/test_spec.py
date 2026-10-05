@@ -13,9 +13,7 @@ def spec():
 
 
 def test_java_signature_reduces_to_the_method_name():
-    assert operation_name(signature("getUserById"), "get", "/v3/users/{user_id}") == (
-        "get-user-by-id"
-    )
+    assert operation_name(signature("getUserById"), "get", "/v3/users/{user_id}") == ("get-user-by-id")
 
 
 def test_plain_operation_id_is_kept():
@@ -111,9 +109,7 @@ def test_nested_refs_are_expanded_not_left_as_pointers():
                 }
             }
         },
-        "components": {
-            "schemas": {"F": {"type": "object", "properties": {"cf1": {"type": "string"}}}}
-        },
+        "components": {"schemas": {"F": {"type": "object", "properties": {"cf1": {"type": "string"}}}}},
     }
     body = parse(document, "v3").find("x:create-x").body
     assert body.schema["properties"]["fields"]["properties"]["cf1"]["type"] == "string"
@@ -127,11 +123,7 @@ def test_a_recursive_model_is_cut_off_rather_than_unrolled():
                 "post": {
                     "tags": ["y"],
                     "operationId": "createY",
-                    "requestBody": {
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/Node"}}
-                        }
-                    },
+                    "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Node"}}}},
                     "responses": {},
                 }
             }

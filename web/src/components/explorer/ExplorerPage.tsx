@@ -1,6 +1,5 @@
 import {
   ArrowPathIcon,
-  ArrowTopRightOnSquareIcon,
   ChevronRightIcon,
   CodeBracketIcon,
   MagnifyingGlassIcon,
@@ -20,7 +19,7 @@ import type {
 import { CodeView } from '@/components/explorer/CodeView'
 import {
   degree,
-  FORMS,
+  WITH_CODE,
   index,
   type Index,
   LABELS,
@@ -46,7 +45,8 @@ import { cn } from '@/lib/cn'
 import { refIndex } from '@/lib/references'
 import { openDraft } from '@/lib/draft'
 import { go } from '@/lib/route'
-import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
+import { EXPLORE_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
+import { ObjectActions } from '@/components/map/ObjectActions'
 
 const TREE_ORDER: GraphNodeType[] = [
   'rule',
@@ -59,16 +59,6 @@ const TREE_ORDER: GraphNodeType[] = [
   'workflow',
   'module',
 ]
-const WITH_CODE = new Set<GraphNodeType>([
-  'rule',
-  'db_package',
-  'field',
-  'import',
-  'report',
-  'workflow',
-  'automation',
-  'notification',
-])
 const WITH_ACTIVITY = new Set<GraphNodeType>(['rule', 'import', 'report', 'module', 'automation'])
 const GROUP_LIMIT = 300
 
@@ -342,21 +332,16 @@ function Inspector({
       ? sections.value.flatMap((s, i) => s.hints.map((h) => ({ ...h, section: i, title: h.title })))
       : []
 
-  const start = (_kind: string, prompt: string) => openDraft({ prompt, instance: alias })
   const subject = `the ${meta.label.toLowerCase()} "${node.name}" (id ${node.ref}) on ${host}`
   const review = () =>
-    start(
-      'review',
-      `Review ${subject} for performance and correctness. Read its full code, use ov_map to see what triggers it and what it touches, and check its recent errors. Then propose concrete fixes as change cards with the complete current code as before.` +
+    openDraft({
+      instance: alias,
+      prompt:
+        `Review ${subject} for performance and correctness. Read its full code, use ov_map to see what triggers it and what it touches, and check its recent errors. Then propose concrete fixes as change cards with the complete current code as before.` +
         (hints.length
           ? ` Static checks already flagged: ${hints.map((h) => `line ${h.line} ${h.title}`).join('; ')}.`
           : ''),
-    )
-  const ask = () =>
-    start(
-      'ask',
-      `Explain ${subject}: what it does, what triggers or feeds it, and what depends on it. Start with ov_map, then confirm on the instance.`,
-    )
+    })
 
   return (
     <aside className="border-line-strong/60 flex w-[340px] shrink-0 flex-col border-l bg-white">
@@ -398,34 +383,13 @@ function Inspector({
         <dt className="text-muted">Links</dt>
         <dd className="text-fg">{links.length.toLocaleString()}</dd>
       </dl>
-      <div className="grid grid-cols-2 gap-2 px-4 pt-3 pb-4">
+      <div className="space-y-2 px-4 pt-3 pb-4">
         {WITH_CODE.has(node.type) && !(sections?.state === 'ready' && !sections.value.length) ? (
-          <Button className="col-span-2" variant="primary" onClick={review}>
+          <Button className="w-full" size="sm" variant="secondary" onClick={review}>
             <SparklesIcon className="size-3.5" /> Review with AI
           </Button>
         ) : null}
-        <Button variant="secondary" onClick={ask}>
-          <SparklesIcon className="size-3.5" /> Ask the agent
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            localStorage.setItem(FOCUS_KEY, node.id)
-            go({ page: 'map' })
-          }}
-        >
-          <MapIcon className="size-3.5" /> Show on map
-        </Button>
-        <a
-          href={`https://${host}${FORMS[node.type]}${node.ref}`}
-          target="_blank"
-          rel="noreferrer"
-          className="contents"
-        >
-          <Button className="col-span-2" variant="ghost">
-            <ArrowTopRightOnSquareIcon className="size-3.5" /> Open link
-          </Button>
-        </a>
+        <ObjectActions node={node} host={host} alias={alias} page="explorer" />
       </div>
 
       <div className="border-line min-h-0 flex-1 scrollbar-thin space-y-4 overflow-y-auto border-t px-3 py-3">
@@ -692,6 +656,13 @@ export function ExplorerPage() {
     })
   }
 
+  useEffect(() => {
+    const target = localStorage.getItem(EXPLORE_KEY)
+    if (!idx || !target || !idx.byId.has(target)) return
+    localStorage.removeItem(EXPLORE_KEY)
+    open(target)
+  }, [idx])
+
   const node = active ? idx?.byId.get(active) : undefined
 
   useEffect(() => {
@@ -837,10 +808,8 @@ export function ExplorerPage() {
                   refs={refs}
                   facts={facts}
                   onOpen={(n) => open(n.id)}
-                  onShowOnMap={(n) => {
-                    localStorage.setItem(FOCUS_KEY, n.id)
-                    go({ page: 'map' })
-                  }}
+                  instanceHost={label}
+                  alias={alias}
                   revealLine={reveal}
                 />
               ) : (

@@ -192,8 +192,8 @@ to it, so the others are only reachable by switching first.
 
 ```bash
 ov tenants                                        # what this account can reach here
-ov login https://sandbox-2022.onevizion.com --tenant mTRAC
-ov -i sandbox-2022/mtrac api tags
+ov login https://acme.onevizion.com --tenant North
+ov -i acme/north api tags
 ```
 
 Each tenant is stored separately and aliased `host/tenant`. The bare host alias keeps
@@ -204,12 +204,12 @@ $ ov instances
 ┏━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
 ┃   ┃ Alias              ┃ URL                               ┃ Mode    ┃
 ┡━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
-│ * │ sandbox-2022       │ https://sandbox-2022.onevizion.com │ session │
-│   │ sandbox-2022/mtrac │ https://sandbox-2022.onevizion.com │ session │
+│ * │ acme       │ https://acme.onevizion.com │ session │
+│   │ acme/north │ https://acme.onevizion.com │ session │
 └───┴────────────────────┴───────────────────────────────────┴─────────┘
 ```
 
-`-i` takes the tenant name on its own too, so `-i mtrac` is enough when it is unambiguous.
+`-i` takes the tenant name on its own too, so `-i north` is enough when it is unambiguous.
 
 `--tenant` only works where a user with your email already exists in the target tenant,
 and only with a browser sign-in: an API token is issued inside one tenant and cannot move.
@@ -222,8 +222,9 @@ If you have an API token from **Admin > Auth Tokens** (type API), use it instead
 ov login https://acme.onevizion.com --token AbCdEf1234GhIjKl5678:MnOpQr90StUvWx...
 ```
 
-That token does not expire, so nothing is re-minted and `ov logout` only deletes the
-local copy. Invalidate it in the admin page when you are done with it. Session-mode and
+Pass `--token -` to read it from stdin instead, so it stays out of your shell history and
+the process list. That token does not expire, so nothing is re-minted and `ov logout` only
+deletes the local copy. Invalidate it in the admin page when you are done with it. Session-mode and
 token-mode instances can be signed in at the same time.
 
 ```bash
@@ -384,7 +385,10 @@ waits for your **Approve**.
 
 In **Settings**:
 
-- **Skills** are instructions added to every run. Eight ship with `ov`: OneVizion Basics
+- **Skills** are guides the agent reads when a task needs them. The system prompt lists
+  only each skill's name and when to read it; the agent loads the full text with
+  `read_skill`, so reviewing an incident reads PagerDuty and Datadog first. Eight ship with
+  `ov`: OneVizion Basics
   (where rules, automations, notifications, imports, reports, modules and workflows live,
   and how their runs and errors are logged), Working Style, one skill per tool group (OV
   CLI, Sources, GitHub, Datadog, PagerDuty; the last two only while connected), and TCE Best
@@ -394,7 +398,8 @@ In **Settings**:
   platform code, a docs export) or a git URL it clones for you. Describe each one so the
   agent knows when to look. Add your clone of the platform repo as `platform` so it can
   read table DDL and search for error text.
-- **Instances** lists your `ov` sign-ins and signs in to new ones.
+- **Instances** lists your `ov` sign-ins and signs in to new ones, through the browser or
+  with an API token (access key and secret key from Admin > Auth Tokens).
 
 The agent's tools come in groups, and the system prompt lists the ones a run has:
 
@@ -405,11 +410,11 @@ The agent's tools come in groups, and the system prompt lists the ones a run has
 | GitHub | `github_clone` (clone or pull a repo, then read it as a source) |
 | Datadog | `datadog_logs`, `datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm` |
 | PagerDuty | `pagerduty_incidents`, `pagerduty_incident`, `pagerduty_oncall` |
-| This run | `read_file`, `propose_change`, `ask_user`, `finish` |
+| This run | `read_skill`, `read_file`, `propose_change`, `ask_user`, `finish` |
 
 Nothing leaves your machine except calls to your instances and to GitHub Copilot. The
 server listens on 127.0.0.1 only. History, uploads and clones live in `~/.ov/agent`; the
-GitHub token is kept in the OS keyring with your other credentials.
+GitHub token is kept in the vault with your other credentials.
 
 **Instance map** shows how an instance's configuration fits together: trackor types and
 their relations, fields, rules and what triggers them, automations, imports, reports,
@@ -430,9 +435,12 @@ code in a tab. References in the code sit on a pill in their object's color: hov
 card with what it is and how it is referenced, click to open. The panel on the right shows
 status and trigger, quick static checks (SELECT INTO without a no-data handler, queries
 inside loops, COMMIT in a rule, swallowed errors, unknown hard-coded ids and similar),
-recent runs and errors, and everything the object links to. "Review with AI" and "Ask the
-agent" open New run with a prompt filled in for you to edit and send; "Show on map" jumps to
-the object on the Instance map.
+recent runs and errors, and everything the object links to.
+
+Every object, on the map, in the Explorer and in a code hover card, has the same actions:
+**Ask the agent** opens New run with a prompt filled in for you to edit and send, **Open in
+Explorer** opens its code, **Show on map** jumps to it on the Instance map, and the arrow
+opens it in OneVizion. The Explorer adds **Review with AI** for objects with code.
 
 **Datadog** (optional) adds the server side. In Settings > Integrations, connect it with
 your own keys: an **API key** (Organization Settings > API Keys) and an **application key**
@@ -440,16 +448,21 @@ from Personal Settings > Application Keys, ideally limited to the read-only scop
 connect dialog lists (`logs_read_data`, `logs_read_index_data`, `metrics_read`,
 `timeseries_query`, `monitors_read`, `events_read`, `apm_read`, `hosts_read`). The dialog
 checks both keys, shows what the application key can read, and stores them in the OS
-keyring; nothing is written to the code or shared. Then match each instance to the Datadog
-filter for its servers (`host:acme-app-*`, `service:acme`); "Suggest matches" proposes them
-from the hosts and services that sent logs in the last day, and a tenant shares its host's
-match unless you give it its own.
+vault; nothing is written to the code or shared. Then pick the servers each instance runs
+on, such as its web and app servers and replicas. **Detect servers** reads Datadog's host
+list and groups hosts under the instance whose name appears in their host name after the
+machine's own name (`web01.acme.example` and `app01.acme-vpc.example` belong to `acme`;
+the longest instance name wins, so `acme` never takes `dev-acme`'s servers). Each server's
+role is its machine name without the number (`web`, `app`). Adjust the chips, or write any
+Datadog filter instead; a tenant shares its host's servers unless you give it its own.
 
 Once connected, runs get read-only Datadog tools (`datadog_logs` with message grouping,
 `datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm`), offered only for
-what the key can read, and the **Health** page shows per instance: alerting monitors, error
+what the key can read, with a `role` option to look at one kind of server, and the
+**Health** page shows per instance: alerting monitors, error
 logs with the trend against the previous window and the top error groups, log volume,
-slowest endpoints, server metrics (CPU, load, memory, disk, JVM heap), recent events, and
+slowest endpoints, server metrics (CPU, load, memory, disk, JVM heap) and the same per
+server so a busy one stands out, recent events, and
 the instance's own failed processes, with "Ask the agent" to start an investigation from
 there. Your Datadog admins can see application keys and may audit their use, and logs the
 agent reads in a run go to GitHub Copilot like any other tool result.
@@ -457,11 +470,11 @@ agent reads in a run go to GitHub Copilot like any other tool result.
 **PagerDuty** (optional) adds incidents and on-call. In Settings > Integrations, connect it
 with your account address (e.g. `yourcompany.pagerduty.com`, which also picks the US or EU
 region) and a personal **API user token** from My Profile > User Settings > Create API User
-Token. The token is checked, stored in the OS keyring and only used to read. There is
+Token. The token is checked, stored in the vault and only used to read. There is
 nothing to map: services are shared, so each incident is tied to an instance by what its
 alert names - OV monitoring's `website` field, the database on database alerts (learned from
 website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Settings
-shows which websites recent incidents point at. Runs get `pagerduty_incidents`,
+shows which websites recent incidents point at when you ask for it. Runs get `pagerduty_incidents`,
 `pagerduty_incident` (timeline, alerts and notes) and `pagerduty_oncall`, and Health shows
 open and recent incidents and who is on call for the policies that paged, and counts
 triggered incidents in its verdict, even before the instance is matched in Datadog.
@@ -481,14 +494,14 @@ Everything lives in `~/.ov` (`ov --home` prints the path, `OV_HOME` overrides it
   cache/           cached API responses
   downloads/       files written by --out
   agent/           agent history (agent.db), run workspaces, uploads, cloned sources
+  vault            every secret, encrypted
 ```
 
-Bearer tokens, session cookies and the agent's GitHub token go to the OS keyring: Windows
-Credential Manager, macOS Keychain, or the Secret Service on Linux. Where no keyring is
-available (a headless Linux box, for example) they go to `~/.ov/credentials.json` instead,
-written owner-only, and `ov` says so once. `OV_CREDENTIALS=file` forces that file. Configs
-from older versions that kept tokens in `config.json` are moved over the first time they
-are read.
+Bearer tokens, session cookies and integration keys live in `~/.ov/vault`, encrypted with
+AES-256-GCM. Its key is the only entry in the OS keyring (Windows Credential Manager, macOS
+Keychain, or the Secret Service on Linux). Without a keyring, `ov` stops and asks for
+`OV_CREDENTIALS=file`, which keeps the key in `~/.ov/vault.key`, owner-only. A vault whose
+key is gone cannot be read; delete it and sign in again.
 
 Directories are created owner-only and files are replaced atomically under a lock, so two
 `ov` processes refreshing tokens at once cannot corrupt the config. On Windows the

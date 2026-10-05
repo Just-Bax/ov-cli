@@ -105,7 +105,7 @@ ov -i acme users get-user-by-id 42 --json
 
 If the user does not name one, use the current instance and say which that was.
 
-A host can carry several **tenants**, aliased `host/tenant` (`sandbox-2022/mtrac`). They
+A host can carry several **tenants**, aliased `host/tenant` (`acme/north`). They
 are separate instances as far as `-i` is concerned, and each holds different data. `ov
 tenants --json` lists the ones reachable on an instance. A bare host alias means the
 tenant the account signs in to.
@@ -166,8 +166,8 @@ privilege failures, with the reason in the message ("You don't have R priv...").
   `~/.ov/credentials.json`. `ov config show --json` omits them deliberately.
 - Run a write operation without showing the user a `--dry-run` first.
 - Run `ov login --tenant` yourself: it opens a browser like any other sign-in.
-- Assume two tenants on one host hold the same data. `sandbox-2022` and
-  `sandbox-2022/mtrac` are different systems; check which one the user means.
+- Assume two tenants on one host hold the same data. `acme` and
+  `acme/north` are different systems; check which one the user means.
 - Run `ov logout`, `ov use`, `ov config set` or `ov setup` unasked. All four change state
   that outlives the conversation; `ov use` silently repoints the user's own shell.
 - Run `ov agent` (or `ov ui`). It starts a long-running web server for the user; if they

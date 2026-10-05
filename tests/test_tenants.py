@@ -13,7 +13,7 @@ from ov.errors import Ambiguous, NotFound, OvError
 from ov.session import Session, default_alias
 from ov.tenants import parse_program_menu, resolve_tenant
 
-MENU = {"100": "mTRAC", "200": "Boldyn", "300": "Lumen"}
+MENU = {"100": "North", "200": "Harbor", "300": "Metro"}
 
 # What Default.jsp actually renders, ps:writeJson inside a <script> block.
 PAGE = (
@@ -58,33 +58,33 @@ def test_an_unreadable_page_yields_no_tenants():
 
 
 def test_a_tenant_resolves_by_name_id_or_prefix():
-    assert resolve_tenant(MENU, "mTRAC") == ("100", "mTRAC")
-    assert resolve_tenant(MENU, "mtrac") == ("100", "mTRAC")
-    assert resolve_tenant(MENU, "100") == ("100", "mTRAC")
-    assert resolve_tenant(MENU, "Bold") == ("200", "Boldyn")
+    assert resolve_tenant(MENU, "North") == ("100", "North")
+    assert resolve_tenant(MENU, "north") == ("100", "North")
+    assert resolve_tenant(MENU, "100") == ("100", "North")
+    assert resolve_tenant(MENU, "Harb") == ("200", "Harbor")
 
 
 def test_an_ambiguous_tenant_prefix_lists_them():
-    menu = {"1": "Lumen Dev", "2": "Lumen Test"}
+    menu = {"1": "Metro Dev", "2": "Metro Test"}
     with pytest.raises(Ambiguous, match="matches 2 tenants"):
-        resolve_tenant(menu, "Lumen")
+        resolve_tenant(menu, "Metro")
 
 
 def test_an_unknown_tenant_names_the_real_ones():
-    with pytest.raises(NotFound, match="Boldyn"):
+    with pytest.raises(NotFound, match="Harbor"):
         resolve_tenant(MENU, "nope")
 
 
 def test_asking_for_a_tenant_on_a_single_tenant_account_explains_why_not():
     with pytest.raises(OvError, match="user with your email"):
-        resolve_tenant({}, "mTRAC")
+        resolve_tenant({}, "North")
 
 
 # --- aliases ---
 
 
 def test_a_tenant_alias_is_host_slash_tenant():
-    assert default_alias("https://sandbox-2022.onevizion.com", "mTRAC") == "sandbox-2022/mtrac"
+    assert default_alias("https://acme.onevizion.com", "North") == "acme/north"
 
 
 def test_a_bare_host_alias_still_means_the_default_tenant():
@@ -96,7 +96,7 @@ def test_tenants_on_one_host_are_separate_sessions(ov_home):
     session_store.save(
         Session(
             base_url=BASE_URL,
-            tenant="mTRAC",
+            tenant="North",
             tenant_id="100",
             cookies={"JSESSIONID": "a"},
             bearer_token="M:K",
@@ -105,16 +105,16 @@ def test_tenants_on_one_host_are_separate_sessions(ov_home):
     session_store.save(
         Session(
             base_url=BASE_URL,
-            tenant="Boldyn",
+            tenant="Harbor",
             tenant_id="200",
             cookies={"JSESSIONID": "b"},
             bearer_token="B:K",
         )
     )
 
-    assert sorted(session_store.all_sessions()) == ["acme", "acme/boldyn", "acme/mtrac"]
+    assert sorted(session_store.all_sessions()) == ["acme", "acme/harbor", "acme/north"]
     assert session_store.load("acme").tenant == ""
-    assert session_store.load("acme/mtrac").bearer_token == "M:K"
+    assert session_store.load("acme/north").bearer_token == "M:K"
 
 
 def test_a_tenant_can_be_named_on_its_own(ov_home):
@@ -122,15 +122,15 @@ def test_a_tenant_can_be_named_on_its_own(ov_home):
     session_store.save(
         Session(
             base_url=BASE_URL,
-            tenant="mTRAC",
+            tenant="North",
             tenant_id="100",
             cookies={"JSESSIONID": "a"},
             bearer_token="M:K",
         )
     )
 
-    assert session_store.load("mtrac").tenant_id == "100"
-    assert session_store.load("mtra").tenant_id == "100"
+    assert session_store.load("north").tenant_id == "100"
+    assert session_store.load("nor").tenant_id == "100"
 
 
 def test_signing_in_again_to_a_tenant_replaces_that_tenant_only(ov_home):
@@ -138,15 +138,15 @@ def test_signing_in_again_to_a_tenant_replaces_that_tenant_only(ov_home):
         session_store.save(
             Session(
                 base_url=BASE_URL,
-                tenant="mTRAC",
+                tenant="North",
                 tenant_id="100",
                 cookies={"JSESSIONID": "a"},
                 bearer_token=token,
             )
         )
 
-    assert list(session_store.all_sessions()) == ["acme/mtrac"]
-    assert session_store.load("acme/mtrac").bearer_token == "SECOND:K"
+    assert list(session_store.all_sessions()) == ["acme/north"]
+    assert session_store.load("acme/north").bearer_token == "SECOND:K"
 
 
 # --- the switch itself ---
@@ -188,7 +188,7 @@ def recording_transport(calls: list[str], first_call_401: bool = False):
 def tenant_session() -> Session:
     return Session(
         base_url=BASE_URL,
-        tenant="mTRAC",
+        tenant="North",
         tenant_id="100",
         cookies={"JSESSIONID": "abc"},
         bearer_token="OLD:KEY",
@@ -263,7 +263,7 @@ def test_tenants_lists_them_and_marks_the_current(capsys, ov_home, tenant_server
     code, data = payload(capsys, "tenants", "--json")
 
     assert code == 0
-    assert [r["name"] for r in data] == ["Boldyn", "Lumen", "mTRAC"]
+    assert [r["name"] for r in data] == ["Harbor", "Metro", "North"]
     assert [r["current"] for r in data] == [False, False, True]
 
 
@@ -276,9 +276,7 @@ def test_tenants_is_refused_for_an_api_token(capsys, ov_home, tenant_server):
 
 
 def test_login_with_a_tenant_is_refused_for_an_api_token(capsys, ov_home, tenant_server):
-    code, data = payload(
-        capsys, "login", BASE_URL, "--token", "K:S", "--tenant", "mTRAC", "--no-spec", "--json"
-    )
+    code, data = payload(capsys, "login", BASE_URL, "--token", "K:S", "--tenant", "North", "--no-spec", "--json")
 
     assert code == 1
     assert "--tenant needs a browser sign-in" in data["error"]
@@ -290,7 +288,7 @@ def test_naming_the_host_means_its_default_tenant(ov_home):
     session_store.save(
         Session(
             base_url=BASE_URL,
-            tenant="mTRAC",
+            tenant="North",
             tenant_id="100",
             cookies={"JSESSIONID": "a"},
             bearer_token="M:K",
@@ -299,7 +297,7 @@ def test_naming_the_host_means_its_default_tenant(ov_home):
     session_store.save(
         Session(
             base_url=BASE_URL,
-            tenant="Boldyn",
+            tenant="Harbor",
             tenant_id="200",
             cookies={"JSESSIONID": "b"},
             bearer_token="B:K",
@@ -328,16 +326,14 @@ def test_a_tenant_login_is_stored_under_a_tenant_alias(capsys, ov_home, tenant_s
 
     monkeypatch.setattr(
         "ov.cli.commands.auth._browser_login",
-        lambda ctx, base_url: S(
-            base_url=base_url, cookies={"JSESSIONID": "abc"}, bearer_token="SIGNIN:KEY"
-        ),
+        lambda ctx, base_url: S(base_url=base_url, cookies={"JSESSIONID": "abc"}, bearer_token="SIGNIN:KEY"),
     )
 
-    code, data = payload(capsys, "login", BASE_URL, "--tenant", "mTRAC", "--no-spec", "--json")
+    code, data = payload(capsys, "login", BASE_URL, "--tenant", "North", "--no-spec", "--json")
 
     assert code == 0
-    assert data["alias"] == "acme/mtrac"
-    assert data["tenant"] == "mTRAC"
-    assert sorted(session_store.all_sessions()) == ["acme/mtrac"]
+    assert data["alias"] == "acme/north"
+    assert data["tenant"] == "North"
+    assert sorted(session_store.all_sessions()) == ["acme/north"]
     # and the token is the one minted after the switch, not the sign-in token
-    assert session_store.load("acme/mtrac").bearer_token == "TENANT:KEY"
+    assert session_store.load("acme/north").bearer_token == "TENANT:KEY"

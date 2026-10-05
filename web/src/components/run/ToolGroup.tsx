@@ -1,5 +1,6 @@
 import {
   BellAlertIcon,
+  BookOpenIcon,
   CalendarIcon,
   ChartBarIcon,
   ChevronRightIcon,
@@ -22,21 +23,6 @@ import { CopyButton, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
 
-// Keep in sync with LEGACY_NAMES in tools.py: runs saved before the rename use the old names.
-const LEGACY: Record<string, string> = {
-  load_case: 'ov_case',
-  graph_query: 'ov_map',
-  sql: 'ov_sql',
-  trackor_search: 'ov_search',
-  git_clone: 'github_clone',
-  dd_logs: 'datadog_logs',
-  dd_metrics: 'datadog_metrics',
-  dd_monitors: 'datadog_monitors',
-  dd_events: 'datadog_events',
-  dd_apm: 'datadog_apm',
-}
-const nameOf = (tool: ToolActivity) => LEGACY[tool.name] ?? tool.name
-
 const ICONS: Record<string, Icon> = {
   ov: CommandLineIcon,
   ov_sql: CircleStackIcon,
@@ -46,6 +32,7 @@ const ICONS: Record<string, Icon> = {
   source_search: MagnifyingGlassIcon,
   source_read: CodeBracketSquareIcon,
   github_clone: ShareIcon,
+  read_skill: BookOpenIcon,
   read_file: DocumentTextIcon,
   datadog_logs: DocumentTextIcon,
   datadog_metrics: ChartBarIcon,
@@ -66,6 +53,7 @@ const NOUNS: Record<string, [string, string]> = {
   source_search: ['code search', 'code searches'],
   source_read: ['source file', 'source files'],
   github_clone: ['repo', 'repos'],
+  read_skill: ['skill', 'skills'],
   read_file: ['file', 'files'],
   datadog_logs: ['log search', 'log searches'],
   datadog_metrics: ['metric query', 'metric queries'],
@@ -79,7 +67,7 @@ const NOUNS: Record<string, [string, string]> = {
 
 function summarize(tools: ToolActivity[]): string {
   const counts = new Map<string, number>()
-  for (const t of tools) counts.set(nameOf(t), (counts.get(nameOf(t)) ?? 0) + 1)
+  for (const t of tools) counts.set(t.name, (counts.get(t.name) ?? 0) + 1)
   return [...counts]
     .map(([name, n]) => {
       const [one, many] = NOUNS[name] ?? [name, name]
@@ -94,7 +82,7 @@ function readableInput(tool: ToolActivity): { text: string; lang: string } {
   try {
     const a = JSON.parse(tool.input) as Record<string, unknown>
     const at = a.instance ? `-- ${a.instance}\n` : ''
-    const name = nameOf(tool)
+    const name = tool.name
     if (name === 'ov_sql') return { text: `${at}${a.query}`, lang: 'sql' }
     if (name === 'pagerduty_incident') return { text: String(a.incident), lang: 'text' }
     if (name.startsWith('datadog_') || name.startsWith('pagerduty_'))
@@ -152,7 +140,7 @@ function Block({ title, text, error }: { title: string; text: string; error?: bo
 
 function ToolRow({ tool }: { tool: ToolActivity }) {
   const [open, setOpen] = useState(false)
-  const Icon = ICONS[nameOf(tool)] ?? CommandLineIcon
+  const Icon = ICONS[tool.name] ?? CommandLineIcon
   const input = readableInput(tool)
   return (
     <div>
@@ -221,7 +209,7 @@ export function ToolGroup({ tools }: { tools: ToolActivity[] }) {
             <span className="text-text">{running.label}</span>
           ) : (
             <span>
-              {tools.length === 1 && nameOf(tools[0]) === 'ov_case'
+              {tools.length === 1 && tools[0].name === 'ov_case'
                 ? tools[0].label
                 : summarize(tools)}
             </span>

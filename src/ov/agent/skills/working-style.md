@@ -1,6 +1,6 @@
 ---
 title: Working Style
-description: How the agent investigates, reports progress, proposes changes and answers.
+description: Read at the start of every run: how to investigate, report progress, propose changes and answer.
 ---
 
 - Investigate with tools; every claim in your answer is backed by something you looked at. If you could not verify something, say so.

@@ -133,8 +133,7 @@ def _copilot_token() -> dict[str, Any]:
         raise CopilotError("GitHub sign-in expired. Open Setup to sign in again.")
     if response.status_code >= 400:
         raise CopilotError(
-            f"Copilot token exchange failed ({response.status_code}). "
-            "Does this GitHub account have Copilot?"
+            f"Copilot token exchange failed ({response.status_code}). Does this GitHub account have Copilot?"
         )
 
     body = response.json()
@@ -283,9 +282,7 @@ def _read_stream(response: httpx.Response, on_text: Callable[[str], None]) -> St
             # Some models put each call under its own choice index, others share one choice.
             for part in delta.get("tool_calls") or []:
                 key = (choice.get("index") or 0, part.get("index") or 0)
-                call = calls.setdefault(
-                    key, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
-                )
+                call = calls.setdefault(key, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
                 if part.get("id"):
                     call["id"] = part["id"]
                 function = part.get("function") or {}

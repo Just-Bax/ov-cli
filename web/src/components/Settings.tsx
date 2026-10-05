@@ -264,12 +264,18 @@ function Instances() {
               </div>
             ))
           : shown.map((i) => {
-              const row: SignInTarget = { url: i.url, host: i.host, tenant: i.tenant ?? undefined }
+              const row: SignInTarget = {
+                url: i.url,
+                host: i.host,
+                tenant: i.tenant ?? undefined,
+                mode: i.mode === 'token' ? 'token' : 'browser',
+              }
               const busy = pending.has(signInKey(row))
               return (
                 <div key={i.alias} className="flex items-center gap-2.5 px-5 py-2.5">
                   <span className="text-fg min-w-0 truncate text-[13px] font-medium">{i.host}</span>
                   {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
+                  {i.mode === 'token' ? <Chip tone="neutral">API token</Chip> : null}
                   <div className="flex-1" />
                   <Chip tone={i.valid ? 'ok' : 'neutral'}>{i.valid ? 'Signed in' : 'Expired'}</Chip>
                   <Button

@@ -90,8 +90,7 @@ def build_plan(
         if value is None:
             if param.required and param.name not in extra_query:
                 raise OvError(
-                    f"Missing required query parameter '{param.name}'. "
-                    f"Pass {param.flag} or -q {param.name}=VALUE."
+                    f"Missing required query parameter '{param.name}'. Pass {param.flag} or -q {param.name}=VALUE."
                 )
             continue
         params.extend(_as_pairs(param.name, value))
@@ -177,10 +176,7 @@ def _attach_body(
         # A multipart part named like a declared parameter is a form field, not a file.
         if built:
             plan.files.update(
-                {
-                    k: (None, json.dumps(v) if isinstance(v, (dict, list)) else str(v))
-                    for k, v in built.items()
-                }
+                {k: (None, json.dumps(v) if isinstance(v, (dict, list)) else str(v)) for k, v in built.items()}
             )
         if body is not None:
             raise OvError("--data and --file cannot be combined; put scalars in --field.")

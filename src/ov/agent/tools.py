@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from urllib.parse import quote
 
 from ..errors import EXIT_READ_ONLY
-from . import datadog, graph, pagerduty, sources
+from . import datadog, graph, pagerduty, skills, sources
 from .cancel import Cancel
 from .ovproc import OvResult, find_instance, host_of, run_ov
 from .workspace import IMAGE_EXTS, image_mime, within
@@ -47,9 +47,7 @@ class ToolContext(Protocol):
 
     def emit(self, event: dict[str, Any]) -> None: ...
     def has_outcome(self) -> bool: ...
-    def ask_user(
-        self, question: str, options: list[str], multiple: bool, detail: str | None = None
-    ) -> str: ...
+    def ask_user(self, question: str, options: list[str], multiple: bool, detail: str | None = None) -> str: ...
     def require_login(self, host: str, tenant: str = "") -> bool: ...
     def attach_image(self, name: str, url: str) -> None: ...
     def finish(self, outcome: dict[str, Any]) -> None: ...
@@ -185,9 +183,7 @@ def _confine_files(args: list[str], ctx: ToolContext) -> list[str]:
 _SQL_ROUTE = re.compile(r"^/?(api/)?v\d+/sql/", re.IGNORECASE)
 
 
-def run_ov_tool(
-    args: list[str], instance: str | None, ctx: ToolContext, allow_sql: bool = False
-) -> str:
+def run_ov_tool(args: list[str], instance: str | None, ctx: ToolContext, allow_sql: bool = False) -> str:
     cleaned = [str(a) for a in args]
     if cleaned[:1] == ["ov"]:
         cleaned.pop(0)
@@ -342,6 +338,23 @@ def attachment_names(ctx: ToolContext) -> list[str]:
     return sorted(n for n in names if not (n.endswith(".txt") and n[:-4] in names))
 
 
+def offered_skills() -> list[dict[str, Any]]:
+    hidden = {
+        name for name, linked in (("datadog", datadog.connected), ("pagerduty", pagerduty.connected)) if not linked()
+    }
+    return [s for s in skills.enabled_skills() if s["name"] not in hidden]
+
+
+def _read_skill(args: dict[str, Any], _: ToolContext) -> str:
+    name = str(args["name"]).strip()
+    found = next((s for s in offered_skills() if s["name"] == name), None)
+    if found is None:
+        names = ", ".join(s["name"] for s in offered_skills())
+        raise ToolError(f"No skill named {name}. Skills: {names}.")
+
+    return f"# {found['title']}\n\n{found['content']}"
+
+
 def _read_file(args: dict[str, Any], ctx: ToolContext) -> str:
     rel = str(args["path"])
     path = within(ctx.work_dir, rel)
@@ -420,17 +433,14 @@ def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
 
 def _ask_user(args: dict[str, Any], ctx: ToolContext) -> str:
     options = [str(o) for o in args.get("options") or []]
-    return (
-        f"User answered: {ctx.ask_user(str(args['question']), options, bool(args.get('multiple')))}"
-    )
+    return f"User answered: {ctx.ask_user(str(args['question']), options, bool(args.get('multiple')))}"
 
 
 def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
     findings = args.get("findings") or []
     if any(not f.get("evidence") for f in findings):
         raise ToolError(
-            "Not finished: every finding needs evidence you verified yourself. Check, then call "
-            "finish again."
+            "Not finished: every finding needs evidence you verified yourself. Check, then call finish again."
         )
     unread = [] if ctx.has_outcome() else [n for n in attachment_names(ctx) if n not in ctx.opened]
     if unread:
@@ -496,27 +506,20 @@ def _datadog_window(args: dict[str, Any], default: str) -> tuple[int, int]:
 
 
 def _datadog_logs(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
     query = datadog.combine(scope, str(args.get("query") or ""))
     start, end = _datadog_window(args, "now-1h")
-    link = datadog.logs_link(
-        datadog.load_state().get("site") or datadog.DEFAULT_SITE, query, start, end
-    )
+    link = datadog.logs_link(datadog.load_state().get("site") or datadog.DEFAULT_SITE, query, start, end)
     head = f"Datadog logs, query: {query}, {datadog.iso(start)} to {datadog.iso(end)} UTC"
     if args.get("patterns"):
         rows = datadog.search_logs(query, start, end, 500)
         groups = datadog.top_patterns(rows, 15)
         if not groups:
             return f"{head}\nNo logs matched.\nOpen: {link}"
-        lines = [
-            f"- {g['count']}x {g['pattern']}\n  e.g. [{g['last']} {g['service']}] {g['example']}"
-            for g in groups
-        ]
+        lines = [f"- {g['count']}x {g['pattern']}\n  e.g. [{g['last']} {g['service']}] {g['example']}" for g in groups]
         more = " (first 500 scanned)" if len(rows) >= 500 else ""
         return clip(
-            f"{head}\n{len(rows)} logs{more} in {len(groups)} groups:\n"
-            + "\n".join(lines)
-            + f"\nOpen: {link}",
+            f"{head}\n{len(rows)} logs{more} in {len(groups)} groups:\n" + "\n".join(lines) + f"\nOpen: {link}",
             ctx,
             "logs",
         )
@@ -529,13 +532,11 @@ def _datadog_logs(args: dict[str, Any], ctx: ToolContext) -> str:
         f"{r['message'][: datadog.MESSAGE_CHARS]}"
         for r in rows
     ]
-    return clip(
-        f"{head}\n{len(rows)} newest:\n" + "\n".join(lines) + f"\nOpen: {link}", ctx, "logs"
-    )
+    return clip(f"{head}\n{len(rows)} newest:\n" + "\n".join(lines) + f"\nOpen: {link}", ctx, "logs")
 
 
 def _datadog_metrics(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
     query = str(args.get("query") or "").strip()
     if not query:
         raise ToolError('Give a metric query, e.g. "avg:jvm.heap_memory".')
@@ -551,20 +552,15 @@ def _datadog_metrics(args: dict[str, Any], ctx: ToolContext) -> str:
     shown = series[:10]
     more = f"\n({len(series) - 10} more series not shown)" if len(series) > 10 else ""
     body = "\n".join(datadog.summarize_series(s) for s in shown)
-    return clip(
-        f"{query}, {datadog.iso(start)} to {datadog.iso(end)} UTC:\n{body}{more}", ctx, "metrics"
-    )
+    return clip(f"{query}, {datadog.iso(start)} to {datadog.iso(end)} UTC:\n{body}{more}", ctx, "metrics")
 
 
 def _datadog_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
     rows = datadog.monitors_for(scope, include_ok=bool(args.get("include_ok")))
     base = datadog.app_url(datadog.load_state().get("site") or datadog.DEFAULT_SITE)
     if not rows:
-        return (
-            f"No {'' if args.get('include_ok') else 'alerting or warning '}monitors for "
-            f"{scope or 'the org'}."
-        )
+        return f"No {'' if args.get('include_ok') else 'alerting or warning '}monitors for {scope or 'the org'}."
     lines = []
     for m in rows[:60]:
         groups = f" groups: {', '.join(m['groups'])}" if m["groups"] else ""
@@ -573,7 +569,7 @@ def _datadog_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 def _datadog_events(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
     query = datadog.combine(scope, str(args.get("query") or ""))
     start, end = _datadog_window(args, "now-24h")
     rows = datadog.events_for(query, start, end, int(args.get("limit") or 30))
@@ -588,17 +584,14 @@ def _datadog_events(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 def _datadog_apm(args: dict[str, Any], ctx: ToolContext) -> str:
-    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
     query = datadog.combine(scope, str(args.get("query") or ""))
     start, end = _datadog_window(args, "now-1h")
     if args.get("mode") == "errors":
         rows = datadog.error_spans(query, start, end, int(args.get("limit") or 25))
         if not rows:
             return f"No error spans for {query}."
-        lines = [
-            f"{r['time']} {r['service']} {r['resource']}: {r['error']} (trace {r['trace']})"
-            for r in rows
-        ]
+        lines = [f"{r['time']} {r['service']} {r['resource']}: {r['error']} (trace {r['trace']})" for r in rows]
         return clip(f"Error spans for {query}:\n" + "\n".join(lines), ctx, "spans")
     rows = datadog.slow_endpoints(query, start, end, int(args.get("limit") or 10))
     if not rows:
@@ -634,8 +627,7 @@ TOOLS = [
         {
             "instance": INSTANCE,
             "args": _strings(
-                'Arguments after "ov -i <alias>", e.g. ["request","GET","/v3/trackors/123",'
-                '"-q","fields=A,B"]'
+                'Arguments after "ov -i <alias>", e.g. ["request","GET","/v3/trackors/123","-q","fields=A,B"]'
             ),
         },
         ["args"],
@@ -689,6 +681,15 @@ TOOLS = [
         _ov_search,
     ),
     Tool(
+        "read_skill",
+        "Read a skill: the full guide for an area listed under Skills in the prompt. Read every skill "
+        "that covers the task before working on it.",
+        {"name": _str("Skill name, as listed under Skills")},
+        ["name"],
+        lambda a: f"skill {a.get('name')}",
+        _read_skill,
+    ),
+    Tool(
         "read_file",
         "Read a file from this run's workspace: attachments the user sent, files saved with "
         "ov --out, and spilled tool output. Images are shown to you; emails are expanded to text.",
@@ -703,8 +704,7 @@ TOOLS = [
     ),
     Tool(
         "source_search",
-        "git grep (extended regex) in a configured source (code or docs folder) or a cloned "
-        'repo ("repo:<name>").',
+        'git grep (extended regex) in a configured source (code or docs folder) or a cloned repo ("repo:<name>").',
         {
             "source": _str('Source name, or "repo:<name>" for a repo from github_clone'),
             "pattern": _str("Extended regex"),
@@ -868,8 +868,11 @@ TOOLS = [
 WINDOW_FROM = _str('Start: "now-2h", "now-30m", "now-7d", an ISO time (UTC) or epoch')
 WINDOW_TO = _str('End, default "now"')
 DATADOG_INSTANCE = _str(
-    "Instance alias or host; its Datadog filter (host or service tags) is applied. Defaults to "
-    "the run's instance."
+    "Instance alias or host; its Datadog filter (host or service tags) is applied. Defaults to the run's instance."
+)
+ROLE = _str(
+    "Only servers of this role, named after the machine name without its number (e.g. web for "
+    "web01, app for app01); default all. The instance's roles are listed in the prompt."
 )
 
 
@@ -900,6 +903,7 @@ TOOLS += [
         'syntax, e.g. status:error, service:x, "OutOfMemory", @http.status_code:500.',
         {
             "instance": DATADOG_INSTANCE,
+            "role": ROLE,
             "query": _str('Extra log query, e.g. status:error "deadlock"'),
             "from": WINDOW_FROM,
             "to": WINDOW_TO,
@@ -918,9 +922,8 @@ TOOLS += [
         'unless the query has its own {...} scope. Add "by {host}" to split by host.',
         {
             "instance": DATADOG_INSTANCE,
-            "query": _str(
-                "Metric query, e.g. avg:jvm.heap_memory or avg:system.cpu.user by {host}"
-            ),
+            "role": ROLE,
+            "query": _str("Metric query, e.g. avg:jvm.heap_memory or avg:system.cpu.user by {host}"),
             "from": WINDOW_FROM,
             "to": WINDOW_TO,
         },
@@ -939,10 +942,10 @@ TOOLS += [
     ),
     Tool(
         "datadog_events",
-        "List Datadog events for an instance in a time window: deploys, restarts, alerts, "
-        "config changes.",
+        "List Datadog events for an instance in a time window: deploys, restarts, alerts, config changes.",
         {
             "instance": DATADOG_INSTANCE,
+            "role": ROLE,
             "query": _str("Extra event query, optional"),
             "from": WINDOW_FROM,
             "to": WINDOW_TO,
@@ -958,6 +961,7 @@ TOOLS += [
         "recent error spans with their traces (mode=errors).",
         {
             "instance": DATADOG_INSTANCE,
+            "role": ROLE,
             "mode": {"type": "string", "enum": ["slowest", "errors"]},
             "query": _str("Extra span query, e.g. service:x or resource_name:*Import*"),
             "from": WINDOW_FROM,
@@ -992,24 +996,16 @@ def _incident_line(i: dict[str, Any]) -> str:
 
 
 def _pagerduty_rows(args: dict[str, Any], ctx: ToolContext, default: str) -> tuple[str, list]:
-    alias = (
-        ""
-        if args.get("all_instances")
-        else pagerduty.resolve_host(args.get("instance"), ctx.instance)
-    )
+    alias = "" if args.get("all_instances") else pagerduty.resolve_host(args.get("instance"), ctx.instance)
     start = datadog.to_ms(args.get("from"), default)
     end = datadog.to_ms(args.get("to"), "now")
-    statuses = [
-        s for s in (args.get("statuses") or []) if s in ("triggered", "acknowledged", "resolved")
-    ]
+    statuses = [s for s in (args.get("statuses") or []) if s in ("triggered", "acknowledged", "resolved")]
     rows = pagerduty.incidents(start, end, statuses or None)
     if alias:
         rows = pagerduty.for_instance(rows, alias)
     found = pagerduty.find_instance(alias) if alias else None
     where = found["host"] if found else "all instances"
-    head = (
-        f"PagerDuty incidents for {where}, {pagerduty.iso_utc(start)} to {pagerduty.iso_utc(end)}"
-    )
+    head = f"PagerDuty incidents for {where}, {pagerduty.iso_utc(start)} to {pagerduty.iso_utc(end)}"
     if statuses:
         head += f", status {'/'.join(statuses)}"
     return head, rows
@@ -1032,9 +1028,7 @@ def _pagerduty_incidents(args: dict[str, Any], ctx: ToolContext) -> str:
 def _pagerduty_incident(args: dict[str, Any], ctx: ToolContext) -> str:
     i = pagerduty.incident_detail(str(args.get("incident") or ""))
     lines = [_incident_line(i), "", "Timeline:"]
-    lines += [
-        f"- {pagerduty.short_time(e['time'])} {e['type']}: {e['summary']}" for e in i["timeline"]
-    ] or ["- none"]
+    lines += [f"- {pagerduty.short_time(e['time'])} {e['type']}: {e['summary']}" for e in i["timeline"]] or ["- none"]
     if i["alerts"]:
         lines += ["", "Alerts:"]
         for a in i["alerts"]:
@@ -1140,9 +1134,7 @@ TOOLS += [
     ),
 ]
 
-TOOL_SPECS = [
-    t.spec for t in TOOLS if t.name not in DATADOG_TOOLS and t.name not in PAGERDUTY_TOOLS
-]
+TOOL_SPECS = [t.spec for t in TOOLS if t.name not in DATADOG_TOOLS and t.name not in PAGERDUTY_TOOLS]
 
 # Every tool belongs to exactly one group; the prompt and the skills use the same names.
 TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
@@ -1154,7 +1146,7 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     (
         "This run",
         "workspace files, proposed changes, questions and the result",
-        ["read_file", "propose_change", "ask_user", "finish"],
+        ["read_skill", "read_file", "propose_change", "ask_user", "finish"],
     ),
 ]
 
@@ -1173,20 +1165,6 @@ def tool_specs() -> list[dict[str, Any]]:
 
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
-# Names before tools were grouped by prefix; saved runs and model habits may still use them.
-LEGACY_NAMES = {
-    "load_case": "ov_case",
-    "graph_query": "ov_map",
-    "sql": "ov_sql",
-    "trackor_search": "ov_search",
-    "git_clone": "github_clone",
-    "dd_logs": "datadog_logs",
-    "dd_metrics": "datadog_metrics",
-    "dd_monitors": "datadog_monitors",
-    "dd_events": "datadog_events",
-    "dd_apm": "datadog_apm",
-}
-
 
 def tool_named(name: str) -> Tool | None:
-    return TOOLS_BY_NAME.get(LEGACY_NAMES.get(name, name))
+    return TOOLS_BY_NAME.get(name)

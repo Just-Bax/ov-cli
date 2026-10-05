@@ -221,20 +221,18 @@ export function WebsiteMap({ status }: { status: PagerDutyStatus }) {
   const [error, setError] = useState<string>()
   const [all, setAll] = useState(false)
 
-  useEffect(() => {
-    if (!status.permissions.incidents) return
-    let alive = true
+  const load = async (window: number) => {
+    setDays(window)
     setLoading(true)
     setError(undefined)
-    api
-      .pagerdutyWebsites(days)
-      .then((d) => alive && setData(d))
-      .catch((e: Error) => alive && setError(e.message))
-      .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
+    try {
+      setData(await api.pagerdutyWebsites(window))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
     }
-  }, [days, status.checkedAt])
+  }
 
   const rows = data?.websites ?? []
   const shown = all ? rows : rows.slice(0, 10)
@@ -253,28 +251,42 @@ export function WebsiteMap({ status }: { status: PagerDutyStatus }) {
               : ''}
           </div>
         </div>
-        <div className="bg-raised flex rounded-full p-1">
-          {[1, 7, 30].map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDays(d)}
-              className={cn(
-                'h-7 min-w-11 rounded-full px-3 text-[12.5px] font-medium transition-colors',
-                d === days ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
-              )}
-            >
-              {d}d
-            </button>
-          ))}
-        </div>
+        {data ? (
+          <div className="bg-raised flex rounded-full p-1">
+            {[1, 7, 30].map((d) => (
+              <button
+                key={d}
+                type="button"
+                disabled={loading}
+                onClick={() => void load(d)}
+                className={cn(
+                  'h-7 min-w-11 rounded-full px-3 text-[12.5px] font-medium transition-colors',
+                  d === days ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
+                )}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        ) : (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={loading || !status.permissions.incidents}
+            onClick={() => void load(days)}
+          >
+            {loading ? <Spinner className="size-3.5" /> : null} Show incidents
+          </Button>
+        )}
       </div>
       <div className="border-line border-t px-5 py-3">
         {error ? (
           <div className="text-danger text-[12.5px]">{error}</div>
-        ) : !data || loading ? (
-          <div className="text-muted flex items-center gap-2 py-2 text-[12.5px]">
-            <Spinner className="text-brand size-3.5" /> Reading incidents...
+        ) : !data ? (
+          <div className="text-muted py-2 text-[12.5px]">
+            {loading
+              ? 'Reading incidents...'
+              : `Count the last ${days} days of incidents per website.`}
           </div>
         ) : !rows.length ? (
           <div className="text-muted py-2 text-[12.5px]">No incidents in this window.</div>

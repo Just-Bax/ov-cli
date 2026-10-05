@@ -9,21 +9,18 @@ from ov import credentials, store
 from ov import session as session_store
 from ov.client import Client
 from ov.errors import ReadOnlyBlocked
-from ov.paths import config_file, credentials_file
+from ov.paths import config_file
 from ov.session import Session
 
 
 class FakeKeyring:
-    def __init__(self, fail: bool = False) -> None:
+    def __init__(self) -> None:
         self.entries: dict[tuple[str, str], str] = {}
-        self.fail = fail
 
     def get_password(self, service: str, name: str) -> str | None:
         return self.entries.get((service, name))
 
     def set_password(self, service: str, name: str, value: str) -> None:
-        if self.fail:
-            raise RuntimeError("locked")
         self.entries[(service, name)] = value
 
     def delete_password(self, service: str, name: str) -> None:
@@ -32,6 +29,7 @@ class FakeKeyring:
 
 @pytest.fixture
 def keyring(monkeypatch):
+    monkeypatch.delenv("OV_CREDENTIALS")
     fake = FakeKeyring()
     monkeypatch.setattr(credentials, "_keyring", lambda: fake)
     return fake
@@ -44,59 +42,50 @@ def test_secrets_stay_out_of_config_json(logged_in):
     assert session_store.load().bearer_token == "ACCESS:SECRET"
 
 
-def test_file_fallback_holds_the_secrets(logged_in):
-    stored = json.loads(credentials_file().read_text(encoding="utf-8"))
-    assert stored[f"{BASE_URL}|"]["bearer_token"] == "ACCESS:SECRET"
+def test_secrets_live_encrypted_in_the_vault(logged_in):
+    from ov.credentials import key_file, vault_file
+
+    text = vault_file().read_text(encoding="utf-8")
+    assert "ACCESS:SECRET" not in text and "JSESSIONID" not in text
+    assert json.loads(text)["version"] == 1
+    assert key_file().exists()
+    assert credentials.get(f"{BASE_URL}|")["bearer_token"] == "ACCESS:SECRET"
 
 
-def test_large_secrets_are_chunked_in_the_keyring(ov_home, keyring):
-    cookies = {"JSESSIONID": "x" * 4500}
-    session_store.save(Session(base_url=BASE_URL, cookies=cookies, bearer_token="A:B"))
-
-    values = [v for (_, name), v in keyring.entries.items() if "#" in name]
-    assert len(values) == 5
-    assert all(len(v) <= credentials.CHUNK_CHARS for v in values)
-    assert session_store.load().cookies == cookies
-    assert not credentials_file().exists()
-
-
-def test_a_smaller_rewrite_drops_stale_chunks(ov_home, keyring):
-    session_store.save(Session(base_url=BASE_URL, cookies={"c": "x" * 3000}, bearer_token="A:B"))
-    session_store.save(Session(base_url=BASE_URL, cookies={"c": "y"}, bearer_token="A:B"))
-
-    assert len(keyring.entries) == 2
-    assert session_store.load().cookies == {"c": "y"}
+def test_the_keyring_holds_only_the_vault_key(ov_home, keyring):
+    for n in range(5):
+        session_store.save(
+            Session(
+                base_url=f"https://i{n}.onevizion.test",
+                cookies={"c": "x" * 4000},
+                bearer_token="A:B",
+            )
+        )
+    credentials.put("agent:datadog", {"api_key": "k"})
+    assert list(keyring.entries) == [("ov-cli", "vault-key")]
+    assert session_store.load("i3").cookies == {"c": "x" * 4000}
 
 
-def test_logout_removes_keyring_entries(ov_home, keyring):
+def test_a_lost_key_is_an_error(ov_home, keyring):
+    credentials.put("a", {"x": 1})
+    keyring.entries.clear()
+    with pytest.raises(credentials.CredentialsError, match="missing"):
+        credentials.get("a")
+
+
+def test_delete_removes_the_secret(ov_home, keyring):
     seed_session(BASE_URL)
     session_store.remove("acme")
-    assert keyring.entries == {}
+    assert credentials.keys() == []
 
 
-def test_a_failing_keyring_falls_back_to_the_file(ov_home, monkeypatch):
-    monkeypatch.setattr(credentials, "_keyring", lambda: FakeKeyring(fail=True))
-    seed_session(BASE_URL)
-    assert credentials_file().exists()
-    assert session_store.load().bearer_token == "ACCESS:SECRET"
+def test_no_keyring_is_an_error(ov_home, monkeypatch):
+    from keyring.backends import fail
 
-
-def test_plaintext_secrets_are_migrated_on_read(ov_home, keyring):
-    store.update(
-        sessions={
-            "acme": {
-                "base_url": BASE_URL,
-                "alias": "acme",
-                "cookies": {"JSESSIONID": "abc"},
-                "bearer_token": "OLD:KEY",
-            }
-        },
-        current="acme",
-    )
-
-    assert session_store.load().bearer_token == "OLD:KEY"
-    assert "OLD:KEY" not in config_file().read_text(encoding="utf-8")
-    assert keyring.entries
+    monkeypatch.delenv("OV_CREDENTIALS")
+    monkeypatch.setattr("keyring.get_keyring", lambda: fail.Keyring())
+    with pytest.raises(credentials.CredentialsError, match="OV_CREDENTIALS=file"):
+        seed_session(BASE_URL)
 
 
 def test_writes_leave_no_temp_files(logged_in):

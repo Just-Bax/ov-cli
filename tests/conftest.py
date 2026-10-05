@@ -70,9 +70,7 @@ OPENAPI: dict[str, Any] = {
                 "summary": "Create User",
                 "requestBody": {
                     "required": True,
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/UserSubmit"}}
-                    },
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserSubmit"}}},
                 },
                 "responses": {"201": {"content": {"application/json": {"schema": {}}}}},
             },

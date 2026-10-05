@@ -12,8 +12,6 @@ from .errors import Ambiguous, NotFound, NotLoggedIn
 
 SESSION_COOKIE = "JSESSIONID"
 
-SECRET_FIELDS = ("cookies", "bearer_token")
-
 # Re-mint this far ahead of the recorded expiry rather than waiting for a 401,
 # so a long-running command does not fail halfway through a page loop.
 REFRESH_MARGIN_SECONDS = 300
@@ -103,7 +101,7 @@ class Session:
         }
 
 
-# https://acme.onevizion.com -> acme; its mTRAC tenant -> acme/mtrac.
+# https://acme.onevizion.com -> acme; its North tenant -> acme/north.
 def default_alias(base_url: str, tenant: str = "") -> str:
     host = urlsplit(base_url).hostname or base_url
     label = _slug(host.split(".")[0]) or "default"
@@ -143,26 +141,8 @@ def _entries(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {a: e for a, e in raw.items() if isinstance(e, dict) and e.get("base_url")}
 
 
-def _has_secrets(entry: dict[str, Any]) -> bool:
-    return any(name in entry for name in SECRET_FIELDS)
-
-
-# Configs written before 1.1 held tokens and cookies in plain text.
-def _move_secrets_out(data: dict[str, Any]) -> None:
-    for alias, entry in _entries(data).items():
-        if not _has_secrets(entry):
-            continue
-        session = _from_dict(entry, alias)
-        credentials.put(session.credential_key, session.secrets())
-        for name in SECRET_FIELDS:
-            entry.pop(name, None)
-
-
 def _read_all() -> dict[str, Session]:
-    data = store.read()
-    if any(_has_secrets(entry) for entry in _entries(data).values()):
-        data = store.mutate(_move_secrets_out)
-    return _from_entries(data)
+    return _from_entries(store.read())
 
 
 def _from_entries(data: dict[str, Any]) -> dict[str, Session]:
@@ -293,9 +273,7 @@ def save(session: Session, make_current: bool = True) -> Session:
         # Only the store knows which aliases are taken, so the caller's is not trusted.
         taken = _read_all().get(session.alias)
         if taken is not None and not is_same_target(taken, session.base_url, session.tenant_id):
-            session.alias = unique_alias(
-                session.base_url, tenant=session.tenant, tenant_id=session.tenant_id
-            )
+            session.alias = unique_alias(session.base_url, tenant=session.tenant, tenant_id=session.tenant_id)
         credentials.put(session.credential_key, session.secrets())
 
         def change(data: dict[str, Any]) -> None:
@@ -386,5 +364,13 @@ def expiry_to_epoch(text: str) -> float:
     return time.time() + ASSUMED_TTL_SECONDS
 
 
-def cookies_from_playwright(raw: list[dict[str, Any]]) -> dict[str, str]:
-    return {c["name"]: c["value"] for c in raw if c.get("name") and c.get("value")}
+# Only the instance's own cookies: a single sign-on provider's cookies (often several KB,
+# and a long-lived sign-in) stay in the browser profile, where the next sign-in needs them.
+def cookies_from_playwright(raw: list[dict[str, Any]], host: str = "") -> dict[str, str]:
+    host = host.split(":")[0].lower()
+
+    def ours(cookie: dict[str, Any]) -> bool:
+        domain = str(cookie.get("domain") or "").lstrip(".").lower()
+        return not host or not domain or host == domain or host.endswith("." + domain)
+
+    return {c["name"]: c["value"] for c in raw if c.get("name") and c.get("value") and ours(c)}

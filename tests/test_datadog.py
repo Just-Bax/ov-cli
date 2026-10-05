@@ -65,6 +65,17 @@ class FakeDatadog:
                     ]
                 },
             )
+        if path == "/api/v1/hosts":
+            names = [
+                "web01.acme-net.example",
+                "web02.acme-net.example",
+                "app01.acme-net.example",
+                "web01.dev-acme-net.example",
+                "acme-net-123.lb.example",
+                "db01.other.example",
+            ]
+            rows = [{"name": n} for n in names]
+            return httpx.Response(200, json={"host_list": rows, "total_matching": len(rows)})
         if path == "/api/v1/monitor":
             return httpx.Response(200, json=self._monitors())
         if path == "/api/v2/events":
@@ -82,10 +93,7 @@ class FakeDatadog:
                     ]
                 },
             )
-        if (
-            path == "/api/v2/spans/analytics/aggregate"
-            and "@span.kind:server" in request.content.decode()
-        ):
+        if path == "/api/v2/spans/analytics/aggregate" and "@span.kind:server" in request.content.decode():
             points = [{"time": "2026-10-04T10:00:00Z", "value": 2_000_000_000}]
             return httpx.Response(
                 200,
@@ -129,13 +137,7 @@ class FakeDatadog:
             counts: dict[str, int] = {}
             for row in self.logs:
                 counts[row[group]] = counts.get(row[group], 0) + 100
-            return {
-                "data": {
-                    "buckets": [
-                        {"by": {group: k}, "computes": {"c0": v}} for k, v in counts.items()
-                    ]
-                }
-            }
+            return {"data": {"buckets": [{"by": {group: k}, "computes": {"c0": v}} for k, v in counts.items()]}}
         return {"data": {"buckets": [{"computes": {"c0": 300}}]}}
 
     @staticmethod
@@ -217,11 +219,37 @@ def test_disconnect_forgets_the_keys_but_keeps_matches(linked):
     assert credentials.get(datadog.CREDENTIAL_KEY) is None
 
 
-def test_discovery_suggests_a_host_wildcard_for_the_instance(linked):
+def test_servers_are_grouped_per_instance(linked):
+    seed_session("https://dev-acme.onevizion.test")
     found = datadog.discover()
-    acme = next(s for s in found["suggestions"] if s["alias"] == "acme")
-    assert acme["filter"] == "host:acme-app-0*"
-    assert {v["value"] for v in found["values"]} >= {"acme-app-01", "tomcat"}
+    assert found["groups"] == {
+        "acme": "host:(app01.acme-net.example OR web01.acme-net.example OR web02.acme-net.example)",
+        "dev-acme": "host:web01.dev-acme-net.example",
+    }
+    roles = {h["name"]: (h["role"], h["alias"]) for h in found["hosts"]}
+    assert roles["web02.acme-net.example"] == ("web", "acme")
+    # A machine whose own name merely contains the instance name is not one of its servers.
+    assert roles["acme-net-123.lb.example"][1] is None
+    assert roles["db01.other.example"] == ("db", None)
+
+
+def test_server_groups_become_metric_scopes_and_roles():
+    group = datadog.scope_of(["web02.a", "web01.a", "app01.a"])
+    assert group == "host:(app01.a OR web01.a OR web02.a)"
+    assert datadog.hosts_in(group) == ["app01.a", "web01.a", "web02.a"]
+    assert datadog.metric_scope(group) == "host IN (app01.a,web01.a,web02.a)"
+    assert datadog.metric_scope("host:web01.a") == "host:web01.a"
+    assert datadog.with_role(group, "web") == "host:(web01.a OR web02.a)"
+    assert datadog.with_role(group, "all") == group
+    with pytest.raises(datadog.DatadogError, match="has: app, web"):
+        datadog.with_role(group, "db")
+    assert datadog.hosts_in("service:acme env:prod") is None
+    assert [datadog.role_of(h) for h in ("web01.a", "acme-app-2", "db-3f9ak.a", "ip-10-0-1")] == [
+        "web",
+        "acme-app",
+        "db",
+        "ip",
+    ]
 
 
 def test_a_tenant_uses_its_hosts_match(linked):
@@ -231,18 +259,18 @@ def test_a_tenant_uses_its_hosts_match(linked):
     session_store.save(
         Session(
             base_url=BASE_URL,
-            alias="acme/mtrac",
+            alias="acme/north",
             mode="session",
             bearer_token="T:S",
             expires_at=4102444800.0,
-            tenant="mTRAC",
+            tenant="North",
             tenant_id="9",
         )
     )
     datadog.save_matches({"acme": "host:acme-app-*"})
-    assert datadog.filter_for("acme/mtrac") == "host:acme-app-*"
-    datadog.save_matches({"acme": "host:acme-app-*", "acme/mtrac": "service:mtrac"})
-    assert datadog.filter_for("acme/mtrac") == "service:mtrac"
+    assert datadog.filter_for("acme/north") == "host:acme-app-*"
+    datadog.save_matches({"acme": "host:acme-app-*", "acme/north": "service:north"})
+    assert datadog.filter_for("acme/north") == "service:north"
 
 
 def test_tools_are_offered_only_when_connected_and_allowed(fake, logged_in):
@@ -255,7 +283,7 @@ def test_tools_are_offered_only_when_connected_and_allowed(fake, logged_in):
     names = {s["function"]["name"] for s in tool_specs()}
     assert {"datadog_logs", "datadog_metrics", "datadog_monitors", "datadog_events"} <= names
     assert "datadog_apm" not in names
-    assert "## Datadog" in prompt.system_prompt(False, "")
+    assert "- datadog: " in prompt.system_prompt(False, "")
 
 
 def test_log_tool_applies_the_instance_filter(linked, tmp_path):
@@ -279,9 +307,7 @@ def test_metric_monitor_event_and_apm_tools(linked, tmp_path):
     ctx = Ctx(tmp_path)
 
     metric = TOOLS_BY_NAME["datadog_metrics"].handler({"query": "avg:jvm.heap_memory"}, ctx)
-    assert (
-        linked.requests[-1].url.params["query"] == "avg:jvm.heap_memory{host:acme-app-*,env:prod}"
-    )
+    assert linked.requests[-1].url.params["query"] == "avg:jvm.heap_memory{host:acme-app-*,env:prod}"
     assert "min 10, avg 20, max 30, latest 30" in metric
 
     monitors = TOOLS_BY_NAME["datadog_monitors"].handler({}, ctx)
@@ -319,6 +345,7 @@ def test_health_report(linked):
     assert report["onevizion"] == [{"type": "Import", "count": 2}]
     assert {m["title"] for m in report["metrics"]} >= {"CPU", "JVM heap"}
     assert "slowEndpoints" in report and not report["errors"]
+    assert [(s["host"], s["role"], s["cpu"]) for s in report["servers"]] == [("acme-app-01", "acme-app", 30.0)]
     assert report["traffic"]["p95Ms"][0]["v"] == 2000.0
 
     # Cached: a second call makes no requests.

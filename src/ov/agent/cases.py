@@ -130,11 +130,7 @@ def load_case(ref: str, work_dir: Path, cancel: Cancel) -> dict[str, Any]:
     trackor = _Trackor(cancel)
 
     schema = _case_schema(trackor)
-    text_fields = [
-        f["name"]
-        for f in schema
-        if f["data_type"] not in FILE_TYPES and f["name"] not in SKIP_FIELDS
-    ]
+    text_fields = [f["name"] for f in schema if f["data_type"] not in FILE_TYPES and f["name"] not in SKIP_FIELDS]
     file_fields = [f["name"] for f in schema if f["data_type"] in FILE_TYPES]
     labels = {f["name"]: f.get("label") or f["name"] for f in schema}
 
@@ -143,9 +139,7 @@ def load_case(ref: str, work_dir: Path, cancel: Cancel) -> dict[str, Any]:
         head = trackor.get(f"/v3/trackors/{tid}", "fields=XITOR_KEY")
         key = str(head.get("TRACKOR_KEY") or head.get("XITOR_KEY") or tid)
     else:
-        rows = trackor.get(
-            f"/v3/trackor_types/{CASE_TYPE}/trackors", "fields=XITOR_KEY", f"XITOR_KEY={key}"
-        )
+        rows = trackor.get(f"/v3/trackor_types/{CASE_TYPE}/trackors", "fields=XITOR_KEY", f"XITOR_KEY={key}")
         hit = next((r for r in rows if str(r.get("TRACKOR_KEY")) == key), None)
         if hit is None:
             raise CaseError(f"Case {key} not found on {TRACKOR_HOST}.")
@@ -154,9 +148,7 @@ def load_case(ref: str, work_dir: Path, cancel: Cancel) -> dict[str, Any]:
     # One request with every field overflows the server's URL limit.
     batches = [text_fields[i : i + FIELD_BATCH] for i in range(0, len(text_fields), FIELD_BATCH)]
     with ThreadPoolExecutor(max_workers=6) as pool:
-        parts = list(
-            pool.map(lambda b: trackor.get(f"/v3/trackors/{tid}", f"fields={','.join(b)}"), batches)
-        )
+        parts = list(pool.map(lambda b: trackor.get(f"/v3/trackors/{tid}", f"fields={','.join(b)}"), batches))
         files = trackor.get(f"/v3/trackors/{tid}", f"fields={','.join(file_fields)}")
         chats = trackor.get("/v3/chats", f"trackor_id={tid}")
     row: dict[str, Any] = {}
@@ -267,15 +259,12 @@ def render(bundle: dict[str, Any], work_dir: Path) -> str:
             files = f" [files: {', '.join(message['files'])}]" if message["files"] else ""
             lines.append(f"- {message['ts']} {message['user']}: {message['text']}{files}")
     lines += ["", "## Attachments (open each with read_file)"]
-    lines += [
-        f"- {a['name']} ({a['kind']}, {a['size']} bytes, from {a['source']})"
-        for a in bundle["attachments"]
-    ] or ["none"]
+    lines += [f"- {a['name']} ({a['kind']}, {a['size']} bytes, from {a['source']})" for a in bundle["attachments"]] or [
+        "none"
+    ]
 
     text = "\n".join(lines)
     (work_dir / "case.md").write_text(text, encoding="utf-8")
     if len(text) > MAX_CASE_CHARS:
-        return (
-            text[:MAX_CASE_CHARS] + "\n\n[case text truncated; full copy in case.md, use read_file]"
-        )
+        return text[:MAX_CASE_CHARS] + "\n\n[case text truncated; full copy in case.md, use read_file]"
     return text

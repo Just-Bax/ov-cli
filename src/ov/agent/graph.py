@@ -124,9 +124,7 @@ class GraphError(Exception):
 
 # 1000-character pieces in separate columns: multi-byte text would pass the 4000-byte SQL limit.
 def _code(column: str, start: str = "1") -> str:
-    return ", ".join(
-        f"dbms_lob.substr({column}, 1000, {start} + {i * 1000}) code{i}" for i in range(CODE_CHUNKS)
-    )
+    return ", ".join(f"dbms_lob.substr({column}, 1000, {start} + {i * 1000}) code{i}" for i in range(CODE_CHUNKS))
 
 
 def _code_text(row: dict[str, Any]) -> str:
@@ -147,18 +145,15 @@ QUERIES: dict[str, str] = {
     "automations": "select autom_id, autom_name, enabled, trackor_type_id from autom",
     "imports": "select imp_spec_id, name from imp_spec",
     "import_entities": "select imp_spec_id, xitor_type_id from imp_entity",
-    "import_code": "select imp_spec_id, sql_text code0 from imp_data_map "
-    "where sql_text is not null",
+    "import_code": "select imp_spec_id, sql_text code0 from imp_data_map where sql_text is not null",
     "reports": "select report_file_id, report_name from report_files",
     "report_code": f"select report_file_id, {_code('sql_text')} from report_sql",
     "notifications": "select notif_id, notif_name, is_enabled, trackor_type_id from notif",
-    "workflows": "select wf_template_id, template_name from wf_template "
-    "where is_current_version = 1",
+    "workflows": "select wf_template_id, template_name from wf_template where is_current_version = 1",
     "workflow_rules": "select s.wf_template_id, s.rule_id from wf_template_step s "
     "join wf_template t on t.wf_template_id = s.wf_template_id "
     "where t.is_current_version = 1 and s.rule_id is not null",
-    "modules": "select module_id, module_name, is_enabled from module "
-    "where nvl(is_archived, 0) = 0",
+    "modules": "select module_id, module_name, is_enabled from module where nvl(is_archived, 0) = 0",
     "invalid": "select component_id, entity_id from invalid_object",
     "packages": "select db_package_id, db_package_name from db_package",
     "package_code": "select p.db_package_id, w.n, "
@@ -304,9 +299,7 @@ class _Refs:
                 # A name shared by two objects cannot be resolved from code text.
                 names[key] = None if key in names else node["id"]
         self.names = {k: v for k, v in names.items() if v is not None and len(k) > 3}
-        self.packages = {
-            n["name"].upper(): n["id"] for n in nodes.values() if n["type"] == "db_package"
-        }
+        self.packages = {n["name"].upper(): n["id"] for n in nodes.values() if n["type"] == "db_package"}
         owner = {s: t for s, t, k, _ in edges if k == "field_of"}
         self.objrefs: dict[str, str] = {}
         for node in nodes.values():
@@ -331,9 +324,7 @@ class _Refs:
             )
             if found:
                 targets.add(found["id"])
-        targets |= {
-            self.names[q.upper()] for _, q in _QUOTED.findall(text) if q.upper() in self.names
-        }
+        targets |= {self.names[q.upper()] for _, q in _QUOTED.findall(text) if q.upper() in self.names}
         for ref in _OBJREF.findall(text):
             found = objref_target(ref, self.objrefs)
             if found:
@@ -355,9 +346,7 @@ class _Refs:
         return next((n for n in candidates if name and n["name"].lower() == name), None)
 
 
-def build(
-    instance: str, cancel: Cancel | None = None, progress: Callable[[str], None] | None = None
-) -> dict[str, Any]:
+def build(instance: str, cancel: Cancel | None = None, progress: Callable[[str], None] | None = None) -> dict[str, Any]:
     found = find_instance(instance)
     if found is None:
         raise GraphError(f"Not signed in to {instance}.")
@@ -497,9 +486,7 @@ def _assemble(r: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             refs.link(b, f"{kind}:{_num(row[column])}", _code_text(row))
     bodies: dict[int | None, list[tuple[int, str]]] = {}
     for row in r.get("package_code", []):
-        bodies.setdefault(_num(row["DB_PACKAGE_ID"]), []).append(
-            (_num(row.get("N")) or 0, _code_text(row))
-        )
+        bodies.setdefault(_num(row["DB_PACKAGE_ID"]), []).append((_num(row.get("N")) or 0, _code_text(row)))
     for package, windows in bodies.items():
         refs.link(b, f"db_package:{package}", "".join(text for _, text in sorted(windows)))
 
@@ -509,10 +496,7 @@ def _assemble(r: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         if node is not None:
             node["invalid"] = True
 
-    edges = [
-        {"source": s, "target": t, "kind": k, **({"code": True} if c else {})}
-        for s, t, k, c in sorted(b.edges)
-    ]
+    edges = [{"source": s, "target": t, "kind": k, **({"code": True} if c else {})} for s, t, k, c in sorted(b.edges)]
     return {"nodes": list(b.nodes.values()), "edges": edges}
 
 
@@ -531,9 +515,7 @@ def find(graph: dict[str, Any], query: str) -> list[dict[str, Any]]:
     text = query.strip().lower()
     number = _num(text.split(":")[-1])
     exact = [
-        n
-        for n in graph["nodes"]
-        if n["name"].lower() == text or n["id"] == text or (number and n["ref"] == number)
+        n for n in graph["nodes"] if n["name"].lower() == text or n["id"] == text or (number and n["ref"] == number)
     ]
     if exact:
         return exact
@@ -583,11 +565,7 @@ def status(alias: str) -> dict[str, Any]:
     graph = load(alias) if job.get("state") != "building" else None
     if job.get("state") == "building":
         return job
-    built = (
-        {"builtAt": graph["builtAt"], "nodes": len(graph["nodes"]), "edges": len(graph["edges"])}
-        if graph
-        else {}
-    )
+    built = {"builtAt": graph["builtAt"], "nodes": len(graph["nodes"]), "edges": len(graph["edges"])} if graph else {}
     return {"state": job.get("state") or ("ready" if graph else "none"), **built, **job}
 
 

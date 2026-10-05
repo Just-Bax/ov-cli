@@ -1,6 +1,6 @@
 ---
 title: OV CLI
-description: The OV tools - ov, ov_sql, ov_search, ov_map and ov_case - and how to reach any signed-in OneVizion instance.
+description: Read before using ov, ov_sql, ov_search, ov_map or ov_case on a signed-in instance.
 ---
 
 The OV tools work on signed-in OneVizion instances:

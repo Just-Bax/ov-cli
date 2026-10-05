@@ -59,9 +59,7 @@ def switch_tenant(http: httpx.Client, tenant_id: str) -> None:
     response = http.post(SWITCH_PATH, params={"pid": tenant_id}, headers=headers)
     _guard(response)
     if response.status_code == 403:
-        raise Forbidden(
-            f"Not allowed into tenant {tenant_id}. It needs a user with your email address."
-        )
+        raise Forbidden(f"Not allowed into tenant {tenant_id}. It needs a user with your email address.")
     if response.status_code >= 400:
         raise SessionExpired(f"tenant switch returned {response.status_code}")
 

@@ -6,13 +6,15 @@ import {
   LockClosedIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, Input, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 
-export type SignInTarget = { url: string; host: string; tenant?: string }
+export type SignInMethod = 'browser' | 'token'
+
+export type SignInTarget = { url: string; host: string; tenant?: string; mode?: SignInMethod }
 
 export const signInKey = (t: SignInTarget) => `${t.host}|${(t.tenant ?? '').toLowerCase()}`
 
@@ -47,6 +49,8 @@ function tips(message: string, tenant?: string): string[] {
     out.push(
       `${tenant} needs a user with your email address. Ask an admin of that tenant to add one, or sign in without a tenant.`,
     )
+  if (/accesskey|auth tokens|not accepted|401|unauthori/.test(text))
+    out.push('Check both keys in Admin > Auth Tokens, and that the token is still active.')
   if (/widget|token endpoint|refus/.test(text))
     out.push('Your account needs the Widget module at Read; the token request depends on it.')
   if (/timed out|timeout|took too long/.test(text))
@@ -75,6 +79,9 @@ export function SignInModal({
   const [message, setMessage] = useState('')
   const [shown, setShown] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [method, setMethod] = useState<SignInMethod>('browser')
+  const [accessKey, setAccessKey] = useState('')
+  const [secretKey, setSecretKey] = useState('')
   const startedAt = useRef(0)
   const current = useRef(target)
   current.current = target
@@ -86,6 +93,9 @@ export function SignInModal({
     }
     setPhase(pending ? 'waiting' : 'intro')
     setMessage('')
+    setMethod(target.tenant ? 'browser' : (target.mode ?? 'browser'))
+    setAccessKey('')
+    setSecretKey('')
     const frame = requestAnimationFrame(() => setShown(true))
     return () => cancelAnimationFrame(frame)
     // Reset only when a different target opens, not on every pending change.
@@ -110,6 +120,8 @@ export function SignInModal({
 
   if (!target) return null
   const { host, tenant } = target
+  const byToken = method === 'token'
+  const ready = !byToken || (accessKey.trim() && secretKey.trim())
 
   const start = async () => {
     const t = target
@@ -118,7 +130,11 @@ export function SignInModal({
     setPhase('waiting')
     onStart(t)
     const res = await api
-      .loginInstance(t.url, t.tenant)
+      .loginInstance(
+        t.url,
+        t.tenant,
+        byToken ? `${accessKey.trim()}:${secretKey.trim()}` : undefined,
+      )
       .catch((e: Error) => ({ ok: false, message: e.message }))
     onFinished(t, res.ok)
     startedAt.current = 0
@@ -197,7 +213,55 @@ export function SignInModal({
           </button>
         </div>
 
-        {phase === 'intro' || phase === 'waiting' ? (
+        {phase === 'intro' && !tenant ? (
+          <div className="bg-raised mx-5 mt-5 flex rounded-full p-1">
+            {(['browser', 'token'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMethod(m)}
+                className={cn(
+                  'h-8 flex-1 rounded-full text-[12.5px] font-medium transition-colors',
+                  m === method ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
+                )}
+              >
+                {m === 'browser' ? 'Browser' : 'API token'}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {byToken && (phase === 'intro' || phase === 'waiting') ? (
+          <div className="mt-4 space-y-3 px-5">
+            <Input
+              value={accessKey}
+              onChange={(e) => setAccessKey(e.target.value)}
+              placeholder="Access key"
+              aria-label="Access key"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={phase === 'waiting'}
+            />
+            <Input
+              type="password"
+              value={secretKey}
+              onChange={(e) => setSecretKey(e.target.value)}
+              placeholder="Secret key"
+              aria-label="Secret key"
+              autoComplete="off"
+              disabled={phase === 'waiting'}
+            />
+            <div className="bg-raised text-muted flex gap-2.5 rounded-2xl px-3.5 py-3 text-[12px] leading-relaxed">
+              <LockClosedIcon className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                Create one in Admin &gt; Auth Tokens on {host}. It works with that user's privileges
+                and tenant, and is kept encrypted on this computer.
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        {!byToken && (phase === 'intro' || phase === 'waiting') ? (
           <>
             <ol className="mt-5 space-y-3 px-5">
               <Step n={1}>
@@ -257,18 +321,24 @@ export function SignInModal({
               <Button variant="ghost" size="lg" onClick={onClose}>
                 Cancel
               </Button>
-              <Button variant="primary" size="lg" onClick={() => void start()}>
-                <KeyIcon className="size-4" /> Open sign-in window
+              <Button variant="primary" size="lg" disabled={!ready} onClick={() => void start()}>
+                <KeyIcon className="size-4" /> {byToken ? 'Sign in' : 'Open sign-in window'}
               </Button>
             </>
           ) : phase === 'waiting' ? (
             <>
               <span className="bg-brand-soft text-brand-strong mr-auto inline-flex h-10 items-center gap-2 rounded-full px-4 text-[12.5px] font-medium">
                 <Spinner className="size-3.5" />
-                Waiting for you in the browser
-                <span className="text-brand-strong/60 tabular-nums">
-                  {clock} / {LIMIT_SECONDS / 60}:00
-                </span>
+                {byToken ? (
+                  'Checking the token'
+                ) : (
+                  <>
+                    Waiting for you in the browser
+                    <span className="text-brand-strong/60 tabular-nums">
+                      {clock} / {LIMIT_SECONDS / 60}:00
+                    </span>
+                  </>
+                )}
               </span>
               <Button variant="ghost" size="lg" onClick={onClose}>
                 Hide
@@ -283,7 +353,11 @@ export function SignInModal({
               <Button variant="ghost" size="lg" onClick={onClose}>
                 Close
               </Button>
-              <Button variant="primary" size="lg" onClick={() => void start()}>
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={() => (byToken ? setPhase('intro') : void start())}
+              >
                 <ArrowPathIcon className="size-4" /> Try again
               </Button>
             </>
@@ -295,24 +369,6 @@ export function SignInModal({
   )
 }
 
-// Tenant names a live sign-in on the same host can reach, offered while typing.
-export function useTenantSuggestions(url: string): string[] {
-  const [names, setNames] = useState<string[]>([])
-  const host = hostOf(url)
-  useEffect(() => {
-    setNames([])
-    if (!host.includes('.')) return
-    const timer = setTimeout(() => {
-      api
-        .instanceTenants(host)
-        .then((rows) => setNames(rows.map((r) => r.name)))
-        .catch(() => setNames([]))
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [host])
-  return names
-}
-
 export function AddInstanceForm({
   onSubmit,
   className,
@@ -322,8 +378,6 @@ export function AddInstanceForm({
 }) {
   const [url, setUrl] = useState('')
   const [tenant, setTenant] = useState('')
-  const names = useTenantSuggestions(url)
-  const listId = useId()
   return (
     <form
       className={cn('flex flex-wrap gap-2', className)}
@@ -346,15 +400,9 @@ export function AddInstanceForm({
         className="min-w-[150px] flex-1"
         value={tenant}
         onChange={(e) => setTenant(e.target.value)}
-        list={listId}
-        placeholder={names.length ? `Tenant, e.g. ${names[0]}` : 'Tenant (optional)'}
+        placeholder="Tenant (optional)"
         aria-label="Tenant"
       />
-      <datalist id={listId}>
-        {names.map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
       <Button type="submit" variant="primary" disabled={!url.trim()}>
         Sign in
       </Button>

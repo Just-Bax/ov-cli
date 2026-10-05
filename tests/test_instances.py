@@ -6,7 +6,6 @@ import pytest
 from conftest import BASE_URL, OPENAPI, OTHER_URL, seed_session
 
 from ov import session as session_store
-from ov import store
 from ov.cli.main import main
 from ov.errors import Ambiguous, NotFound, NotLoggedIn
 from ov.session import Session, default_alias
@@ -103,25 +102,6 @@ def test_removing_the_last_instance_leaves_nothing(logged_in):
         session_store.load()
 
 
-def test_a_pre_multi_instance_config_is_migrated(ov_home):
-    """The old file held one unnamed session plus a base_url setting."""
-    store.update(
-        session={
-            "base_url": BASE_URL,
-            "mode": "session",
-            "cookies": {"JSESSIONID": "abc"},
-            "bearer_token": "OLD:KEY",
-        },
-        base_url=BASE_URL,
-        spec_group="v3",
-    )
-
-    session = session_store.load()
-    assert session.alias == "acme"
-    assert session.bearer_token == "OLD:KEY"
-    assert "base_url" not in store.read()
-
-
 # --- through the CLI ---
 
 
@@ -195,9 +175,7 @@ def test_a_generated_group_is_built_for_the_targeted_instance(capsys, two_instan
     assert str(server.last.url).startswith(OTHER_URL)
 
 
-def test_a_generated_group_is_absent_for_an_instance_without_a_schema(
-    capsys, two_instances, server
-):
+def test_a_generated_group_is_absent_for_an_instance_without_a_schema(capsys, two_instances, server):
     """Only the targeted instance's schema is expanded, so acme's 'users' group
     must not appear when globex is the target."""
     from ov import spec as spec_module
@@ -231,9 +209,7 @@ def test_login_stores_a_second_instance_without_replacing_the_first(capsys, logg
 
 
 def test_login_can_name_the_instance(capsys, ov_home, server):
-    code, data = payload(
-        capsys, "login", BASE_URL, "--as", "prod", "--token", "K:S", "--no-spec", "--json"
-    )
+    code, data = payload(capsys, "login", BASE_URL, "--as", "prod", "--token", "K:S", "--no-spec", "--json")
     assert code == 0
     assert data["alias"] == "prod"
     assert sorted(session_store.all_sessions()) == ["prod"]

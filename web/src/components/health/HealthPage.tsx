@@ -14,6 +14,7 @@ import type {
   DatadogDiscovery,
   DatadogStatus,
   HealthPoint,
+  HealthServer,
   Instance,
   InstanceHealth,
   PagerDutyHealth,
@@ -22,6 +23,7 @@ import {
   DATADOG_PURPLE,
   DatadogBadge,
   DatadogConnectModal,
+  ServerChips,
   useDatadog,
 } from '@/components/datadog/Datadog'
 import { useInstances } from '@/components/InstancePicker'
@@ -41,6 +43,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
 import { href } from '@/lib/route'
+import { hostsIn, roleOf, shortHost } from '@/lib/servers'
 
 const INSTANCE_KEY = 'ov-agent.health-instance'
 const RANGES = ['1h', '24h', '7d'] as const
@@ -686,6 +689,8 @@ function Report({
         </div>
       ) : null}
 
+      {report.servers && report.servers.length > 1 ? <Servers servers={report.servers} /> : null}
+
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="p-5 xl:col-span-2">
           <CardHeader title="Slowest endpoints" hint="p95 response time" href={report.links.apm} />
@@ -824,6 +829,94 @@ const PREVIEW = [
   },
 ]
 
+// Latest value per server; the tone marks a server that stands out.
+const SERVER_COLUMNS: {
+  key: keyof HealthServer
+  title: string
+  unit: string
+  tone: (v: number) => 'danger' | 'warn' | null
+}[] = [
+  {
+    key: 'cpu',
+    title: 'CPU',
+    unit: '%',
+    tone: (v) => (v >= 85 ? 'danger' : v >= 65 ? 'warn' : null),
+  },
+  {
+    key: 'memory',
+    title: 'Memory usable',
+    unit: '%',
+    tone: (v) => (v <= 10 ? 'danger' : v <= 20 ? 'warn' : null),
+  },
+  {
+    key: 'disk',
+    title: 'Disk in use',
+    unit: '%',
+    tone: (v) => (v >= 90 ? 'danger' : v >= 80 ? 'warn' : null),
+  },
+  {
+    key: 'load',
+    title: 'Load',
+    unit: '',
+    tone: (v) => (v >= 1.5 ? 'danger' : v >= 1 ? 'warn' : null),
+  },
+  { key: 'heap', title: 'JVM heap', unit: 'B', tone: () => null },
+]
+
+function Servers({ servers }: { servers: HealthServer[] }) {
+  const columns = SERVER_COLUMNS.filter((c) => servers.some((s) => typeof s[c.key] === 'number'))
+  return (
+    <Card className="p-5">
+      <CardHeader title="Servers" hint="latest value per server" />
+      <div className="scrollbar-thin overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="text-faint text-left text-[11.5px]">
+              <th className="pb-2 font-medium">Server</th>
+              {columns.map((c) => (
+                <th key={c.key} className="pb-2 text-right font-medium">
+                  {c.title}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-line divide-y">
+            {servers.map((s) => (
+              <tr key={s.host}>
+                <td className="py-2 pr-4" title={s.host}>
+                  <span className="bg-brand-soft text-brand-strong mr-2 rounded-full px-1.5 py-0.5 text-[10.5px] font-medium">
+                    {s.role}
+                  </span>
+                  <span className="text-fg">{shortHost(s.host)}</span>
+                </td>
+                {columns.map((c) => {
+                  const v = s[c.key]
+                  const tone = typeof v === 'number' ? c.tone(v) : null
+                  return (
+                    <td
+                      key={c.key}
+                      className={cn(
+                        'py-2 text-right tabular-nums',
+                        tone === 'danger'
+                          ? 'text-danger font-semibold'
+                          : tone === 'warn'
+                            ? 'text-warn font-medium'
+                            : 'text-text',
+                      )}
+                    >
+                      {typeof v === 'number' ? fmt(v, c.unit) : '-'}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  )
+}
+
 function MatchInstance({
   host,
   alias,
@@ -836,51 +929,27 @@ function MatchInstance({
   onSaved: (s: DatadogStatus) => void
 }) {
   const [found, setFound] = useState<DatadogDiscovery>()
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const [filter, setFilter] = useState('')
-  const [logs, setLogs] = useState<number | 'busy'>()
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    let alive = true
+  const detect = async () => {
     setLoading(true)
     setError(undefined)
-    api
-      .datadogDiscover()
-      .then((r) => {
-        if (!alive) return
-        setFound(r)
-        const mine = r.suggestions.find((s) => s.alias === alias)
-        if (mine?.filter) {
-          setFilter(mine.filter)
-          setLogs(mine.count)
-        }
-      })
-      .catch((e: Error) => alive && setError(e.message))
-      .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
+    try {
+      const result = await api.datadogDiscover()
+      setFound(result)
+      if (result.groups[alias]) setFilter(result.groups[alias])
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
     }
-  }, [alias])
+  }
 
-  useEffect(() => {
-    if (!filter.trim()) return setLogs(undefined)
-    setLogs('busy')
-    const timer = setTimeout(() => {
-      api
-        .datadogCount(filter)
-        .then((r) => setLogs(r.count))
-        .catch(() => setLogs(undefined))
-    }, 600)
-    return () => clearTimeout(timer)
-  }, [filter])
-
-  const suggestion = found?.suggestions.find((s) => s.alias === alias && s.filter)
-  const label = host.split('.')[0].toLowerCase()
-  const values = found?.values ?? []
-  const related = values.filter((v) => v.value.toLowerCase().includes(label))
-  const others = (related.length ? related : values).slice(0, 8)
+  const detected = found?.groups[alias]
+  const detectedHosts = detected ? (hostsIn(detected) ?? []) : []
 
   const save = async () => {
     setSaving(true)
@@ -902,94 +971,52 @@ function MatchInstance({
           <div className="min-w-0">
             <div className="text-fg text-[17px] font-semibold">Find {host} in Datadog</div>
             <div className="text-muted mt-1 text-[13px] leading-relaxed">
-              Health needs to know which servers in Datadog run this instance. Pick a suggestion or
-              write a filter; it applies to every tenant on this host.
+              Health needs to know which Datadog hosts run this instance, such as its web and app
+              servers. It applies to every tenant on this host.
             </div>
           </div>
         </div>
 
         <div className="mt-6 space-y-5">
-          {loading ? (
-            <div className="bg-raised text-muted flex items-center gap-3 rounded-2xl px-4 py-4 text-[13px]">
-              <Spinner className="text-brand size-4" />
-              Looking at the hosts and services that sent logs in the last day...
+          {!found ? (
+            <div className="bg-raised flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3.5">
+              <div className="text-muted min-w-0 flex-1 text-[13px]">
+                Look through Datadog's hosts for the ones named after {host.split('.')[0]}.
+              </div>
+              <Button size="sm" variant="primary" disabled={loading} onClick={() => void detect()}>
+                {loading ? <Spinner className="size-3.5" /> : <SparklesIcon className="size-3.5" />}
+                Detect servers
+              </Button>
             </div>
-          ) : suggestion ? (
+          ) : detected ? (
             <div className="border-brand/40 bg-brand-soft/40 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3.5">
               <SparklesIcon className="text-brand-strong size-5 shrink-0" />
               <div className="min-w-0 flex-1">
-                <div className="text-fg font-mono text-[13px] font-medium">{suggestion.filter}</div>
+                <div className="text-fg text-[13px] font-medium">
+                  Found {detectedHosts.length} server{detectedHosts.length === 1 ? '' : 's'}
+                </div>
                 <div className="text-muted mt-0.5 text-[12px]">
-                  Suggested - {suggestion.why} - {count(suggestion.count)} logs in the last day
+                  {detectedHosts.map((h) => `${shortHost(h)} (${roleOf(h)})`).join(', ')}
                 </div>
               </div>
               <Button
                 size="sm"
-                variant={filter === suggestion.filter ? 'secondary' : 'primary'}
-                onClick={() => setFilter(suggestion.filter)}
+                variant={filter === detected ? 'secondary' : 'primary'}
+                onClick={() => setFilter(detected)}
               >
-                {filter === suggestion.filter ? 'Selected' : 'Use this'}
+                {filter === detected ? 'Selected' : 'Use these servers'}
               </Button>
             </div>
           ) : (
             <div className="bg-raised text-muted rounded-2xl px-4 py-3.5 text-[13px]">
-              No host or service name looks like {host}. Pick one below or write a filter.
+              No Datadog host name mentions {host.split('.')[0]}. Pick its servers below.
             </div>
           )}
 
-          {others.length ? (
-            <div>
-              <div className="text-faint pb-2 text-[12px] font-medium">
-                {related.length ? 'Related hosts and services' : 'Busiest hosts and services'}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {others.map((v) => {
-                  const value = `${v.kind}:${v.value}`
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setFilter(value)}
-                      className={cn(
-                        'inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] transition-colors',
-                        filter === value
-                          ? 'border-brand bg-brand-soft text-brand-strong'
-                          : 'border-line-strong text-text hover:bg-raised bg-white',
-                      )}
-                    >
-                      <span className="font-mono">{value}</span>
-                      <span className="text-faint">{count(v.count)}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ) : null}
-
           <div>
-            <div className="text-faint pb-2 text-[12px] font-medium">Datadog filter</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="border-line-strong focus-within:border-brand flex h-10 min-w-[260px] flex-1 items-center gap-2 rounded-full border bg-white pr-2 pl-4">
-                <input
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  placeholder="host:name* or service:name"
-                  spellCheck={false}
-                  className="placeholder:text-faint min-w-0 flex-1 bg-transparent font-mono text-[12.5px] outline-none"
-                />
-                {logs === 'busy' ? (
-                  <Spinner className="text-faint size-3.5" />
-                ) : typeof logs === 'number' ? (
-                  <span
-                    className={cn(
-                      'shrink-0 rounded-full px-2.5 py-0.5 text-[11.5px] font-medium',
-                      logs ? 'bg-ok-soft text-ok' : 'bg-warn-soft text-warn',
-                    )}
-                  >
-                    {logs ? `${count(logs)} logs / 24h` : 'No logs in 24h'}
-                  </span>
-                ) : null}
-              </div>
+            <div className="text-faint pb-2 text-[12px] font-medium">Servers</div>
+            <div className="flex flex-wrap items-start gap-3">
+              <ServerChips scope={filter} hosts={found?.hosts ?? []} onChange={setFilter} />
               <Button
                 variant="primary"
                 size="lg"
@@ -998,10 +1025,6 @@ function MatchInstance({
               >
                 {saving ? <Spinner className="size-4" /> : null} Save and open Health
               </Button>
-            </div>
-            <div className="text-faint mt-2 px-1 text-[11.5px]">
-              Combine tags with spaces, e.g. host:acme-app-* env:prod. A trailing * matches a
-              prefix.
             </div>
           </div>
           {error ? <div className="text-danger text-[12.5px]">{error}</div> : null}

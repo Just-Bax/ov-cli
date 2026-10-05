@@ -17,9 +17,7 @@ import pytest
 
 from ov.login import browser_is_installed, interactive_login
 
-pytestmark = pytest.mark.skipif(
-    not browser_is_installed(), reason="chromium is not installed for playwright"
-)
+pytestmark = pytest.mark.skipif(not browser_is_installed(), reason="chromium is not installed for playwright")
 
 SESSION_COOKIE = "JSESSIONID=mock-session; Path=/; HttpOnly"
 CSRF_HEADER = "X-CSRF-TOKEN"
@@ -29,9 +27,7 @@ EXPIRES = "2100-01-01T00:00:00"
 
 
 LATE_REDIRECT = (
-    b"<html><body>signing in"
-    b"<script>setTimeout(function(){location.href='/Default.do';}, 2500);</script>"
-    b"</body></html>"
+    b"<html><body>signing in<script>setTimeout(function(){location.href='/Default.do';}, 2500);</script></body></html>"
 )
 
 # The app arrives in a second tab and the one we opened stays where it was,
@@ -96,9 +92,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self._has_session():
                 self._send(302, b"", Location="/Login.do")
                 return
-            body = json.dumps(
-                {"headerName": CSRF_HEADER, "token": CSRF_VALUE, "parameterName": "_csrf"}
-            ).encode()
+            body = json.dumps({"headerName": CSRF_HEADER, "token": CSRF_VALUE, "parameterName": "_csrf"}).encode()
             self._send(200, body, content_type="application/json")
             return
 

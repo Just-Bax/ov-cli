@@ -92,14 +92,12 @@ class DeadRequest(FakeRequest):
 
 
 class FakeContext:
-    def __init__(
-        self, request: FakeRequest, pages: list[FakePage], browser_cookies: Any = None
-    ) -> None:
+    def __init__(self, request: FakeRequest, pages: list[FakePage], browser_cookies: Any = None) -> None:
         self.request = request
         self.pages = pages
         self.browser_cookies = browser_cookies if browser_cookies is not None else []
 
-    def cookies(self) -> Any:
+    def cookies(self, urls: Any = None) -> Any:
         return self.browser_cookies
 
 
@@ -266,9 +264,7 @@ def test_a_login_stuck_on_the_providers_domain_says_so():
 def test_plain_http_with_the_browsers_cookies_is_the_last_resort(monkeypatch):
     """The same exchange the CLI uses to refresh a token later on."""
     page = FakePage([f"{BASE_URL}/Home.do"], result=RuntimeError(DESTROYED))
-    context = FakeContext(
-        DeadRequest(), [page], browser_cookies=[{"name": "JSESSIONID", "value": "abc"}]
-    )
+    context = FakeContext(DeadRequest(), [page], browser_cookies=[{"name": "JSESSIONID", "value": "abc"}])
 
     def mint(http, session):
         session.bearer_token = "HTTP:KEY"
@@ -294,9 +290,7 @@ def test_a_missing_widget_privilege_over_plain_http_fails_fast(monkeypatch):
     from ov.errors import Forbidden
 
     page = FakePage([f"{BASE_URL}/Home.do"], result=RuntimeError(DESTROYED))
-    context = FakeContext(
-        DeadRequest(), [page], browser_cookies=[{"name": "JSESSIONID", "value": "abc"}]
-    )
+    context = FakeContext(DeadRequest(), [page], browser_cookies=[{"name": "JSESSIONID", "value": "abc"}])
 
     def refuse(http, session):
         raise Forbidden("needs the WIDGET module at Read")
@@ -367,9 +361,7 @@ def test_the_headless_shell_is_required_too(tmp_path, monkeypatch):
 
 def test_an_unreadable_manifest_counts_as_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(login_module, "_browsers_root", lambda: tmp_path)
-    monkeypatch.setattr(
-        login_module, "_pinned_builds", lambda: (_ for _ in ()).throw(OSError("no manifest"))
-    )
+    monkeypatch.setattr(login_module, "_pinned_builds", lambda: (_ for _ in ()).throw(OSError("no manifest")))
 
     assert not login_module.browser_is_installed()
 
@@ -429,3 +421,17 @@ def test_an_unrelated_launch_failure_is_not_treated_as_a_missing_browser(monkeyp
 
     with pytest.raises(LoginFailed, match="Could not start the browser"):
         login_module._launch(FakePlaywright(chromium))
+
+
+def test_only_the_instance_cookies_are_kept():
+    from ov.session import cookies_from_playwright
+
+    raw = [
+        {"name": "JSESSIONID", "value": "a", "domain": "acme.onevizion.test"},
+        {"name": "AWSALB", "value": "b", "domain": ".acme.onevizion.test"},
+        {"name": "shared", "value": "c", "domain": ".onevizion.test"},
+        {"name": "ESTSAUTHPERSISTENT", "value": "x" * 1300, "domain": ".login.example.com"},
+        {"name": "CCState", "value": "y", "domain": "login.example.com"},
+    ]
+    kept = cookies_from_playwright(raw, "acme.onevizion.test")
+    assert sorted(kept) == ["AWSALB", "JSESSIONID", "shared"]

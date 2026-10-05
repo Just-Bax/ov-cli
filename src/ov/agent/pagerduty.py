@@ -182,9 +182,7 @@ def check(region: str, api_key: str) -> tuple[dict[str, Any], dict[str, bool]]:
         try:
             me = pd.get("/users/me").get("user") or {}
         except PagerDutyError as exc:
-            raise PagerDutyError(
-                f"{exc} Use a User API token from My Profile > User Settings."
-            ) from None
+            raise PagerDutyError(f"{exc} Use a User API token from My Profile > User Settings.") from None
         with ThreadPoolExecutor(max_workers=len(AREAS)) as pool:
             found = dict(zip(AREAS, pool.map(lambda a: _probe(pd, a), AREAS), strict=True))
     return me, found
@@ -364,9 +362,7 @@ def _datadog_hosts(alias: str) -> list[tuple[str, bool]]:
     return out
 
 
-def belongs_to(
-    incident: dict[str, Any], host: str, alias: str = "", databases: list[str] | None = None
-) -> bool:
+def belongs_to(incident: dict[str, Any], host: str, alias: str = "", databases: list[str] | None = None) -> bool:
     host = host.split(":")[0].lower()
     label = host.split(".")[0]
     if host in incident["websites"]:
@@ -437,9 +433,7 @@ def incidents(
     if statuses:
         params["statuses[]"] = statuses
     with client() as pd:
-        rows = [
-            _incident(r) for r in pd.pages("/incidents", "incidents", "incidents", limit, **params)
-        ]
+        rows = [_incident(r) for r in pd.pages("/incidents", "incidents", "incidents", limit, **params)]
     learn_databases(rows)
     return rows
 
@@ -472,9 +466,7 @@ def website_map(days: int = 7) -> dict[str, Any]:
         if r["id"] in matched_ids:
             continue
         site_of_db = {d: s for s, dbs in known.items() for d in dbs if len(dbs) == 1}
-        fallback = site_of_db.get(r["database"]) or (
-            f"database {r['database']}" if r["database"] else "other"
-        )
+        fallback = site_of_db.get(r["database"]) or (f"database {r['database']}" if r["database"] else "other")
         names = r["websites"] or [fallback]
         for site in names:
             entry = hosts.setdefault(site, _summary(site, None, []))
