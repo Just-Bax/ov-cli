@@ -1,12 +1,14 @@
 ---
 title: OV CLI
-description: Read before using ov, ov_sql, ov_search, ov_map or ov_case on a signed-in instance.
+description: The OV tools: ov, ov_sql, ov_export, ov_search, ov_map and ov_case on signed-in instances.
+core: true
 ---
 
 The OV tools work on signed-in OneVizion instances:
 
 - `ov`: any ov command - API calls, schema discovery, component export, chats, files.
 - `ov_sql`: a read-only SELECT through the platform's Test SQL endpoint.
+- `ov_export`: the full definition and code of components (DB packages, rules, imports, reports and more) by id, saved to workspace files.
 - `ov_search`: trackor search with conditions.
 - `ov_map`: what an object is linked to, from the Instance map. Start here before reading code.
 - `ov_case`: a whole support case from trackor.onevizion.com, with chat and attachments.
@@ -27,7 +29,7 @@ Most useful calls:
 - One trackor by its TRACKOR_ID (a long number, not the key): `request GET /v3/trackors/<TRACKOR_ID> -q fields=A,B`.
 - Search with conditions: the ov_search tool (it sends the text/plain body for you). Operators: equal, not_equal, greater, less, is_null, is_not_null, within, and/or with parentheses. Values and dates in double quotes, dates as "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm:ss".
 - SQL: the ov_sql tool only (SELECT only, max 1000 rows). Needs the Test SQL privilege on that instance.
-- Full definition of any config component (rule, report, automation, workflow, module, notification, trackor type, field, view, filter, import, DB package, widget): `components-export run -d '{"components":[{"component_type":"RULE","component_ids":[123]}]}'`, then read the result. Component types: IMPORT, CONFIG_GROUP, WORKFLOW, CONFIG_APPLET, CONFIG_FIELD, DYNAMIC_VTABLE, APPLICATION, VIEW_OPT, FILTER_OPT, BPD_ITEM, TRACKOR_FORM, TRACKOR_TOUR, WORKPLAN, TRACKOR_TYPE, RULE, RELATION_TYPE, REPORT, SEC_ROLE, DB_PACKAGE, BI_TABLE, MODULE, NOTIF, AUTOMATION, RULE_TYPE, WIDGET_PANEL, WIDGET. Use this when SQL is not allowed.
+- Code and full definition of a component: the ov_export tool with its type and ids. It saves each long field (a package body, a rule's SQL) to a workspace file and tells you the line count; read it with read_file and line ranges. Always use it for DB package bodies and long rule SQL instead of reading CLOBs in pieces with ov_sql: one call instead of dozens, and it works without the Test SQL privilege. Use ov_sql to find ids and for small columns.
 - Vizion Hub module runs and logs: `api list module` (module-runs, module-logs).
 - Chats on a trackor: `request GET /v3/chats -q trackor_id=<id>`, then `request GET /v3/chats/<chat_id>/messages`.
 - Files: `request GET "/../efiles/EFileGetBlobFromDb.do?id=<blob_id>" --out <name>`; the file lands in this run's workspace, open it with read_file.

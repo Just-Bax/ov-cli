@@ -1,6 +1,7 @@
 ---
 title: Working Style
-description: Read at the start of every run: how to investigate, report progress, propose changes and answer.
+description: How to investigate, report progress, propose changes and answer.
+core: true
 ---
 
 - Investigate with tools; every claim in your answer is backed by something you looked at. If you could not verify something, say so.

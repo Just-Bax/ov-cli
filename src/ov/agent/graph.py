@@ -11,6 +11,7 @@ from typing import Any
 
 from ..errors import EXIT_FORBIDDEN
 from ..paths import agent_dir, slugify, write_atomic
+from . import components
 from .cancel import Cancel
 from .ovproc import find_instance, host_of, run_ov
 
@@ -21,7 +22,6 @@ PAGE_WORKERS = 4
 QUERY_WORKERS = 6
 CODE_CHUNKS = 10
 CHUNK_CHARS = 1000
-PACKAGE_WINDOWS = 40
 SQL_TIMEOUT_SECONDS = 180
 ERROR_CHARS = 400
 CONTEXT_CHARS = 200
@@ -194,11 +194,6 @@ QUERIES: dict[str, str] = {
     "modules": "select module_id, module_name, is_enabled from module where nvl(is_archived, 0) = 0",
     "invalid": "select component_id, entity_id from invalid_object",
     "packages": "select db_package_id, db_package_name from db_package",
-    "package_code": "select p.db_package_id, w.n, "
-    + _code("p.db_package_body", f"1 + w.n * {CODE_CHUNKS * CHUNK_CHARS}")
-    + f" from db_package p join (select level - 1 n from dual connect by level <= "
-    f"{PACKAGE_WINDOWS}) w on w.n * {CODE_CHUNKS * CHUNK_CHARS} < "
-    "nvl(dbms_lob.getlength(p.db_package_body), 0) order by p.db_package_id, w.n",
 }
 
 OPTIONAL = {
@@ -417,6 +412,21 @@ class _Refs:
         return next((n for n in candidates if name and n["name"].lower() == name), None)
 
 
+def _page_size(name: str) -> int:
+    return CODE_PAGE if name.endswith("_code") else PAGE
+
+
+def _package_bodies(sql: SqlReader) -> list[dict[str, Any]]:
+    exported = components.export(sql.alias, "DB_PACKAGE", None, sql.cancel)
+    return [
+        {"DB_PACKAGE_ID": values["DB_PACKAGE_ID"], "BODY": values["DB_PACKAGE_BODY"]}
+        for values in map(components.fields, exported)
+    ]
+
+
+EXPORTS: dict[str, Callable[[SqlReader], list[dict[str, Any]]]] = {"package_code": _package_bodies}
+
+
 def _read_all(sql: SqlReader, report: Callable[[str], None]) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
     results: dict[str, list[dict[str, Any]]] = {}
     warnings: list[str] = []
@@ -424,8 +434,8 @@ def _read_all(sql: SqlReader, report: Callable[[str], None]) -> tuple[dict[str, 
 
     def fetch(name: str) -> None:
         try:
-            rows = sql.rows(QUERIES[name], CODE_PAGE if name.endswith("_code") else PAGE)
-        except GraphError as exc:
+            rows = EXPORTS[name](sql) if name in EXPORTS else sql.rows(QUERIES[name], _page_size(name))
+        except (GraphError, components.ExportError) as exc:
             if name not in OPTIONAL or "Test SQL" in str(exc):
                 raise
             with lock:
@@ -434,10 +444,10 @@ def _read_all(sql: SqlReader, report: Callable[[str], None]) -> tuple[dict[str, 
 
         with lock:
             results[name] = rows
-            report(f"Read {len(results)} of {len(QUERIES)} sources")
+            report(f"Read {len(results)} of {len(QUERIES) + len(EXPORTS)} sources")
 
     with ThreadPoolExecutor(max_workers=QUERY_WORKERS) as pool:
-        for future in [pool.submit(fetch, name) for name in QUERIES]:
+        for future in [pool.submit(fetch, name) for name in [*EXPORTS, *QUERIES]]:
             future.result()
     return results, warnings
 
@@ -497,11 +507,8 @@ def _add_code_edges(b: _Builder, r: dict[str, list[dict[str, Any]]]) -> None:
         for row in r[table]:
             refs.link(b, f"{kind}:{_num(row[column])}", _code_text(row))
 
-    bodies: dict[int | None, list[tuple[int, str]]] = {}
     for row in r["package_code"]:
-        bodies.setdefault(_num(row["DB_PACKAGE_ID"]), []).append((int(row["N"]), _code_text(row)))
-    for package, windows in bodies.items():
-        refs.link(b, f"db_package:{package}", "".join(text for _, text in sorted(windows)))
+        refs.link(b, f"db_package:{_num(row['DB_PACKAGE_ID'])}", row["BODY"])
 
 
 def _flag_invalid(b: _Builder, r: dict[str, list[dict[str, Any]]]) -> None:

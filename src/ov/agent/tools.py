@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from urllib.parse import quote
 
 from ..errors import EXIT_READ_ONLY
-from . import datadog, graph, pagerduty, skills, sources
+from . import components, datadog, graph, pagerduty, skills, sources
 from .cancel import Cancel
 from .ovproc import OvResult, find_instance, host_of, run_ov
 from .workspace import IMAGE_EXTS, image_mime, within
@@ -53,6 +53,10 @@ EDIT_FORMS = (
 )
 
 _counter = itertools.count(1)
+
+
+MAX_EXPORT_IDS = 20
+EXPORT_INLINE_CHARS = 200
 
 
 class ToolError(Exception):
@@ -329,6 +333,52 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
         allow_sql=True,
     )
     return clip(_format_sql(raw), ctx, "result")
+
+
+def _export_ids(args: dict[str, Any]) -> list[int]:
+    ids = [int(str(i).strip()) for i in args["ids"]]
+    if not ids or len(ids) > MAX_EXPORT_IDS:
+        raise ToolError(f"Give 1 to {MAX_EXPORT_IDS} component ids.")
+    return ids
+
+
+def _export_item(item: Any, component_type: str, ids: set[str], ctx: ToolContext) -> str:
+    values = components.fields(item)
+    ident = next((v for k, v in values.items() if k.endswith("_ID") and v in ids), "item")
+    lines = []
+    for tag, value in values.items():
+        if "\n" in value or len(value) > EXPORT_INLINE_CHARS:
+            name = f"{component_type.lower()}-{ident}-{tag.lower()}.txt"
+            (ctx.work_dir / name).write_text(value, encoding="utf-8")
+            lines.append(f"  {tag}: {value.count(chr(10)) + 1} lines in {name}")
+        elif value.strip():
+            lines.append(f"  {tag}: {value}")
+
+    filled = [f"{tag} ({count})" for tag, count in components.lists(item).items()]
+    if filled:
+        lines.append(f"  Lists: {', '.join(filled)}")
+    return f"{component_type} {ident}\n" + "\n".join(lines)
+
+
+def _ov_export(args: dict[str, Any], ctx: ToolContext) -> str:
+    component_type = str(args["component_type"]).upper()
+    try:
+        ids = _export_ids(args)
+        request = components.request_args(component_type, ids)
+    except components.ExportError as exc:
+        raise ToolError(str(exc)) from None
+
+    name = f"export-{int(time.time() * 1000)}.xml"
+    run_ov_tool([*request, "--out", name], args.get("instance"), ctx)
+    found = components.items((ctx.work_dir / name).read_text(encoding="utf-8"))
+    if not found:
+        raise ToolError(f"The export returned no {component_type} with those ids.")
+
+    body = "\n\n".join(_export_item(item, component_type, set(map(str, ids)), ctx) for item in found)
+    return (
+        f"Exported {len(found)} {component_type} (full XML in {name}).\n\n{body}\n\n"
+        "Read the files with read_file, using start and end for line ranges."
+    )
 
 
 def _ov_search(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -742,6 +792,21 @@ TOOLS = [
             + re.sub(r"\s+", " ", str(a.get("query", "")))[:LABEL_CHARS]
         ),
         _ov_sql,
+    ),
+    Tool(
+        "ov_export",
+        "Export components from an instance with the platform's component export and save their "
+        "code to workspace files: a DB package's full spec and body, a rule's SQL, an import's or "
+        "report's SQL and settings. One call, however long the code; prefer it to paging CLOBs "
+        "through ov_sql.",
+        {
+            "instance": INSTANCE,
+            "component_type": {"type": "string", "enum": list(components.TYPES)},
+            "ids": {"type": "array", "items": {"type": "integer"}, "description": "Component ids, up to 20"},
+        },
+        ["component_type", "ids"],
+        lambda a: f"export {a.get('component_type')} {', '.join(map(str, a.get('ids') or []))}"[:LABEL_CHARS],
+        _ov_export,
     ),
     Tool(
         "ov_search",
@@ -1226,7 +1291,7 @@ TOOLS += [
 TOOL_SPECS = [t.spec for t in TOOLS if t.name not in DATADOG_TOOLS and t.name not in PAGERDUTY_TOOLS]
 
 TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
-    ("OV CLI", "signed-in OneVizion instances", ["ov", "ov_sql", "ov_search", "ov_map", "ov_case"]),
+    ("OV CLI", "signed-in OneVizion instances", ["ov", "ov_sql", "ov_export", "ov_search", "ov_map", "ov_case"]),
     ("Sources", "folders on this computer and cloned repos", ["source_search", "source_read"]),
     ("GitHub", "module and project repositories", ["github_clone"]),
     ("Datadog", "logs, metrics, monitors, events and APM", list(DATADOG_TOOLS)),

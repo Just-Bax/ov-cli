@@ -1,4 +1,5 @@
 import {
+  ArchiveBoxArrowDownIcon,
   BellAlertIcon,
   BookOpenIcon,
   CalendarIcon,
@@ -26,6 +27,7 @@ import { useSettings } from '@/lib/settings'
 const ICONS: Record<string, Icon> = {
   ov: CommandLineIcon,
   ov_sql: CircleStackIcon,
+  ov_export: ArchiveBoxArrowDownIcon,
   ov_search: MagnifyingGlassIcon,
   ov_map: MapIcon,
   ov_case: TicketIcon,
@@ -47,6 +49,7 @@ const ICONS: Record<string, Icon> = {
 const NOUNS: Record<string, [string, string]> = {
   ov: ['API call', 'API calls'],
   ov_sql: ['SQL query', 'SQL queries'],
+  ov_export: ['export', 'exports'],
   ov_search: ['trackor search', 'trackor searches'],
   ov_map: ['map lookup', 'map lookups'],
   ov_case: ['case', 'cases'],

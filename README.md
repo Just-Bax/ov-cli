@@ -390,9 +390,11 @@ waits for your **Approve**.
 
 In **Settings**:
 
-- **Skills** are guides the agent reads when a task needs them. The system prompt lists
-  only each skill's name and when to read it; the agent loads the full text with
-  `read_skill`, so reviewing an incident reads PagerDuty and Datadog first. Eight ship with
+- **Skills** are guides for the agent. Core skills (OneVizion Basics, Working Style and OV
+  CLI) are always in the system prompt, so the first query already uses the right tables
+  and tools. The rest are listed by name and when to read them, and the agent loads one
+  with `read_skill` when a task needs it, so reviewing an incident reads PagerDuty and
+  Datadog first. A skill becomes core with `core: true` in its front matter. Eight ship with
   `ov`: OneVizion Basics
   (where rules, automations, notifications, imports, reports, modules and workflows live,
   and how their runs and errors are logged), Working Style, one skill per tool group (OV
@@ -410,7 +412,7 @@ The agent's tools come in groups, and the system prompt lists the ones a run has
 
 | Group | Tools |
 | --- | --- |
-| OV CLI | `ov` (any ov command), `ov_sql`, `ov_search` (trackor search), `ov_map` (Instance map lookup), `ov_case` (a trackor support case) |
+| OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_search` (trackor search), `ov_map` (Instance map lookup), `ov_case` (a trackor support case) |
 | Sources | `source_search`, `source_read` |
 | GitHub | `github_clone` (clone or pull a repo, then read it as a source) |
 | Datadog | `datadog_logs`, `datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm` |
@@ -429,7 +431,7 @@ minute on a large instance, Test SQL privilege needed) and caches it in `~/.ov/a
 Start from a hotspot or search, double-click an object to bring in what it links to, and use
 "Ask the agent" on any object. The agent uses the same map in runs (`ov_map`) to see
 what depends on something before it touches it. Links found in SQL text are best-effort.
-DB packages are objects on the map too: their bodies are read like rule code, so a package
+DB packages are objects on the map too: their bodies come from one component export, so a package
 links to the fields, trackor types and packages it uses and to the rules that call it. Only
 clean references count as links: quoted names (`'P_STATUS'`), config ids, `id.*` object
 references (`id.project.cf.p_status`, `id.get('id.site.tt')`) and `PACKAGE.procedure` calls.

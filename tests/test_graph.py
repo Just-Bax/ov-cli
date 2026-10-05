@@ -12,7 +12,7 @@ from ov.paths import write_atomic
 
 
 def rows(**tables):
-    empty = {name: [] for name in graph.QUERIES}
+    empty = {name: [] for name in [*graph.QUERIES, *graph.EXPORTS]}
     return {**empty, **tables}
 
 
@@ -50,9 +50,8 @@ RESULTS = rows(
         {"DB_PACKAGE_ID": "901", "DB_PACKAGE_NAME": "PKG_B"},
     ],
     package_code=[
-        {"DB_PACKAGE_ID": "900", "N": "1", "CODE0": "B.run; id.get('id.imp.project_load');"},
-        {"DB_PACKAGE_ID": "900", "N": "0", "CODE0": "xitor_type_id = id.site.tt; PKG_"},
-        {"DB_PACKAGE_ID": "901", "N": "0", "CODE0": "v := id.project.rel.site;"},
+        {"DB_PACKAGE_ID": "900", "BODY": "xitor_type_id = id.site.tt; PKG_B.run; id.get('id.imp.project_load');"},
+        {"DB_PACKAGE_ID": "901", "BODY": "v := id.project.rel.site;"},
     ],
 )
 

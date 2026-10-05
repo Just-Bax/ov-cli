@@ -27,7 +27,7 @@ class SkillError(Exception):
     pass
 
 
-def _parse(name: str, raw: str) -> dict[str, str]:
+def _parse(name: str, raw: str) -> dict[str, Any]:
     match = _FRONT_MATTER.match(raw.replace("\r\n", "\n"))
     if match is None:
         raise SkillError(f"Built-in skill {name} has no front matter.")
@@ -44,16 +44,17 @@ def _parse(name: str, raw: str) -> dict[str, str]:
         "name": name,
         "title": meta["title"],
         "description": meta["description"],
+        "core": meta.get("core") == "true",
         "content": match.group(2).strip(),
     }
 
 
-def builtins() -> list[dict[str, str]]:
+def builtins() -> list[dict[str, Any]]:
     found = [_parse(p.stem, p.read_text(encoding="utf-8")) for p in BUILTIN_DIR.glob("*.md")]
     return sorted(found, key=lambda skill: ORDER.index(skill["name"]))
 
 
-def _builtin_entry(builtin: dict[str, str], row: dict[str, Any] | None) -> dict[str, Any]:
+def _builtin_entry(builtin: dict[str, Any], row: dict[str, Any] | None) -> dict[str, Any]:
     if row is None:
         return {**builtin, "builtin": True, "customized": False, "enabled": True}
 
@@ -76,6 +77,7 @@ def list_skills() -> list[dict[str, Any]]:
             "title": row["title"],
             "description": row["description"],
             "content": row["content"],
+            "core": False,
             "builtin": False,
             "customized": False,
             "enabled": bool(row["enabled"]),

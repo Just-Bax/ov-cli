@@ -418,11 +418,12 @@ def test_the_prompt_lists_tools_by_group(logged_in):
     from ov.agent.prompt import system_prompt
 
     text = system_prompt(False, "")
-    assert "- OV CLI (signed-in OneVizion instances): ov, ov_sql, ov_search, ov_map, ov_case" in text
+    assert "- OV CLI (signed-in OneVizion instances): ov, ov_sql, ov_export, ov_search, ov_map, ov_case" in text
     assert "- GitHub (module and project repositories): github_clone" in text
     assert "Datadog (logs" not in text
-    assert "- ov-cli: " in text and "- datadog: " not in text
-    assert "## OV CLI" not in text
+    assert "- sources: " in text and "- datadog: " not in text
+    assert "## OV CLI" in text and "## OneVizion Basics" in text and "- ov-cli: " not in text
+    assert text.index("# Skills to read") < text.index("# Core skills") < text.index("## OV CLI")
 
 
 def test_skills_are_read_on_demand(logged_in):
@@ -481,3 +482,30 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
 
     assert run.state["summary"]["title"] == "Tag listing question"
     assert seen == ["fast-model"]
+
+
+def test_components_are_exported_to_workspace_files(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools import tool_named
+
+    body = "\n".join(f"line {i}" for i in range(12000))
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?><COMPONENTS><DB_PACKAGES><DB_PACKAGES_ITEM>'
+        f"<DB_PKG_NAME>PKG_BIG</DB_PKG_NAME><DB_PACKAGE_BODY>{body}</DB_PACKAGE_BODY>"
+        "<DB_PACKAGE_ID>12</DB_PACKAGE_ID><BPD_ITEMS/></DB_PACKAGES_ITEM></DB_PACKAGES></COMPONENTS>"
+    )
+    seen: list[list[str]] = []
+
+    def fake(args, **_):
+        seen.append(args)
+        Path(args[args.index("--out") + 1]).write_text(xml, encoding="utf-8")
+        return OvResult(0, "{}", "")
+
+    monkeypatch.setattr("ov.agent.tools.run_ov", fake)
+    text = tool_named("ov_export").handler({"component_type": "db_package", "ids": [12]}, FakeContext(tmp_path))
+
+    assert "DB_PKG_NAME: PKG_BIG" in text
+    assert "DB_PACKAGE_BODY: 12000 lines in db_package-12-db_package_body.txt" in text
+    assert (tmp_path / "db_package-12-db_package_body.txt").read_text(encoding="utf-8") == body
+    assert seen[0][2:5] == ["request", "POST", "/v3/components/exports/run"]
+    with pytest.raises(ToolError, match="1 to 20"):
+        tool_named("ov_export").handler({"component_type": "RULE", "ids": list(range(21))}, FakeContext(tmp_path))

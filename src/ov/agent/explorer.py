@@ -6,6 +6,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from . import components
 from .cancel import Cancel
 from .graph import CODE_CHUNKS, CODE_PAGE, PAGE_WORKERS, GraphError, SqlReader, load
 from .ovproc import find_instance
@@ -72,7 +73,6 @@ def _pieces(sql: SqlReader, query: str, code_column: str) -> list[dict[str, str]
 
 _CLOB_SECTIONS: dict[str, tuple[str, str, dict[str, str]]] = {
     "rule": ("rule", "rule_id", {"Rule SQL": "sql_text"}),
-    "db_package": ("db_package", "db_package_id", {"Body": "db_package_body", "Spec": "db_package_spec"}),
     "field": ("config_field", "config_field_id", {"SQL": "sql_query", "Default value SQL": "default_value_sql"}),
     "notification": ("notif", "notif_id", {"Trackor SQL": "trackor_sql", "User SQL": "user_sql"}),
 }
@@ -99,7 +99,25 @@ _PIECE_SECTIONS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+_EXPORTED_SECTIONS: dict[str, tuple[str, dict[str, str]]] = {
+    "db_package": ("DB_PACKAGE", {"Body": "DB_PACKAGE_BODY", "Spec": "DB_PACKAGE_SPEC"}),
+}
+
+
+def _exported(sql: SqlReader, kind: str, ref: int) -> list[dict[str, str]]:
+    component_type, columns = _EXPORTED_SECTIONS[kind]
+    found = components.export(sql.alias, component_type, [ref], sql.cancel)
+    if not found:
+        raise ExplorerError(f"The component export returned no {kind} {ref}.")
+
+    values = components.fields(found[0])
+    return [{"title": title, "code": values[tag]} for title, tag in columns.items()]
+
+
 def _sections(sql: SqlReader, kind: str, ref: int) -> list[dict[str, str]]:
+    if kind in _EXPORTED_SECTIONS:
+        return _exported(sql, kind, ref)
+
     if kind in _CLOB_SECTIONS:
         table, key, columns = _CLOB_SECTIONS[kind]
         return _clobs(sql, table, f"{key} = {ref}", columns)
@@ -139,7 +157,7 @@ def source(alias: str, node_id: str) -> dict[str, Any]:
     sql = _reader(alias)
     try:
         sections = [s for s in _sections(sql, kind, int(ref_text)) if s["code"].strip()]
-    except GraphError as exc:
+    except (GraphError, components.ExportError) as exc:
         raise ExplorerError(str(exc)) from exc
 
     graph = load(alias)

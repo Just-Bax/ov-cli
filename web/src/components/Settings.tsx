@@ -497,7 +497,9 @@ function Skills() {
                   )}
                 />
                 <span className="min-w-0 flex-1 truncate">{s.title}</span>
-                {!s.builtin ? (
+                {s.core ? (
+                  <span className="text-faint shrink-0 text-[11px] font-normal">always</span>
+                ) : !s.builtin ? (
                   <span className="text-faint shrink-0 text-[11px] font-normal">yours</span>
                 ) : s.customized ? (
                   <span className="text-faint shrink-0 text-[11px] font-normal">edited</span>
@@ -524,6 +526,7 @@ function Skills() {
               <div className="text-fg flex items-center gap-2 text-[14px] font-semibold">
                 <span className="truncate">{creating ? 'New skill' : current?.title}</span>
                 {current?.builtin ? <Chip>Built-in</Chip> : null}
+                {current?.core ? <Chip tone="ok">Always loaded</Chip> : null}
                 {current?.customized ? <Chip tone="brand">Edited</Chip> : null}
               </div>
               <div className="text-muted mt-0.5 text-[12.5px] leading-relaxed">

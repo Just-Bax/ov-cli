@@ -6,12 +6,18 @@ import httpx
 import pytest
 
 from ov.agent import explorer
+from ov.agent.ovproc import OvResult
 
 PACKAGE_BODY = "".join(f"-- line {i:05d}\n" for i in range(2500))
 
 
 class FakeReader:
+    alias = "acme"
+
     def __init__(self, clobs: dict[str, str]) -> None:
+        from ov.agent.cancel import Cancel
+
+        self.cancel = Cancel()
         self.clobs = clobs
         self.queries: list[str] = []
 
@@ -44,14 +50,23 @@ def reader(monkeypatch):
     explorer.forget("acme")
 
 
-def test_long_code_is_read_in_windows(reader):
-    result = explorer.source("acme", "db_package:7")
-    body, spec = result["sections"]
-    assert (body["title"], spec["title"]) == ("Body", "Spec")
-    assert body["code"] == PACKAGE_BODY
-    assert spec["code"] == "package spec"
-    windows = [q for q in reader.queries if "db_package_body" in q]
-    assert len(windows) == -(-len(PACKAGE_BODY) // (explorer.CHUNK * explorer.CODE_CHUNKS))
+def test_packages_are_read_with_one_component_export(reader, monkeypatch):
+    seen = []
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?><COMPONENTS><DB_PACKAGES><DB_PACKAGES_ITEM>'
+        "<DB_PACKAGE_ID>7</DB_PACKAGE_ID><DB_PACKAGE_SPEC>package spec</DB_PACKAGE_SPEC>"
+        f"<DB_PACKAGE_BODY>{PACKAGE_BODY}</DB_PACKAGE_BODY><BPD_ITEMS/></DB_PACKAGES_ITEM></DB_PACKAGES></COMPONENTS>"
+    )
+
+    def fake_run(args, **_):
+        seen.append(args)
+        return OvResult(0, xml, "")
+
+    monkeypatch.setattr("ov.agent.components.run_ov", fake_run)
+    body, spec = explorer.source("acme", "db_package:7")["sections"]
+    assert (body["title"], body["code"], spec["code"]) == ("Body", PACKAGE_BODY, "package spec")
+    assert len(seen) == 1 and '"component_ids": [7]' in seen[0][seen[0].index("-d") + 1]
+    assert not reader.queries
 
 
 def test_source_is_cached_until_forgotten(reader):

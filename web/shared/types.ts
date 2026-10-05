@@ -186,6 +186,7 @@ export interface SkillInfo {
   title: string
   description: string
   content: string
+  core: boolean
   builtin: boolean
   customized: boolean
   enabled: boolean

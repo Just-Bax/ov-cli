@@ -46,7 +46,9 @@ def system_prompt(write_access: bool, instance: str) -> str:
     configured = "\n".join(
         f"- {s['name']}: {s['description'] or 'no description'}" for s in sources.list_sources() if s["ready"]
     )
-    skill_list = "\n".join(f"- {s['name']}: {s['description'] or s['title']}" for s in offered_skills())
+    skills = offered_skills()
+    core = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in skills if s["core"])
+    skill_list = "\n".join(f"- {s['name']}: {s['description'] or s['title']}" for s in skills if not s["core"])
     offered = {spec["function"]["name"] for spec in tool_specs()}
     groups = "\n".join(
         f"- {title} ({about}): {', '.join(n for n in names if n in offered)}"
@@ -81,9 +83,15 @@ Datadog: {_datadog_text()}
 
 PagerDuty: {_pagerduty_text()}
 
-# Skills
+# Skills to read when a task needs them
 
-Each skill is a guide for one area. Before working on a task, read every skill that covers it with \
+Each is a guide for one area. Before working on a task, read every skill below that covers it with \
 read_skill; reviewing an incident, for example, means reading pagerduty and datadog first.
 
-{skill_list or "No skills enabled."}"""
+{skill_list or "None."}
+
+# Core skills
+
+These always apply.
+
+{core or "None enabled."}"""
