@@ -1,4 +1,5 @@
 import {
+  FolderIcon,
   CheckCircleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -335,6 +336,13 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           icon={CodeBracketIcon}
           label="Explorer"
           active={route.page === 'explorer'}
+          collapsed={collapsed}
+        />
+        <NavRow
+          to={href({ page: 'files' })}
+          icon={FolderIcon}
+          label="Files"
+          active={route.page === 'files'}
           collapsed={collapsed}
         />
         <NavRow

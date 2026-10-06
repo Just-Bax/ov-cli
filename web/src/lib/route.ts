@@ -6,6 +6,7 @@ export type Route =
   | { page: 'map' }
   | { page: 'explorer' }
   | { page: 'health' }
+  | { page: 'files' }
   | { page: 'run'; id: string }
 
 function parse(hash: string): Route {
@@ -15,6 +16,7 @@ function parse(hash: string): Route {
   if (parts[0] === 'map') return { page: 'map' }
   if (parts[0] === 'explorer') return { page: 'explorer' }
   if (parts[0] === 'health') return { page: 'health' }
+  if (parts[0] === 'files') return { page: 'files' }
   return { page: 'home' }
 }
 

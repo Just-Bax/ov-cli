@@ -19,7 +19,7 @@ import type {
   SavedTotals,
   Settings,
   SkillInfo,
-  SourceInfo,
+  WorkspaceEntries,
   Status,
   Upload,
 } from '@shared/types.ts'
@@ -46,12 +46,6 @@ export interface SkillDraft {
   title: string
   description: string
   content: string
-}
-
-export interface SourceDraft {
-  name: string
-  description: string
-  location: string
 }
 
 export const api = {
@@ -96,6 +90,12 @@ export const api = {
     ),
   pagerdutyIncident: (id: string) =>
     request<PagerDutyIncidentDetail>(`/pagerduty/incidents/${seg(id)}`),
+  workspaceEntries: (path: string) =>
+    request<WorkspaceEntries>(`/workspace/entries?path=${seg(path)}`),
+  workspaceFile: (path: string) =>
+    request<{ path: string; content: string }>(`/workspace/file?path=${seg(path)}`),
+  saveWorkspaceFile: (path: string, content: string) =>
+    put<{ path: string; content: string }>('/workspace/file', { path, content }),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),
   settings: () => request<Settings>('/settings'),
   saveSettings: (patch: Partial<Settings>) => put<Settings>('/settings', patch),
@@ -104,12 +104,6 @@ export const api = {
   updateSkill: (name: string, patch: Partial<SkillDraft & { enabled: boolean }>) =>
     put<SkillInfo[]>(`/skills/${seg(name)}`, patch),
   deleteSkill: (name: string) => del<SkillInfo[]>(`/skills/${seg(name)}`),
-  sources: () => request<SourceInfo[]>('/sources'),
-  addSource: (draft: SourceDraft) => post<SourceInfo[]>('/sources', draft),
-  updateSource: (name: string, draft: Omit<SourceDraft, 'name'>) =>
-    put<SourceInfo[]>(`/sources/${seg(name)}`, draft),
-  syncSource: (name: string) => post<SourceInfo[]>(`/sources/${seg(name)}/sync`),
-  deleteSource: (name: string) => del<SourceInfo[]>(`/sources/${seg(name)}`),
   upload: async (files: File[]) => {
     const saved: Upload[] = []
     for (const file of files) {

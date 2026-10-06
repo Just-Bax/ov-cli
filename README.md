@@ -390,21 +390,21 @@ waits for your **Approve**.
 
 In **Settings**:
 
-- **Skills** are guides for the agent. Core skills (OneVizion Basics, Working Style and OV
-  CLI) are always in the system prompt, so the first query already uses the right tables
+- **Skills** are guides for the agent. Core skills (OneVizion Basics, Working Style, OV
+  CLI and Workspace) are always in the system prompt, so the first query already uses the right tables
   and tools. The rest are listed by name and when to read them, and the agent loads one
   with `read_skill` when a task needs it, so reviewing an incident reads PagerDuty and
-  Datadog first. A skill becomes core with `core: true` in its front matter. Eight ship with
+  Datadog first. A skill becomes core with `core: true` in its front matter. Seven ship with
   `ov`: OneVizion Basics
   (where rules, automations, notifications, imports, reports, modules and workflows live,
   and how their runs and errors are logged), Working Style, one skill per tool group (OV
-  CLI, Sources, GitHub, Datadog, PagerDuty; the last two only while connected), and TCE Best
+  CLI, Workspace, Datadog, PagerDuty; the last three only while set up), and TCE Best
   Practices (trackor cases, the troubleshooting workflow, the case reply style). Edit them,
   switch any off, or write your own.
-- **Sources** are code and docs the agent can search: a local folder (a checkout of
-  platform code, a docs export) or a git URL it clones for you. Describe each one so the
-  agent knows when to look. Add your clone of the platform repo as `platform` so it can
-  read table DDL and search for error text.
+- **Workspace** is one folder with your code (for example the platform repo and your
+  Vizion Hub modules side by side). The agent searches, reads, edits and creates files and
+  runs commands (git, builds, tests) only inside it. Add notes so it knows where things
+  are. See [Coding in the workspace](#coding-in-the-workspace).
 - **Instances** lists your `ov` sign-ins and signs in to new ones, through the browser or
   with an API token (access key and secret key from Admin > Auth Tokens).
 
@@ -413,15 +413,33 @@ The agent's tools come in groups, and the system prompt lists the ones a run has
 | Group | Tools |
 | --- | --- |
 | OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_search` (trackor search), `ov_map` (Instance map lookup), `ov_case` (a trackor support case) |
-| Sources | `source_search`, `source_read` |
-| GitHub | `github_clone` (clone or pull a repo, then read it as a source) |
+| Workspace | `ws_list`, `ws_search`, `ws_read`, `ws_edit`, `ws_write`, `ws_run` (only while a workspace folder is set) |
 | Datadog | `datadog_logs`, `datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm` |
 | PagerDuty | `pagerduty_incidents`, `pagerduty_incident`, `pagerduty_oncall` |
 | This run | `read_skill`, `read_file`, `propose_change`, `ask_user`, `finish` |
 
 Nothing leaves your machine except calls to your instances and to GitHub Copilot. The
-server listens on 127.0.0.1 only. History, uploads and clones live in `~/.ov/agent`; the
+server listens on 127.0.0.1 only. History and uploads live in `~/.ov/agent`; the
 GitHub token is kept in the vault with your other credentials.
+
+### Coding in the workspace
+
+1. Settings > Workspace: enter the folder, for example `C:\Projects\OneVizion`, and a few
+   notes ("ov/ is the platform repo, Modules/ holds Vizion Hub modules; clone new ones
+   there"). Save.
+2. Ask for code work in a normal run: "Clone the sftp module into Modules and add retry to
+   the upload", "Why does TestSqlApiControllerV3 reject this query?", "Fix the failing rule
+   package and run its tests". The agent finds files with `ws_search`, reads them with
+   `ws_read`, changes them with `ws_edit` and `ws_write`, and runs `git`, builds and tests
+   with `ws_run`. Every step shows up in the run.
+3. Commands run straight away, except ones that delete files, push, rewrite git history,
+   stop processes, publish packages, run downloaded code or touch paths outside the
+   workspace. Those wait for your Approve, showing the exact command and folder.
+4. **Files** in the sidebar browses the workspace and opens files in an editor: edit, then
+   save with Ctrl+S. "Ask the agent" there starts a run about the open file.
+
+The agent commits only when you ask and never pushes on its own. Paths in the `ws_` tools
+cannot leave the workspace; a shell command could, which is why those need your approval.
 
 **Instance map** shows how an instance's configuration fits together: trackor types and
 their relations, fields, rules and what triggers them, automations, imports, reports,
@@ -506,7 +524,7 @@ Everything lives in `~/.ov` (`ov --home` prints the path, `OV_HOME` overrides it
   spec/            cached OpenAPI schema, one file per instance and group
   cache/           cached API responses
   downloads/       files written by --out
-  agent/           agent history (agent.db), run workspaces, uploads, cloned sources
+  agent/           agent history (agent.db), run folders, uploads, Instance maps
   vault            every secret, encrypted
 ```
 
@@ -596,7 +614,7 @@ request, `service.py` is the only API access the commands get, and `cli/commands
 one module per command group. `cli/dynamic.py` is what turns a schema tag into commands.
 `agent/` is the agent server: `server.py` (HTTP API and the built UI), `run.py` (the
 model loop), `tools.py` (what the model may call, each `ov` call a read-only subprocess),
-`copilot.py`, `skills.py` and `sources.py`. `agent/state.py` mirrors `web/shared/reduce.ts`.
+`copilot.py`, `skills.py` and `project.py` (the code workspace). `agent/state.py` mirrors `web/shared/reduce.ts`.
 
 Tests use a recorded OpenAPI document and a mock transport, so `pytest` never touches the
 network. `test_login_browser.py` is the exception: it starts a real headless Chromium

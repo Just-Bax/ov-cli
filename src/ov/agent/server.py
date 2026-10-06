@@ -21,7 +21,7 @@ import httpx
 
 from .. import __version__
 from ..errors import OvError
-from . import copilot, datadog, db, explorer, graph, pagerduty, skills, sources
+from . import copilot, datadog, db, explorer, graph, pagerduty, project, skills
 from .cancel import Cancel
 from .copilot import CopilotError
 from .datadog import DatadogError
@@ -30,7 +30,6 @@ from .ovproc import instances, login, run_ov, version
 from .pagerduty import PagerDutyError
 from .run import RunError, runs
 from .skills import SkillError
-from .sources import SourceError
 from .workspace import attachments_dir, uploads_dir, within
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -77,7 +76,7 @@ _BODY_TYPES = ("application/json", "application/octet-stream")
 CLIENT_ERRORS = (
     RunError,
     SkillError,
-    SourceError,
+    project.ProjectError,
     CopilotError,
     ExplorerError,
     DatadogError,
@@ -375,35 +374,26 @@ def delete_skill(_: Handler, name: str) -> list[dict[str, Any]]:
     return skills.list_skills()
 
 
-@route("GET", "/api/sources")
-def list_sources(_: Handler) -> list[dict[str, Any]]:
-    return sources.list_sources()
+@route("GET", "/api/workspace/entries")
+def workspace_entries(h: Handler) -> dict[str, Any]:
+    return {"root": str(project.root()), "entries": project.entries(h.query.get("path", ""))}
 
 
-@route("POST", "/api/sources")
-def add_source(h: Handler) -> list[dict[str, Any]]:
+@route("GET", "/api/workspace/file")
+def workspace_file(h: Handler) -> dict[str, str]:
+    path = _required(h.query, "path")
+    return {"path": path, "content": project.text_of(path)}
+
+
+@route("PUT", "/api/workspace/file")
+def workspace_save(h: Handler) -> dict[str, str]:
     data = h.json()
-    sources.add(str(data.get("name", "")), str(data.get("description", "")), str(data.get("location", "")))
-    return sources.list_sources()
+    path = _required(data, "path")
+    if not isinstance(data.get("content"), str):
+        raise HttpError(400, "Give the file content as a string.")
 
-
-@route("PUT", "/api/sources/([^/]+)")
-def update_source(h: Handler, name: str) -> list[dict[str, Any]]:
-    data = h.json()
-    sources.update(name, str(data.get("description", "")), str(data.get("location", "")))
-    return sources.list_sources()
-
-
-@route("POST", "/api/sources/([^/]+)/sync")
-def sync_source(_: Handler, name: str) -> list[dict[str, Any]]:
-    sources.sync(name)
-    return sources.list_sources()
-
-
-@route("DELETE", "/api/sources/([^/]+)")
-def delete_source(_: Handler, name: str) -> list[dict[str, Any]]:
-    sources.remove(name)
-    return sources.list_sources()
+    project.write(path, data["content"])
+    return {"path": path, "content": project.text_of(path)}
 
 
 @route("POST", "/api/uploads")

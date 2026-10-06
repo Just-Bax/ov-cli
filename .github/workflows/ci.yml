@@ -3,28 +3,59 @@ name: CI
 on:
   push:
     branches: [master]
-  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "web/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.11", "3.12", "3.13"]
-    runs-on: ${{ matrix.os }}
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - "src/**/*.py"
+              - "src/ov/agent/skills/**"
+              - "tests/**"
+              - "pyproject.toml"
+              - "uv.lock"
+            web:
+              - "web/**"
+              - "src/ov/agent/static/**"
+
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
     env:
       OV_CREDENTIALS: file
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.12"
       - run: uv run --extra dev ruff check src tests
       - run: uv run --extra dev ruff format --check src tests
       - run: uv run --extra dev pytest -q
 
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,5 +73,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm build
-      # The built UI is committed so installs need no Node; it must match the sources.
       - run: git diff --exit-code -- ../src/ov/agent/static

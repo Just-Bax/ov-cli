@@ -36,4 +36,4 @@ Most useful calls:
 
 Errors carry an exit code: 3 the session expired (the app asks the user to sign in and retries; just continue), 4 no such operation or record, 5 an API error (read the message; OneVizion reports missing field privileges as HTTP 500), 6 a missing privilege, 7 a write blocked because changes are off.
 
-Files you read or write with `--out`, `-d @file` or `--file` live in this run's workspace. Session commands (login, logout, use, config, setup) are not available to you.
+Files you read or write with `--out`, `-d @file` or `--file` live in this run's own folder, not in the code workspace; open them with read_file. Session commands (login, logout, use, config, setup) are not available to you.

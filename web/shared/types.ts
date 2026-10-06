@@ -169,6 +169,8 @@ export interface RunState {
 export interface Settings {
   defaultModel: string
   fastModel: string
+  workspace: string
+  workspaceNotes: string
   maxSteps: number
   notify: boolean
   showTimeSaved: boolean
@@ -192,13 +194,15 @@ export interface SkillInfo {
   enabled: boolean
 }
 
-export interface SourceInfo {
+export interface WorkspaceEntry {
   name: string
-  description: string
-  location: string
-  kind: 'git' | 'folder'
   path: string
-  ready: boolean
+  dir: boolean
+}
+
+export interface WorkspaceEntries {
+  root: string
+  entries: WorkspaceEntry[]
 }
 
 export interface ModelInfo {

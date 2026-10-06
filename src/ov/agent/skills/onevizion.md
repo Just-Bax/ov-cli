@@ -4,7 +4,7 @@ description: What OneVizion is, where every object lives in the database, how ru
 core: true
 ---
 
-OneVizion is a configurable platform for tracking projects, assets and processes. Each customer has its own instance (a host such as acme.onevizion.com), sometimes with several tenants. Almost everything is configuration stored in an Oracle schema: trackor types and fields, rules, automations, notifications, imports, reports, workflows, Vizion Hub modules. Find things by their real definition, never by memory. If a column is not listed here, check it first: `select column_name, data_type from user_tab_columns where table_name = 'RULE'`. If a source with the platform repo (IKAMTeam/ov) is configured, table DDL is at `db/ddl/tables/<table>.sql` and packages under `db/`; search it for error text and class names from stack traces.
+OneVizion is a configurable platform for tracking projects, assets and processes. Each customer has its own instance (a host such as acme.onevizion.com), sometimes with several tenants. Almost everything is configuration stored in an Oracle schema: trackor types and fields, rules, automations, notifications, imports, reports, workflows, Vizion Hub modules. Find things by their real definition, never by memory. If a column is not listed here, check it first: `select column_name, data_type from user_tab_columns where table_name = 'RULE'`. If the platform repo is in the workspace, table DDL is at `db/ddl/tables/<table>.sql` inside it and packages under `db/`; search it with ws_search for error text and class names from stack traces.
 
 ## The instance map
 
@@ -81,7 +81,7 @@ select q.rule_queue_id, q.rule_id, q.created_ts, q.processed_ts, dbms_lob.substr
 
 - MODULE: MODULE_ID, MODULE_NAME, IS_ENABLED, VERSION, GIT_REPO_URL, COMMAND, SCHEDULE (cron), LAST_RUN, NEXT_RUN, LOG_LEVEL. Settings: MODULE_PARAM (NAME, VALUE, VALUE_CLOB); never read hidden or password values.
 - Runs: MODULE_RUN (MODULE_RUN_ID, MODULE_ID, PROCESS_ID); logs MODULE_LOG (MODULE_RUN_ID, TS, LOG_LEVEL 0 info/1 warn/2 error/3 debug, MESSAGE, DESCRIPTION CLOB). Install history: MODULE_INSTALL (VERSION, MODULE_STATUS_ID, ERROR_MESSAGE).
-- The code: github_clone the GIT_REPO_URL, then source_search / source_read it as repo:<name>.
+- The code: the module's folder in the workspace, or clone GIT_REPO_URL into it with ws_run, then ws_search / ws_read it.
 - Forms: module `/admin/module/Form.do?id=`, run `/admin/modulerun/Form.do?id=`. Grids ADMIN_MODULE, ADMIN_MODULE_RUN, ADMIN_MODULE_LOG.
 
 ## Workflows

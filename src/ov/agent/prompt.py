@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from . import datadog, pagerduty, sources
+from . import datadog, db, pagerduty, project
 from .ovproc import instances
 from .tools import TOOL_GROUPS, offered_skills, tool_specs
 
@@ -21,6 +21,14 @@ def _servers(scope: str) -> str:
     for host in hosts:
         roles.setdefault(datadog.role_of(host), []).append(host)
     return "; ".join(f"{role}: {', '.join(names)}" for role, names in sorted(roles.items()))
+
+
+def _workspace_text() -> str:
+    if not project.configured():
+        return "none set, so there are no ws_ tools. Code work needs the user to pick a folder in Settings > Workspace."
+
+    notes = db.get_settings()["workspaceNotes"].strip()
+    return f"{project.root()}" + (f"\nNotes from the user:\n{notes}" if notes else "")
 
 
 def _datadog_text() -> str:
@@ -42,9 +50,6 @@ def system_prompt(write_access: bool, instance: str) -> str:
     today = datetime.date.today().isoformat()
     signed_in = "\n".join(
         f"- {i['alias']}: {i['url']}{' (session expired)' if not i['valid'] else ''}" for i in instances()
-    )
-    configured = "\n".join(
-        f"- {s['name']}: {s['description'] or 'no description'}" for s in sources.list_sources() if s["ready"]
     )
     skills = offered_skills()
     core = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in skills if s["core"])
@@ -76,8 +81,7 @@ Signed-in instances:
 
 {groups}
 
-Sources you can search with source_search and source_read:
-{configured or "none configured"}
+Workspace: {_workspace_text()}
 
 Datadog: {_datadog_text()}
 

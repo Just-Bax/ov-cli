@@ -1950,9 +1950,6 @@ svg.react-flow__connectionline {
   .py-4 {
     padding-block: calc(var(--spacing) * 4);
   }
-  .py-5 {
-    padding-block: calc(var(--spacing) * 5);
-  }
   .py-6 {
     padding-block: calc(var(--spacing) * 6);
   }
@@ -2511,9 +2508,6 @@ svg.react-flow__connectionline {
     }
     .sm\:grid-cols-\[48px_1fr\] {
       grid-template-columns: 48px 1fr;
-    }
-    .sm\:grid-cols-\[160px_1fr\] {
-      grid-template-columns: 160px 1fr;
     }
   }
   @media (width >= 48rem) {

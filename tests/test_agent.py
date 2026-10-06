@@ -9,7 +9,7 @@ import httpx
 import pytest
 from conftest import BASE_URL, seed_session
 
-from ov.agent import db, skills, sources, state
+from ov.agent import db, skills, state
 from ov.agent.copilot import StreamResult
 from ov.agent.ovproc import OvResult
 from ov.agent.tools import ToolError, entity_link, run_ov_tool
@@ -61,12 +61,11 @@ class FakeContext:
 
 def test_builtin_skills_ship_and_can_be_customized_and_reset():
     names = [s["name"] for s in skills.list_skills()]
-    assert names[:8] == [
+    assert names[:7] == [
         "onevizion",
         "working-style",
         "ov-cli",
-        "sources",
-        "github",
+        "workspace",
         "datadog",
         "pagerduty",
         "tce-best-practices",
@@ -90,25 +89,68 @@ def test_user_skills_get_unique_names():
     assert first not in [s["name"] for s in skills.list_skills()]
 
 
-def test_folder_sources_are_searchable(tmp_path):
-    folder = tmp_path / "docs"
-    folder.mkdir()
-    (folder / "notes.md").write_text("alpha\nRULE_ID beta\n", encoding="utf-8")
+@pytest.fixture
+def workspace(tmp_path):
+    folder = tmp_path / "code"
+    (folder / "module" / "node_modules").mkdir(parents=True)
+    (folder / "module" / "main.py").write_text("alpha\nRULE_ID = 1\n", encoding="utf-8")
+    (folder / "module" / "node_modules" / "skip.js").write_text("RULE_ID", encoding="utf-8")
+    db.save_settings({"workspace": str(folder)})
+    yield folder
+    db.save_settings({"workspace": ""})
 
-    sources.add("docs", "team notes", str(folder))
-    assert sources.list_sources()[0]["ready"]
-    assert "notes.md:2" in sources.search("docs", "RULE_ID")
-    assert "2: RULE_ID beta" in sources.read("docs", "notes.md")
+
+def test_the_workspace_reads_searches_and_edits_inside_its_folder(workspace, tmp_path):
+    from ov.agent import project
+
+    assert "module/" in project.listing("", "")
+    assert project.listing("", "*.py") == "module/main.py"
+    assert project.search("RULE_ID", "", "", False).startswith("module/main.py:2:")
+    assert "2: RULE_ID = 1" in project.read("module/main.py", 1, None)
+
+    assert project.edit("module/main.py", "RULE_ID = 1", "RULE_ID = 2", False).startswith("Edited")
+    assert "RULE_ID = 2" in project.text_of("module/main.py")
+    project.write("module/new/readme.md", "hi")
+    assert (workspace / "module" / "new" / "readme.md").read_text(encoding="utf-8") == "hi"
+
+    (tmp_path / "secret.txt").write_text("x", encoding="utf-8")
+    for outside in ("../secret.txt", str(tmp_path / "secret.txt")):
+        with pytest.raises(project.ProjectError, match="outside the workspace"):
+            project.read(outside, 1, None)
+
+
+def test_risky_commands_need_approval(workspace, tmp_path):
+    from ov.agent import project
+
+    base = project.root()
+    assert project.risks("git status && pytest tests/x.py", base) == []
+    assert project.risks("git push origin main", base) == ["pushes to a remote"]
+    assert project.risks("Remove-Item -Recurse build", base) == ["deletes files"]
+    assert project.risks(f"type {tmp_path / 'secret.txt'}", base)[0].startswith("touches")
+    assert project.risks(f"type {workspace / 'module' / 'main.py'}", base) == []
+
+
+def test_ws_run_asks_before_risky_commands(workspace, tmp_path):
+    from ov.agent.tools import ToolError, tool_named
+
+    ctx = FakeContext(tmp_path, approve="Reject")
+    tool = tool_named("ws_run")
+    assert "hello" in tool.handler({"command": "echo hello", "cwd": "module"}, ctx)
+    assert ctx.asked == []
+    with pytest.raises(ToolError, match="rejected"):
+        tool.handler({"command": "git push"}, ctx)
+    assert ctx.asked == ["the workspace root> git push"]
+
+
+def test_workspace_tools_are_offered_only_with_a_folder(tmp_path):
+    from ov.agent.tools import tool_specs
+
+    assert "ws_run" not in {s["function"]["name"] for s in tool_specs()}
+    db.save_settings({"workspace": str(tmp_path)})
+    assert "ws_run" in {s["function"]["name"] for s in tool_specs()}
     with pytest.raises(ValueError):
-        sources.read("docs", "../outside.txt")
-
-    sources.remove("docs")
-    assert folder.exists() and sources.list_sources() == []
-
-
-def test_a_missing_folder_is_refused(tmp_path):
-    with pytest.raises(sources.SourceError):
-        sources.add("gone", "", str(tmp_path / "nope"))
+        db.save_settings({"workspace": str(tmp_path / "missing")})
+    db.save_settings({"workspace": ""})
 
 
 def test_reducer_rewind_drops_later_items():
@@ -419,9 +461,8 @@ def test_the_prompt_lists_tools_by_group(logged_in):
 
     text = system_prompt(False, "")
     assert "- OV CLI (signed-in OneVizion instances): ov, ov_sql, ov_export, ov_search, ov_map, ov_case" in text
-    assert "- GitHub (module and project repositories): github_clone" in text
     assert "Datadog (logs" not in text
-    assert "- sources: " in text and "- datadog: " not in text
+    assert "- datadog: " not in text and "Workspace: none set" in text
     assert "## OV CLI" in text and "## OneVizion Basics" in text and "- ov-cli: " not in text
     assert text.index("# Skills to read") < text.index("# Core skills") < text.index("## OV CLI")
 

@@ -9,10 +9,12 @@ import {
   CircleStackIcon,
   CodeBracketSquareIcon,
   CommandLineIcon,
+  DocumentPlusIcon,
   DocumentTextIcon,
+  FolderIcon,
   MagnifyingGlassIcon,
   MapIcon,
-  ShareIcon,
+  PencilSquareIcon,
   TicketIcon,
   UserIcon,
   XMarkIcon,
@@ -31,9 +33,12 @@ const ICONS: Record<string, Icon> = {
   ov_search: MagnifyingGlassIcon,
   ov_map: MapIcon,
   ov_case: TicketIcon,
-  source_search: MagnifyingGlassIcon,
-  source_read: CodeBracketSquareIcon,
-  github_clone: ShareIcon,
+  ws_list: FolderIcon,
+  ws_search: MagnifyingGlassIcon,
+  ws_read: CodeBracketSquareIcon,
+  ws_edit: PencilSquareIcon,
+  ws_write: DocumentPlusIcon,
+  ws_run: CommandLineIcon,
   read_skill: BookOpenIcon,
   read_file: DocumentTextIcon,
   datadog_logs: DocumentTextIcon,
@@ -53,9 +58,12 @@ const NOUNS: Record<string, [string, string]> = {
   ov_search: ['trackor search', 'trackor searches'],
   ov_map: ['map lookup', 'map lookups'],
   ov_case: ['case', 'cases'],
-  source_search: ['code search', 'code searches'],
-  source_read: ['source file', 'source files'],
-  github_clone: ['repo', 'repos'],
+  ws_list: ['folder listing', 'folder listings'],
+  ws_search: ['code search', 'code searches'],
+  ws_read: ['file read', 'file reads'],
+  ws_edit: ['edit', 'edits'],
+  ws_write: ['new file', 'new files'],
+  ws_run: ['command', 'commands'],
   read_skill: ['skill', 'skills'],
   read_file: ['file', 'files'],
   datadog_logs: ['log search', 'log searches'],
@@ -103,11 +111,13 @@ function readableInput(tool: ToolActivity): string {
       return `ov ${a.instance ? `-i ${a.instance} ` : ''}${(a.args as string[]).join(' ')}`
     if (name === 'ov_search')
       return `${a.trackor_type}: ${a.condition}\nfields: ${(a.fields as string[]).join(', ')}`
-    if (name === 'source_search')
-      return `${a.source}: /${a.pattern}/${a.path ? `  in ${a.path}` : ''}`
-    if (name === 'source_read' || name === 'read_file')
-      return `${a.source ? `${a.source}/` : ''}${a.path}`
-    if (name === 'github_clone') return String(a.url)
+    if (name === 'ws_search')
+      return `/${a.pattern}/${a.path ? `  in ${a.path}` : ''}${a.glob ? `  (${a.glob})` : ''}`
+    if (name === 'ws_run') return `${a.cwd ? `${a.cwd}> ` : '> '}${a.command}`
+    if (name === 'ws_edit') return `${a.path}\n--- old\n${a.old}\n+++ new\n${a.new}`
+    if (name === 'ws_write') return `${a.path}\n${a.content}`
+    if (name === 'ws_read' || name === 'ws_list' || name === 'read_file')
+      return String(a.path ?? '.')
     return JSON.stringify(a, null, 2)
   } catch {
     return tool.input

@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from urllib.parse import quote
 
 from ..errors import EXIT_READ_ONLY
-from . import components, datadog, graph, pagerduty, skills, sources
+from . import components, datadog, graph, pagerduty, project, skills
 from .cancel import Cancel
 from .ovproc import OvResult, find_instance, host_of, run_ov
 from .workspace import IMAGE_EXTS, image_mime, within
@@ -416,7 +416,13 @@ def attachment_names(ctx: ToolContext) -> list[str]:
 
 def offered_skills() -> list[dict[str, Any]]:
     hidden = {
-        name for name, linked in (("datadog", datadog.connected), ("pagerduty", pagerduty.connected)) if not linked()
+        name
+        for name, linked in (
+            ("datadog", datadog.connected),
+            ("pagerduty", pagerduty.connected),
+            ("workspace", project.configured),
+        )
+        if not linked()
     }
     return [s for s in skills.enabled_skills() if s["name"] not in hidden]
 
@@ -472,25 +478,60 @@ def _read_file(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip("\n".join(lines[first - 1 : last]) + tail, ctx, "file")
 
 
-def _source_search(args: dict[str, Any], ctx: ToolContext) -> str:
-    found = sources.search(
-        str(args["source"]),
+def _project(handler: Handler) -> Handler:
+    def wrapped(args: dict[str, Any], ctx: ToolContext) -> str:
+        try:
+            return handler(args, ctx)
+        except (project.ProjectError, ValueError) as exc:
+            raise ToolError(str(exc)) from None
+
+    return wrapped
+
+
+def _ws_list(args: dict[str, Any], ctx: ToolContext) -> str:
+    return clip(project.listing(str(args.get("path") or ""), str(args.get("pattern") or "")), ctx, "listing")
+
+
+def _ws_search(args: dict[str, Any], ctx: ToolContext) -> str:
+    found = project.search(
         str(args["pattern"]),
         str(args.get("path") or ""),
+        str(args.get("glob") or ""),
         bool(args.get("ignore_case")),
     )
     return clip(found, ctx, "search")
 
 
-def _source_read(args: dict[str, Any], ctx: ToolContext) -> str:
+def _ws_read(args: dict[str, Any], ctx: ToolContext) -> str:
     end = int(args["end"]) if args.get("end") else None
-    text = sources.read(str(args["source"]), str(args["path"]), int(args.get("start") or 1), end)
-    return clip(text, ctx, "file")
+    return clip(project.read(str(args["path"]), int(args.get("start") or 1), end), ctx, "file")
 
 
-def _github_clone(args: dict[str, Any], _ctx: ToolContext) -> str:
-    cloned = sources.clone_repo(str(args["url"]))
-    return f'Use source="{cloned["repo"]}".\nFiles:\n' + "\n".join(cloned["files"])
+def _ws_edit(args: dict[str, Any], _ctx: ToolContext) -> str:
+    return project.edit(str(args["path"]), str(args["old"]), str(args["new"]), bool(args.get("replace_all")))
+
+
+def _ws_write(args: dict[str, Any], _ctx: ToolContext) -> str:
+    return project.write(str(args["path"]), str(args["content"]))
+
+
+def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
+    command = str(args["command"]).strip()
+    folder = str(args.get("cwd") or "")
+    risky = project.risks(command, project.resolve(folder))
+    if risky:
+        where = folder or "the workspace root"
+        answer = ctx.ask_user(
+            f"Run this command? It {', and '.join(risky)}.",
+            ["Approve", "Reject"],
+            False,
+            f"{where}> {command}",
+        )
+        if answer != "Approve":
+            raise ToolError("The user rejected this command. Do not retry it; ask what they want instead.")
+
+    timeout = int(args.get("timeout") or project.DEFAULT_TIMEOUT_SECONDS)
+    return clip(project.run(command, folder, timeout, ctx.cancel), ctx, "command output")
 
 
 def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -846,41 +887,74 @@ TOOLS = [
         _read_file,
     ),
     Tool(
-        "source_search",
-        'git grep (extended regex) in a configured source (code or docs folder) or a cloned repo ("repo:<name>").',
-        {
-            "source": _str('Source name, or "repo:<name>" for a repo from github_clone'),
-            "pattern": _str("Extended regex"),
-            "path": _str('Optional pathspec, e.g. "db/*" or "*.py"'),
-            "ignore_case": {"type": "boolean"},
-        },
-        ["source", "pattern"],
-        lambda a: f"grep {a.get('source')}: {a.get('pattern')}",
-        _source_search,
+        "ws_list",
+        "List a folder in the workspace, or with pattern every file matching a glob such as "
+        '"**/*.py" or "pom.xml". Skips .git, node_modules, build output.',
+        {"path": _str("Folder relative to the workspace root; default the root"), "pattern": _str("Optional glob")},
+        [],
+        lambda a: f"list {a.get('path') or '.'}{' ' + str(a['pattern']) if a.get('pattern') else ''}",
+        _project(_ws_list),
     ),
     Tool(
-        "source_read",
-        "Read a file, or list a directory, from a source or cloned repo.",
+        "ws_search",
+        "Search file contents in the workspace with a regex. Returns path:line: text.",
         {
-            "source": _str('Source name or "repo:<name>"'),
-            "path": _str("Path inside the source; empty string for its root"),
+            "pattern": _str("Regex"),
+            "path": _str("Folder to search, relative to the workspace root; default the root"),
+            "glob": _str('Only files matching this glob, e.g. "*.sql"'),
+            "ignore_case": {"type": "boolean"},
+        },
+        ["pattern"],
+        lambda a: f"search {a.get('path') or '.'}: {a.get('pattern')}",
+        _project(_ws_search),
+    ),
+    Tool(
+        "ws_read",
+        f"Read a text file in the workspace with line numbers, up to {project.MAX_READ_LINES} lines per call.",
+        {
+            "path": _str("File path relative to the workspace root"),
             "start": _int("First line"),
             "end": _int("Last line"),
         },
-        ["source", "path"],
-        lambda a: f"read {a.get('source')}/{a.get('path')}",
-        _source_read,
+        ["path"],
+        lambda a: f"read {a.get('path')}",
+        _project(_ws_read),
     ),
     Tool(
-        "github_clone",
-        "Clone or update a GitHub (or any git) repository, e.g. a Vizion Hub module from "
-        "MODULE.GIT_REPO_URL, so it can be searched with source_search and read with "
-        'source_read as "repo:<name>". Uses this computer\'s git and its credentials. '
-        "Returns the file list.",
-        {"url": _str("Repository URL")},
-        ["url"],
-        lambda a: f"clone {str(a.get('url', '')).rstrip('/').rsplit('/', 1)[-1]}",
-        _github_clone,
+        "ws_edit",
+        "Edit a workspace file by replacing exact text. old must match the file exactly, including "
+        "indentation, and be unique unless replace_all is set. Read the file first.",
+        {
+            "path": _str("File path relative to the workspace root"),
+            "old": _str("Exact text to replace"),
+            "new": _str("Replacement text"),
+            "replace_all": {"type": "boolean"},
+        },
+        ["path", "old", "new"],
+        lambda a: f"edit {a.get('path')}",
+        _project(_ws_edit),
+    ),
+    Tool(
+        "ws_write",
+        "Create a workspace file, or overwrite it completely. Prefer ws_edit for changes to existing files.",
+        {"path": _str("File path relative to the workspace root"), "content": _str("Full file content")},
+        ["path", "content"],
+        lambda a: f"write {a.get('path')}",
+        _project(_ws_write),
+    ),
+    Tool(
+        "ws_run",
+        "Run a shell command (PowerShell on Windows, bash elsewhere) in a workspace folder: git, "
+        "builds, tests, scripts. Deleting files, git push, history rewrites and anything outside the "
+        "workspace wait for the user's approval.",
+        {
+            "command": _str("The command line"),
+            "cwd": _str("Folder relative to the workspace root; default the root"),
+            "timeout": _int(f"Seconds, default {project.DEFAULT_TIMEOUT_SECONDS}, max {project.MAX_TIMEOUT_SECONDS}"),
+        },
+        ["command"],
+        lambda a: f"$ {a.get('command')}"[:LABEL_CHARS],
+        _project(_ws_run),
     ),
     Tool(
         "propose_change",
@@ -1288,12 +1362,13 @@ TOOLS += [
     ),
 ]
 
-TOOL_SPECS = [t.spec for t in TOOLS if t.name not in DATADOG_TOOLS and t.name not in PAGERDUTY_TOOLS]
+WORKSPACE_TOOLS = ("ws_list", "ws_search", "ws_read", "ws_edit", "ws_write", "ws_run")
+OPTIONAL_TOOLS = {*DATADOG_TOOLS, *PAGERDUTY_TOOLS, *WORKSPACE_TOOLS}
+TOOL_SPECS = [t.spec for t in TOOLS if t.name not in OPTIONAL_TOOLS]
 
 TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     ("OV CLI", "signed-in OneVizion instances", ["ov", "ov_sql", "ov_export", "ov_search", "ov_map", "ov_case"]),
-    ("Sources", "folders on this computer and cloned repos", ["source_search", "source_read"]),
-    ("GitHub", "module and project repositories", ["github_clone"]),
+    ("Workspace", "the user's code folder: files, search, edits and commands", list(WORKSPACE_TOOLS)),
     ("Datadog", "logs, metrics, monitors, events and APM", list(DATADOG_TOOLS)),
     ("PagerDuty", "incidents and on-call", list(PAGERDUTY_TOOLS)),
     (
@@ -1306,6 +1381,8 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
 
 def tool_specs() -> list[dict[str, Any]]:
     specs = list(TOOL_SPECS)
+    if project.configured():
+        specs += [t.spec for t in TOOLS if t.name in WORKSPACE_TOOLS]
     for linked, allowed, names in (
         (datadog.connected, datadog.permissions, DATADOG_TOOLS),
         (pagerduty.connected, pagerduty.permissions, PAGERDUTY_TOOLS),

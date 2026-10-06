@@ -1,5 +1,4 @@
 import {
-  ArrowPathIcon,
   ArrowRightStartOnRectangleIcon,
   ArrowUturnLeftIcon,
   CheckIcon,
@@ -10,7 +9,7 @@ import {
   TrashIcon,
 } from '@heroicons/react/24/outline'
 import { useEffect, useState } from 'react'
-import type { Instance, SkillInfo, SourceInfo } from '@shared/types.ts'
+import type { Instance, SkillInfo } from '@shared/types.ts'
 import {
   AccountRow,
   DatadogAccountRow,
@@ -45,6 +44,7 @@ import {
 import { api } from '@/lib/api'
 import { go } from '@/lib/route'
 import { cn } from '@/lib/cn'
+import { href } from '@/lib/route'
 import { useSettings } from '@/lib/settings'
 import { reportError } from '@/components/Toasts'
 
@@ -601,180 +601,64 @@ function Skills() {
   )
 }
 
-const EMPTY_SOURCE = { name: '', description: '', location: '' }
-
-function Sources() {
-  const [sources, setSources] = useState<SourceInfo[]>()
-  const [draft, setDraft] = useState(EMPTY_SOURCE)
-  const [editing, setEditing] = useState<string>()
-  const [busy, setBusy] = useState<string>()
+function Workspace() {
+  const { settings, update } = useSettings()
+  const [folder, setFolder] = useState(settings.workspace)
+  const [notes, setNotes] = useState(settings.workspaceNotes)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
 
-  useEffect(() => {
-    api
-      .sources()
-      .then(setSources)
-      .catch((e: Error) => {
-        setSources([])
-        reportError(e)
-      })
-  }, [])
+  useEffect(() => setFolder(settings.workspace), [settings.workspace])
+  useEffect(() => setNotes(settings.workspaceNotes), [settings.workspaceNotes])
 
-  const act = async (key: string, fn: () => Promise<SourceInfo[]>) => {
-    setBusy(key)
+  const dirty = folder.trim() !== settings.workspace || notes !== settings.workspaceNotes
+
+  const save = async () => {
+    setSaving(true)
     setError(undefined)
     try {
-      setSources(await fn())
-      return true
+      await update({ workspace: folder.trim(), workspaceNotes: notes })
     } catch (e) {
       setError((e as Error).message)
-      return false
     } finally {
-      setBusy(undefined)
+      setSaving(false)
     }
   }
-
-  const submit = async () => {
-    const ok = editing
-      ? await act('save', () =>
-          api.updateSource(editing, { description: draft.description, location: draft.location }),
-        )
-      : await act('save', () => api.addSource(draft))
-
-    if (ok) {
-      setDraft(EMPTY_SOURCE)
-      setEditing(undefined)
-    }
-  }
-
-  if (!sources)
-    return (
-      <Card className="p-5">
-        <SkeletonText lines={3} />
-      </Card>
-    )
 
   return (
-    <Card className="overflow-hidden">
-      <div className="divide-line divide-y">
-        {sources.map((s) => (
-          <div key={s.name} className="flex items-center gap-3 px-5 py-2.5">
-            <FolderIcon className={cn('size-4 shrink-0', s.ready ? 'text-muted' : 'text-danger')} />
-            <div className="min-w-0 flex-1">
-              <div className="text-fg text-[13px] font-medium">
-                {s.name}
-                <span className="text-faint ml-1.5 text-[11px] font-normal">
-                  {s.kind === 'git' ? 'git' : 'folder'}
-                  {s.ready ? '' : ' - missing'}
-                </span>
-              </div>
-              <div className="text-faint truncate text-[11.5px]" title={s.path}>
-                {s.description || s.location}
-              </div>
-            </div>
-            {s.kind === 'git' ? (
-              <IconButton
-                label="Pull latest"
-                onClick={() => void act(s.name, () => api.syncSource(s.name))}
-              >
-                {busy === s.name ? (
-                  <Spinner className="size-3.5" />
-                ) : (
-                  <ArrowPathIcon className="size-3.5" />
-                )}
-              </IconButton>
-            ) : null}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setEditing(s.name)
-                setDraft({ name: s.name, description: s.description, location: s.location })
-              }}
-            >
-              Edit
-            </Button>
-            <IconButton
-              label="Remove source"
-              onClick={async () => {
-                const ok = await dialog.confirm({
-                  title: `Remove ${s.name}?`,
-                  body:
-                    s.kind === 'git'
-                      ? 'The agent stops using it and the local clone is deleted.'
-                      : 'The agent stops using it. The folder itself is not touched.',
-                  confirmLabel: 'Remove',
-                  tone: 'danger',
-                })
-                if (ok) void act(s.name, () => api.deleteSource(s.name))
-              }}
-            >
-              <TrashIcon className="size-3.5" />
-            </IconButton>
-          </div>
-        ))}
-        {!sources.length ? (
-          <div className="text-muted px-4 py-5 text-center text-[12.5px]">
-            No sources yet. Add a code checkout, a docs folder, or a git URL.
-          </div>
-        ) : null}
-      </div>
-      <form
-        className="border-line grid gap-2 border-t px-5 py-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void submit()
-        }}
-      >
-        <div className="text-muted text-[12px] font-medium">
-          {editing ? `Edit ${editing}` : 'Add a source'}
-        </div>
-        <div className="grid gap-2 sm:grid-cols-[160px_1fr]">
-          <Input
-            value={draft.name}
-            disabled={Boolean(editing)}
-            onChange={(e) => setDraft({ ...draft, name: e.target.value.toLowerCase() })}
-            placeholder="name, e.g. platform"
-          />
-          <Input
-            value={draft.location}
-            onChange={(e) => setDraft({ ...draft, location: e.target.value })}
-            placeholder="Folder path, or git URL to clone"
-          />
-        </div>
+    <Card className="space-y-3 p-5">
+      <div className="flex items-center gap-2">
+        <FolderIcon className="text-muted size-4 shrink-0" />
         <Input
-          value={draft.description}
-          onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-          placeholder="What is in it, so the agent knows when to look (e.g. platform Java and DDL under db/ddl)"
+          className="flex-1 font-mono text-[12.5px]"
+          value={folder}
+          onChange={(e) => setFolder(e.target.value)}
+          placeholder="Folder with your code, e.g. C:\\Projects\\OneVizion"
+          spellCheck={false}
         />
-        <div className="flex items-center gap-2">
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            disabled={!draft.name.trim() || !draft.location.trim() || busy === 'save'}
+      </div>
+      <Textarea
+        rows={4}
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder={
+          'Notes for the agent, e.g.\nov/ is the platform repo, modules/ holds Vizion Hub modules (clone new ones there).\nRun Java tests with mvn -q test -pl <module>.'
+        }
+      />
+      <div className="flex items-center gap-2">
+        <Button variant="primary" size="sm" disabled={!dirty || saving} onClick={() => void save()}>
+          {saving ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />} Save
+        </Button>
+        {settings.workspace ? (
+          <a
+            href={href({ page: 'files' })}
+            className="text-brand-strong text-[12.5px] font-medium hover:underline"
           >
-            {busy === 'save' ? <Spinner className="size-3.5" /> : <PlusIcon className="size-3.5" />}
-            {editing ? 'Save' : 'Add'}
-          </Button>
-          {editing ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setEditing(undefined)
-                setDraft(EMPTY_SOURCE)
-              }}
-            >
-              Cancel
-            </Button>
-          ) : null}
-          {busy === 'save' && /^(https?:|git@|ssh:)/.test(draft.location) ? (
-            <span className="text-muted text-[12px]">Cloning...</span>
-          ) : null}
-        </div>
-        {error ? <div className="text-danger text-[12px]">{error}</div> : null}
-      </form>
+            Open in Files
+          </a>
+        ) : null}
+        {error ? <span className="text-danger text-[12px]">{error}</span> : null}
+      </div>
     </Card>
   )
 }
@@ -793,7 +677,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
       title="Settings"
       subtitle={
         <span>
-          Defaults, instances, integrations, skills, sources and accounts. Stored on this machine.
+          Defaults, instances, workspace, integrations, skills and accounts. Stored on this machine.
         </span>
       }
     >
@@ -826,10 +710,10 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           <Skills />
         </Section>
         <Section
-          title="Sources"
-          hint="Code and docs the agent can search: a local folder or a git repo it clones for you."
+          title="Workspace"
+          hint="One folder with your code. The agent reads, edits and runs commands only inside it; deleting files, git push and the like wait for your approval."
         >
-          <Sources />
+          <Workspace />
         </Section>
         <Section title="Accounts" hint="Services this computer is signed in to.">
           <Card className="divide-line divide-y overflow-hidden">

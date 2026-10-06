@@ -43,17 +43,13 @@ CREATE TABLE IF NOT EXISTS skills (
   content TEXT,
   enabled INTEGER NOT NULL DEFAULT 1
 );
-CREATE TABLE IF NOT EXISTS sources (
-  name TEXT PRIMARY KEY,
-  description TEXT NOT NULL,
-  location TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
 """
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "defaultModel": "",
     "fastModel": "",
+    "workspace": "",
+    "workspaceNotes": "",
     "maxSteps": 80,
     "notify": False,
     "showTimeSaved": True,
@@ -143,6 +139,10 @@ def _max_steps(value: Any) -> int:
 def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
     if "maxSteps" in patch:
         patch = {**patch, "maxSteps": _max_steps(patch["maxSteps"])}
+    if "workspace" in patch:
+        from .project import validate_folder
+
+        patch = {**patch, "workspace": validate_folder(str(patch["workspace"]))}
 
     for key, value in patch.items():
         if key not in DEFAULT_SETTINGS:
@@ -309,23 +309,3 @@ def put_skill(name: str, **fields: Any) -> None:
 
 def delete_skill(name: str) -> None:
     _run("DELETE FROM skills WHERE name = ?", name)
-
-
-def source_rows() -> list[dict[str, Any]]:
-    return [dict(row) for row in _all("SELECT * FROM sources ORDER BY name")]
-
-
-def put_source(name: str, description: str, location: str) -> None:
-    _run(
-        "INSERT INTO sources (name, description, location, created_at) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(name) DO UPDATE SET description = excluded.description, "
-        "location = excluded.location",
-        name,
-        description,
-        location,
-        now_ms(),
-    )
-
-
-def delete_source(name: str) -> None:
-    _run("DELETE FROM sources WHERE name = ?", name)
