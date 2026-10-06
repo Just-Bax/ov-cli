@@ -60,6 +60,7 @@ WRITE_ON_NOTE = (
 )
 WRITE_OFF_NOTE = "The user turned OFF write access for this run. Do not attempt changes; propose them instead."
 
+STOPPED_ANSWER = "(not answered: the run stopped)"
 EDIT_CHARS = 60_000
 CUT_OFF_ARGUMENTS = (
     "the arguments of this call were cut off or were not valid JSON, so it did not run. This "
@@ -182,8 +183,9 @@ class Run:
 
         for message, _ in dropped:
             self.emit({"type": "unqueue", "id": message["id"]})
-        for event, answer in questions.values():
-            answer.append("(cancelled)")
+        for question_id, (event, answer) in questions.items():
+            self._close_question(question_id, STOPPED_ANSWER)
+            answer.append(STOPPED_ANSWER)
             event.set()
         for event, ok in logins.values():
             ok.append(False)
@@ -193,12 +195,20 @@ class Run:
         question = next((q for q in self.state["questions"] if q["id"] == question_id), None)
         with self._lock:
             waiter = self._questions.pop(question_id, None)
-        if question is None or waiter is None:
-            raise RunError("No such pending question.")
+        if question is None:
+            raise RunError("No such question in this run.")
+        if waiter is None:
+            self._close_question(question_id, STOPPED_ANSWER)
+            raise RunError("The agent is no longer waiting for this answer. Send a message to continue.")
 
         self.emit({"type": "question", "question": {**question, "answer": answer}})
         waiter[1].append(answer)
         waiter[0].set()
+
+    def _close_question(self, question_id: str, answer: str) -> None:
+        question = next((q for q in self.state["questions"] if q["id"] == question_id), None)
+        if question is not None and "answer" not in question:
+            self.emit({"type": "question", "question": {**question, "answer": answer}})
 
     def ask_user(self, question: str, options: list[str], multiple: bool, detail: str | None = None) -> str:
         entry: dict[str, Any] = {

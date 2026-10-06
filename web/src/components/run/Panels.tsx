@@ -140,9 +140,20 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
   )
 }
 
-function ApprovalCard({ runId, question }: { runId: string; question: Question }) {
+const STOPPED = '(not answered: the run stopped)'
+
+function ApprovalCard({
+  runId,
+  question,
+  live,
+}: {
+  runId: string
+  question: Question
+  live: boolean
+}) {
   const [sending, setSending] = useState(false)
-  const answered = question.answer !== undefined
+  const stopped = question.answer === STOPPED || (question.answer === undefined && !live)
+  const answered = question.answer !== undefined || stopped
   const approved = question.answer === 'Approve'
 
   const send = async (answer: string) => {
@@ -164,8 +175,13 @@ function ApprovalCard({ runId, question }: { runId: string; question: Question }
         <KeyIcon className={cn('size-4', answered ? 'text-faint' : 'text-warn')} />
         <span className="text-fg flex-1 text-[13.5px] font-medium">{question.question}</span>
         {answered ? (
-          <span className={cn('text-[12px] font-medium', approved ? 'text-ok' : 'text-danger')}>
-            {approved ? 'Approved' : 'Rejected'}
+          <span
+            className={cn(
+              'text-[12px] font-medium',
+              stopped ? 'text-faint' : approved ? 'text-ok' : 'text-danger',
+            )}
+          >
+            {stopped ? 'Not answered' : approved ? 'Approved' : 'Rejected'}
           </span>
         ) : null}
       </div>
@@ -186,17 +202,29 @@ function ApprovalCard({ runId, question }: { runId: string; question: Question }
   )
 }
 
-export function QuestionCard({ runId, question }: { runId: string; question: Question }) {
+export function QuestionCard({
+  runId,
+  question,
+  live,
+}: {
+  runId: string
+  question: Question
+  live: boolean
+}) {
   const [picked, setPicked] = useState<string[]>([])
   const [other, setOther] = useState('')
   const [sending, setSending] = useState(false)
 
-  if (question.detail) return <ApprovalCard runId={runId} question={question} />
+  if (question.detail) return <ApprovalCard runId={runId} question={question} live={live} />
 
-  if (question.answer !== undefined) {
+  if (question.answer !== undefined || !live) {
+    const stopped = question.answer === undefined || question.answer === STOPPED
     return (
       <div className="text-muted text-[12.5px]">
-        {question.question} <span className="text-fg font-medium">{question.answer}</span>
+        {question.question}{' '}
+        <span className={stopped ? 'text-faint' : 'text-fg font-medium'}>
+          {stopped ? 'Not answered' : question.answer}
+        </span>
       </div>
     )
   }

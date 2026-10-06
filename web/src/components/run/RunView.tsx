@@ -133,7 +133,8 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
     }
     case 'question': {
       const q = state.questions.find((x) => x.id === item.id)
-      return q ? <QuestionCard runId={id} question={q} /> : null
+      const live = ['running', 'waiting'].includes(state.summary.status)
+      return q ? <QuestionCard runId={id} question={q} live={live} /> : null
     }
     case 'login': {
       const l = state.logins.find((x) => x.id === item.id)

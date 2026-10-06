@@ -620,3 +620,39 @@ def test_the_reducer_keeps_edits_out_of_the_thread():
     edit = {"id": "e1", "toolId": "c1", "path": "a.py", "created": True, "added": 2, "removed": 0}
     state.reduce(s, {"seq": 1, "ts": 1, "event": {"type": "edit", "edit": edit}})
     assert s["edits"] == [edit] and s["items"] == []
+
+
+def test_stopping_closes_open_questions(logged_in, monkeypatch):
+    from ov.agent.run import STOPPED_ANSWER, RunError, runs
+
+    ask = {"question": "Which instance?", "options": ["acme", "other"]}
+    replies = iter(
+        [
+            StreamResult(
+                tool_calls=[
+                    {"id": "c1", "type": "function", "function": {"name": "run_ask", "arguments": json.dumps(ask)}}
+                ]
+            ),
+            StreamResult(text="Stopped."),
+        ]
+    )
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text: next(replies))
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+
+    run = runs.create({"prompt": "help", "instance": "acme"}, "test-model")
+    for _ in range(100):
+        if run.state["questions"]:
+            break
+        time.sleep(0.05)
+
+    question = run.state["questions"][0]
+    run.stop()
+    for _ in range(100):
+        if run.state["questions"][0].get("answer"):
+            break
+        time.sleep(0.05)
+
+    assert run.state["questions"][0]["answer"] == STOPPED_ANSWER
+    with pytest.raises(RunError, match="no longer waiting"):
+        run.answer(question["id"], "acme")
+    runs.delete(run.id)
