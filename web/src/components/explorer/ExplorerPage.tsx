@@ -3,7 +3,6 @@ import {
   ChevronRightIcon,
   CodeBracketIcon,
   MagnifyingGlassIcon,
-  SparklesIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -394,13 +393,18 @@ function Inspector({
         <dt className="text-muted">Links</dt>
         <dd className="text-fg">{links.length.toLocaleString()}</dd>
       </dl>
-      <div className="space-y-2 px-4 pt-3 pb-4">
-        {WITH_CODE.has(node.type) && !(sections?.state === 'ready' && !sections.value.length) ? (
-          <Button className="w-full" size="sm" variant="secondary" onClick={review}>
-            <SparklesIcon className="size-3.5" /> Review with AI
-          </Button>
-        ) : null}
-        <ObjectActions node={node} host={host} alias={alias} page="explorer" />
+      <div className="px-4 pt-3 pb-4">
+        <ObjectActions
+          node={node}
+          host={host}
+          alias={alias}
+          page="explorer"
+          onReview={
+            WITH_CODE.has(node.type) && !(sections?.state === 'ready' && !sections.value.length)
+              ? review
+              : undefined
+          }
+        />
       </div>
 
       <div className="border-line min-h-0 flex-1 scrollbar-thin space-y-4 overflow-y-auto border-t px-3 py-3">

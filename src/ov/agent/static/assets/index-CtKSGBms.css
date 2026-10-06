@@ -1027,9 +1027,6 @@ svg.react-flow__connectionline {
   .block {
     display: block;
   }
-  .contents {
-    display: contents;
-  }
   .flex {
     display: flex;
   }
@@ -1047,9 +1044,6 @@ svg.react-flow__connectionline {
   }
   .field-sizing-content {
     field-sizing: content;
-  }
-  .aspect-square {
-    aspect-ratio: 1 / 1;
   }
   .\!size-1 {
     width: var(--spacing) !important;
@@ -1907,9 +1901,6 @@ svg.react-flow__connectionline {
   }
   .p-7 {
     padding: calc(var(--spacing) * 7);
-  }
-  .px-0 {
-    padding-inline: 0px;
   }
   .px-1 {
     padding-inline: var(--spacing);

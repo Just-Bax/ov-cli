@@ -1,15 +1,18 @@
 import {
   ArrowTopRightOnSquareIcon,
   CodeBracketIcon,
+  DocumentMagnifyingGlassIcon,
   MapIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline'
 import type { GraphNode } from '@shared/types.ts'
 import { FORMS, TYPES, WITH_CODE } from '@/components/map/meta'
-import { Button } from '@/components/ui'
+import { Button, IconButton } from '@/components/ui'
 import { openDraft } from '@/lib/draft'
 import { go } from '@/lib/route'
 import { EXPLORE_KEY, FOCUS_KEY } from '@/lib/useInstanceGraph'
+
+const ICON_BUTTON = 'bg-raised hover:bg-brand-soft hover:text-brand-strong'
 
 export function ObjectActions({
   node,
@@ -17,12 +20,14 @@ export function ObjectActions({
   alias,
   page,
   onExplore,
+  onReview,
 }: {
   node: GraphNode
   host: string
   alias: string
   page: 'map' | 'explorer'
   onExplore?: () => void
+  onReview?: () => void
 }) {
   const explorable = WITH_CODE.has(node.type) && (page !== 'explorer' || onExplore)
 
@@ -44,38 +49,35 @@ export function ObjectActions({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex gap-2">
-        <Button size="sm" variant="primary" className="flex-1" onClick={ask}>
-          <SparklesIcon className="size-3.5" /> Ask the agent
+    <div className="flex items-center gap-1.5">
+      <Button size="sm" variant="primary" className="min-w-0 flex-1" onClick={ask}>
+        <SparklesIcon className="size-3.5" /> Ask the agent
+      </Button>
+      {onReview ? (
+        <Button size="sm" variant="secondary" onClick={onReview}>
+          <DocumentMagnifyingGlassIcon className="size-3.5" /> Review
         </Button>
-        <a
-          href={`https://${host}${FORMS[node.type]}${node.ref}`}
-          target="_blank"
-          rel="noreferrer"
-          title="Open in OneVizion"
-          aria-label="Open in OneVizion"
-          className="contents"
-        >
-          <Button size="sm" variant="secondary" className="aspect-square px-0">
-            <ArrowTopRightOnSquareIcon className="size-3.5" />
-          </Button>
-        </a>
-      </div>
-      {explorable || page !== 'map' ? (
-        <div className="flex gap-2">
-          {explorable ? (
-            <Button size="sm" variant="secondary" className="flex-1" onClick={explore}>
-              <CodeBracketIcon className="size-3.5" /> Open in Explorer
-            </Button>
-          ) : null}
-          {page !== 'map' ? (
-            <Button size="sm" variant="secondary" className="flex-1" onClick={showOnMap}>
-              <MapIcon className="size-3.5" /> Show on map
-            </Button>
-          ) : null}
-        </div>
       ) : null}
+      {explorable ? (
+        <IconButton label="Open in Explorer" className={ICON_BUTTON} onClick={explore}>
+          <CodeBracketIcon className="size-4" />
+        </IconButton>
+      ) : null}
+      {page !== 'map' ? (
+        <IconButton label="Show on map" className={ICON_BUTTON} onClick={showOnMap}>
+          <MapIcon className="size-4" />
+        </IconButton>
+      ) : null}
+      <a
+        href={`https://${host}${FORMS[node.type]}${node.ref}`}
+        target="_blank"
+        rel="noreferrer"
+        title="Open in OneVizion"
+        aria-label="Open in OneVizion"
+        className={`text-muted inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-colors ${ICON_BUTTON}`}
+      >
+        <ArrowTopRightOnSquareIcon className="size-4" />
+      </a>
     </div>
   )
 }

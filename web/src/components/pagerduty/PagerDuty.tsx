@@ -290,10 +290,14 @@ export function PagerDutyCard({
           <div className="border-line flex flex-wrap items-center gap-3 border-t px-5 py-3">
             <span className="text-muted text-[12px] font-medium">Can read</span>
             <Permissions status={status} />
-            <span className="text-faint ml-auto text-[12px]">
-              Token ...{status.keyLast4}
-              {status.checkedAt ? ` - checked ${timeAgo(status.checkedAt)}` : ''}
-            </span>
+            {status.checkedAt ? (
+              <span
+                className="text-faint ml-auto text-[12px] whitespace-nowrap"
+                title={`Token ...${status.keyLast4}`}
+              >
+                Checked {timeAgo(status.checkedAt)}
+              </span>
+            ) : null}
           </div>
           {status.error ? (
             <div className="border-line text-danger border-t px-5 py-2.5 text-[12.5px]">
