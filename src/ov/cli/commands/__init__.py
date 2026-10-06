@@ -1,6 +1,6 @@
-from . import agent, api, auth, request, schema, settings, setup
+from . import agent, api, auth, request, schema, settings, setup, update
 
-GROUPS = (auth, api, request, schema, settings, setup, agent)
+GROUPS = (auth, api, request, schema, settings, setup, update, agent)
 
 BUILTIN_NAMES = frozenset(
     {
@@ -15,6 +15,7 @@ BUILTIN_NAMES = frozenset(
         "spec",
         "config",
         "setup",
+        "update",
         "agent",
         "ui",
     }

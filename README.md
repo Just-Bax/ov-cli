@@ -83,9 +83,21 @@ ov setup
 
 ### Updating
 
-Re-run the same install command. It fetches the latest code and replaces the existing
-copy; settings, sign-ins and agent history in `~/.ov` are kept. On Windows, stop a running
-`ov agent` first, since a running `ov` cannot be replaced.
+```bash
+ov update           # fetch and install the latest version
+ov update --check   # only say whether one is available
+```
+
+`ov update` uses git with your own GitHub access, so it also works while the repo is
+private. From a clone (`pip install -e` or `uv tool install --editable`) it fast-forwards
+the clone, and stops without touching your work if your local changes conflict; it
+reinstalls only when dependencies changed. Otherwise it reinstalls `ov` from the latest
+commit on GitHub. On Windows the reinstall finishes a few seconds after the command
+exits, because a running `ov` cannot replace itself; the log is in `~/.ov/update.log`.
+Settings, sign-ins and agent history in `~/.ov` are kept. Restart a running `ov agent`
+afterwards.
+
+Re-running the install command works too.
 
 ### Uninstalling
 
