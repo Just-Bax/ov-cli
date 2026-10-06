@@ -37,6 +37,7 @@ import { cn } from '@/lib/cn'
 import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 import { ObjectActions } from '@/components/map/ObjectActions'
 import { MapState } from '@/components/map/MapState'
+import { MapSkeleton, useSkeleton } from '@/components/skeletons'
 
 const EXPAND_LIMIT = 40
 const START_POINT_ROWS = 6
@@ -628,6 +629,7 @@ export function MapPage() {
   const node = selected ? idx?.byId.get(selected) : undefined
   const building = status?.state === 'building'
   const loading = !error && (!status || (Boolean(status.builtAt) && !graph && !building))
+  const showSkeleton = useSkeleton(loading)
 
   const subtitle = building ? (
     <span className="text-brand-strong inline-flex items-center gap-1.5">
@@ -720,10 +722,11 @@ export function MapPage() {
                 )}
               </div>
             </>
-          ) : (
+          ) : showSkeleton ? (
+            <MapSkeleton />
+          ) : loading ? null : (
             <div className="flex h-full items-center justify-center p-6">
               <MapState
-                loading={loading}
                 building={building}
                 step={status?.step}
                 error={error ?? status?.error}

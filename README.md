@@ -436,7 +436,7 @@ GitHub token is kept in the vault with your other credentials.
 3. Commands run straight away, except ones that delete files, push, rewrite git history,
    stop processes, publish packages, run downloaded code or touch paths outside the
    workspace. Those wait for your Approve, showing the exact command and folder.
-4. **Files** in the sidebar browses the workspace and opens files in an editor: edit, then
+4. **Workspace** in the sidebar browses the folder and opens files in an editor: edit, then
    save with Ctrl+S. "Ask the agent" there starts a run about the open file.
 
 GitHub work (pull requests, their diffs, review comments, checks, issues) goes through the

@@ -32,7 +32,6 @@ import {
   EmptyState,
   Page,
   Select,
-  Skeleton,
   SkeletonText,
   Spinner,
   timeAgo,
@@ -44,6 +43,7 @@ import { openDraft } from '@/lib/draft'
 import { EXPLORE_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 import { ObjectActions } from '@/components/map/ObjectActions'
 import { MapState } from '@/components/map/MapState'
+import { CodeSkeleton, ExplorerSkeleton, useSkeleton } from '@/components/skeletons'
 
 const TREE_ORDER: GraphNodeType[] = [
   'rule',
@@ -740,6 +740,7 @@ export function ExplorerPage() {
 
   const building = status?.state === 'building'
   const loading = !error && (!status || (Boolean(status.builtAt) && !graph && !building))
+  const showSkeleton = useSkeleton(loading)
 
   const actions = (
     <>
@@ -820,10 +821,7 @@ export function ExplorerPage() {
               ) : !WITH_CODE.has(node.type) ? (
                 <NoCode node={node} idx={idx} onOpen={open} />
               ) : !sections || sections.state === 'loading' ? (
-                <div className="space-y-3 p-6">
-                  <Skeleton className="h-3 w-1/3" />
-                  <SkeletonText lines={8} />
-                </div>
+                <CodeSkeleton />
               ) : sections.state === 'error' ? (
                 <div className="text-danger p-6 text-[13px]">{sections.error}</div>
               ) : current ? (
@@ -859,10 +857,11 @@ export function ExplorerPage() {
             />
           ) : null}
         </div>
-      ) : (
+      ) : showSkeleton ? (
+        <ExplorerSkeleton />
+      ) : loading ? null : (
         <div className="flex h-full items-center justify-center p-6">
           <MapState
-            loading={loading}
             building={building}
             step={status?.step}
             error={error ?? status?.error}

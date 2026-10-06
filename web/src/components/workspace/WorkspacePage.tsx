@@ -10,8 +10,9 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WorkspaceEntry } from '@shared/types.ts'
 import { dialog } from '@/components/Dialog'
+import { CodeSkeleton, TreeRowsSkeleton, useSkeleton } from '@/components/skeletons'
 import { reportError } from '@/components/Toasts'
-import { Button, EmptyState, IconBadge, Page, Skeleton, Spinner } from '@/components/ui'
+import { Button, EmptyState, IconBadge, Page, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
@@ -39,6 +40,7 @@ function Folder({
 }) {
   const [entries, setEntries] = useState<WorkspaceEntry[]>()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const showSkeleton = useSkeleton(!entries)
 
   useEffect(() => {
     api
@@ -47,13 +49,10 @@ function Folder({
       .catch(reportError)
   }, [path, version])
 
-  if (!entries)
-    return (
-      <div className="space-y-1.5 py-1" style={{ paddingLeft: depth * INDENT_PX + 12 }}>
-        <Skeleton className="h-3 w-2/3" />
-        <Skeleton className="h-3 w-1/2" />
-      </div>
-    )
+  if (showSkeleton || !entries)
+    return showSkeleton ? (
+      <TreeRowsSkeleton rows={depth ? 3 : 14} indent={depth * INDENT_PX} />
+    ) : null
 
   const toggle = (p: string) =>
     setExpanded((all) => {
@@ -157,7 +156,7 @@ function Editor({ file, onChange }: { file: Open; onChange: (text: string) => vo
   return <div ref={host} className="h-full w-full" />
 }
 
-export function FilesPage() {
+export function WorkspacePage() {
   const { settings } = useSettings()
   const [open, setOpen] = useState<Open>()
   const [text, setText] = useState('')
@@ -165,6 +164,7 @@ export function FilesPage() {
   const [saving, setSaving] = useState(false)
   const [version, setVersion] = useState(0)
   const dirty = Boolean(open && text !== open.saved)
+  const showEditorSkeleton = useSkeleton(loading)
 
   const load = useCallback(async (path: string) => {
     setLoading(true)
@@ -220,7 +220,7 @@ export function FilesPage() {
 
   if (!settings.workspace)
     return (
-      <Page title="Files">
+      <Page title="Workspace">
         <div className="flex h-full items-center justify-center p-6">
           <EmptyState
             badge={<IconBadge icon={FolderIcon} size="lg" />}
@@ -263,7 +263,7 @@ export function FilesPage() {
 
   return (
     <Page
-      title="Files"
+      title="Workspace"
       subtitle={
         <span className="truncate font-mono">
           {open
@@ -291,11 +291,9 @@ export function FilesPage() {
               Pick a file on the left. Edit it here and save with Ctrl+S.
             </div>
           )}
-          {loading ? (
-            <div className="absolute inset-0 space-y-2 bg-white p-6">
-              {Array.from({ length: 8 }, (_, i) => (
-                <Skeleton key={i} className={cn('h-3', i % 3 ? 'w-2/3' : 'w-full')} />
-              ))}
+          {showEditorSkeleton ? (
+            <div className="absolute inset-0 bg-white">
+              <CodeSkeleton />
             </div>
           ) : null}
         </div>

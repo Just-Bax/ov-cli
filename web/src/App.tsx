@@ -16,8 +16,8 @@ import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
 import { SettingsContext } from '@/lib/settings'
 
-const FilesPage = lazy(() =>
-  import('@/components/files/FilesPage').then((m) => ({ default: m.FilesPage })),
+const WorkspacePage = lazy(() =>
+  import('@/components/workspace/WorkspacePage').then((m) => ({ default: m.WorkspacePage })),
 )
 const ExplorerPage = lazy(() =>
   import('@/components/explorer/ExplorerPage').then((m) => ({ default: m.ExplorerPage })),
@@ -148,7 +148,7 @@ export function App() {
               <ExplorerPage />
             </Suspense>
           )}
-          {route.page === 'files' && (
+          {route.page === 'workspace' && (
             <Suspense
               fallback={
                 <div className="space-y-3 p-6">
@@ -157,7 +157,7 @@ export function App() {
                 </div>
               }
             >
-              <FilesPage />
+              <WorkspacePage />
             </Suspense>
           )}
           {route.page === 'run' && <RunView key={route.id} id={route.id} />}

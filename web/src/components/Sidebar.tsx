@@ -339,17 +339,17 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           collapsed={collapsed}
         />
         <NavRow
-          to={href({ page: 'files' })}
-          icon={FolderIcon}
-          label="Files"
-          active={route.page === 'files'}
-          collapsed={collapsed}
-        />
-        <NavRow
           to={href({ page: 'health' })}
           icon={HeartIcon}
           label="Health"
           active={route.page === 'health'}
+          collapsed={collapsed}
+        />
+        <NavRow
+          to={href({ page: 'workspace' })}
+          icon={FolderIcon}
+          label="Workspace"
+          active={route.page === 'workspace'}
           collapsed={collapsed}
         />
       </nav>

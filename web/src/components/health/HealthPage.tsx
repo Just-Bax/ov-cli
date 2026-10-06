@@ -4,6 +4,7 @@ import type { Instance } from '@shared/types.ts'
 import { DatadogBadge, DatadogConnectModal, useDatadog } from '@/components/datadog/Datadog'
 import { useInstances } from '@/components/InstancePicker'
 import { Button, Card, EmptyState, Page, Select, Skeleton } from '@/components/ui'
+import { useSkeleton } from '@/components/skeletons'
 import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
 import { href } from '@/lib/route'
@@ -88,6 +89,7 @@ export function HealthPage() {
   const enabled = Boolean(status?.connected)
   const refresh = `${tick}|${JSON.stringify(status?.matches ?? {})}`
   const { meta, metaError, slots, busy } = useHealth(alias, range, enabled, refresh)
+  const showSkeleton = useSkeleton(enabled && Boolean(alias) && !meta && !metaError)
 
   const askAll = () =>
     openDraft({
@@ -173,7 +175,7 @@ export function HealthPage() {
       </div>
     )
   else if (metaError) body = <div className="text-danger p-6 text-[13px]">{metaError}</div>
-  else if (!meta) body = <PageSkeleton />
+  else if (!meta || showSkeleton) body = showSkeleton ? <PageSkeleton /> : null
   else {
     const ctx: Context = { meta, label, alias, range, slots }
     const matched = Boolean(meta.scope)

@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type TextareaHTMLAttributes,
   useState,
+  type CSSProperties,
 } from 'react'
 import type { SparklesIcon } from '@heroicons/react/24/outline'
 import ReactMarkdown from 'react-markdown'
@@ -138,8 +139,8 @@ export function Spinner({ className }: { className?: string }) {
   )
 }
 
-export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('skeleton h-3', className)} />
+export function Skeleton({ className, style }: { className?: string; style?: CSSProperties }) {
+  return <div className={cn('skeleton h-3', className)} style={style} />
 }
 
 export function SkeletonText({ lines = 3 }: { lines?: number }) {

@@ -379,6 +379,38 @@ function Permissions({ status }: { status: DatadogStatus }) {
 
 type Row = { alias: string; host: string }
 
+function ServerSummary({ scope }: { scope: string }) {
+  if (!scope.trim())
+    return <span className="text-faint min-w-0 flex-1 text-[12.5px]">No servers</span>
+
+  const hosts = hostsIn(scope)
+  if (!hosts)
+    return (
+      <span className="text-text min-w-0 flex-1 truncate font-mono text-[12px]" title={scope}>
+        {scope}
+      </span>
+    )
+
+  const roles = new Map<string, number>()
+  for (const h of hosts) roles.set(roleOf(h), (roles.get(roleOf(h)) ?? 0) + 1)
+
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-2" title={hosts.join('\n')}>
+      {[...roles].map(([role, n]) => (
+        <span
+          key={role}
+          className="bg-brand-soft text-brand-strong shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
+        >
+          {role} {n}
+        </span>
+      ))}
+      <span className="text-muted min-w-0 truncate text-[12px]">
+        {hosts.map(shortHost).join(', ')}
+      </span>
+    </span>
+  )
+}
+
 export function ServerChips({
   scope,
   hosts,
@@ -487,6 +519,15 @@ function DatadogMatches({
     return [...byHost.values()].sort((a, b) => a.host.localeCompare(b.host))
   }, [instances])
 
+  const [editing, setEditing] = useState<Set<string>>(new Set())
+  const toggleEditing = (alias: string) =>
+    setEditing((all) => {
+      const next = new Set(all)
+      if (next.has(alias)) next.delete(alias)
+      else next.add(alias)
+      return next
+    })
+
   const detect = async () => {
     setBusy('detect')
     setError(undefined)
@@ -563,27 +604,43 @@ function DatadogMatches({
             <Skeleton className="h-3 w-2/3" />
           </div>
         ) : null}
-        {rows.map((r) => (
-          <div key={r.alias} className="flex flex-wrap items-center gap-2.5 px-5 py-2.5">
-            <span className="text-fg w-[240px] min-w-0 truncate text-[13px] font-medium">
-              {r.host}
-            </span>
-            <ServerChips
-              scope={draft[r.alias] ?? ''}
-              hosts={found?.hosts ?? []}
-              onChange={(scope) => setDraft((d) => ({ ...d, [r.alias]: scope }))}
-            />
-            {found?.groups[r.alias] && found.groups[r.alias] !== (draft[r.alias] ?? '') ? (
-              <button
-                type="button"
-                onClick={() => setDraft((d) => ({ ...d, [r.alias]: found.groups[r.alias] }))}
-                className="text-brand-strong hover:bg-brand-soft h-7 shrink-0 rounded-full px-2.5 text-[11.5px] font-medium"
-              >
-                Use {hostsIn(found.groups[r.alias])?.length} detected
-              </button>
-            ) : null}
-          </div>
-        ))}
+        {rows.map((r) => {
+          const scope = draft[r.alias] ?? ''
+          const detected = found?.groups[r.alias]
+          const open = editing.has(r.alias)
+
+          return (
+            <div key={r.alias} className="px-5 py-2.5">
+              <div className="flex items-center gap-3">
+                <span className="text-fg w-[220px] min-w-0 shrink-0 truncate text-[13px] font-medium">
+                  {r.host}
+                </span>
+                <ServerSummary scope={scope} />
+                {detected && detected !== scope ? (
+                  <button
+                    type="button"
+                    onClick={() => setDraft((d) => ({ ...d, [r.alias]: detected }))}
+                    className="text-brand-strong hover:bg-brand-soft h-7 shrink-0 rounded-full px-2.5 text-[11.5px] font-medium"
+                  >
+                    Use {hostsIn(detected)?.length} detected
+                  </button>
+                ) : null}
+                <Button size="sm" variant="ghost" onClick={() => toggleEditing(r.alias)}>
+                  {open ? 'Done' : 'Edit'}
+                </Button>
+              </div>
+              {open ? (
+                <div className="bg-raised mt-2 rounded-2xl p-2.5">
+                  <ServerChips
+                    scope={scope}
+                    hosts={found?.hosts ?? []}
+                    onChange={(next) => setDraft((d) => ({ ...d, [r.alias]: next }))}
+                  />
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
         {instances && !rows.length ? (
           <div className="text-muted px-5 py-4 text-[12.5px]">
             Sign in to an instance first, in the Instances section above.

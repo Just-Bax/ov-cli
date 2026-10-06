@@ -651,10 +651,10 @@ function Workspace() {
         </Button>
         {settings.workspace ? (
           <a
-            href={href({ page: 'files' })}
+            href={href({ page: 'workspace' })}
             className="text-brand-strong text-[12.5px] font-medium hover:underline"
           >
-            Open in Files
+            Open the workspace
           </a>
         ) : null}
         {error ? <span className="text-danger text-[12px]">{error}</span> : null}

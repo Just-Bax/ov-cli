@@ -1,31 +1,19 @@
 import { MapIcon } from '@heroicons/react/24/outline'
-import { Button, EmptyState, IconBadge, Skeleton, Spinner } from '@/components/ui'
+import { Button, EmptyState, IconBadge, Spinner } from '@/components/ui'
 
 export function MapState({
-  loading,
   building,
   step,
   error,
   canBuild,
   onBuild,
 }: {
-  loading: boolean
   building: boolean
   step?: string
   error?: string
   canBuild: boolean
   onBuild: () => void
 }) {
-  if (loading)
-    return (
-      <div className="w-full max-w-[520px] space-y-3">
-        <Skeleton className="mx-auto size-14 rounded-full" />
-        <Skeleton className="mx-auto h-4 w-1/2" />
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="mx-auto h-3 w-2/3" />
-      </div>
-    )
-
   return (
     <EmptyState
       badge={

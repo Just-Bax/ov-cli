@@ -18,6 +18,7 @@ import type {
 } from '@shared/types.ts'
 import { DATADOG_PURPLE } from '@/components/datadog/Datadog'
 import { type BadgeTone, Card, IconBadge, Skeleton } from '@/components/ui'
+import { useSkeleton } from '@/components/skeletons'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
@@ -176,7 +177,9 @@ function Body<K extends HealthSection>({
   skeleton?: ReactNode
   children: (value: HealthSections[K]) => ReactNode
 }) {
-  if (slot.state === 'loading') return <>{skeleton ?? <RowsSkeleton />}</>
+  const showSkeleton = useSkeleton(slot.state === 'loading')
+  if (showSkeleton) return <>{skeleton ?? <RowsSkeleton />}</>
+  if (slot.state === 'loading') return null
   if (slot.state === 'error')
     return <div className="text-danger text-[12.5px] break-words">{slot.error}</div>
   if (slot.state === 'unavailable')
@@ -258,6 +261,7 @@ function Stat<K extends HealthSection>({
   slot: Slot<K>
   value: (v: HealthSections[K]) => { main: ReactNode; sub?: ReactNode; tone?: Tone }
 }) {
+  const showSkeleton = useSkeleton(slot.state === 'loading')
   const shown =
     slot.state === 'ready'
       ? value(slot.value)
@@ -274,7 +278,7 @@ function Stat<K extends HealthSection>({
   return (
     <div className="bg-raised min-w-0 rounded-2xl px-4 py-3">
       <div className="text-muted truncate text-[12px]">{label}</div>
-      {slot.state === 'loading' ? (
+      {showSkeleton || slot.state === 'loading' ? (
         <>
           <Skeleton className="mt-2 h-5 w-12" />
           <Skeleton className="mt-2 h-2.5 w-20" />
@@ -448,6 +452,7 @@ export function TimelineCard({ ctx }: { ctx: Context }) {
   const loading = (['traffic', 'logs', 'incidents', 'events', 'onevizion'] as const).some(
     (s) => slots[s].state === 'loading',
   )
+  const showSkeleton = useSkeleton(loading && !traffic && !logs)
 
   const lanes: Lane[] = [
     {
@@ -484,7 +489,7 @@ export function TimelineCard({ ctx }: { ctx: Context }) {
         )
       }
     >
-      {loading && !traffic && !logs ? (
+      {showSkeleton ? (
         <Skeleton className="h-[230px] w-full rounded-2xl" />
       ) : (
         <Timeline

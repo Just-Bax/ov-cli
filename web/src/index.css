@@ -77,8 +77,17 @@
     background-size: 220px 100%;
     background-repeat: no-repeat;
     background-position: -220px 0;
-    animation: shimmer 1.6s ease-in-out infinite;
+    opacity: 0;
+    animation:
+      skeleton-in 160ms ease-out 300ms forwards,
+      shimmer 1.6s ease-in-out infinite;
     border-radius: 6px;
+  }
+
+  @keyframes skeleton-in {
+    to {
+      opacity: 1;
+    }
   }
 
   .ov-spinner {
