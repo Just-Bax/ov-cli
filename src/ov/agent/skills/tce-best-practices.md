@@ -26,7 +26,7 @@ Link to a trackor record: `https://trackor.onevizion.com/form/ConfigAppForm.do?i
 
 ## Working a case
 
-Read the case, find the affected instance (C_WEBSITE, or from the text), and investigate there. Read every attachment (screenshots, .eml, logs) with read_file, not just the case text.
+Read the case, find the affected instance (C_WEBSITE, or from the text), and investigate there. Read every attachment (screenshots, .eml, logs) with run_read, not just the case text.
 
 Before proposing any enhancement, check trackor for existing work: search Issue (VQS_IT_XITOR_NAME) and Issue_Task (IT_DESCRIPTION, with IT_TASK_TYPE = "Inquiry"), and check whether the case already has C_RELATED_ISSUE or C_RELATED_ISSUE_TASKS_. Name the closest matches in finish (existing) and say plainly whether they cover the request.
 
@@ -38,10 +38,10 @@ Working order:
 2. Investigate on the instance: current config, logs, data. Prefer facts over guesses.
 3. Search Issue / Issue_Task when an enhancement or bug is involved.
 4. Root cause with the evidence that proves it, and whether it is still happening now.
-5. propose_change for every concrete change, with the current code as before.
-6. finish with the findings, existing matches, unrelated problems and the reply.
+5. ov_propose for every concrete change, with the current code as before.
+6. run_report with the findings, existing matches, unrelated problems and the reply.
 
-Deliver: a short summary per issue that answers the question actually asked (unrelated problems go to the unrelated list, never mixed in); for a fix, where it is (object name, ID, link) and the fixed code as propose_change; and one comment for the case chat as `reply`.
+Deliver: a short summary per issue that answers the question actually asked (unrelated problems go to the unrelated list, never mixed in); for a fix, where it is (object name, ID, link) and the fixed code as ov_propose; and one comment for the case chat as `reply`.
 
 ## Reply style (the case chat comment)
 

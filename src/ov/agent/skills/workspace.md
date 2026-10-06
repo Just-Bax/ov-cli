@@ -7,7 +7,7 @@ core: true
 The workspace is one folder on the user's computer that holds their code: the platform repo, Vizion Hub modules, scripts and anything else they work on. Its path and the user's notes about it are under "Workspace" above. Every ws_ path is relative to it; nothing outside it can be read or written.
 
 How to work in it:
-- Find before you read: ws_list with a pattern for file names, ws_search for text such as an error message, a table, a class or a config field name. Narrow searches with path and glob.
+- Find before you read: ws_list with a glob for file names, ws_search for text such as an error message, a table, a class or a config field name. Narrow searches with path and glob.
 - Read what you change or cite with ws_read. Quote real code, never a guess from a file name.
 - Change files with ws_edit: small exact replacements copied from what you just read. Use ws_write only for new files or full rewrites.
 - Run commands with ws_run in the right folder (cwd): git, builds, tests, scripts. Look at git status and the current branch before changing a repo, and keep the user's uncommitted work.

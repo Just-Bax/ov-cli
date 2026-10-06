@@ -554,7 +554,7 @@ def instance_health_section(h: Handler, section: str) -> dict[str, Any]:
 
 
 @route("GET", "/api/pagerduty/incidents/([A-Za-z0-9]+)")
-def pagerduty_incident(_: Handler, ident: str) -> dict[str, Any]:
+def pagerduty_incident_detail(_: Handler, ident: str) -> dict[str, Any]:
     return pagerduty.public(pagerduty.incident_detail(ident))
 
 

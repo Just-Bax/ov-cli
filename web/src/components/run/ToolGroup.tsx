@@ -39,16 +39,16 @@ const ICONS: Record<string, Icon> = {
   ws_edit: PencilSquareIcon,
   ws_write: DocumentPlusIcon,
   ws_run: CommandLineIcon,
-  read_skill: BookOpenIcon,
-  read_file: DocumentTextIcon,
-  datadog_logs: DocumentTextIcon,
-  datadog_metrics: ChartBarIcon,
-  datadog_monitors: BellAlertIcon,
-  datadog_events: CalendarIcon,
-  datadog_apm: ClockIcon,
-  pagerduty_incidents: BellAlertIcon,
-  pagerduty_incident: BellAlertIcon,
-  pagerduty_oncall: UserIcon,
+  skill_read: BookOpenIcon,
+  run_read: DocumentTextIcon,
+  dd_logs: DocumentTextIcon,
+  dd_metrics: ChartBarIcon,
+  dd_monitors: BellAlertIcon,
+  dd_events: CalendarIcon,
+  dd_apm: ClockIcon,
+  pd_incidents: BellAlertIcon,
+  pd_incident: BellAlertIcon,
+  pd_oncall: UserIcon,
 }
 
 const NOUNS: Record<string, [string, string]> = {
@@ -64,16 +64,16 @@ const NOUNS: Record<string, [string, string]> = {
   ws_edit: ['edit', 'edits'],
   ws_write: ['new file', 'new files'],
   ws_run: ['command', 'commands'],
-  read_skill: ['skill', 'skills'],
-  read_file: ['file', 'files'],
-  datadog_logs: ['log search', 'log searches'],
-  datadog_metrics: ['metric query', 'metric queries'],
-  datadog_monitors: ['monitor check', 'monitor checks'],
-  datadog_events: ['event search', 'event searches'],
-  datadog_apm: ['APM query', 'APM queries'],
-  pagerduty_incidents: ['incident search', 'incident searches'],
-  pagerduty_incident: ['incident', 'incidents'],
-  pagerduty_oncall: ['on-call check', 'on-call checks'],
+  skill_read: ['skill', 'skills'],
+  run_read: ['file', 'files'],
+  dd_logs: ['log search', 'log searches'],
+  dd_metrics: ['metric query', 'metric queries'],
+  dd_monitors: ['monitor check', 'monitor checks'],
+  dd_events: ['event search', 'event searches'],
+  dd_apm: ['APM query', 'APM queries'],
+  pd_incidents: ['incident search', 'incident searches'],
+  pd_incident: ['incident', 'incidents'],
+  pd_oncall: ['on-call check', 'on-call checks'],
 }
 
 function summarize(tools: ToolActivity[]): string {
@@ -96,8 +96,8 @@ function readableInput(tool: ToolActivity): string {
     const at = a.instance ? `-- ${a.instance}\n` : ''
     const name = tool.name
     if (name === 'ov_sql') return `${at}${a.query}`
-    if (name === 'pagerduty_incident') return String(a.incident)
-    if (name.startsWith('datadog_') || name.startsWith('pagerduty_'))
+    if (name === 'pd_incident') return String(a.incident)
+    if (name.startsWith('dd_') || name.startsWith('pd_'))
       return [
         a.instance ? `instance: ${a.instance}` : '',
         a.query ? `query: ${a.query}` : '',
@@ -116,7 +116,7 @@ function readableInput(tool: ToolActivity): string {
     if (name === 'ws_run') return `${a.cwd ? `${a.cwd}> ` : '> '}${a.command}`
     if (name === 'ws_edit') return `${a.path}\n--- old\n${a.old}\n+++ new\n${a.new}`
     if (name === 'ws_write') return `${a.path}\n${a.content}`
-    if (name === 'ws_read' || name === 'ws_list' || name === 'read_file')
+    if (name === 'ws_read' || name === 'ws_list' || name === 'run_read')
       return String(a.path ?? '.')
     return JSON.stringify(a, null, 2)
   } catch {

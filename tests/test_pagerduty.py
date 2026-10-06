@@ -197,39 +197,37 @@ def test_a_tenant_sees_its_host_incidents(linked):
 
 def test_tools_are_offered_only_when_connected(fake, logged_in):
     names = {s["function"]["name"] for s in tool_specs()}
-    assert not {n for n in names if n.startswith("pagerduty_")}
+    assert not {n for n in names if n.startswith("pd_")}
     assert "PagerDuty: not connected" in prompt.system_prompt(False, "")
 
     fake.denied = {"oncall"}
     pagerduty.connect("onevizion", KEY)
     names = {s["function"]["name"] for s in tool_specs()}
-    assert {"pagerduty_incidents", "pagerduty_incident"} <= names
-    assert "pagerduty_oncall" not in names
+    assert {"pd_incidents", "pd_incident"} <= names
+    assert "pd_oncall" not in names
     text = prompt.system_prompt(False, "")
     assert "- pagerduty: " in text and "PagerDuty (incidents and on-call)" in text
 
 
 def test_incident_tools(linked, tmp_path):
     ctx = Ctx(tmp_path)
-    out = TOOLS_BY_NAME["pagerduty_incidents"].handler({}, ctx)
+    out = TOOLS_BY_NAME["pd_incidents"].handler({}, ctx)
     assert f"for {HOST}" in out and "#7 [triggered, high] Unhealthy Hosts" in out and "#4" not in out
 
-    open_only = TOOLS_BY_NAME["pagerduty_incidents"].handler({"statuses": ["triggered"]}, ctx)
+    open_only = TOOLS_BY_NAME["pd_incidents"].handler({"statuses": ["triggered"]}, ctx)
     assert "#7" in open_only and "#6" not in open_only
-    every = TOOLS_BY_NAME["pagerduty_incidents"].handler({"all_instances": True}, ctx)
+    every = TOOLS_BY_NAME["pd_incidents"].handler({"all_instances": True}, ctx)
     assert "#4" in every
-    found = TOOLS_BY_NAME["pagerduty_incidents"].handler({"query": "acmedb"}, ctx)
+    found = TOOLS_BY_NAME["pd_incidents"].handler({"query": "acmedb"}, ctx)
     assert "#7" in found and "#5" not in found
 
-    detail = TOOLS_BY_NAME["pagerduty_incident"].handler(
-        {"incident": "https://onevizion.pagerduty.com/incidents/PINC7"}, ctx
-    )
+    detail = TOOLS_BY_NAME["pd_incident"].handler({"incident": "https://onevizion.pagerduty.com/incidents/PINC7"}, ctx)
     assert detail.index("trigger:") < detail.index("acknowledge:")
     assert "[Datadog] JVM heap" in detail and "avg:jvm" in detail
 
-    oncall = TOOLS_BY_NAME["pagerduty_oncall"].handler({}, ctx)
+    oncall = TOOLS_BY_NAME["pd_oncall"].handler({}, ctx)
     assert "level 1 Pat (policies PPOL1,PPOL2, Primary" in oncall and "level 2 Sam" in oncall
-    everyone = TOOLS_BY_NAME["pagerduty_oncall"].handler({}, Ctx(tmp_path, instance=""))
+    everyone = TOOLS_BY_NAME["pd_oncall"].handler({}, Ctx(tmp_path, instance=""))
     assert "policies all" in everyone
 
 

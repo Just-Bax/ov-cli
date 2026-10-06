@@ -288,7 +288,7 @@ def render(bundle: dict[str, Any], work_dir: Path) -> str:
         for message in bundle["chat"]:
             files = f" [files: {', '.join(message['files'])}]" if message["files"] else ""
             lines.append(f"- {message['ts']} {message['user']}: {message['text']}{files}")
-    lines += ["", "## Attachments (open each with read_file)"]
+    lines += ["", "## Attachments (open each with run_read)"]
     lines += [f"- {a['name']} ({a['kind']}, {a['size']} bytes, from {a['source']})" for a in bundle["attachments"]] or [
         "none"
     ]
@@ -296,5 +296,5 @@ def render(bundle: dict[str, Any], work_dir: Path) -> str:
     text = "\n".join(lines)
     (work_dir / "case.md").write_text(text, encoding="utf-8")
     if len(text) > MAX_CASE_CHARS:
-        return text[:MAX_CASE_CHARS] + "\n\n[case text truncated; full copy in case.md, use read_file]"
+        return text[:MAX_CASE_CHARS] + "\n\n[case text truncated; full copy in case.md, use run_read]"
     return text

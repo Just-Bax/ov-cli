@@ -137,7 +137,7 @@ def clip(text: str, ctx: ToolContext, what: str) -> str:
     (ctx.work_dir / name).write_text(text, encoding="utf-8")
     return (
         f"{text[:MAX_OUTPUT]}\n\n[truncated: {len(text)} chars total. Full {what} saved as "
-        f'"{name}"; read more with read_file]'
+        f'"{name}"; read more with run_read]'
     )
 
 
@@ -255,7 +255,7 @@ def run_ov_tool(args: list[str], instance: str | None, ctx: ToolContext, allow_s
 def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
     blocked = ToolError(
         "Blocked: this would change data and write access is OFF for this run. Do not "
-        "retry. Show the change with propose_change and tell the user they can turn on "
+        "retry. Show the change with ov_propose and tell the user they can turn on "
         '"Allow changes" below the chat if they want you to apply it.'
     )
     if not ctx.can_write():
@@ -318,7 +318,7 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
     if _SECRET_SQL.search(query):
         raise ToolError("Do not read credential columns. Select the non-secret columns you need.")
 
-    rows = min(max(int(args.get("rows") or DEFAULT_SQL_ROWS), 1), MAX_SQL_ROWS)
+    rows = min(max(int(args.get("limit") or DEFAULT_SQL_ROWS), 1), MAX_SQL_ROWS)
     raw = run_ov_tool(
         [
             *graph.SQL_REQUEST,
@@ -377,7 +377,7 @@ def _ov_export(args: dict[str, Any], ctx: ToolContext) -> str:
     body = "\n\n".join(_export_item(item, component_type, set(map(str, ids)), ctx) for item in found)
     return (
         f"Exported {len(found)} {component_type} (full XML in {name}).\n\n{body}\n\n"
-        "Read the files with read_file, using start and end for line ranges."
+        "Read the files with run_read, using start and end for line ranges."
     )
 
 
@@ -489,7 +489,7 @@ def _project(handler: Handler) -> Handler:
 
 
 def _ws_list(args: dict[str, Any], ctx: ToolContext) -> str:
-    return clip(project.listing(str(args.get("path") or ""), str(args.get("pattern") or "")), ctx, "listing")
+    return clip(project.listing(str(args.get("path") or ""), str(args.get("glob") or "")), ctx, "listing")
 
 
 def _ws_search(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -573,7 +573,7 @@ def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
     findings = args["findings"]
     if any(not f.get("evidence") for f in findings):
         raise ToolError(
-            "Not finished: every finding needs evidence you verified yourself. Check, then call finish again."
+            "Not finished: every finding needs evidence you verified yourself. Check, then call run_report again."
         )
 
     unread = [] if ctx.has_outcome() else [n for n in attachment_names(ctx) if n not in ctx.opened]
@@ -780,7 +780,7 @@ TOOLS = [
     Tool(
         "ov_case",
         "Read a support case from trackor.onevizion.com: every field, the full chat, and all "
-        "attachments (saved to the run folder; open each with read_file). Also sets the run's "
+        "attachments (saved to the run folder; open each with run_read). Also sets the run's "
         "instance to the case's affected instance (C_WEBSITE).",
         {"case": _str("Case number (e.g. 193915) or a trackor.onevizion.com case link")},
         ["case"],
@@ -825,7 +825,7 @@ TOOLS = [
         {
             "instance": INSTANCE,
             "query": _str("A single SELECT statement, no trailing semicolon"),
-            "rows": _int("Row limit, default 100, max 1000"),
+            "limit": _int("Row limit, default 100, max 1000"),
         },
         ["query"],
         lambda a: (
@@ -865,7 +865,7 @@ TOOLS = [
         _ov_search,
     ),
     Tool(
-        "read_skill",
+        "skill_read",
         "Read a skill: the full guide for an area listed under Skills in the prompt. Read every skill "
         "that covers the task before working on it.",
         {"name": _str("Skill name, as listed under Skills")},
@@ -874,7 +874,7 @@ TOOLS = [
         _read_skill,
     ),
     Tool(
-        "read_file",
+        "run_read",
         "Read a file from this run's folder: attachments the user sent, files saved with "
         "ov --out, and spilled tool output. Images are shown to you; emails are expanded to text.",
         {
@@ -888,9 +888,9 @@ TOOLS = [
     ),
     Tool(
         "ws_list",
-        "List a folder in the workspace, or with pattern every file matching a glob such as "
+        "List a folder in the workspace, or with glob every file matching a glob such as "
         '"**/*.py" or "pom.xml". Skips .git, node_modules, build output.',
-        {"path": _str("Folder relative to the workspace root; default the root"), "pattern": _str("Optional glob")},
+        {"path": _str("Folder relative to the workspace root; default the root"), "glob": _str("Optional glob")},
         [],
         lambda a: f"list {a.get('path') or '.'}{' ' + str(a['pattern']) if a.get('pattern') else ''}",
         _project(_ws_list),
@@ -957,7 +957,7 @@ TOOLS = [
         _project(_ws_run),
     ),
     Tool(
-        "propose_change",
+        "ov_propose",
         "Show a proposed change as a diff card. One call per object. Nothing is applied. Pass "
         "the whole object text in both before and after.",
         {
@@ -999,7 +999,7 @@ TOOLS = [
         silent=True,
     ),
     Tool(
-        "ask_user",
+        "run_ask",
         "Ask the user a multiple-choice question when you truly cannot proceed (which "
         "instance, which of several objects, missing access). Blocks until answered.",
         {
@@ -1013,7 +1013,7 @@ TOOLS = [
         silent=True,
     ),
     Tool(
-        "finish",
+        "run_report",
         "Deliver the result of an investigation. Call once at the end; skip it for quick "
         "questions answered in chat. The user may ask follow-ups afterwards.",
         {
@@ -1076,7 +1076,7 @@ TOOLS = [
             ),
         },
         ["findings", "time_saved_minutes", "time_saved_basis"],
-        lambda _: "finish",
+        lambda _: "report",
         _finish,
         silent=True,
     ),
@@ -1104,16 +1104,16 @@ def _datadog_label(kind: str) -> Callable[[dict[str, Any]], str]:
 
 
 DATADOG_TOOLS = {
-    "datadog_logs": "logs",
-    "datadog_metrics": "metrics",
-    "datadog_monitors": "monitors",
-    "datadog_events": "events",
-    "datadog_apm": "apm",
+    "dd_logs": "logs",
+    "dd_metrics": "metrics",
+    "dd_monitors": "monitors",
+    "dd_events": "events",
+    "dd_apm": "apm",
 }
 
 TOOLS += [
     Tool(
-        "datadog_logs",
+        "dd_logs",
         "Search Datadog logs for an instance in a time window: newest matching lines, or with "
         "patterns=true the most common message groups (scans up to 500). Use Datadog log query "
         'syntax, e.g. status:error, service:x, "OutOfMemory", @http.status_code:500.',
@@ -1131,7 +1131,7 @@ TOOLS += [
         _datadog(_datadog_logs),
     ),
     Tool(
-        "datadog_metrics",
+        "dd_metrics",
         "Query a Datadog metric for an instance and get min, avg, max, latest and a sample of "
         "points per series. Give an aggregation and metric, e.g. avg:system.cpu.user, "
         "avg:jvm.heap_memory, max:system.disk.in_use; the instance filter is added as the scope "
@@ -1148,7 +1148,7 @@ TOOLS += [
         _datadog(_datadog_metrics),
     ),
     Tool(
-        "datadog_monitors",
+        "dd_monitors",
         "List Datadog monitors for an instance that are alerting, warning or have no data "
         "(include_ok=true for all), with links.",
         {"instance": DATADOG_INSTANCE, "include_ok": {"type": "boolean"}},
@@ -1157,7 +1157,7 @@ TOOLS += [
         _datadog(_datadog_monitors),
     ),
     Tool(
-        "datadog_events",
+        "dd_events",
         "List Datadog events for an instance in a time window: deploys, restarts, alerts, config changes.",
         {
             "instance": DATADOG_INSTANCE,
@@ -1172,7 +1172,7 @@ TOOLS += [
         _datadog(_datadog_events),
     ),
     Tool(
-        "datadog_apm",
+        "dd_apm",
         "Datadog APM for an instance: the slowest endpoints by p95 latency (mode=slowest) or "
         "recent error spans with their traces (mode=errors).",
         {
@@ -1309,14 +1309,14 @@ def _pagerduty_label(kind: str) -> Callable[[dict[str, Any]], str]:
 
 
 PAGERDUTY_TOOLS = {
-    "pagerduty_incidents": "incidents",
-    "pagerduty_incident": "incidents",
-    "pagerduty_oncall": "oncall",
+    "pd_incidents": "incidents",
+    "pd_incident": "incidents",
+    "pd_oncall": "oncall",
 }
 
 TOOLS += [
     Tool(
-        "pagerduty_incidents",
+        "pd_incidents",
         "List PagerDuty incidents for an instance in a time window, newest first: number, "
         "status, urgency, title, service, assignee and link. Incidents are tied to an instance "
         "by the website in their alert (OV monitoring's website field, or the host named in a "
@@ -1338,7 +1338,7 @@ TOOLS += [
         _pagerduty(_pagerduty_incidents),
     ),
     Tool(
-        "pagerduty_incident",
+        "pd_incident",
         "Read one PagerDuty incident in full: status, timeline (triggered, acknowledged, "
         "escalated, resolved), alerts with their details (Datadog monitor alerts carry the "
         "monitor and its query) and notes.",
@@ -1348,7 +1348,7 @@ TOOLS += [
         _pagerduty(_pagerduty_incident),
     ),
     Tool(
-        "pagerduty_oncall",
+        "pd_oncall",
         "Who is on call, now or at a given time, by escalation level: for the escalation "
         "policies that paged about an instance in the last 30 days, or for every policy when "
         "no instance is given.",
@@ -1367,15 +1367,16 @@ OPTIONAL_TOOLS = {*DATADOG_TOOLS, *PAGERDUTY_TOOLS, *WORKSPACE_TOOLS}
 TOOL_SPECS = [t.spec for t in TOOLS if t.name not in OPTIONAL_TOOLS]
 
 TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
-    ("OV CLI", "signed-in OneVizion instances", ["ov", "ov_sql", "ov_export", "ov_search", "ov_map", "ov_case"]),
+    (
+        "OV CLI",
+        "signed-in OneVizion instances",
+        ["ov", "ov_sql", "ov_export", "ov_search", "ov_map", "ov_case", "ov_propose"],
+    ),
     ("Workspace", "the user's code folder: files, search, edits and commands", list(WORKSPACE_TOOLS)),
     ("Datadog", "logs, metrics, monitors, events and APM", list(DATADOG_TOOLS)),
     ("PagerDuty", "incidents and on-call", list(PAGERDUTY_TOOLS)),
-    (
-        "This run",
-        "run folder files, proposed changes, questions and the result",
-        ["read_skill", "read_file", "propose_change", "ask_user", "finish"],
-    ),
+    ("Skills", "guides for each area", ["skill_read"]),
+    ("Run", "the run folder, questions to the user and the result", ["run_read", "run_ask", "run_report"]),
 ]
 
 

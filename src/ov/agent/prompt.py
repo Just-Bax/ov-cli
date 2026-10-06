@@ -8,7 +8,7 @@ from .tools import TOOL_GROUPS, offered_skills, tool_specs
 
 NO_INSTANCE = (
     "not chosen. Work it out from context (a case's C_WEBSITE, a host or name in the "
-    "message); if it is still unclear, ask the user which instance with ask_user"
+    "message); if it is still unclear, ask the user which instance with run_ask"
 )
 
 
@@ -90,7 +90,7 @@ PagerDuty: {_pagerduty_text()}
 # Skills to read when a task needs them
 
 Each is a guide for one area. Before working on a task, read every skill below that covers it with \
-read_skill; reviewing an incident, for example, means reading pagerduty and datadog first.
+skill_read; reviewing an incident, for example, means reading pagerduty and datadog first.
 
 {skill_list or "None."}
 

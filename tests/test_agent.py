@@ -373,7 +373,7 @@ def test_finish_keeps_existing_matches_and_the_reply(tmp_path):
     ctx = FakeContext(tmp_path)
     outcomes = []
     ctx.finish = outcomes.append
-    TOOLS_BY_NAME["finish"].handler(
+    TOOLS_BY_NAME["run_report"].handler(
         {
             "findings": [{"title": "t", "verdict": "fix", "summary": "s", "evidence": ["e"]}],
             "existing": [{"key": "IT-1", "title": "x", "covers": "partly"}],
@@ -476,7 +476,7 @@ def test_the_prompt_lists_tools_by_group(logged_in):
 def test_skills_are_read_on_demand(logged_in):
     from ov.agent.tools import ToolError, tool_named
 
-    skill = tool_named("read_skill")
+    skill = tool_named("skill_read")
     assert skill.handler({"name": "ov-cli"}, None).startswith("# OV CLI\n\n")
     with pytest.raises(ToolError, match="Skills: onevizion"):
         skill.handler({"name": "datadog"}, None)

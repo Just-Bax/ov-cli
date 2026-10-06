@@ -462,7 +462,7 @@ class Run:
             return text
 
         lines = [f"{a['name']} ({a['kind']}, {a['size']} bytes)" for a in uploaded]
-        body = f"{text or 'See the attached files.'}\n\nAttached files (open with read_file):\n" + "\n".join(
+        body = f"{text or 'See the attached files.'}\n\nAttached files (open with run_read):\n" + "\n".join(
             f"- {line}" for line in lines
         )
         images = [a for a in uploaded if a["name"].lower().endswith(tuple(IMAGE_EXTS))]

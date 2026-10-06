@@ -393,7 +393,7 @@ In **Settings**:
 - **Skills** are guides for the agent. Core skills (OneVizion Basics, Working Style, OV
   CLI and Workspace) are always in the system prompt, so the first query already uses the right tables
   and tools. The rest are listed by name and when to read them, and the agent loads one
-  with `read_skill` when a task needs it, so reviewing an incident reads PagerDuty and
+  with `skill_read` when a task needs it, so reviewing an incident reads PagerDuty and
   Datadog first. A skill becomes core with `core: true` in its front matter. Seven ship with
   `ov`: OneVizion Basics
   (where rules, automations, notifications, imports, reports, modules and workflows live,
@@ -414,9 +414,10 @@ The agent's tools come in groups, and the system prompt lists the ones a run has
 | --- | --- |
 | OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_search` (trackor search), `ov_map` (Instance map lookup), `ov_case` (a trackor support case) |
 | Workspace | `ws_list`, `ws_search`, `ws_read`, `ws_edit`, `ws_write`, `ws_run` (only while a workspace folder is set) |
-| Datadog | `datadog_logs`, `datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm` |
-| PagerDuty | `pagerduty_incidents`, `pagerduty_incident`, `pagerduty_oncall` |
-| This run | `read_skill`, `read_file`, `propose_change`, `ask_user`, `finish` |
+| Datadog | `dd_logs`, `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm` |
+| PagerDuty | `pd_incidents`, `pd_incident`, `pd_oncall` |
+| Skills | `skill_read` |
+| Run | `run_read` (attachments, exports and long output in the run folder), `run_ask`, `run_report` |
 
 Nothing leaves your machine except calls to your instances and to GitHub Copilot. The
 server listens on 127.0.0.1 only. History and uploads live in `~/.ov/agent`; the
@@ -486,8 +487,8 @@ the longest instance name wins, so `acme` never takes `dev-acme`'s servers). Eac
 role is its machine name without the number (`web`, `app`). Adjust the chips, or write any
 Datadog filter instead; a tenant shares its host's servers unless you give it its own.
 
-Once connected, runs get read-only Datadog tools (`datadog_logs` with message grouping,
-`datadog_metrics`, `datadog_monitors`, `datadog_events`, `datadog_apm`), offered only for
+Once connected, runs get read-only Datadog tools (`dd_logs` with message grouping,
+`dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm`), offered only for
 what the key can read, with a `role` option to look at one kind of server.
 
 The **Health** page shows one instance at a time, each card loading on its own: a verdict
@@ -510,8 +511,8 @@ region) and a personal **API user token** from My Profile > User Settings > Crea
 Token. The token is checked, stored in the vault and only used to read. There is
 nothing to map: services are shared, so each incident is tied to an instance by what its
 alert names - OV monitoring's `website` field, the database on database alerts (learned from
-website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Runs get `pagerduty_incidents`,
-`pagerduty_incident` (timeline, alerts and notes) and `pagerduty_oncall`, and Health shows
+website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Runs get `pd_incidents`,
+`pd_incident` (timeline, alerts and notes) and `pd_oncall`, and Health shows
 open and recent incidents and who is on call for the policies that paged, and counts
 triggered incidents in its verdict, even before the instance is matched in Datadog.
 PagerDuty admins can see and revoke user tokens.
