@@ -486,7 +486,7 @@ def test_skills_are_read_on_demand(logged_in):
         skill.handler({"name": "datadog"}, None)
 
 
-def test_forgetting_an_instance_removes_its_local_data(logged_in):
+def test_forgetting_an_instance_removes_its_local_data_but_keeps_runs(logged_in):
     from ov import session as session_store
     from ov.agent import datadog, graph
     from ov.agent.forget import forget, prune
@@ -494,18 +494,18 @@ def test_forgetting_an_instance_removes_its_local_data(logged_in):
     for alias in ("acme", "gone"):
         graph.graph_file(alias).write_text("{}", encoding="utf-8")
         db.create_run(f"r{alias}", "t", "m", {"prompt": "x", "instance": alias})
+    db.create_run("rcase", "t", "m", {"prompt": "x", "instance": "acme.onevizion.test"})
     datadog.save_matches({"acme": "host:a", "gone": "host:b"})
 
     prune()
     assert not graph.graph_file("gone").exists() and graph.graph_file("acme").exists()
     assert datadog.load_state()["matches"] == {"acme": "host:a"}
-    assert db.run_ids_for("gone") == [] and db.run_ids_for("acme") == ["racme"]
 
     session_store.remove("acme")
     forget("acme", BASE_URL)
     assert not graph.graph_file("acme").exists()
     assert datadog.load_state()["matches"] == {}
-    assert db.run_ids_for("acme") == []
+    assert {r["id"] for r in db.list_runs()} == {"racme", "rgone", "rcase"}
 
 
 def test_a_fast_model_names_the_run(logged_in, monkeypatch):

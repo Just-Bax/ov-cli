@@ -196,7 +196,7 @@ ov logout --all          # all of them
 ```
 
 Logging out of an instance also deletes everything kept for it on this computer: its
-secrets, cached schema, Instance map, Datadog servers and agent runs. `ov agent` does the
+secrets, cached schema, Instance map and Datadog servers. Agent runs are kept. `ov agent` does the
 same on start for anything left over from instances you are no longer signed in to.
 
 ### Instances with several tenants

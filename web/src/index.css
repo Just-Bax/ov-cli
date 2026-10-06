@@ -123,6 +123,12 @@
   .md pre {
     @apply bg-raised my-2 scrollbar-thin overflow-x-auto rounded-lg p-3;
   }
+  .user-md .md pre {
+    @apply max-h-[360px] overflow-auto bg-white/70 text-[12px];
+  }
+  .user-md .md {
+    overflow-wrap: anywhere;
+  }
   .md pre code {
     @apply bg-transparent p-0;
   }

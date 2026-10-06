@@ -103,17 +103,6 @@ function turnText(turn: Turn, state: RunState): string {
   return parts.join('\n\n')
 }
 
-function activityOf(state: RunState): string {
-  if (state.summary.status === 'waiting') return 'Waiting for your answer or approval above'
-  if (state.summary.status === 'queued') return 'Starting'
-
-  const running = state.tools.filter((t) => t.status === 'running')
-  const done = state.tools.filter((t) => t.status !== 'running').length
-  const steps = done ? ` - ${done} step${done === 1 ? '' : 's'} done` : ''
-  if (running.length) return `${running.map((t) => t.label).join(', ')}${steps}`
-  return `Thinking${steps}`
-}
-
 function turnTime(turn: Turn, state: RunState): number | undefined {
   for (let i = turn.blocks.length - 1; i >= 0; i--) {
     const b = turn.blocks[i]
@@ -164,13 +153,11 @@ function Footer({
   runId,
   busy,
   write,
-  activity,
   onSend,
 }: {
   runId: string
   busy: boolean
   write: boolean
-  activity: string
   onSend: () => void
 }) {
   const [error, setError] = useState<string>()
@@ -189,12 +176,6 @@ function Footer({
   return (
     <div className="px-6 pt-1 pb-4">
       <div className="mx-auto max-w-[860px]">
-        {busy && activity ? (
-          <div className="text-muted mb-1.5 flex items-center gap-2 px-2 text-[12px]">
-            <Spinner className="text-brand size-3 shrink-0" />
-            <span className="min-w-0 truncate">{activity}</span>
-          </div>
-        ) : null}
         {error ? <div className="text-danger mb-1.5 text-[12px]">{error}</div> : null}
         <Composer
           busy={busy}
@@ -399,7 +380,6 @@ export function RunView({ id }: { id: string }) {
           runId={id}
           busy={busy}
           write={state.writeAccess}
-          activity={activityOf(state)}
           onSend={() => {
             followBottom.current = true
           }}

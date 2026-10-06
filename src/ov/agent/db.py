@@ -220,15 +220,6 @@ def delete_run(run_id: str) -> None:
     _run("DELETE FROM runs WHERE id = ?", run_id)
 
 
-def run_ids_for(instance: str) -> list[str]:
-    return [row["id"] for row in _all("SELECT id FROM runs WHERE instance = ?", instance)]
-
-
-def run_ids_outside(instances: set[str]) -> list[str]:
-    rows = _all("SELECT id, instance FROM runs WHERE instance IS NOT NULL AND instance != ''")
-    return [row["id"] for row in rows if row["instance"] not in instances]
-
-
 def saved_totals(since: int) -> dict[str, int]:
     (row,) = _all(
         "SELECT COALESCE(SUM(r.saved_minutes), 0) AS minutes, COUNT(*) AS runs "

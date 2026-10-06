@@ -9,7 +9,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { type ReactNode, useState } from 'react'
 import type { ChatMessage, MessageFile, Rating } from '@shared/types.ts'
-import { Spinner } from '@/components/ui'
+import { Spinner, Markdown } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 
@@ -107,6 +107,34 @@ function FileChips({ runId, files }: { runId: string; files: MessageFile[] }) {
   )
 }
 
+function UserText({ text }: { text: string }) {
+  const long = text.length > LONG_MESSAGE_CHARS || text.split('\n').length > LONG_MESSAGE_LINES
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="bg-canvas text-fg max-w-[80%] min-w-0 rounded-3xl px-4 py-2.5 text-[14px]">
+      <div className={cn('user-md relative', long && !open && 'max-h-[260px] overflow-hidden')}>
+        <Markdown text={text} />
+        {long && !open ? (
+          <div className="from-canvas pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t to-transparent" />
+        ) : null}
+      </div>
+      {long ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-brand-strong mt-1 text-[12px] font-medium hover:underline"
+        >
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+const LONG_MESSAGE_CHARS = 1200
+const LONG_MESSAGE_LINES = 14
+
 export function UserMessage({
   runId,
   message,
@@ -121,11 +149,7 @@ export function UserMessage({
   return (
     <div className="group flex flex-col items-end gap-1.5">
       <FileChips runId={runId} files={message.files ?? []} />
-      {message.text ? (
-        <div className="bg-canvas text-fg max-w-[80%] rounded-3xl px-4 py-2.5 text-[14px] whitespace-pre-wrap">
-          {message.text}
-        </div>
-      ) : null}
+      {message.text ? <UserText text={message.text} /> : null}
       <div className="flex h-7 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <span className="text-faint mr-1 text-[11.5px]">{formatTime(message.ts)}</span>
         {canRetry ? (

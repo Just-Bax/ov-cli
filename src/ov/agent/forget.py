@@ -4,15 +4,12 @@ from urllib.parse import urlsplit
 
 from .. import session as session_store
 from ..paths import slugify, spec_dir
-from . import datadog, db, graph, pagerduty
-from .run import runs
+from . import datadog, graph, pagerduty
 
 
 def forget(alias: str, base_url: str) -> None:
     graph.graph_file(alias).unlink(missing_ok=True)
     datadog.forget(alias)
-    for run_id in db.run_ids_for(alias):
-        runs.delete(run_id)
 
     if any(s.base_url == base_url for s in session_store.listed().values()):
         return
@@ -32,6 +29,3 @@ def prune() -> None:
 
     for alias in set(datadog.load_state().get("matches", {})) - known:
         datadog.forget(alias)
-
-    for run_id in db.run_ids_outside(known):
-        runs.delete(run_id)
