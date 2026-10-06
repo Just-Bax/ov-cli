@@ -20,6 +20,7 @@ import { Dropdown } from '@/components/Dropdown'
 import { useInstances } from '@/components/InstancePicker'
 import { Button, Card, Chip, IconBadge, Select, Skeleton, Spinner, timeAgo } from '@/components/ui'
 import { api } from '@/lib/api'
+import { useUnsavedWarning } from '@/lib/unsaved'
 import { hostsIn, roleOf, scopeOf, shortHost } from '@/lib/servers'
 import { cn } from '@/lib/cn'
 import { reportError } from '@/components/Toasts'
@@ -548,6 +549,7 @@ function DatadogMatches({
   }
 
   const dirty = rows.some((r) => (draft[r.alias] ?? '') !== (status.matches[r.alias] ?? ''))
+  useUnsavedWarning(dirty)
   const unclaimed = (found?.hosts ?? []).filter((h) => !h.alias).length
 
   const save = async () => {

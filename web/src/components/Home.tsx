@@ -49,11 +49,25 @@ function greeting(): string {
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
 }
 
+const CHOICES_KEY = 'ov-agent.new-run-choices'
+
+type Choices = { model?: string; instance?: string; allowWrite?: boolean }
+
+function loadChoices(): Choices {
+  const raw = localStorage.getItem(CHOICES_KEY)
+  return raw ? (JSON.parse(raw) as Choices) : {}
+}
+
 export function Home({ settings }: { settings: Settings }) {
-  const [model, setModel] = useState(settings.defaultModel)
+  const saved = loadChoices()
+  const [model, setModel] = useState(saved.model ?? settings.defaultModel)
   const { instances } = useInstances()
-  const [instance, setInstance] = useState('')
-  const [allowWrite, setAllowWrite] = useState(false)
+  const [instance, setInstance] = useState(saved.instance ?? '')
+  const [allowWrite, setAllowWrite] = useState(saved.allowWrite ?? false)
+
+  useEffect(() => {
+    localStorage.setItem(CHOICES_KEY, JSON.stringify({ model, instance, allowWrite }))
+  }, [model, instance, allowWrite])
   const [error, setError] = useState<string>()
   const [starting, setStarting] = useState(false)
   const [totals, setTotals] = useState<SavedTotals>()
@@ -92,6 +106,7 @@ export function Home({ settings }: { settings: Settings }) {
     } catch (e) {
       setError((e as Error).message)
       setStarting(false)
+      throw e
     }
   }
 
@@ -110,6 +125,7 @@ export function Home({ settings }: { settings: Settings }) {
             placeholder="Case number or trackor link, or describe the problem and paste errors"
             onSend={submit}
             draft={draft}
+            draftKey="new-run"
             extras={
               <>
                 {instances?.length ? (

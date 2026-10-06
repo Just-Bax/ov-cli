@@ -14,6 +14,7 @@ import { CodeSkeleton, TreeRowsSkeleton, useSkeleton } from '@/components/skelet
 import { reportError } from '@/components/Toasts'
 import { Button, EmptyState, IconBadge, Page, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
+import { useUnsavedWarning } from '@/lib/unsaved'
 import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
 import { languageOf } from '@/lib/languages'
@@ -164,6 +165,7 @@ export function WorkspacePage() {
   const [saving, setSaving] = useState(false)
   const [version, setVersion] = useState(0)
   const dirty = Boolean(open && text !== open.saved)
+  useUnsavedWarning(dirty)
   const showEditorSkeleton = useSkeleton(loading)
 
   const load = useCallback(async (path: string) => {

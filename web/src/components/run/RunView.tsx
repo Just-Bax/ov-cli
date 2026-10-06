@@ -171,6 +171,7 @@ function Footer({
       await api.message(runId, text, uploaded)
     } catch (e) {
       setError((e as Error).message)
+      throw e
     }
   }
 
@@ -188,6 +189,7 @@ function Footer({
               : 'Ask a follow-up or give direction'
           }
           onSend={(text, files) => send(text, files)}
+          draftKey={`run-${runId}`}
           onStop={() => void api.cancel(runId)}
           extras={<WriteSwitch value={write} onChange={(v) => api.setWriteAccess(runId, v)} />}
         />

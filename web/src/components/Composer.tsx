@@ -1,6 +1,10 @@
 import { ArrowUpIcon, PaperClipIcon, StopIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { reportError } from '@/components/Toasts'
 import { cn } from '@/lib/cn'
+import { forgetDraft, loadFiles, loadText, saveFiles, saveText } from '@/lib/drafts'
+
+const DRAFT_SAVE_MS = 300
 
 let pasteCounter = 0
 
@@ -15,6 +19,7 @@ export function Composer({
   size = 'md',
   queueWhileBusy,
   draft,
+  draftKey,
 }: {
   placeholder: string
   onSend: (text: string, files: File[]) => void | Promise<void>
@@ -26,9 +31,42 @@ export function Composer({
   size?: 'md' | 'lg'
   queueWhileBusy?: boolean
   draft?: { text: string; at: number }
+  draftKey: string
 }) {
-  const [text, setText] = useState('')
+  const [text, setText] = useState(() => loadText(draftKey))
   const [files, setFiles] = useState<File[]>([])
+  const filesLoaded = useRef(false)
+
+  useEffect(() => {
+    filesLoaded.current = false
+    setText(loadText(draftKey))
+    let alive = true
+    loadFiles(draftKey)
+      .then((found) => {
+        if (!alive) return
+        setFiles(found)
+        filesLoaded.current = true
+      })
+      .catch(reportError)
+    return () => {
+      alive = false
+    }
+  }, [draftKey])
+
+  useEffect(() => {
+    const timer = setTimeout(() => saveText(draftKey, text), DRAFT_SAVE_MS)
+    return () => clearTimeout(timer)
+  }, [draftKey, text])
+
+  useEffect(() => {
+    if (filesLoaded.current) void saveFiles(draftKey, files).catch(reportError)
+  }, [draftKey, files])
+
+  useEffect(() => {
+    const flush = () => saveText(draftKey, textRef.current?.value ?? '')
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [draftKey])
   const fileRef = useRef<HTMLInputElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
   const canSend = (!busy || Boolean(queueWhileBusy)) && (text.trim().length > 0 || files.length > 0)
@@ -40,7 +78,13 @@ export function Composer({
     const attached = files
     setText('')
     setFiles([])
-    await onSend(value, attached)
+    try {
+      await onSend(value, attached)
+      forgetDraft(draftKey)
+    } catch {
+      setText(value)
+      setFiles(attached)
+    }
   }
 
   useEffect(() => {

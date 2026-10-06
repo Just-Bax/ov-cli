@@ -42,6 +42,7 @@ import {
   Textarea,
 } from '@/components/ui'
 import { api } from '@/lib/api'
+import { UnsavedGuard, useUnsavedWarning } from '@/lib/unsaved'
 import { go } from '@/lib/route'
 import { cn } from '@/lib/cn'
 import { href } from '@/lib/route'
@@ -519,6 +520,7 @@ function Skills() {
           </button>
         </div>
       </div>
+      <UnsavedGuard dirty={dirty} />
       {creating || current ? (
         <div className="flex h-[560px] flex-col gap-3 p-4">
           <div className="flex items-center gap-3 px-1">
@@ -613,6 +615,7 @@ function Workspace() {
   useEffect(() => setNotes(settings.workspaceNotes), [settings.workspaceNotes])
 
   const dirty = folder.trim() !== settings.workspace || notes !== settings.workspaceNotes
+  useUnsavedWarning(dirty)
 
   const save = async () => {
     setSaving(true)
