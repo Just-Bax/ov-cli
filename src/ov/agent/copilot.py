@@ -44,7 +44,6 @@ class CopilotError(Exception):
 class StreamResult:
     text: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    finish_reason: str | None = None
 
 
 _lock = threading.Lock()
@@ -333,8 +332,6 @@ def _read_stream(response: httpx.Response, on_text: Callable[[str], None]) -> St
     calls: dict[tuple[int, int], dict[str, Any]] = {}
     for chunk in _chunks(response):
         for choice in chunk.get("choices") or []:
-            if choice.get("finish_reason"):
-                result.finish_reason = choice["finish_reason"]
             delta = choice.get("delta") or {}
             if delta.get("content"):
                 result.text += delta["content"]

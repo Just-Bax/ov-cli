@@ -11,7 +11,7 @@ from typing import Any
 
 from .cancel import Cancel
 from .ovproc import find_instance, run_ov
-from .workspace import describe, html_to_text, unique_path
+from .runfiles import describe, html_to_text, unique_path
 
 TRACKOR_HOST = "trackor.onevizion.com"
 CASE_TYPE = "Cases"

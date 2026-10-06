@@ -23,15 +23,12 @@ RATE_LIMIT_WAIT_SECONDS = 2
 PAGE_SIZE = 100
 MAX_INCIDENTS = 50
 INCIDENTS_LIMIT = 1000
-SERVICES_LIMIT = 2000
 ONCALLS_LIMIT = 200
 LOG_ENTRIES_LIMIT = 100
 ALERTS_LIMIT = 25
 TEXT_CHARS = 600
 DETAIL_CHARS = 300
-DESCRIPTION_CHARS = 200
 ERROR_BODY_CHARS = 200
-SERVICES_TTL_SECONDS = 600
 HEALTH_TTL_SECONDS = 60
 OPEN_LOOKBACK_DAYS = 30
 DAY_MS = 86_400_000
@@ -40,8 +37,8 @@ ONCALL_WINDOW_MS = 60_000
 REGIONS = {"us": "https://api.pagerduty.com", "eu": "https://api.eu.pagerduty.com"}
 DEFAULT_REGION = "us"
 NON_ACCOUNT_SUBDOMAINS = ("app", "www", "eu", "api")
-AREAS = ("incidents", "services", "oncall")
-PROBE_PATHS = {"incidents": "/incidents", "services": "/services", "oncall": "/oncalls"}
+AREAS = ("incidents", "oncall")
+PROBE_PATHS = {"incidents": "/incidents", "oncall": "/oncalls"}
 OPEN_STATUSES = ["triggered", "acknowledged"]
 STATUS_MESSAGES = {
     401: "PagerDuty rejected the API key (wrong key, or a key for the other region).",
@@ -52,7 +49,6 @@ STATUS_MESSAGES = {
 TRANSPORT: httpx.BaseTransport | None = None
 
 _lock = threading.Lock()
-_services_cache: tuple[float, list[dict[str, Any]]] | None = None
 _health_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 
 
@@ -296,8 +292,6 @@ def disconnect() -> dict[str, Any]:
 
 
 def _forget_caches() -> None:
-    global _services_cache
-    _services_cache = None
     _health_cache.clear()
 
 
@@ -315,29 +309,6 @@ def status() -> dict[str, Any]:
         **details,
         "permissions": permissions() if on else dict.fromkeys(AREAS, False),
     }
-
-
-def services(refresh: bool = False) -> list[dict[str, Any]]:
-    global _services_cache
-    if _services_cache and not refresh and time.time() - _services_cache[0] < SERVICES_TTL_SECONDS:
-        return _services_cache[1]
-
-    with client() as pd:
-        rows = pd.pages("/services", "services", "services", SERVICES_LIMIT)
-    out = [
-        {
-            "id": _field(s, "id"),
-            "name": s.get("name") or s.get("summary") or "",
-            "description": str(s.get("description") or "")[:DESCRIPTION_CHARS],
-            "status": s.get("status") or "",
-            "policy": (s.get("escalation_policy") or {}).get("id") or "",
-            "url": s.get("html_url") or "",
-        }
-        for s in rows
-    ]
-    out.sort(key=lambda s: s["name"].lower())
-    _services_cache = (time.time(), out)
-    return out
 
 
 _HOST = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+\b")

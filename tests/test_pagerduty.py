@@ -13,7 +13,7 @@ from ov.agent.tools import TOOLS_BY_NAME, tool_specs
 
 KEY = "u+abcdefghijklmn1234"
 HOST = "acme.onevizion.test"
-AREAS_BY_PATH = {"/incidents": "incidents", "/services": "services", "/oncalls": "oncall"}
+AREAS_BY_PATH = {"/incidents": "incidents", "/oncalls": "oncall"}
 
 
 def incident(number: int, status: str, title: str, details: dict | str | None, policy: str = "PPOL1") -> dict[str, Any]:
@@ -58,7 +58,6 @@ class FakePagerDuty:
         params = request.url.params
         routes = {
             "/users/me": lambda: {"user": {"name": "Bax", "html_url": "https://onevizion.pagerduty.com/users/P1"}},
-            "/services": lambda: {"services": [], "more": False},
             "/incidents": lambda: self._incidents(params),
             "/incidents/PINC7": lambda: {"incident": INCIDENTS[0]},
             "/incidents/PINC7/log_entries": self._log_entries,
@@ -156,7 +155,7 @@ def test_connect_checks_the_key_and_keeps_it_in_the_keyring(fake, ov_home):
     fake.denied = {"oncall"}
     status = pagerduty.connect("onevizion.pagerduty.com", f" {KEY} ")
     assert status["connected"] and status["user"] == "Bax" and status["keyLast4"] == "1234"
-    assert status["permissions"] == {"incidents": True, "services": True, "oncall": False}
+    assert status["permissions"] == {"incidents": True, "oncall": False}
     assert status["webUrl"] == "https://onevizion.pagerduty.com"
     assert credentials.get(pagerduty.CREDENTIAL_KEY) == {"api_key": KEY}
     assert KEY not in (ov_home / "agent" / "pagerduty.json").read_text(encoding="utf-8")

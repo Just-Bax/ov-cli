@@ -21,7 +21,6 @@ const DEFAULT_WEB_URL = 'https://app.pagerduty.com'
 
 const AREA_LABELS: Record<PagerDutyArea, string> = {
   incidents: 'Incidents',
-  services: 'Services',
   oncall: 'On-call',
 }
 

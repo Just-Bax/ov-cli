@@ -14,6 +14,7 @@ How to work in it:
 - A module's code: find its folder in the workspace; if it is not there, clone MODULE.GIT_REPO_URL into the workspace with ws_run git clone, in the folder the user's notes name for modules.
 - Commit only when the user asks, with a short message. Never push, delete files or rewrite history on your own: those commands wait for the user's approval, so ask first and explain why.
 - Run only the tests or build steps that cover what you changed, not whole suites.
+- Reach OneVizion instances with the ov tools, not by running ov in ws_run: there it is always read-only.
 - When you are done, list the files you changed and what is left for the user to do.
 
 GitHub: use the gh CLI through ws_run, inside the repo's folder. If gh is missing or not signed in, tell the user to install it and run `gh auth login`; do not work around it.

@@ -652,7 +652,7 @@ export function ExplorerPage() {
   const idx = useMemo(() => (graph ? index(graph) : undefined), [graph])
   const [tabs, setTabs] = useState<string[]>([])
   const [active, setActive] = useState<string>()
-  const [sources, setSources] = useState<Record<string, Loaded<CodeSection[]>>>({})
+  const [code, setCode] = useState<Record<string, Loaded<CodeSection[]>>>({})
   const [activity, setActivity] = useState<Record<string, Loaded<ObjectActivity[]>>>({})
   const [sectionOf, setSectionOf] = useState<Record<string, number>>({})
   const [reveal, setReveal] = useState<{ line: number; at: number }>()
@@ -660,7 +660,7 @@ export function ExplorerPage() {
   useEffect(() => {
     setTabs([])
     setActive(undefined)
-    setSources({})
+    setCode({})
     setActivity({})
   }, [alias, graph?.builtAt])
 
@@ -690,15 +690,13 @@ export function ExplorerPage() {
   useEffect(() => {
     if (!node || !alias) return
 
-    if (WITH_CODE.has(node.type) && !sources[node.id]) {
-      setSources((s) => ({ ...s, [node.id]: { state: 'loading' } }))
+    if (WITH_CODE.has(node.type) && !code[node.id]) {
+      setCode((s) => ({ ...s, [node.id]: { state: 'loading' } }))
       api
         .source(alias, node.id)
-        .then((r) =>
-          setSources((s) => ({ ...s, [node.id]: { state: 'ready', value: r.sections } })),
-        )
+        .then((r) => setCode((s) => ({ ...s, [node.id]: { state: 'ready', value: r.sections } })))
         .catch((e: Error) =>
-          setSources((s) => ({ ...s, [node.id]: { state: 'error', error: e.message } })),
+          setCode((s) => ({ ...s, [node.id]: { state: 'error', error: e.message } })),
         )
     }
 
@@ -736,7 +734,7 @@ export function ExplorerPage() {
     [idx],
   )
 
-  const sections = node ? sources[node.id] : undefined
+  const sections = node ? code[node.id] : undefined
   const section = node ? (sectionOf[node.id] ?? 0) : 0
   const current = sections?.state === 'ready' ? sections.value[section] : undefined
 

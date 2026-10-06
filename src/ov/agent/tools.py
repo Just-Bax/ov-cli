@@ -15,7 +15,7 @@ from ..errors import EXIT_READ_ONLY
 from . import components, datadog, graph, pagerduty, project, skills
 from .cancel import Cancel
 from .ovproc import OvResult, find_instance, host_of, run_ov
-from .workspace import IMAGE_EXTS, image_mime, within
+from .runfiles import IMAGE_EXTS, image_mime, within
 
 MAX_OUTPUT = 24_000
 OV_TIMEOUT_SECONDS = 180
@@ -780,7 +780,7 @@ TOOLS = [
     Tool(
         "ov_case",
         "Read a support case from trackor.onevizion.com: every field, the full chat, and all "
-        "attachments (saved to the workspace; open each with read_file). Also sets the run's "
+        "attachments (saved to the run folder; open each with read_file). Also sets the run's "
         "instance to the case's affected instance (C_WEBSITE).",
         {"case": _str("Case number (e.g. 193915) or a trackor.onevizion.com case link")},
         ["case"],
@@ -837,7 +837,7 @@ TOOLS = [
     Tool(
         "ov_export",
         "Export components from an instance with the platform's component export and save their "
-        "code to workspace files: a DB package's full spec and body, a rule's SQL, an import's or "
+        "code to files in the run folder: a DB package's full spec and body, a rule's SQL, an import's or "
         "report's SQL and settings. One call, however long the code; prefer it to paging CLOBs "
         "through ov_sql.",
         {
@@ -875,10 +875,10 @@ TOOLS = [
     ),
     Tool(
         "read_file",
-        "Read a file from this run's workspace: attachments the user sent, files saved with "
+        "Read a file from this run's folder: attachments the user sent, files saved with "
         "ov --out, and spilled tool output. Images are shown to you; emails are expanded to text.",
         {
-            "path": _str("Path relative to the workspace, or an attachment name"),
+            "path": _str("Path relative to the run folder, or an attachment name"),
             "start": _int("First line, 1-based"),
             "end": _int("Last line"),
         },
@@ -1373,7 +1373,7 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     ("PagerDuty", "incidents and on-call", list(PAGERDUTY_TOOLS)),
     (
         "This run",
-        "workspace files, proposed changes, questions and the result",
+        "run folder files, proposed changes, questions and the result",
         ["read_skill", "read_file", "propose_change", "ask_user", "finish"],
     ),
 ]

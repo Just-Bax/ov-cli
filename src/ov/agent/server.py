@@ -29,8 +29,8 @@ from .explorer import ExplorerError
 from .ovproc import instances, login, run_ov, version
 from .pagerduty import PagerDutyError
 from .run import RunError, runs
+from .runfiles import attachments_dir, uploads_dir, within
 from .skills import SkillError
-from .workspace import attachments_dir, uploads_dir, within
 
 STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_PORT = 5180

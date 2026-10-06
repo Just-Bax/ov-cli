@@ -17,9 +17,7 @@ from .cancel import Cancel
 from .ovproc import login as ov_login
 from .ovproc import url_for
 from .prompt import system_prompt
-from .state import empty_state, reduce
-from .tools import Tool, ToolError, tool_named, tool_specs
-from .workspace import (
+from .runfiles import (
     IMAGE_EXTS,
     attachments_dir,
     describe,
@@ -29,6 +27,8 @@ from .workspace import (
     uploads_dir,
     within,
 )
+from .state import empty_state, reduce
+from .tools import Tool, ToolError, tool_named, tool_specs
 
 CONTEXT_BUDGET = 360_000
 COMPACT_TARGET = int(CONTEXT_BUDGET * 0.7)

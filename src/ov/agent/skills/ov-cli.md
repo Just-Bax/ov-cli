@@ -8,7 +8,7 @@ The OV tools work on signed-in OneVizion instances:
 
 - `ov`: any ov command - API calls, schema discovery, component export, chats, files.
 - `ov_sql`: a read-only SELECT through the platform's Test SQL endpoint.
-- `ov_export`: the full definition and code of components (DB packages, rules, imports, reports and more) by id, saved to workspace files.
+- `ov_export`: the full definition and code of components (DB packages, rules, imports, reports and more) by id, saved to files in the run folder.
 - `ov_search`: trackor search with conditions.
 - `ov_map`: what an object is linked to, from the Instance map. Start here before reading code.
 - `ov_case`: a whole support case from trackor.onevizion.com, with chat and attachments.
@@ -29,11 +29,11 @@ Most useful calls:
 - One trackor by its TRACKOR_ID (a long number, not the key): `request GET /v3/trackors/<TRACKOR_ID> -q fields=A,B`.
 - Search with conditions: the ov_search tool (it sends the text/plain body for you). Operators: equal, not_equal, greater, less, is_null, is_not_null, within, and/or with parentheses. Values and dates in double quotes, dates as "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm:ss".
 - SQL: the ov_sql tool only (SELECT only, max 1000 rows). Needs the Test SQL privilege on that instance.
-- Code and full definition of a component: the ov_export tool with its type and ids. It saves each long field (a package body, a rule's SQL) to a workspace file and tells you the line count; read it with read_file and line ranges. Always use it for DB package bodies and long rule SQL instead of reading CLOBs in pieces with ov_sql: one call instead of dozens, and it works without the Test SQL privilege. Use ov_sql to find ids and for small columns.
+- Code and full definition of a component: the ov_export tool with its type and ids. It saves each long field (a package body, a rule's SQL) to a file in the run folder and tells you the line count; read it with read_file and line ranges. Always use it for DB package bodies and long rule SQL instead of reading CLOBs in pieces with ov_sql: one call instead of dozens, and it works without the Test SQL privilege. Use ov_sql to find ids and for small columns.
 - Vizion Hub module runs and logs: `api list module` (module-runs, module-logs).
 - Chats on a trackor: `request GET /v3/chats -q trackor_id=<id>`, then `request GET /v3/chats/<chat_id>/messages`.
-- Files: `request GET "/../efiles/EFileGetBlobFromDb.do?id=<blob_id>" --out <name>`; the file lands in this run's workspace, open it with read_file.
+- Files: `request GET "/../efiles/EFileGetBlobFromDb.do?id=<blob_id>" --out <name>`; the file lands in the run folder, open it with read_file.
 
 Errors carry an exit code: 3 the session expired (the app asks the user to sign in and retries; just continue), 4 no such operation or record, 5 an API error (read the message; OneVizion reports missing field privileges as HTTP 500), 6 a missing privilege, 7 a write blocked because changes are off.
 
-Files you read or write with `--out`, `-d @file` or `--file` live in this run's own folder, not in the code workspace; open them with read_file. Session commands (login, logout, use, config, setup) are not available to you.
+Files you read or write with `--out`, `-d @file` or `--file` live in the run folder, not in the code workspace; open them with read_file. Session commands (login, logout, use, config, setup) are not available to you.

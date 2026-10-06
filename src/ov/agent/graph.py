@@ -41,19 +41,6 @@ INVALID_TYPES = {
     50: "automation",
 }
 
-FORMS = {
-    "trackor_type": "/admin/trackortypes/Form.do?id=",
-    "field": "/admin/configfields/Form.do?id=",
-    "rule": "/admin/rules/Form.do?id=",
-    "automation": "/admin/automation/Form.do?id=",
-    "import": "/admin/configimport/Form.do?id=",
-    "report": "/admin/reports/Form.do?id=",
-    "notification": "/admin/notifications/Form.do?id=",
-    "workflow": "/admin/wftemplate/Form.do?id=",
-    "module": "/admin/module/Form.do?id=",
-    "db_package": "/admin/dbpackage/Form.do?id=",
-}
-
 _NUMBER = re.compile(r"\b\d{6,12}\b")
 _QUOTED = re.compile(r"(['\"])([A-Za-z][A-Za-z0-9_$#]{2,})\1")
 _OBJREF = re.compile(r"\bid\.([A-Za-z0-9_.]+)", re.IGNORECASE)

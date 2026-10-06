@@ -73,7 +73,9 @@ RISKY_COMMANDS = [
     ),
     (re.compile(r"\bmklink\b|\bNew-Item\b.*-ItemType\s+(Junction|SymbolicLink)", re.IGNORECASE), "creates links"),
 ]
-_ABSOLUTE = re.compile(r"(?<![\w:])([A-Za-z]:[\\/][^\s\"'|;&]*|~[\\/][^\s\"'|;&]*)")
+_WINDOWS_PATH = r"[A-Za-z]:[\\/][^\s\"'|;&]*|~[\\/][^\s\"'|;&]*"
+_POSIX_PATH = r"/[^\s\"'|;&]+|~/[^\s\"'|;&]*"
+_ABSOLUTE = re.compile(rf"(?<![\w:./-])({_WINDOWS_PATH if sys.platform == 'win32' else _POSIX_PATH})")
 
 
 class ProjectError(Exception):
@@ -356,7 +358,7 @@ def run(command: str, rel: str, timeout: int, cancel: Cancel) -> str:
             stdin=subprocess.DEVNULL,
             stdout=out,
             stderr=subprocess.STDOUT,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1"},
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1", "OV_READONLY": "1"},
             creationflags=flags,
         )
         timed_out = _wait(process, limit, cancel)

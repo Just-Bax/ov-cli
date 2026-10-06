@@ -279,7 +279,7 @@ def test_uploads_round_trip(agent_server):
     )
     saved = response.json()
     assert saved["name"] == "a b.txt"
-    from ov.agent.workspace import uploads_dir
+    from ov.agent.runfiles import uploads_dir
 
     assert (uploads_dir() / saved["id"]).read_bytes() == b"hello"
 
@@ -336,7 +336,7 @@ def test_a_restart_marks_running_runs_interrupted(ov_home):
 
 def test_attachments_that_could_run_script_are_downloaded(agent_server, monkeypatch):
     from ov.agent.run import runs
-    from ov.agent.workspace import attachments_dir
+    from ov.agent.runfiles import attachments_dir
 
     monkeypatch.setattr("ov.agent.run.Run.begin", lambda self, data: None)
     run = runs.create({"prompt": "x"}, "m")

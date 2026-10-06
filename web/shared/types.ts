@@ -399,7 +399,7 @@ export interface PagerDutyIncidentDetail extends PagerDutyIncident {
   notes: { time: string; by: string; text: string }[]
 }
 
-export type PagerDutyArea = 'incidents' | 'services' | 'oncall'
+export type PagerDutyArea = 'incidents' | 'oncall'
 
 export interface PagerDutyStatus {
   connected: boolean
