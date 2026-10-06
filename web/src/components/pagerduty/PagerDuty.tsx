@@ -298,6 +298,10 @@ export function PagerDutyCard({
               </span>
             ) : null}
           </div>
+          <div className="border-line text-muted border-t px-5 py-2.5 text-[12px]">
+            Notes, acknowledge, resolve, escalate, reassign and snooze work only in runs with Allow
+            changes on, and each waits for your Approve. They need a full-access token.
+          </div>
           {status.error ? (
             <div className="border-line text-danger border-t px-5 py-2.5 text-[12.5px]">
               {status.error}

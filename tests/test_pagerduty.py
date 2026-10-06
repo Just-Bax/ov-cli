@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from typing import Any
 
@@ -9,7 +10,7 @@ from conftest import BASE_URL, seed_session
 
 from ov import credentials
 from ov.agent import pagerduty, prompt
-from ov.agent.tools import TOOLS_BY_NAME, tool_specs
+from ov.agent.tools import TOOLS_BY_NAME, ToolError, tool_specs
 
 KEY = "u+abcdefghijklmn1234"
 HOST = "acme.onevizion.test"
@@ -56,19 +57,47 @@ class FakePagerDuty:
             return httpx.Response(403, json={"error": {"message": "Forbidden"}})
 
         params = request.url.params
+        if request.method != "GET":
+            return self._write(request)
+
         routes = {
-            "/users/me": lambda: {"user": {"name": "Bax", "html_url": "https://onevizion.pagerduty.com/users/P1"}},
+            "/users/me": lambda: {
+                "user": {
+                    "name": "Bax",
+                    "email": "bax@example.test",
+                    "html_url": "https://onevizion.pagerduty.com/users/P1",
+                }
+            },
             "/incidents": lambda: self._incidents(params),
             "/incidents/PINC7": lambda: {"incident": INCIDENTS[0]},
             "/incidents/PINC7/log_entries": self._log_entries,
             "/incidents/PINC7/alerts": self._alerts,
             "/incidents/PINC7/notes": lambda: {"notes": []},
             "/oncalls": lambda: self._oncalls(params.get_list("escalation_policy_ids[]")),
+            "/escalation_policies": lambda: {
+                "escalation_policies": [{"id": "PUSA1", "name": "USA Support"}, {"id": "PEU01", "name": "EU Support"}],
+                "more": False,
+            },
+            "/users": lambda: {
+                "users": [{"id": "PUSR1", "name": "Pat Lee", "email": "pat@example.test"}],
+                "more": False,
+            },
         }
         route = routes.get(path)
         if route is None:
             return httpx.Response(404, json={"error": {"message": "Not found"}})
         return httpx.Response(200, json=route())
+
+    def _write(self, request: httpx.Request) -> httpx.Response:
+        if "read-only" in self.denied:
+            return httpx.Response(403, json={"error": {"message": "Access Denied"}})
+        assert request.headers["From"] == "bax@example.test"
+        if request.url.path == "/incidents/PINC7":
+            changed = json.loads(request.content)["incident"]
+            return httpx.Response(
+                200, json={"incident": {**INCIDENTS[0], "status": changed.get("status", "triggered")}}
+            )
+        return httpx.Response(201, json={})
 
     @staticmethod
     def _incidents(params: httpx.QueryParams) -> dict[str, Any]:
@@ -138,9 +167,19 @@ def linked(fake, logged_in):
 
 
 class Ctx:
-    def __init__(self, tmp_path, instance: str = "acme") -> None:
+    def __init__(self, tmp_path, instance: str = "acme", write: bool = False, approve: str = "Approve") -> None:
         self.work_dir = tmp_path
         self.instance = instance
+        self.write = write
+        self.approve = approve
+        self.asked: list[str] = []
+
+    def can_write(self):
+        return self.write
+
+    def ask_user(self, question, options, multiple, detail=None):
+        self.asked.append(question)
+        return self.approve
 
 
 def test_account_and_region_come_from_any_pagerduty_address():
@@ -203,10 +242,12 @@ def test_tools_are_offered_only_when_connected(fake, logged_in):
     fake.denied = {"oncall"}
     pagerduty.connect("onevizion", KEY)
     names = {s["function"]["name"] for s in tool_specs()}
-    assert {"pd_incidents", "pd_incident"} <= names
-    assert "pd_oncall" not in names
+    assert {"pd_incidents", "pd_incident", "pd_directory"} <= names
+    assert "pd_oncall" not in names and "pd_ack" not in names
+    assert "pd_ack" in {s["function"]["name"] for s in tool_specs(write=True)}
     text = prompt.system_prompt(False, "")
-    assert "- pagerduty: " in text and "PagerDuty (incidents and on-call)" in text
+    assert "- pagerduty: " in text
+    assert "PagerDuty (incidents and on-call; changes only while allowed): pd_incidents" in text
 
 
 def test_incident_tools(linked, tmp_path):
@@ -255,3 +296,45 @@ def test_the_api_never_returns_the_key(linked):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_changes_need_allow_changes_and_approval(linked, tmp_path):
+    ack = TOOLS_BY_NAME["pd_ack"].handler
+    with pytest.raises(ToolError, match="changes are OFF"):
+        ack({"incident": "7"}, Ctx(tmp_path))
+    assert all(r.method == "GET" for r in linked.requests)
+
+    with pytest.raises(ToolError, match="rejected"):
+        ack({"incident": "PINC7"}, Ctx(tmp_path, write=True, approve="Reject"))
+    assert all(r.method == "GET" for r in linked.requests)
+
+    ctx = Ctx(tmp_path, write=True)
+    assert "acknowledged" in ack({"incident": "PINC7"}, ctx)
+    assert ctx.asked == ["Acknowledge PINC7 in PagerDuty?"]
+    put = next(r for r in linked.requests if r.method == "PUT")
+    assert json.loads(put.content) == {"incident": {"type": "incident_reference", "status": "acknowledged"}}
+
+    TOOLS_BY_NAME["pd_note"].handler({"incident": "PINC7", "note": "Disk cleaned"}, ctx)
+    note = next(r for r in linked.requests if r.method == "POST")
+    assert note.url.path == "/incidents/PINC7/notes" and json.loads(note.content) == {
+        "note": {"content": "Disk cleaned"}
+    }
+
+
+def test_reassign_finds_one_policy_by_name(linked, tmp_path):
+    ctx = Ctx(tmp_path, write=True)
+    TOOLS_BY_NAME["pd_reassign"].handler({"incident": "PINC7", "policy": "USA Support"}, ctx)
+    body = json.loads(next(r for r in linked.requests if r.method == "PUT").content)
+    assert body["incident"]["escalation_policy"] == {"id": "PUSA1", "type": "escalation_policy_reference"}
+    with pytest.raises(ToolError, match="2 PagerDuty policy match"):
+        TOOLS_BY_NAME["pd_reassign"].handler({"incident": "PINC7", "policy": "Support"}, ctx)
+
+    TOOLS_BY_NAME["pd_reassign"].handler({"incident": "PINC7", "users": ["pat@example.test"]}, ctx)
+    body = json.loads([r for r in linked.requests if r.method == "PUT"][-1].content)
+    assert body["incident"]["assignments"] == [{"assignee": {"id": "PUSR1", "type": "user_reference"}}]
+
+
+def test_a_read_only_token_is_explained(linked, tmp_path):
+    linked.denied = {"read-only"}
+    with pytest.raises(ToolError, match="read-only"):
+        TOOLS_BY_NAME["pd_resolve"].handler({"incident": "PINC7"}, Ctx(tmp_path, write=True))

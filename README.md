@@ -415,7 +415,7 @@ The agent's tools come in groups, and the system prompt lists the ones a run has
 | OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_search` (trackor search), `ov_map` (Instance map lookup), `ov_case` (a trackor support case) |
 | Workspace | `ws_list`, `ws_search`, `ws_read`, `ws_edit`, `ws_write`, `ws_run` (only while a workspace folder is set) |
 | Datadog | `dd_logs`, `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm` |
-| PagerDuty | `pd_incidents`, `pd_incident`, `pd_oncall` |
+| PagerDuty | `pd_incidents`, `pd_incident`, `pd_oncall`, `pd_directory`; with changes allowed also `pd_note`, `pd_ack`, `pd_resolve`, `pd_escalate`, `pd_reassign`, `pd_snooze` |
 | Skills | `skill_read` |
 | Run | `run_read` (attachments, exports and long output in the run folder), `run_ask`, `run_report` |
 
@@ -508,14 +508,19 @@ agent reads in a run go to GitHub Copilot like any other tool result.
 **PagerDuty** (optional) adds incidents and on-call. In Settings > Integrations, connect it
 with your account address (e.g. `yourcompany.pagerduty.com`, which also picks the US or EU
 region) and a personal **API user token** from My Profile > User Settings > Create API User
-Token. The token is checked, stored in the vault and only used to read. There is
+Token. The token is checked and stored in the vault. There is
 nothing to map: services are shared, so each incident is tied to an instance by what its
 alert names - OV monitoring's `website` field, the database on database alerts (learned from
 website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Runs get `pd_incidents`,
 `pd_incident` (timeline, alerts and notes) and `pd_oncall`, and Health shows
 open and recent incidents and who is on call for the policies that paged, and counts
 triggered incidents in its verdict, even before the instance is matched in Datadog.
-PagerDuty admins can see and revoke user tokens.
+
+With **Allow changes** on for a run, the agent can also change incidents: add notes,
+acknowledge, resolve, snooze, escalate to a level, and reassign to another escalation policy
+or to people (pd_directory finds them by name). Each change waits for your Approve, and
+PagerDuty records it as you. These need a full-access user token; a read-only one is refused
+with a message saying so. PagerDuty admins can see and revoke user tokens.
 
 `ov agent --port 5181` picks another port; `--no-open` skips opening the browser.
 

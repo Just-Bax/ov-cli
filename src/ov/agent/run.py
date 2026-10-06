@@ -50,8 +50,9 @@ NAMING_PROMPT = (
 RUN_ID_SUFFIX_CHARS = 4
 
 WRITE_ON_NOTE = (
-    "The user turned ON write access for this run. You may now apply changes with ov; each "
-    "change still waits for their approval. Only apply what is needed."
+    "The user turned ON write access for this run. You may now apply changes with ov and the PagerDuty change "
+    "tools (pd_note, pd_ack, pd_resolve, pd_escalate, pd_reassign, pd_snooze); each change still "
+    "waits for their approval. Only apply what is needed."
 )
 WRITE_OFF_NOTE = "The user turned OFF write access for this run. Do not attempt changes; propose them instead."
 
@@ -493,10 +494,9 @@ class Run:
         max_steps = int(db.get_settings()["maxSteps"])
         self.vision = copilot.supports_vision(model)
         self._finished = False
-        specs = tool_specs()
-
         for step in range(max_steps):
             self._prepare_step()
+            specs = tool_specs(self.can_write())
             calls = self._ask_model(model, specs, initiator if step == 0 else "agent")
             if calls:
                 self._run_tools(calls)

@@ -17,6 +17,13 @@ import {
   PencilSquareIcon,
   TicketIcon,
   UserIcon,
+  UsersIcon,
+  ChatBubbleLeftEllipsisIcon,
+  CheckIcon,
+  CheckCircleIcon,
+  ArrowUpCircleIcon,
+  ArrowsRightLeftIcon,
+  MoonIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import type { Icon } from '@/components/ui'
@@ -49,6 +56,13 @@ const ICONS: Record<string, Icon> = {
   pd_incidents: BellAlertIcon,
   pd_incident: BellAlertIcon,
   pd_oncall: UserIcon,
+  pd_directory: UsersIcon,
+  pd_note: ChatBubbleLeftEllipsisIcon,
+  pd_ack: CheckIcon,
+  pd_resolve: CheckCircleIcon,
+  pd_escalate: ArrowUpCircleIcon,
+  pd_reassign: ArrowsRightLeftIcon,
+  pd_snooze: MoonIcon,
 }
 
 const NOUNS: Record<string, [string, string]> = {
@@ -74,6 +88,13 @@ const NOUNS: Record<string, [string, string]> = {
   pd_incidents: ['incident search', 'incident searches'],
   pd_incident: ['incident', 'incidents'],
   pd_oncall: ['on-call check', 'on-call checks'],
+  pd_directory: ['directory lookup', 'directory lookups'],
+  pd_note: ['incident note', 'incident notes'],
+  pd_ack: ['acknowledge', 'acknowledges'],
+  pd_resolve: ['resolve', 'resolves'],
+  pd_escalate: ['escalation', 'escalations'],
+  pd_reassign: ['reassignment', 'reassignments'],
+  pd_snooze: ['snooze', 'snoozes'],
 }
 
 function summarize(tools: ToolActivity[]): string {
@@ -96,7 +117,13 @@ function readableInput(tool: ToolActivity): string {
     const at = a.instance ? `-- ${a.instance}\n` : ''
     const name = tool.name
     if (name === 'ov_sql') return `${at}${a.query}`
-    if (name === 'pd_incident') return String(a.incident)
+    if (name === 'pd_incident' || name === 'pd_ack' || name === 'pd_resolve')
+      return String(a.incident)
+    if (name === 'pd_note') return `${a.incident}\n${a.note}`
+    if (name === 'pd_escalate') return `${a.incident} -> level ${a.level}`
+    if (name === 'pd_snooze') return `${a.incident} for ${a.minutes} min`
+    if (name === 'pd_reassign')
+      return `${a.incident} -> ${a.policy ?? (a.users as string[] | undefined)?.join(', ')}`
     if (name.startsWith('dd_') || name.startsWith('pd_'))
       return [
         a.instance ? `instance: ${a.instance}` : '',

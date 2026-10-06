@@ -1308,11 +1308,88 @@ def _pagerduty_label(kind: str) -> Callable[[dict[str, Any]], str]:
     return label
 
 
+def _pd_change(what: str, apply: Callable[[], dict[str, Any]], ref: str, ctx: ToolContext) -> str:
+    if not ctx.can_write():
+        raise ToolError(
+            "Blocked: changes are OFF for this run. Do not retry. Tell the user what you would do in "
+            'PagerDuty; they can turn on "Allow changes" below the chat if they want you to.'
+        )
+
+    found = pagerduty.describe(ref)
+    answer = ctx.ask_user(f"{what} in PagerDuty?", ["Approve", "Reject"], False, _incident_line(found))
+    if answer != "Approve":
+        raise ToolError("The user rejected this change. Do not retry it.")
+    if not ctx.can_write():
+        raise ToolError("Changes were turned off before this was applied.")
+
+    updated = apply()
+    return f"Done: {what}.\n{_incident_line(updated)}"
+
+
+def _pd_note(args: dict[str, Any], ctx: ToolContext) -> str:
+    ref, text = str(args["incident"]), str(args["note"])
+    return _pd_change(f'Add a note to {ref}: "{text}"', lambda: pagerduty.add_note(ref, text), ref, ctx)
+
+
+def _pd_ack(args: dict[str, Any], ctx: ToolContext) -> str:
+    ref = str(args["incident"])
+    return _pd_change(f"Acknowledge {ref}", lambda: pagerduty.set_status(ref, "acknowledged"), ref, ctx)
+
+
+def _pd_resolve(args: dict[str, Any], ctx: ToolContext) -> str:
+    ref = str(args["incident"])
+    return _pd_change(f"Resolve {ref}", lambda: pagerduty.set_status(ref, "resolved"), ref, ctx)
+
+
+def _pd_escalate(args: dict[str, Any], ctx: ToolContext) -> str:
+    ref, level = str(args["incident"]), int(args["level"])
+    return _pd_change(f"Escalate {ref} to level {level}", lambda: pagerduty.escalate(ref, level), ref, ctx)
+
+
+def _pd_reassign(args: dict[str, Any], ctx: ToolContext) -> str:
+    ref = str(args["incident"])
+    if args.get("policy"):
+        policy = pagerduty.find_one("policy", str(args["policy"]))
+        return _pd_change(
+            f"Reassign {ref} to escalation policy {policy['name']}",
+            lambda: pagerduty.reassign(ref, policy["id"], []),
+            ref,
+            ctx,
+        )
+
+    people = [pagerduty.find_one("user", str(u)) for u in args.get("users") or []]
+    names = ", ".join(u["name"] for u in people)
+    return _pd_change(
+        f"Reassign {ref} to {names or 'nobody'}",
+        lambda: pagerduty.reassign(ref, None, [u["id"] for u in people]),
+        ref,
+        ctx,
+    )
+
+
+def _pd_snooze(args: dict[str, Any], ctx: ToolContext) -> str:
+    ref, minutes = str(args["incident"]), int(args["minutes"])
+    return _pd_change(f"Snooze {ref} for {minutes} minutes", lambda: pagerduty.snooze(ref, minutes), ref, ctx)
+
+
+def _pd_directory(args: dict[str, Any], ctx: ToolContext) -> str:
+    query = str(args.get("query") or "")
+    found_policies = pagerduty.policies(query)
+    found_users = pagerduty.users(query) if query else []
+    lines = ["Escalation policies:"] + ([f"- {p['name']} ({p['id']})" for p in found_policies] or ["- none"])
+    if query:
+        lines += ["", "Users:"] + ([f"- {u['name']} <{u['email']}> ({u['id']})" for u in found_users] or ["- none"])
+    return clip("\n".join(lines), ctx, "directory")
+
+
 PAGERDUTY_TOOLS = {
     "pd_incidents": "incidents",
     "pd_incident": "incidents",
     "pd_oncall": "oncall",
+    "pd_directory": "incidents",
 }
+PAGERDUTY_WRITE_TOOLS = ("pd_note", "pd_ack", "pd_resolve", "pd_escalate", "pd_reassign", "pd_snooze")
+INCIDENT = _str("Incident number (e.g. 12345), id or PagerDuty link")
 
 TOOLS += [
     Tool(
@@ -1360,10 +1437,75 @@ TOOLS += [
         _pagerduty_label("on call"),
         _pagerduty(_pagerduty_oncall),
     ),
+    Tool(
+        "pd_directory",
+        "Find PagerDuty escalation policies, and with a query also users, by name: their ids for "
+        "pd_reassign. Without a query lists every policy.",
+        {"query": _str("Part of a policy or user name, or an email")},
+        [],
+        _pagerduty_label("directory"),
+        _pagerduty(_pd_directory),
+    ),
+    Tool(
+        "pd_note",
+        "Add a note to a PagerDuty incident. Only with changes allowed; waits for the user's approval.",
+        {"incident": INCIDENT, "note": _str("Note text")},
+        ["incident", "note"],
+        _pagerduty_label("note"),
+        _pagerduty(_pd_note),
+    ),
+    Tool(
+        "pd_ack",
+        "Acknowledge a PagerDuty incident. Only with changes allowed; waits for the user's approval.",
+        {"incident": INCIDENT},
+        ["incident"],
+        _pagerduty_label("acknowledge"),
+        _pagerduty(_pd_ack),
+    ),
+    Tool(
+        "pd_resolve",
+        "Resolve a PagerDuty incident. Only with changes allowed; waits for the user's approval. Add "
+        "a note with the cause first.",
+        {"incident": INCIDENT},
+        ["incident"],
+        _pagerduty_label("resolve"),
+        _pagerduty(_pd_resolve),
+    ),
+    Tool(
+        "pd_escalate",
+        "Escalate a PagerDuty incident to a level of its escalation policy (pd_oncall shows the levels). "
+        "Only with changes allowed; waits for the user's approval.",
+        {"incident": INCIDENT, "level": _int("Escalation level, 1 or higher")},
+        ["incident", "level"],
+        _pagerduty_label("escalate"),
+        _pagerduty(_pd_escalate),
+    ),
+    Tool(
+        "pd_reassign",
+        "Reassign a PagerDuty incident to another escalation policy, or to users. Names are looked "
+        "up like pd_directory and must match one. Only with changes allowed; waits for the user's "
+        "approval.",
+        {
+            "incident": INCIDENT,
+            "policy": _str("Escalation policy name or id"),
+            "users": _strings("User names, emails or ids, instead of a policy"),
+        },
+        ["incident"],
+        _pagerduty_label("reassign"),
+        _pagerduty(_pd_reassign),
+    ),
+    Tool(
+        "pd_snooze",
+        "Snooze an acknowledged PagerDuty incident. Only with changes allowed; waits for the user's approval.",
+        {"incident": INCIDENT, "minutes": _int("Minutes, 1 to 1440")},
+        ["incident", "minutes"],
+        _pagerduty_label("snooze"),
+        _pagerduty(_pd_snooze),
+    ),
 ]
 
 WORKSPACE_TOOLS = ("ws_list", "ws_search", "ws_read", "ws_edit", "ws_write", "ws_run")
-OPTIONAL_TOOLS = {*DATADOG_TOOLS, *PAGERDUTY_TOOLS, *WORKSPACE_TOOLS}
+OPTIONAL_TOOLS = {*DATADOG_TOOLS, *PAGERDUTY_TOOLS, *PAGERDUTY_WRITE_TOOLS, *WORKSPACE_TOOLS}
 TOOL_SPECS = [t.spec for t in TOOLS if t.name not in OPTIONAL_TOOLS]
 
 TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
@@ -1374,14 +1516,16 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     ),
     ("Workspace", "the user's code folder: files, search, edits and commands", list(WORKSPACE_TOOLS)),
     ("Datadog", "logs, metrics, monitors, events and APM", list(DATADOG_TOOLS)),
-    ("PagerDuty", "incidents and on-call", list(PAGERDUTY_TOOLS)),
+    ("PagerDuty", "incidents and on-call; changes only while allowed", [*PAGERDUTY_TOOLS, *PAGERDUTY_WRITE_TOOLS]),
     ("Skills", "guides for each area", ["skill_read"]),
     ("Run", "the run folder, questions to the user and the result", ["run_read", "run_ask", "run_report"]),
 ]
 
 
-def tool_specs() -> list[dict[str, Any]]:
+def tool_specs(write: bool = False) -> list[dict[str, Any]]:
     specs = list(TOOL_SPECS)
+    if write and pagerduty.connected() and pagerduty.permissions()["incidents"]:
+        specs += [t.spec for t in TOOLS if t.name in PAGERDUTY_WRITE_TOOLS]
     if project.configured():
         specs += [t.spec for t in TOOLS if t.name in WORKSPACE_TOOLS]
     for linked, allowed, names in (

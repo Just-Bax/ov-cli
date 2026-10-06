@@ -33,6 +33,9 @@ HEALTH_TTL_SECONDS = 60
 OPEN_LOOKBACK_DAYS = 30
 DAY_MS = 86_400_000
 ONCALL_WINDOW_MS = 60_000
+MAX_SNOOZE_MINUTES = 1440
+DIRECTORY_LIMIT = 200
+FIND_SHOWN = 8
 
 REGIONS = {"us": "https://api.pagerduty.com", "eu": "https://api.eu.pagerduty.com"}
 DEFAULT_REGION = "us"
@@ -160,20 +163,31 @@ class Client:
     def __exit__(self, *_: Any) -> None:
         self._http.close()
 
-    def _send(self, path: str, params: dict[str, Any]) -> httpx.Response:
+    def _send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:
-            return self._http.get(path, params=params)
+            response = self._http.request(method, path, **kwargs)
+            if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+                time.sleep(RATE_LIMIT_WAIT_SECONDS)
+                response = self._http.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
             raise PagerDutyError(f"Could not reach PagerDuty: {exc}") from None
+        return response
 
     def get(self, path: str, area: str = "", **params: Any) -> dict[str, Any]:
-        response = self._send(path, params)
-        if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
-            time.sleep(RATE_LIMIT_WAIT_SECONDS)
-            response = self._send(path, params)
-
+        response = self._send("GET", path, params=params)
         if response.status_code >= httpx.codes.BAD_REQUEST:
             raise PagerDutyError(_explain(response, area))
+        return response.json() if response.content else {}
+
+    def write(self, method: str, path: str, body: dict[str, Any], email: str) -> dict[str, Any]:
+        response = self._send(method, path, json=body, headers={"From": email})
+        if response.status_code in (httpx.codes.UNAUTHORIZED, httpx.codes.FORBIDDEN):
+            raise PagerDutyError(
+                "PagerDuty refused this change. The token may be read-only, or your role cannot do it: "
+                "create a full-access User API token and reconnect PagerDuty in Settings > Integrations."
+            )
+        if response.status_code >= httpx.codes.BAD_REQUEST:
+            raise PagerDutyError(_explain(response, "incidents"))
         return response.json() if response.content else {}
 
     def pages(self, path: str, key: str, area: str, limit: int, **params: Any) -> list[dict[str, Any]]:
@@ -623,3 +637,103 @@ def resolve_host(instance: str | None, current: str) -> str:
     if not target:
         return ""
     return _instance_of(target)["alias"]
+
+
+def _email() -> str:
+    email = load_state().get("email", "")
+    if not email:
+        raise PagerDutyError("PagerDuty did not give your email, which changes need. Reconnect PagerDuty in Settings.")
+    return email
+
+
+def _target(pd: Client, ref: str) -> dict[str, Any]:
+    ident = _incident_ref(ref)
+    if not ident:
+        raise PagerDutyError("Give an incident number, id or link.")
+    return _incident(_field(pd.get(f"/incidents/{ident}", "incidents"), "incident"))
+
+
+def _update(ref: str, fields: dict[str, Any]) -> dict[str, Any]:
+    with client() as pd:
+        found = _target(pd, ref)
+        body = {"incident": {"type": "incident_reference", **fields}}
+        updated = _incident(_field(pd.write("PUT", f"/incidents/{found['id']}", body, _email()), "incident"))
+    _forget_caches()
+    return updated
+
+
+def describe(ref: str) -> dict[str, Any]:
+    with client() as pd:
+        return _target(pd, ref)
+
+
+def add_note(ref: str, text: str) -> dict[str, Any]:
+    if not text.strip():
+        raise PagerDutyError("A note needs text.")
+
+    with client() as pd:
+        found = _target(pd, ref)
+        pd.write("POST", f"/incidents/{found['id']}/notes", {"note": {"content": text.strip()}}, _email())
+    _forget_caches()
+    return found
+
+
+def set_status(ref: str, status: str) -> dict[str, Any]:
+    if status not in ("acknowledged", "resolved"):
+        raise PagerDutyError(f"Unknown status {status}.")
+    return _update(ref, {"status": status})
+
+
+def escalate(ref: str, level: int) -> dict[str, Any]:
+    if level < 1:
+        raise PagerDutyError("Escalation levels start at 1.")
+    return _update(ref, {"escalation_level": level})
+
+
+def reassign(ref: str, policy_id: str | None, user_ids: list[str]) -> dict[str, Any]:
+    if bool(policy_id) == bool(user_ids):
+        raise PagerDutyError("Reassign to either an escalation policy or users, not both and not neither.")
+
+    if policy_id:
+        return _update(ref, {"escalation_policy": {"id": policy_id, "type": "escalation_policy_reference"}})
+    assignments = [{"assignee": {"id": uid, "type": "user_reference"}} for uid in user_ids]
+    return _update(ref, {"assignments": assignments})
+
+
+def snooze(ref: str, minutes: int) -> dict[str, Any]:
+    if not 1 <= minutes <= MAX_SNOOZE_MINUTES:
+        raise PagerDutyError(f"Snooze for 1 to {MAX_SNOOZE_MINUTES} minutes.")
+
+    with client() as pd:
+        found = _target(pd, ref)
+        if found["status"] != "acknowledged":
+            raise PagerDutyError("Only an acknowledged incident can be snoozed. Acknowledge it first.")
+        pd.write("POST", f"/incidents/{found['id']}/snooze", {"duration": minutes * 60}, _email())
+    _forget_caches()
+    return found
+
+
+def policies(query: str) -> list[dict[str, Any]]:
+    with client() as pd:
+        rows = pd.pages("/escalation_policies", "escalation_policies", "incidents", DIRECTORY_LIMIT, query=query)
+    return [{"id": _field(r, "id"), "name": r.get("name") or r.get("summary") or ""} for r in rows]
+
+
+def users(query: str) -> list[dict[str, Any]]:
+    with client() as pd:
+        rows = pd.pages("/users", "users", "incidents", DIRECTORY_LIMIT, query=query)
+    return [{"id": _field(r, "id"), "name": r.get("name") or "", "email": r.get("email") or ""} for r in rows]
+
+
+def find_one(kind: str, value: str) -> dict[str, Any]:
+    if re.fullmatch(r"P[A-Z0-9]{5,}", value.strip()):
+        return {"id": value.strip(), "name": value.strip()}
+
+    rows = policies(value) if kind == "policy" else users(value)
+    wanted = value.strip().lower()
+    exact = [r for r in rows if wanted in (r["name"].lower(), r.get("email", "").lower())]
+    picked = exact or rows
+    if len(picked) != 1:
+        names = ", ".join(r["name"] for r in picked[:FIND_SHOWN]) or "none"
+        raise PagerDutyError(f"{len(picked)} PagerDuty {kind} match {value!r}: {names}. Be more specific.")
+    return picked[0]

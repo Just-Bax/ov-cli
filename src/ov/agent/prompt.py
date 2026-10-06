@@ -54,7 +54,7 @@ def system_prompt(write_access: bool, instance: str) -> str:
     skills = offered_skills()
     core = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in skills if s["core"])
     skill_list = "\n".join(f"- {s['name']}: {s['description'] or s['title']}" for s in skills if not s["core"])
-    offered = {spec["function"]["name"] for spec in tool_specs()}
+    offered = {spec["function"]["name"] for spec in tool_specs(write_access)}
     groups = "\n".join(
         f"- {title} ({about}): {', '.join(n for n in names if n in offered)}"
         for title, about, names in TOOL_GROUPS
