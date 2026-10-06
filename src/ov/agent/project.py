@@ -54,6 +54,23 @@ RISKY_COMMANDS = [
         re.compile(r"\b(Invoke-Expression|iex)\b|\|\s*(sh|bash|pwsh|powershell)\b", re.IGNORECASE),
         "runs downloaded code",
     ),
+    (
+        re.compile(
+            r"\bgh\s+(pr\s+(merge|close|create|comment|review|edit|ready|reopen)"
+            r"|issue\s+(create|close|comment|edit|delete|reopen|transfer)"
+            r"|release\s+(create|delete|edit|upload)|repo\s+(create|delete|fork|edit|rename|archive)"
+            r"|workflow\s+(run|enable|disable)|run\s+(cancel|rerun|delete)"
+            r"|(secret|variable|label)\s+(set|create|delete|edit))\b",
+            re.IGNORECASE,
+        ),
+        "changes something on GitHub",
+    ),
+    (
+        re.compile(
+            r"\bgh\s+api\b.*(-X\s*|--method[\s=]+)(POST|PUT|PATCH|DELETE)|\bgh\s+api\b.*\s-[fF]\s", re.IGNORECASE
+        ),
+        "changes something on GitHub",
+    ),
     (re.compile(r"\bmklink\b|\bNew-Item\b.*-ItemType\s+(Junction|SymbolicLink)", re.IGNORECASE), "creates links"),
 ]
 _ABSOLUTE = re.compile(r"(?<![\w:])([A-Za-z]:[\\/][^\s\"'|;&]*|~[\\/][^\s\"'|;&]*)")

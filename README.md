@@ -438,6 +438,11 @@ GitHub token is kept in the vault with your other credentials.
 4. **Files** in the sidebar browses the workspace and opens files in an editor: edit, then
    save with Ctrl+S. "Ask the agent" there starts a run about the open file.
 
+GitHub work (pull requests, their diffs, review comments, checks, issues) goes through the
+`gh` CLI in the workspace: install it and run `gh auth login` once. Reading is free; posting
+a comment or review, creating, merging or closing anything, or `gh api` writes wait for
+your approval.
+
 The agent commits only when you ask and never pushes on its own. Paths in the `ws_` tools
 cannot leave the workspace; a shell command could, which is why those need your approval.
 

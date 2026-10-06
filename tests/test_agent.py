@@ -126,6 +126,12 @@ def test_risky_commands_need_approval(workspace, tmp_path):
     assert project.risks("git status && pytest tests/x.py", base) == []
     assert project.risks("git push origin main", base) == ["pushes to a remote"]
     assert project.risks("Remove-Item -Recurse build", base) == ["deletes files"]
+    assert project.risks("gh pr view 12 --comments && gh pr diff 12", base) == []
+    assert project.risks("gh pr comment 12 -b ok", base) == ["changes something on GitHub"]
+    assert project.risks("gh api repos/a/b/pulls/1/comments", base) == []
+    assert project.risks("gh api -X POST repos/a/b/issues/1/comments -f body=x", base) == [
+        "changes something on GitHub"
+    ]
     assert project.risks(f"type {tmp_path / 'secret.txt'}", base)[0].startswith("touches")
     assert project.risks(f"type {workspace / 'module' / 'main.py'}", base) == []
 

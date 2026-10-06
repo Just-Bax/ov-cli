@@ -15,3 +15,10 @@ How to work in it:
 - Commit only when the user asks, with a short message. Never push, delete files or rewrite history on your own: those commands wait for the user's approval, so ask first and explain why.
 - Run only the tests or build steps that cover what you changed, not whole suites.
 - When you are done, list the files you changed and what is left for the user to do.
+
+GitHub: use the gh CLI through ws_run, inside the repo's folder. If gh is missing or not signed in, tell the user to install it and run `gh auth login`; do not work around it.
+- Pull requests: `gh pr list`, `gh pr view <n> --comments`, `gh pr diff <n>` (add `--name-only` first on big ones), `gh pr checks <n>`, `gh pr checkout <n>` to work on its branch.
+- Review comments on lines: `gh api repos/{owner}/{repo}/pulls/<n>/comments --jq ".[] | {path, line, user: .user.login, body}"`.
+- Issues and runs: `gh issue view <n> --comments`, `gh run list`, `gh run view <id> --log-failed`.
+- Reading is free. Anything that changes GitHub (comment, review, create, merge, close, edit, workflow run, gh api with POST/PATCH/DELETE) waits for the user's approval: say what you will post and why before running it.
+- To change a PR: check out its branch, edit, run the related tests, commit, then ask before pushing.
