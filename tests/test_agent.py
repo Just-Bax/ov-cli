@@ -33,6 +33,7 @@ class FakeContext:
         self.opened: set[str] = set()
         self.events: list[dict] = []
         self.asked: list[str] = []
+        self.edits: list[tuple] = []
         self.write = write
         self.approve = approve
 
@@ -51,6 +52,9 @@ class FakeContext:
 
     def attach_image(self, name, url):
         pass
+
+    def record_edit(self, path, before, after, created):
+        self.edits.append((path, before, after, created))
 
     def finish(self, outcome):
         pass
@@ -556,3 +560,63 @@ def test_components_are_exported_to_workspace_files(logged_in, tmp_path, monkeyp
     assert seen[0][2:5] == ["request", "POST", "/v3/components/exports/run"]
     with pytest.raises(ToolError, match="1 to 20"):
         tool_named("ov_export").handler({"component_type": "RULE", "ids": list(range(21))}, FakeContext(tmp_path))
+
+
+def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch):
+    cut = '{"path": "widget.html", "content": "<html><body>'
+    replies = iter(
+        [
+            StreamResult(
+                text="Writing.",
+                tool_calls=[{"id": "c1", "type": "function", "function": {"name": "ov", "arguments": cut}}],
+            ),
+            StreamResult(text="Done in parts."),
+        ]
+    )
+    sent: list[list[dict]] = []
+
+    def fake_chat(model, messages, *args, cancel, on_text):
+        sent.append(json.loads(json.dumps(messages)))
+        reply = next(replies)
+        on_text(reply.text)
+        return reply
+
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+
+    from ov.agent.run import runs
+
+    run = runs.create({"prompt": "build it", "instance": "acme"}, "test-model")
+    for _ in range(100):
+        if run.state["summary"]["status"] in ("done", "error"):
+            break
+        time.sleep(0.05)
+
+    assert run.state["summary"]["status"] == "done", run.state.get("error")
+    second = sent[1]
+    call = next(m for m in second if m.get("tool_calls"))["tool_calls"][0]
+    assert call["function"]["arguments"] == "{}"
+    result = next(m for m in second if m["role"] == "tool")["content"]
+    assert "cut off" in result and "in parts" in result
+    runs.delete(run.id)
+
+
+def test_workspace_edits_are_recorded_for_the_changes_view(workspace, tmp_path):
+    from ov.agent.run import _line_changes
+    from ov.agent.tools import tool_named
+
+    ctx = FakeContext(tmp_path)
+    tool_named("ws_edit").handler({"path": "module/main.py", "old": "RULE_ID = 1", "new": "RULE_ID = 2\nX = 3"}, ctx)
+    tool_named("ws_write").handler({"path": "module/new.py", "content": "a\nb\n"}, ctx)
+    assert ctx.edits == [
+        ("module/main.py", "RULE_ID = 1", "RULE_ID = 2\nX = 3", False),
+        ("module/new.py", "", "a\nb\n", True),
+    ]
+    assert _line_changes("RULE_ID = 1", "RULE_ID = 2\nX = 3") == (2, 1)
+
+
+def test_the_reducer_keeps_edits_out_of_the_thread():
+    s = state.empty_state({"id": "r1", "status": "running"}, {"prompt": "hi"})
+    edit = {"id": "e1", "toolId": "c1", "path": "a.py", "created": True, "added": 2, "removed": 0}
+    state.reduce(s, {"seq": 1, "ts": 1, "event": {"type": "edit", "edit": edit}})
+    assert s["edits"] == [edit] and s["items"] == []

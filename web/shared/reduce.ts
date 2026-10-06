@@ -7,6 +7,7 @@ export function emptyState(summary: RunSummary, input: RunInput): RunState {
     items: [],
     tools: [],
     changes: [],
+    edits: [],
     questions: [],
     logins: [],
     chat: [],
@@ -76,6 +77,8 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
         changes: upsert(state.changes, event.change),
         items: withItem(state.items, { kind: 'change', id: event.change.id }),
       }
+    case 'edit':
+      return { ...state, edits: upsert(state.edits, event.edit) }
     case 'outcome': {
       const id = `o${seq}`
       return {

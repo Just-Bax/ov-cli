@@ -75,6 +75,7 @@ class ToolContext(Protocol):
     def ask_user(self, question: str, options: list[str], multiple: bool, detail: str | None = None) -> str: ...
     def require_login(self, host: str, tenant: str = "") -> bool: ...
     def attach_image(self, name: str, url: str) -> None: ...
+    def record_edit(self, path: str, before: str, after: str, created: bool) -> None: ...
     def finish(self, outcome: dict[str, Any]) -> None: ...
     def can_write(self) -> bool: ...
     def load_case(self, ref: str) -> str: ...
@@ -507,12 +508,20 @@ def _ws_read(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(project.read(str(args["path"]), int(args.get("start") or 1), end), ctx, "file")
 
 
-def _ws_edit(args: dict[str, Any], _ctx: ToolContext) -> str:
-    return project.edit(str(args["path"]), str(args["old"]), str(args["new"]), bool(args.get("replace_all")))
+def _ws_edit(args: dict[str, Any], ctx: ToolContext) -> str:
+    path, old, new = str(args["path"]), str(args["old"]), str(args["new"])
+    result = project.edit(path, old, new, bool(args.get("replace_all")))
+    ctx.record_edit(path, old, new, created=False)
+    return result
 
 
-def _ws_write(args: dict[str, Any], _ctx: ToolContext) -> str:
-    return project.write(str(args["path"]), str(args["content"]))
+def _ws_write(args: dict[str, Any], ctx: ToolContext) -> str:
+    path, content = str(args["path"]), str(args["content"])
+    existed = project.resolve(path).is_file()
+    before = project.text_of(path) if existed else ""
+    result = project.write(path, content)
+    ctx.record_edit(path, before, content, created=not existed)
+    return result
 
 
 def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -1014,8 +1023,8 @@ TOOLS = [
     ),
     Tool(
         "run_report",
-        "Deliver the result of an investigation. Call once at the end; skip it for quick "
-        "questions answered in chat. The user may ask follow-ups afterwards.",
+        "Deliver a structured report: only when working a support case, or when the user asks for a "
+        "report of findings. Everything else is answered in chat. The user may ask follow-ups afterwards.",
         {
             "findings": {
                 "type": "array",
@@ -1059,9 +1068,9 @@ TOOLS = [
             },
             "unrelated": _strings("Unrelated problems noticed, one sentence each"),
             "reply": _str(
-                "Working a case: the case chat comment in the reply style - short paragraphs "
-                "separated by blank lines: update, what the problem was, what I did, current "
-                "status and next step. Otherwise a short message the user can forward, or empty."
+                "Only when working a case: the case chat comment in the reply style - short paragraphs "
+                "separated by blank lines: update, what the problem was, what I did, current status and "
+                "next step. Or when the user asks for a message to send. Otherwise leave it out."
             ),
             "time_saved_minutes": _int(
                 "Realistic minutes an experienced TCE would have spent doing this exact "

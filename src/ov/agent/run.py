@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import difflib
 import itertools
 import json
 import queue
@@ -44,9 +45,12 @@ TITLE_CHARS = 120
 PROMPT_TITLE_CHARS = 90
 NAMING_INPUT_CHARS = 2000
 NAMING_PROMPT = (
-    "Name this OneVizion support request in 3 to 7 plain words, like a ticket title. "
-    "Reply with the title only: no quotes, no trailing period."
+    "You write titles for a list of conversations. You never answer or act on the request. "
+    "Given the user's first message between <message> tags, reply with a 3 to 7 word title "
+    "naming its topic, like a ticket title. Reply with the title only: one line, no quotes, no "
+    "markdown, no trailing period."
 )
+MAX_TITLE_WORDS = 10
 RUN_ID_SUFFIX_CHARS = 4
 
 WRITE_ON_NOTE = (
@@ -55,6 +59,13 @@ WRITE_ON_NOTE = (
     "waits for their approval. Only apply what is needed."
 )
 WRITE_OFF_NOTE = "The user turned OFF write access for this run. Do not attempt changes; propose them instead."
+
+EDIT_CHARS = 60_000
+CUT_OFF_ARGUMENTS = (
+    "the arguments of this call were cut off or were not valid JSON, so it did not run. This "
+    "usually means the content was too long for one reply. Do not resend it in one piece: write a "
+    "large file in parts (ws_write a short first part, then add the rest with ws_edit), or shorten it."
+)
 
 _ids = itertools.count(1)
 
@@ -79,6 +90,8 @@ class Run:
         self._lock = threading.RLock()
         self._listeners: list[queue.Queue[dict[str, Any]]] = []
         self._messages = _answered(db.load_conversation(run_id) or [])
+        self._cut_off: set[str] = set()
+        self._local = threading.local()
         self._turns: dict[str, dict[str, Any]] = db.load_conversation(f"{run_id}#turns") or {}
         self._pending_images: list[tuple[str, str]] = []
         self._notes: list[str] = []
@@ -266,6 +279,22 @@ class Run:
             waiter[1].append(ok)
             waiter[0].set()
 
+    def record_edit(self, path: str, before: str, after: str, created: bool) -> None:
+        added, removed = _line_changes(before, after)
+        truncated = len(before) > EDIT_CHARS or len(after) > EDIT_CHARS
+        edit = {
+            "id": _uid("e"),
+            "toolId": getattr(self._local, "tool", ""),
+            "path": path.replace("\\", "/"),
+            "created": created,
+            "added": added,
+            "removed": removed,
+            "before": before[:EDIT_CHARS],
+            "after": after[:EDIT_CHARS],
+            "truncated": truncated,
+        }
+        self.emit({"type": "edit", "edit": edit})
+
     def attach_image(self, name: str, url: str) -> None:
         self._pending_images.append((name, url))
 
@@ -382,8 +411,11 @@ class Run:
             self._spawn(self._name, fast, self.state["summary"]["title"], text)
 
     def _name(self, model: str, placeholder: str, text: str) -> None:
-        title = copilot.complete(model, NAMING_PROMPT, text[:NAMING_INPUT_CHARS]).strip("\"' .")
-        if title and self.state["summary"]["title"] == placeholder:
+        reply = copilot.complete(model, NAMING_PROMPT, f"<message>\n{text[:NAMING_INPUT_CHARS]}\n</message>")
+        title = reply.strip().splitlines()[0].strip("\"'#*` .") if reply.strip() else ""
+        if not title or len(title.split()) > MAX_TITLE_WORDS:
+            return
+        if self.state["summary"]["title"] == placeholder:
             self.rename(title)
 
     def rename(self, title: str) -> None:
@@ -519,6 +551,9 @@ class Run:
 
     def _ask_model(self, model: str, specs: list[dict[str, Any]], initiator: str) -> list[dict[str, Any]]:
         message_id = _uid("a")
+        for message in self._messages:
+            if message.get("tool_calls"):
+                message["tool_calls"] = _repaired(message["tool_calls"])
         result = copilot.stream_chat(
             model,
             self._messages,
@@ -532,7 +567,8 @@ class Run:
 
         reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
         if result.tool_calls:
-            reply["tool_calls"] = result.tool_calls
+            self._cut_off.update(c["id"] for c in result.tool_calls if not _valid_arguments(c))
+            reply["tool_calls"] = _repaired(result.tool_calls)
         self._messages.append(reply)
         self._save(self.id, self._messages)
         return result.tool_calls
@@ -551,6 +587,10 @@ class Run:
         self._save(self.id, self._messages)
 
     def _call_tool(self, call: dict[str, Any]) -> str:
+        self._local.tool = call["id"]
+        if call["id"] in self._cut_off:
+            return f"Error: {CUT_OFF_ARGUMENTS}"
+
         name = call["function"]["name"]
         tool = tool_named(name)
         if tool is None:
@@ -623,6 +663,30 @@ def _trim(message: dict[str, Any]) -> None:
             {"type": "text", "text": "[image removed to save context]"} if part["type"] == "image_url" else part
             for part in content
         ]
+
+
+def _line_changes(before: str, after: str) -> tuple[int, int]:
+    added = removed = 0
+    matcher = difflib.SequenceMatcher(None, before.splitlines(), after.splitlines(), autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag != "equal":
+            removed += i2 - i1
+            added += j2 - j1
+    return added, removed
+
+
+def _valid_arguments(call: dict[str, Any]) -> bool:
+    try:
+        return isinstance(json.loads(call["function"]["arguments"] or "{}"), dict)
+    except json.JSONDecodeError:
+        return False
+
+
+def _repaired(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        call if _valid_arguments(call) else {**call, "function": {**call["function"], "arguments": "{}"}}
+        for call in calls
+    ]
 
 
 def _answered(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

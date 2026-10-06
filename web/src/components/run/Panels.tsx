@@ -2,7 +2,7 @@ import { ClockIcon, KeyIcon, PaperAirplaneIcon } from '@heroicons/react/24/outli
 import { formatMinutes } from '@shared/estimate.ts'
 import { useState } from 'react'
 import type { LoginPrompt, Outcome, Question, Verdict } from '@shared/types.ts'
-import { Button, Chip, CopyButton, Input, Spinner, type Tone } from '@/components/ui'
+import { Button, Chip, CopyButton, Input, Markdown, Spinner, type Tone } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
@@ -42,13 +42,17 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
               ) : null}
               <span className="text-fg ml-1 text-[13.5px] font-semibold">{issue.title}</span>
             </div>
-            <p className="text-text mt-1.5 text-[13.5px] leading-relaxed">{issue.summary}</p>
+            <div className="text-text mt-1.5 text-[13.5px] leading-relaxed">
+              <Markdown text={issue.summary} />
+            </div>
             {issue.evidence?.length ? (
               <ul className="text-muted mt-1.5 space-y-0.5 text-[12px]">
                 {issue.evidence.map((e, j) => (
                   <li key={j} className="flex gap-2">
                     <span className="bg-line-strong mt-[7px] size-1 shrink-0 rounded-full" />
-                    <span>{e}</span>
+                    <span className="min-w-0 flex-1">
+                      <Markdown text={e} />
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -88,7 +92,9 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
             </summary>
             <ul className="text-text mt-1.5 list-disc space-y-0.5 pl-5 text-[12.5px]">
               {outcome.unrelated.map((u, i) => (
-                <li key={i}>{u}</li>
+                <li key={i}>
+                  <Markdown text={u} />
+                </li>
               ))}
             </ul>
           </details>
@@ -114,9 +120,9 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
             ) : null}
             <CopyButton text={outcome.reply} label="Copy" variant="primary" />
           </div>
-          <p className="text-fg px-4 pt-1.5 pb-3 text-[13.5px] leading-relaxed whitespace-pre-wrap">
-            {outcome.reply}
-          </p>
+          <div className="text-fg px-4 pt-1.5 pb-3 text-[13.5px] leading-relaxed">
+            <Markdown text={outcome.reply} />
+          </div>
         </div>
       ) : null}
       {settings.showTimeSaved && outcome.timeSaved?.minutes ? (

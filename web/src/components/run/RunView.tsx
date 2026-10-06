@@ -1,9 +1,4 @@
-import {
-  ArrowTopRightOnSquareIcon,
-  ArrowUturnLeftIcon,
-  ClockIcon,
-  TrashIcon,
-} from '@heroicons/react/24/outline'
+import { ArrowTopRightOnSquareIcon, ClockIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { formatMinutes, savedMinutes } from '@shared/estimate.ts'
 import { Composer } from '@/components/Composer'
 import { EditableTitle } from '@/components/EditableTitle'
@@ -13,7 +8,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChatMessage, Rating, RunState, ThreadItem, ToolActivity } from '@shared/types.ts'
 import { StatusIcon } from '@/components/Sidebar'
 import {
-  Button,
   Dot,
   IconButton,
   Markdown,
@@ -29,11 +23,16 @@ import { go } from '@/lib/route'
 import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
 import { ChangeCard } from './ChangeCard'
+import { FilesChanged, LineCounts, summarize } from './FilesChanged'
+import { ThreadRail } from './ThreadRail'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
 import { Answer, LoginCard, QuestionCard } from './Panels'
 import { ToolGroup } from './ToolGroup'
 
 const FOLLOW_BOTTOM_PX = 80
+const USER_SCROLL_MS = 600
+const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const
+const MARK_LABEL_CHARS = 160
 
 const TONE_TEXT: Record<Tone, string> = {
   brand: 'text-brand-strong',
@@ -104,6 +103,17 @@ function turnText(turn: Turn, state: RunState): string {
   return parts.join('\n\n')
 }
 
+function activityOf(state: RunState): string {
+  if (state.summary.status === 'waiting') return 'Waiting for your answer or approval above'
+  if (state.summary.status === 'queued') return 'Starting'
+
+  const running = state.tools.filter((t) => t.status === 'running')
+  const done = state.tools.filter((t) => t.status !== 'running').length
+  const steps = done ? ` - ${done} step${done === 1 ? '' : 's'} done` : ''
+  if (running.length) return `${running.map((t) => t.label).join(', ')}${steps}`
+  return `Thinking${steps}`
+}
+
 function turnTime(turn: Turn, state: RunState): number | undefined {
   for (let i = turn.blocks.length - 1; i >= 0; i--) {
     const b = turn.blocks[i]
@@ -150,24 +160,17 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
   }
 }
 
-const SUGGESTIONS = [
-  'Make the reply shorter',
-  'Show the fix as a diff',
-  'Check another instance too',
-  'Explain the root cause',
-]
-
 function Footer({
   runId,
   busy,
-  done,
   write,
+  activity,
   onSend,
 }: {
   runId: string
   busy: boolean
-  done: boolean
   write: boolean
+  activity: string
   onSend: () => void
 }) {
   const [error, setError] = useState<string>()
@@ -186,18 +189,10 @@ function Footer({
   return (
     <div className="px-6 pt-1 pb-4">
       <div className="mx-auto max-w-[860px]">
-        {done ? (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => void send(s)}
-                className="border-line-strong text-text hover:bg-raised h-7 rounded-full border px-3 text-[12px]"
-              >
-                {s}
-              </button>
-            ))}
+        {busy && activity ? (
+          <div className="text-muted mb-1.5 flex items-center gap-2 px-2 text-[12px]">
+            <Spinner className="text-brand size-3 shrink-0" />
+            <span className="min-w-0 truncate">{activity}</span>
           </div>
         ) : null}
         {error ? <div className="text-danger mb-1.5 text-[12px]">{error}</div> : null}
@@ -233,21 +228,31 @@ export function RunView({ id }: { id: string }) {
     const scroller = content?.parentElement
     if (!content || !scroller) return
 
+    let userScrolledAt = 0
     const pinToBottom = () => {
       if (followBottom.current) scroller.scrollTop = scroller.scrollHeight
     }
+    const markUser = () => {
+      userScrolledAt = Date.now()
+    }
     const onScroll = () => {
       const fromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
-      followBottom.current = fromBottom < FOLLOW_BOTTOM_PX
+      if (fromBottom < FOLLOW_BOTTOM_PX) followBottom.current = true
+      else if (Date.now() - userScrolledAt < USER_SCROLL_MS) followBottom.current = false
     }
+
+    followBottom.current = true
     const contentGrowth = new ResizeObserver(pinToBottom)
     contentGrowth.observe(content)
     scroller.addEventListener('scroll', onScroll, { passive: true })
+    for (const name of USER_SCROLL_EVENTS)
+      scroller.addEventListener(name, markUser, { passive: true })
     pinToBottom()
 
     return () => {
       contentGrowth.disconnect()
       scroller.removeEventListener('scroll', onScroll)
+      for (const name of USER_SCROLL_EVENTS) scroller.removeEventListener(name, markUser)
     }
   }, [ready])
 
@@ -293,11 +298,6 @@ export function RunView({ id }: { id: string }) {
     !(lastBlock?.kind === 'tools' && lastBlock.tools.some((t) => t.status === 'running')) &&
     !(lastBlock?.kind === 'item' && lastBlock.item.kind === 'text')
 
-  const rerun = async () => {
-    const { id: next } = await api.startRun({ ...state.input, model: summary.model })
-    go({ page: 'run', id: next })
-  }
-
   const subtitle = (
     <>
       <span className={cn('inline-flex items-center gap-1.5 font-medium', TONE_TEXT[status.tone])}>
@@ -337,6 +337,19 @@ export function RunView({ id }: { id: string }) {
           </span>
         </>
       ) : null}
+      {state.edits.length ? (
+        <>
+          <Dot />
+          <span className="inline-flex items-center gap-1.5">
+            {summarize(state.edits).length} file{summarize(state.edits).length === 1 ? '' : 's'}{' '}
+            changed
+            <LineCounts
+              added={state.edits.reduce((n, e) => n + e.added, 0)}
+              removed={state.edits.reduce((n, e) => n + e.removed, 0)}
+            />
+          </span>
+        </>
+      ) : null}
       {summary.instance ? (
         <>
           <Dot />
@@ -348,11 +361,6 @@ export function RunView({ id }: { id: string }) {
 
   const actions = (
     <>
-      {!busy ? (
-        <Button variant="ghost" onClick={() => void rerun()} title={`Model: ${summary.model}`}>
-          <ArrowUturnLeftIcon className="size-3.5" /> Run again
-        </Button>
-      ) : null}
       <IconButton
         label="Delete run"
         onClick={async () => {
@@ -390,19 +398,30 @@ export function RunView({ id }: { id: string }) {
         <Footer
           runId={id}
           busy={busy}
-          done={summary.status === 'done'}
           write={state.writeAccess}
+          activity={activityOf(state)}
           onSend={() => {
             followBottom.current = true
           }}
         />
       }
     >
+      <ThreadRail
+        contentRef={scrollRef}
+        version={`${state.items.length}:${state.chat.length}:${state.tools.length}`}
+        onJump={() => {
+          followBottom.current = false
+        }}
+      />
       <div ref={scrollRef} className="mx-auto max-w-[860px] space-y-5 px-6 pt-6 pb-8">
         {turns.map((turn, i) => {
           const isLast = i === turns.length - 1
           const active = isLast && busy
           const text = turnText(turn, state)
+          const toolIds = new Set(
+            turn.blocks.flatMap((b) => (b.kind === 'tools' ? b.tools.map((x) => x.id) : [])),
+          )
+          const edits = state.edits.filter((e) => toolIds.has(e.toolId))
           const turnId = turn.user?.id
           const hasOutcome = turn.blocks.some(
             (b) => b.kind === 'item' && b.item.kind === 'outcome' && b.item.id === state.outcomeId,
@@ -410,10 +429,23 @@ export function RunView({ id }: { id: string }) {
 
           return (
             <div key={turnId ?? `t${i}`} className="space-y-4">
-              {turn.user ? <UserMessage runId={id} message={turn.user} canRetry={!busy} /> : null}
-              {turn.blocks.map((b) => (
-                <ThreadBlock key={b.key} block={b} state={state} />
-              ))}
+              {turn.user ? (
+                <div data-mark="user" data-label={turn.user.text.slice(0, MARK_LABEL_CHARS)}>
+                  <UserMessage runId={id} message={turn.user} canRetry={!busy} />
+                </div>
+              ) : null}
+              {turn.blocks.length ? (
+                <div
+                  data-mark="agent"
+                  data-label={(text || 'Working').slice(0, MARK_LABEL_CHARS)}
+                  className="space-y-4"
+                >
+                  {turn.blocks.map((b) => (
+                    <ThreadBlock key={b.key} block={b} state={state} />
+                  ))}
+                  <FilesChanged edits={edits} />
+                </div>
+              ) : null}
               {!active && turnId && text ? (
                 <AssistantActions
                   runId={id}

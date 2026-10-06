@@ -802,6 +802,9 @@ svg.react-flow__connectionline {
   }
 }
 @layer utilities {
+  .pointer-events-auto {
+    pointer-events: auto;
+  }
   .pointer-events-none {
     pointer-events: none;
   }
@@ -859,8 +862,14 @@ svg.react-flow__connectionline {
   .right-0 {
     right: 0px;
   }
+  .right-2 {
+    right: calc(var(--spacing) * 2);
+  }
   .right-4 {
     right: calc(var(--spacing) * 4);
+  }
+  .right-7 {
+    right: calc(var(--spacing) * 7);
   }
   .bottom-1\.5 {
     bottom: calc(var(--spacing) * 1.5);
@@ -984,6 +993,9 @@ svg.react-flow__connectionline {
   }
   .mr-auto {
     margin-right: auto;
+  }
+  .mb-0\.5 {
+    margin-bottom: calc(var(--spacing) * 0.5);
   }
   .mb-1 {
     margin-bottom: var(--spacing);
@@ -1124,6 +1136,9 @@ svg.react-flow__connectionline {
     width: 18px;
     height: 18px;
   }
+  .h-0 {
+    height: 0px;
+  }
   .h-1\.5 {
     height: calc(var(--spacing) * 1.5);
   }
@@ -1174,6 +1189,9 @@ svg.react-flow__connectionline {
   }
   .h-28 {
     height: calc(var(--spacing) * 28);
+  }
+  .h-\[2px\] {
+    height: 2px;
   }
   .h-\[22px\] {
     height: 22px;
@@ -1268,17 +1286,26 @@ svg.react-flow__connectionline {
   .w-1\/4 {
     width: calc(1 / 4 * 100%);
   }
+  .w-2\.5 {
+    width: calc(var(--spacing) * 2.5);
+  }
   .w-2\/3 {
     width: calc(2 / 3 * 100%);
   }
   .w-2\/5 {
     width: calc(2 / 5 * 100%);
   }
+  .w-3\.5 {
+    width: calc(var(--spacing) * 3.5);
+  }
   .w-3\/4 {
     width: calc(3 / 4 * 100%);
   }
   .w-3\/5 {
     width: calc(3 / 5 * 100%);
+  }
+  .w-4 {
+    width: calc(var(--spacing) * 4);
   }
   .w-4\/5 {
     width: calc(4 / 5 * 100%);
@@ -1288,6 +1315,9 @@ svg.react-flow__connectionline {
   }
   .w-5\/6 {
     width: calc(5 / 6 * 100%);
+  }
+  .w-6 {
+    width: calc(var(--spacing) * 6);
   }
   .w-7 {
     width: calc(var(--spacing) * 7);
@@ -1363,6 +1393,9 @@ svg.react-flow__connectionline {
   }
   .w-\[272px\] {
     width: 272px;
+  }
+  .w-\[280px\] {
+    width: 280px;
   }
   .w-\[300px\] {
     width: 300px;
@@ -1518,9 +1551,6 @@ svg.react-flow__connectionline {
   }
   .cursor-pointer {
     cursor: pointer;
-  }
-  .cursor-text {
-    cursor: text;
   }
   .resize {
     resize: both;
@@ -1826,6 +1856,12 @@ svg.react-flow__connectionline {
   .bg-brand-soft\/50 {
     background-color: color-mix(in oklab, #e1f5fe 50%, transparent);
   }
+  .bg-brand-strong {
+    background-color: #1e88e5;
+  }
+  .bg-brand\/45 {
+    background-color: color-mix(in oklab, #42a5f5 45%, transparent);
+  }
   .bg-canvas {
     background-color: #eceff1;
   }
@@ -1852,6 +1888,9 @@ svg.react-flow__connectionline {
   }
   .bg-line-strong {
     background-color: #cfd8dc;
+  }
+  .bg-muted {
+    background-color: #607d8b;
   }
   .bg-ok {
     background-color: #2e7d32;
@@ -2038,6 +2077,9 @@ svg.react-flow__connectionline {
   }
   .pb-1 {
     padding-bottom: var(--spacing);
+  }
+  .pb-1\.5 {
+    padding-bottom: calc(var(--spacing) * 1.5);
   }
   .pb-2 {
     padding-bottom: calc(var(--spacing) * 2);

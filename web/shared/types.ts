@@ -10,6 +10,18 @@ export interface ToolActivity {
   ms?: number
 }
 
+export interface FileEdit {
+  id: string
+  toolId: string
+  path: string
+  created: boolean
+  added: number
+  removed: number
+  before: string
+  after: string
+  truncated: boolean
+}
+
 export interface Change {
   id: string
   title: string
@@ -95,6 +107,7 @@ export type RunEvent =
   | { type: 'text'; messageId: string; delta: string }
   | { type: 'user'; message: ChatMessage }
   | { type: 'change'; change: Change }
+  | { type: 'edit'; edit: FileEdit }
   | { type: 'outcome'; outcome: Outcome }
   | { type: 'question'; question: Question }
   | { type: 'login'; login: LoginPrompt }
@@ -154,6 +167,7 @@ export interface RunState {
   items: ThreadItem[]
   tools: ToolActivity[]
   changes: Change[]
+  edits: FileEdit[]
   outcome?: Outcome
   outcomeId?: string
   questions: Question[]

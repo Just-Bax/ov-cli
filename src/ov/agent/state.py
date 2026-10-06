@@ -14,6 +14,7 @@ def empty_state(summary: dict[str, Any], data: dict[str, Any]) -> State:
         "items": [],
         "tools": [],
         "changes": [],
+        "edits": [],
         "questions": [],
         "logins": [],
         "chat": [],
@@ -96,6 +97,10 @@ def _upserter(kind: str, collection: str) -> Callable[[State, Stored], None]:
     return apply
 
 
+def _on_edit(state: State, stored: Stored) -> None:
+    _upsert(state["edits"], stored["event"]["edit"])
+
+
 def _on_queued(state: State, stored: Stored) -> None:
     message = stored["event"]["message"]
     state["queued"] = [*_without(state["queued"], message["id"]), message]
@@ -138,6 +143,7 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "text": _on_text,
     "user": _on_user,
     "change": _upserter("change", "changes"),
+    "edit": _on_edit,
     "outcome": _on_outcome,
     "question": _upserter("question", "questions"),
     "login": _upserter("login", "logins"),
