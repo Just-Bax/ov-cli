@@ -1045,6 +1045,9 @@ svg.react-flow__connectionline {
   .field-sizing-content {
     field-sizing: content;
   }
+  .aspect-square {
+    aspect-ratio: 1 / 1;
+  }
   .\!size-1 {
     width: var(--spacing) !important;
     height: var(--spacing) !important;
@@ -1237,6 +1240,9 @@ svg.react-flow__connectionline {
   }
   .min-h-16 {
     min-height: calc(var(--spacing) * 16);
+  }
+  .min-h-24 {
+    min-height: calc(var(--spacing) * 24);
   }
   .min-h-\[44px\] {
     min-height: 44px;
@@ -1521,6 +1527,9 @@ svg.react-flow__connectionline {
   }
   .resize-none {
     resize: none;
+  }
+  .resize-y {
+    resize: vertical;
   }
   .scrollbar-thin {
     scrollbar-width: thin;
@@ -1921,6 +1930,9 @@ svg.react-flow__connectionline {
   }
   .p-7 {
     padding: calc(var(--spacing) * 7);
+  }
+  .px-0 {
+    padding-inline: 0px;
   }
   .px-1 {
     padding-inline: var(--spacing);

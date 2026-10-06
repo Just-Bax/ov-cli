@@ -521,22 +521,17 @@ function Skills() {
       </div>
       {creating || current ? (
         <div className="flex h-[560px] flex-col gap-3 p-4">
-          <div className="flex items-start gap-3 px-1">
+          <div className="flex items-center gap-3 px-1">
             <div className="min-w-0 flex-1">
-              <div className="text-fg flex items-center gap-2 text-[14px] font-semibold">
+              <div className="text-fg flex flex-wrap items-center gap-2 text-[14px] font-semibold">
                 <span className="truncate">{creating ? 'New skill' : current?.title}</span>
                 {current?.builtin ? <Chip>Built-in</Chip> : null}
                 {current?.core ? <Chip tone="ok">Always loaded</Chip> : null}
                 {current?.customized ? <Chip tone="brand">Edited</Chip> : null}
               </div>
-              <div className="text-muted mt-0.5 text-[12.5px] leading-relaxed">
-                {creating
-                  ? 'Write instructions the agent follows in every new run.'
-                  : current?.description}
-              </div>
             </div>
             {current ? (
-              <label className="text-muted flex shrink-0 cursor-pointer items-center gap-2.5 pt-1 text-[12.5px]">
+              <label className="text-muted flex shrink-0 cursor-pointer items-center gap-2.5 text-[12.5px]">
                 {current.enabled ? 'On for new runs' : 'Off'}
                 <Switch
                   on={current.enabled}
@@ -546,6 +541,11 @@ function Skills() {
               </label>
             ) : null}
           </div>
+          {!editable && current ? (
+            <div className="bg-raised text-text rounded-2xl px-3.5 py-2.5 text-[12.5px] leading-relaxed">
+              {current.description || 'No description.'}
+            </div>
+          ) : null}
           {editable ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
@@ -570,7 +570,8 @@ function Skills() {
             value={draft.content}
             onChange={(e) => setDraft({ ...draft, content: e.target.value })}
             placeholder="Instructions in Markdown. They are added to the agent's system prompt."
-            className="min-h-0 flex-1 resize-none font-mono text-[12.5px] leading-relaxed"
+            fill
+            className="flex-1 font-mono text-[12.5px] leading-relaxed"
           />
           {error ? <div className="text-danger text-[12px]">{error}</div> : null}
           <div className="flex items-center gap-2">

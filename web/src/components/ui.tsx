@@ -199,10 +199,19 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   )
 }
 
-export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({
+  className,
+  fill = false,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { fill?: boolean }) {
   return (
     <textarea
-      className={cn(FIELD, 'scrollbar-thin rounded-2xl px-3.5 py-2.5 text-[13px]', className)}
+      className={cn(
+        FIELD,
+        'scrollbar-thin rounded-2xl px-3.5 py-2.5 text-[13px]',
+        fill ? 'min-h-0 resize-none' : 'min-h-24 resize-y',
+        className,
+      )}
       {...props}
     />
   )

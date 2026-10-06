@@ -247,7 +247,12 @@ export function WorkspacePage() {
 
   const actions = (
     <>
-      <Button variant="ghost" aria-label="Reload" onClick={() => setVersion((v) => v + 1)}>
+      <Button
+        variant="ghost"
+        className="aspect-square px-0"
+        aria-label="Reload"
+        onClick={() => setVersion((v) => v + 1)}
+      >
         <ArrowPathIcon className="size-3.5" />
       </Button>
       {open ? (

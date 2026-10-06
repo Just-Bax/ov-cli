@@ -125,6 +125,7 @@ export function HealthPage() {
       </div>
       <Button
         variant="ghost"
+        className="aspect-square px-0"
         aria-label="Refresh"
         disabled={busy || !alias}
         onClick={() => setTick((t) => t + 1)}
