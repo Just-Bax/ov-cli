@@ -1,9 +1,10 @@
-import { ExclamationTriangleIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { BellAlertIcon, ExclamationTriangleIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { useEffect, useState } from 'react'
+import { cn } from '@/lib/cn'
 
 const TOAST_MS = 8000
 
-type Toast = { id: number; message: string }
+type Toast = { id: number; message: string; title?: string; onOpen?: () => void }
 
 let listeners: ((toast: Toast) => void)[] = []
 let nextId = 0
@@ -14,12 +15,20 @@ export function reportError(error: unknown): void {
   for (const listen of listeners) listen(toast)
 }
 
+export function notifyInApp(title: string, message: string, onOpen: () => void): void {
+  const toast = { id: ++nextId, message, title, onOpen }
+  for (const listen of listeners) listen(toast)
+}
+
 export function Toasts() {
   const [toasts, setToasts] = useState<Toast[]>([])
 
   useEffect(() => {
     const listen = (toast: Toast) => {
-      setToasts((all) => [...all.filter((t) => t.message !== toast.message), toast])
+      setToasts((all) => [
+        ...all.filter((t) => t.message !== toast.message || t.title !== toast.title),
+        toast,
+      ])
       setTimeout(() => setToasts((all) => all.filter((t) => t.id !== toast.id)), TOAST_MS)
     }
 
@@ -35,10 +44,31 @@ export function Toasts() {
         <div
           key={t.id}
           role="alert"
-          className="border-danger/25 animate-toast flex items-start gap-2.5 rounded-2xl border bg-white px-4 py-3 text-[12.5px] shadow-[0_8px_28px_rgba(38,50,56,0.16)]"
+          className={cn(
+            'animate-toast flex items-start gap-2.5 rounded-2xl border bg-white px-4 py-3 text-[12.5px] shadow-[0_8px_28px_rgba(38,50,56,0.16)]',
+            t.onOpen ? 'border-brand/25' : 'border-danger/25',
+          )}
         >
-          <ExclamationTriangleIcon className="text-danger mt-0.5 size-4 shrink-0" />
-          <span className="text-text min-w-0 flex-1 break-words">{t.message}</span>
+          {t.onOpen ? (
+            <BellAlertIcon className="text-brand mt-0.5 size-4 shrink-0" />
+          ) : (
+            <ExclamationTriangleIcon className="text-danger mt-0.5 size-4 shrink-0" />
+          )}
+          {t.onOpen ? (
+            <button
+              type="button"
+              onClick={() => {
+                t.onOpen?.()
+                setToasts((all) => all.filter((x) => x.id !== t.id))
+              }}
+              className="min-w-0 flex-1 text-left break-words"
+            >
+              <span className="text-fg block font-semibold">{t.title}</span>
+              <span className="text-text">{t.message}</span>
+            </button>
+          ) : (
+            <span className="text-text min-w-0 flex-1 break-words">{t.message}</span>
+          )}
           <button
             type="button"
             aria-label="Dismiss"

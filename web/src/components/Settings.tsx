@@ -137,6 +137,20 @@ function Preferences() {
     await update({ notify: true })
   }
 
+  const testNotify = () => {
+    setNotice(undefined)
+    if (Notification.permission !== 'granted')
+      return setNotice('Notifications are blocked for this page. Allow them in the browser first.')
+
+    new Notification('Run needs you', {
+      body: 'This is how OV Agent notifications look.',
+      icon: '/favicon-32.png',
+    })
+    setNotice(
+      'Sent. If nothing appeared, check Windows notification settings and Focus Assist for this browser.',
+    )
+  }
+
   return (
     <Card className="divide-line divide-y">
       <Row title="Main model" hint="Used for new runs. You can switch it per run in the chat.">
@@ -189,14 +203,21 @@ function Preferences() {
         title="Desktop notifications"
         hint={
           notice ??
-          'Notify me when a run finishes, fails or needs an answer while this tab is in the background.'
+          'Notify me when a run finishes, fails or needs me. In this window you get a toast instead, unless you are already looking at that run.'
         }
       >
-        <Switch
-          on={settings.notify}
-          onChange={() => void toggleNotify()}
-          label="Desktop notifications"
-        />
+        <div className="flex items-center gap-2">
+          {settings.notify && (
+            <Button size="sm" variant="ghost" onClick={testNotify}>
+              Test
+            </Button>
+          )}
+          <Switch
+            on={settings.notify}
+            onChange={() => void toggleNotify()}
+            label="Desktop notifications"
+          />
+        </div>
       </Row>
       <Row
         title="Show time saved"

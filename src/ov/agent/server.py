@@ -28,7 +28,7 @@ from .datadog import DatadogError
 from .explorer import ExplorerError
 from .ovproc import instances, login, run_ov, version
 from .pagerduty import PagerDutyError
-from .run import RunError, runs
+from .run import RunError, runs, status_feed
 from .runfiles import attachments_dir, uploads_dir, within
 from .skills import SkillError
 
@@ -633,6 +633,29 @@ def settle(h: Handler, run_id: str) -> dict[str, bool]:
 
     db.set_settled(run_id, settled)
     return {"ok": True}
+
+
+@route("GET", "/api/status-events")
+def status_events(h: Handler) -> None:
+    channel, unsubscribe = status_feed.subscribe()
+    try:
+        h.send_response(200)
+        h.send_header("Content-Type", "text/event-stream")
+        h.send_header("Cache-Control", "no-cache")
+        h.end_headers()
+        while True:
+            try:
+                change = channel.get(timeout=PING_SECONDS)
+            except queue.Empty:
+                h.wfile.write(b"event: ping\ndata: \n\n")
+                h.wfile.flush()
+                continue
+            h.wfile.write(f"data: {json.dumps(change)}\n\n".encode())
+            h.wfile.flush()
+    except OSError:
+        pass
+    finally:
+        unsubscribe()
 
 
 @route("GET", "/api/runs/([a-z0-9]+)/events")

@@ -653,6 +653,26 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
         run.answer(question["id"], "acme")
 
 
+def test_status_changes_reach_the_status_feed(logged_in):
+    from ov.agent.run import runs, status_feed
+
+    db.create_run("rfeed", "Feed run", "m", {"prompt": "x"})
+    run = runs.get("rfeed")
+    channel, unsubscribe = status_feed.subscribe()
+    try:
+        run._set_status("waiting")
+        run._set_status("waiting")
+        run._set_status("done")
+        changes = [channel.get_nowait(), channel.get_nowait()]
+    finally:
+        unsubscribe()
+    assert changes == [
+        {"id": "rfeed", "status": "waiting", "title": "Feed run"},
+        {"id": "rfeed", "status": "done", "title": "Feed run"},
+    ]
+    assert channel.empty()
+
+
 def test_runs_can_be_settled_and_a_follow_up_unsettles_them(logged_in):
     db.create_run("rsettle", "t", "m", {"prompt": "x"})
     db.set_settled("rsettle", True)

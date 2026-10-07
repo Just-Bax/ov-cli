@@ -79,6 +79,32 @@ def _uid(prefix: str) -> str:
     return f"{prefix}_{db.now_ms()}_{next(_ids)}"
 
 
+class StatusFeed:
+    def __init__(self) -> None:
+        self._listeners: list[queue.Queue[dict[str, Any]]] = []
+        self._lock = threading.Lock()
+
+    def subscribe(self) -> tuple[queue.Queue[dict[str, Any]], Callable[[], None]]:
+        channel: queue.Queue[dict[str, Any]] = queue.Queue()
+        with self._lock:
+            self._listeners.append(channel)
+
+        def unsubscribe() -> None:
+            with self._lock:
+                if channel in self._listeners:
+                    self._listeners.remove(channel)
+
+        return channel, unsubscribe
+
+    def publish(self, change: dict[str, Any]) -> None:
+        with self._lock:
+            for channel in self._listeners:
+                channel.put(change)
+
+
+status_feed = StatusFeed()
+
+
 class Run:
     def __init__(self, run_id: str, state: dict[str, Any], seq: int) -> None:
         self.id = run_id
@@ -152,6 +178,7 @@ class Run:
         if error:
             event["error"] = error
         self.emit(event)
+        status_feed.publish({"id": self.id, "status": status, "title": self.state["summary"]["title"]})
 
     def _claim(self) -> bool:
         with self._lock:

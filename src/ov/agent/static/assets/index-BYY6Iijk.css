@@ -1829,6 +1829,9 @@ svg.react-flow__connectionline {
   .border-brand {
     border-color: #42a5f5;
   }
+  .border-brand\/25 {
+    border-color: color-mix(in oklab, #42a5f5 25%, transparent);
+  }
   .border-brand\/40 {
     border-color: color-mix(in oklab, #42a5f5 40%, transparent);
   }
@@ -2531,6 +2534,9 @@ svg.react-flow__connectionline {
     }
     .group-hover\/rail\:bg-brand-soft:is(:where(.group\/rail):hover *) {
       background-color: #e1f5fe;
+    }
+    .group-hover\/rail\:bg-brand\/20:is(:where(.group\/rail):hover *) {
+      background-color: color-mix(in oklab, #42a5f5 20%, transparent);
     }
     .group-hover\/rail\:text-brand-strong:is(:where(.group\/rail):hover *) {
       color: #1e88e5;

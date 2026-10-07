@@ -20,6 +20,7 @@ import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
 import { EditableTitle } from '@/components/EditableTitle'
+import { notifyInApp } from '@/components/Toasts'
 import { Skeleton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -92,34 +93,47 @@ const NOTICE: Partial<Record<RunStatus, string>> = {
   waiting: 'Run needs you',
 }
 
-function useRunNotifications(runs: RunSummary[] | undefined, enabled: boolean) {
-  const previous = useRef(new Map<string, RunStatus>())
+type StatusChange = { id: string; status: RunStatus; title: string }
+
+function useRunNotifications(route: Route, enabled: boolean) {
+  const current = useRef(route)
+  useEffect(() => {
+    current.current = route
+  }, [route])
 
   useEffect(() => {
-    if (!runs) return
+    if (!enabled) return
 
-    const before = previous.current
-    previous.current = new Map(runs.map((r) => [r.id, r.status]))
-    const tabInBackground = document.visibilityState === 'hidden'
-    const allowed =
-      enabled &&
-      before.size > 0 &&
-      tabInBackground &&
-      'Notification' in window &&
-      Notification.permission === 'granted'
-    if (!allowed) return
+    const source = new EventSource('/api/status-events')
+    source.onmessage = (message) => {
+      const change = JSON.parse(message.data as string) as StatusChange
+      void refreshRuns()
+      const title = NOTICE[change.status]
+      if (!title) return
 
-    for (const run of runs) {
-      const was = before.get(run.id)
-      const title = NOTICE[run.status]
-      if (!was || !BUSY.has(was) || !title) continue
-      const notice = new Notification(title, { body: run.title, icon: '/favicon-32.png' })
-      notice.onclick = () => {
+      const open = () => {
         window.focus()
-        go({ page: 'run', id: run.id })
+        go({ page: 'run', id: change.id })
+      }
+      const focused = document.visibilityState === 'visible' && document.hasFocus()
+      const watching = current.current.page === 'run' && current.current.id === change.id
+      if (focused && watching) return
+      if (focused || !('Notification' in window) || Notification.permission !== 'granted')
+        return notifyInApp(title, change.title, open)
+
+      const notice = new Notification(title, {
+        body: change.title,
+        icon: '/favicon-32.png',
+        tag: change.id,
+        requireInteraction: change.status === 'waiting',
+      })
+      notice.onclick = () => {
+        notice.close()
+        open()
       }
     }
-  }, [runs, enabled])
+    return () => source.close()
+  }, [enabled])
 }
 
 function Avatar({ user }: { user?: string }) {
@@ -306,7 +320,7 @@ function NavRow({
       aria-label={collapsed ? label : undefined}
       className={cn(
         'group/rail relative flex h-9 items-center rounded-full text-[13px] font-medium transition-colors',
-        collapsed ? 'mx-auto w-9 justify-center' : 'gap-2.5 pr-3 pl-1.5',
+        collapsed ? 'mx-auto w-9 justify-center' : 'gap-2.5 pr-3 pl-1',
         active && 'bg-brand-soft text-brand-strong',
         !active && !collapsed && 'text-text hover:bg-canvas hover:text-brand-strong',
       )}
@@ -314,12 +328,9 @@ function NavRow({
       <span
         className={cn(
           'flex shrink-0 items-center justify-center rounded-full transition-colors',
-          collapsed && !active ? 'size-8' : 'size-6',
-          active && 'bg-brand text-white',
-          !active && !collapsed && 'bg-brand-soft text-brand-strong',
-          !active &&
-            collapsed &&
-            'bg-raised text-text group-hover/rail:bg-brand-soft group-hover/rail:text-brand-strong',
+          collapsed && !active ? 'size-9' : 'size-7',
+          active ? 'bg-brand text-white' : 'bg-brand-soft text-brand-strong',
+          !active && collapsed && 'group-hover/rail:bg-brand/20',
         )}
       >
         <Icon className="size-3.5" />
@@ -331,7 +342,7 @@ function NavRow({
 
 export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const runs = useRuns()
-  useRunNotifications(runs, useSettings().settings.notify)
+  useRunNotifications(route, useSettings().settings.notify)
   const [showAll, setShowAll] = useState(false)
   const [collapsed, setCollapsed] = useState(isSidebarCollapsed)
   const [settledOpen, setSettledOpen] = useState(
