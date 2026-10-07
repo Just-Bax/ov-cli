@@ -307,15 +307,19 @@ function NavRow({
       className={cn(
         'group/rail relative flex h-9 items-center rounded-full text-[13px] font-medium transition-colors',
         collapsed ? 'mx-auto w-9 justify-center' : 'gap-2.5 pr-3 pl-1.5',
-        active
-          ? 'bg-brand-soft text-brand-strong'
-          : 'text-text hover:bg-canvas hover:text-brand-strong',
+        active && 'bg-brand-soft text-brand-strong',
+        !active && !collapsed && 'text-text hover:bg-canvas hover:text-brand-strong',
       )}
     >
       <span
         className={cn(
-          'flex size-6 shrink-0 items-center justify-center rounded-full',
-          active ? 'bg-brand text-white' : 'bg-brand-soft text-brand-strong',
+          'flex shrink-0 items-center justify-center rounded-full transition-colors',
+          collapsed && !active ? 'size-8' : 'size-6',
+          active && 'bg-brand text-white',
+          !active && !collapsed && 'bg-brand-soft text-brand-strong',
+          !active &&
+            collapsed &&
+            'bg-raised text-text group-hover/rail:bg-brand-soft group-hover/rail:text-brand-strong',
         )}
       >
         <Icon className="size-3.5" />
@@ -387,7 +391,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           )}
         </a>
       </div>
-      <nav className="space-y-0.5 px-3 pb-2">
+      <nav className={cn('px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}>
         <NavRow
           to="#/"
           icon={PlusIcon}
