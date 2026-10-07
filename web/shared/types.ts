@@ -156,6 +156,7 @@ export interface RunSummary {
   createdAt: number
   updatedAt: number
   rating?: Rating
+  settled?: boolean
 }
 
 export type Rating = 'good' | 'off' | 'wrong'

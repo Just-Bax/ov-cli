@@ -35,7 +35,7 @@ export function Toasts() {
         <div
           key={t.id}
           role="alert"
-          className="border-danger/25 flex items-start gap-2.5 rounded-2xl border bg-white px-4 py-3 text-[12.5px] shadow-[0_8px_28px_rgba(38,50,56,0.16)]"
+          className="border-danger/25 animate-toast flex items-start gap-2.5 rounded-2xl border bg-white px-4 py-3 text-[12.5px] shadow-[0_8px_28px_rgba(38,50,56,0.16)]"
         >
           <ExclamationTriangleIcon className="text-danger mt-0.5 size-4 shrink-0" />
           <span className="text-text min-w-0 flex-1 break-words">{t.message}</span>

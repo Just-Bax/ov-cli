@@ -150,5 +150,5 @@ export const api = {
   cancel: (id: string) => post(`/runs/${id}/cancel`),
   feedback: (id: string, rating: Rating, note: string) =>
     post(`/runs/${id}/feedback`, { rating, note }),
-  deleteRun: (id: string) => del(`/runs/${id}`),
+  settleRun: (id: string, settled: boolean) => post(`/runs/${id}/settle`, { settled }),
 }

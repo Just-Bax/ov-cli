@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS events (
   PRIMARY KEY (run_id, seq)
 );
 CREATE TABLE IF NOT EXISTS conversation (run_id TEXT PRIMARY KEY, messages TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS settled (run_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS feedback (
   run_id TEXT PRIMARY KEY,
   rating TEXT NOT NULL,
@@ -156,7 +157,10 @@ def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
     return get_settings()
 
 
-RUN_SELECT = "SELECT r.*, f.rating FROM runs r LEFT JOIN feedback f ON f.run_id = r.id"
+RUN_SELECT = (
+    "SELECT r.*, f.rating, s.ts settled_at FROM runs r "
+    "LEFT JOIN feedback f ON f.run_id = r.id LEFT JOIN settled s ON s.run_id = r.id"
+)
 
 
 def _summary(row: sqlite3.Row) -> dict[str, Any]:
@@ -172,6 +176,8 @@ def _summary(row: sqlite3.Row) -> dict[str, Any]:
         summary["instance"] = row["instance"]
     if row["rating"]:
         summary["rating"] = row["rating"]
+    if row["settled_at"]:
+        summary["settled"] = True
     return summary
 
 
@@ -213,11 +219,11 @@ def get_run(run_id: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
     return _summary(row), json.loads(row["input"])
 
 
-def delete_run(run_id: str) -> None:
-    for table in ("events", "conversation", "feedback"):
-        _run(f"DELETE FROM {table} WHERE run_id = ?", run_id)
-    _run("DELETE FROM conversation WHERE run_id = ?", f"{run_id}#turns")
-    _run("DELETE FROM runs WHERE id = ?", run_id)
+def set_settled(run_id: str, settled: bool) -> None:
+    if settled:
+        _run("INSERT OR REPLACE INTO settled (run_id, ts) VALUES (?, ?)", run_id, now_ms())
+    else:
+        _run("DELETE FROM settled WHERE run_id = ?", run_id)
 
 
 def saved_totals(since: int) -> dict[str, int]:

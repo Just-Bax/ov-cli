@@ -205,7 +205,7 @@ function ToolRow({ tool }: { tool: ToolActivity }) {
         ) : null}
       </button>
       {open ? (
-        <div className="mt-1 mb-2 ml-7 space-y-2">
+        <div className="animate-fade-in mt-1 mb-2 ml-7 space-y-2">
           {input ? <Block title="Input" text={input} /> : null}
           {tool.status !== 'running' ? (
             <Block
@@ -254,7 +254,7 @@ export function ToolGroup({ tools }: { tools: ToolActivity[] }) {
         ) : null}
       </button>
       {open ? (
-        <div className="border-line mt-1 ml-1.5 border-l-2 pl-2">
+        <div className="border-line animate-fade-in mt-1 ml-1.5 border-l-2 pl-2">
           {tools.map((t) => (
             <ToolRow key={t.id} tool={t} />
           ))}

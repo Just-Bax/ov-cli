@@ -10,24 +10,24 @@ import {
   MapIcon,
   NoSymbolIcon,
   PlusIcon,
-  TrashIcon,
+  ArrowUturnLeftIcon,
+  ChevronUpIcon,
 } from '@heroicons/react/24/outline'
 import type { Icon } from '@/components/ui'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { RunStatus, RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
-import { dialog } from '@/components/Dialog'
+import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
 import { EditableTitle } from '@/components/EditableTitle'
 import { Skeleton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
 import { useSettings } from '@/lib/settings'
-import { reportError } from '@/components/Toasts'
+import { refreshRuns, setSettled, useRuns } from '@/lib/runs'
 
 const RECENT_LIMIT = 40
-const RUNS_POLL_MS = 3000
 
 export function StatusIcon({
   status,
@@ -83,21 +83,6 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
   const active = groups.get('In progress')
   groups.delete('In progress')
   return active ? [['In progress', active], ...groups] : [...groups]
-}
-
-function useRuns(): [RunSummary[] | undefined, () => void] {
-  const [runs, setRuns] = useState<RunSummary[]>()
-  const load = useCallback(() => {
-    api.runs().then(setRuns).catch(reportError)
-  }, [])
-
-  useEffect(() => {
-    load()
-    const timer = setInterval(load, RUNS_POLL_MS)
-    return () => clearInterval(timer)
-  }, [load])
-
-  return [runs, load]
 }
 
 const BUSY = new Set(['queued', 'running'])
@@ -159,26 +144,13 @@ function Avatar({ user }: { user?: string }) {
 function RunItem({
   run,
   active,
-  onChanged,
+  settled,
 }: {
   run: RunSummary
   active: boolean
-  onChanged: () => void
+  settled?: boolean
 }) {
-  const remove = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const ok = await dialog.confirm({
-      title: 'Delete this run?',
-      body: 'The conversation, findings and proposed changes are removed. This cannot be undone.',
-      confirmLabel: 'Delete',
-      tone: 'danger',
-    })
-    if (!ok) return
-
-    await api.deleteRun(run.id)
-    onChanged()
-    if (active) go({ page: 'home' })
-  }
+  const busy = BUSY.has(run.status) || run.status === 'waiting'
 
   return (
     <div
@@ -187,35 +159,119 @@ function RunItem({
       onClick={() => go({ page: 'run', id: run.id })}
       onKeyDown={(e) => e.key === 'Enter' && go({ page: 'run', id: run.id })}
       className={cn(
-        'group/run flex h-9 cursor-pointer items-center gap-2.5 rounded-full pr-1 pl-3.5 text-[12.5px] font-medium transition-colors outline-none',
+        'group/run animate-slide-in flex h-9 cursor-pointer items-center gap-2.5 rounded-full pr-1 pl-3.5 text-[12.5px] font-medium transition-colors outline-none',
         active
           ? 'bg-brand-soft text-brand-strong'
-          : 'text-text hover:bg-canvas hover:text-brand-strong focus-visible:bg-canvas',
+          : settled
+            ? 'text-muted hover:bg-canvas hover:text-brand-strong focus-visible:bg-canvas'
+            : 'text-text hover:bg-canvas hover:text-brand-strong focus-visible:bg-canvas',
       )}
     >
       <span className="flex size-3 shrink-0 items-center justify-center">
-        <StatusIcon status={run.status} />
+        {settled ? (
+          <DoubleCheckIcon className="text-ok size-3.5" />
+        ) : (
+          <StatusIcon status={run.status} />
+        )}
       </span>
       <EditableTitle
         value={run.title}
         onSave={async (title) => {
           await api.renameRun(run.id, title)
-          onChanged()
+          await refreshRuns()
         }}
         className="min-w-0 flex-1 truncate"
         inputClassName="h-7 text-[12.5px] font-medium"
       />
-      <button
-        type="button"
-        aria-label="Delete run"
-        onClick={(e) => void remove(e)}
-        className="text-faint hover:text-danger flex size-7 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover/run:opacity-100 hover:bg-black/[0.06] focus-visible:opacity-100"
-      >
-        <TrashIcon className="size-3.5" />
-      </button>
+      {busy ? null : (
+        <button
+          type="button"
+          title={settled ? 'Move back to active' : 'Settle'}
+          aria-label={settled ? 'Move back to active' : 'Settle'}
+          onClick={(e) => {
+            e.stopPropagation()
+            void setSettled(run.id, !settled)
+          }}
+          className={cn(
+            'flex size-7 shrink-0 items-center justify-center rounded-full opacity-0 transition-[opacity,color,background-color] group-hover/run:opacity-100 hover:bg-black/[0.06] focus-visible:opacity-100',
+            settled ? 'text-faint hover:text-brand-strong' : 'text-faint hover:text-ok',
+          )}
+        >
+          {settled ? (
+            <ArrowUturnLeftIcon className="size-3.5" />
+          ) : (
+            <DoubleCheckIcon className="size-4" />
+          )}
+        </button>
+      )}
     </div>
   )
 }
+
+function initials(title: string): string {
+  const words = title.split(/[^A-Za-z0-9]+/).filter((w) => w && !/^\d+$/.test(w))
+  return (
+    (
+      words
+        .slice(0, 2)
+        .map((w) => w[0])
+        .join('') || title.trim().slice(0, 2)
+    ).toUpperCase() || '#'
+  )
+}
+
+function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
+  const [tip, setTip] = useState<number>()
+  const tone =
+    run.status === 'waiting'
+      ? 'ring-warn'
+      : run.status === 'error'
+        ? 'ring-danger/60'
+        : BUSY.has(run.status)
+          ? 'ring-brand'
+          : 'ring-transparent'
+
+  return (
+    <a
+      href={href({ page: 'run', id: run.id })}
+      aria-label={run.title}
+      onMouseEnter={(e) => {
+        const box = e.currentTarget.getBoundingClientRect()
+        setTip(box.top + box.height / 2)
+      }}
+      onMouseLeave={() => setTip(undefined)}
+      className="group/rail animate-fade-in relative mx-auto flex size-9 items-center justify-center"
+    >
+      <span
+        className={cn(
+          'flex size-8 items-center justify-center rounded-full text-[11px] font-semibold tracking-tight ring-2 transition-colors',
+          tone,
+          active
+            ? 'bg-brand text-white'
+            : 'bg-raised text-text group-hover/rail:bg-brand-soft group-hover/rail:text-brand-strong',
+        )}
+      >
+        {initials(run.title)}
+      </span>
+      {BUSY.has(run.status) ? (
+        <span className="absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full bg-white">
+          <StatusIcon status={run.status} className="size-3" />
+        </span>
+      ) : null}
+      {tip !== undefined ? (
+        <span
+          className="bg-fg animate-pop pointer-events-none fixed left-[84px] z-50 max-w-[280px] -translate-y-1/2 truncate rounded-full px-3 py-1 text-[12px] font-medium text-white shadow-[0_4px_14px_rgba(38,50,56,0.18)]"
+          style={{ top: tip }}
+        >
+          {run.title}
+        </span>
+      ) : null}
+    </a>
+  )
+}
+
+const SETTLED_OPEN_KEY = 'ov-agent.settled-open'
+const RAIL_RUNS = 12
 
 const COLLAPSED_KEY = 'ov-agent.sidebar-collapsed'
 
@@ -270,18 +326,33 @@ function NavRow({
 }
 
 export function Sidebar({ route, user }: { route: Route; user?: string }) {
-  const [runs, reload] = useRuns()
+  const runs = useRuns()
   useRunNotifications(runs, useSettings().settings.notify)
   const [showAll, setShowAll] = useState(false)
   const [collapsed, setCollapsed] = useState(isSidebarCollapsed)
+  const [settledOpen, setSettledOpen] = useState(
+    () => localStorage.getItem(SETTLED_OPEN_KEY) === '1',
+  )
+  const active = (runs ?? []).filter((r) => !r.settled)
+  const settled = (runs ?? []).filter((r) => r.settled)
+  const isOpen = (id: string) => route.page === 'run' && route.id === id
+  const toggleSettled = (open = !settledOpen) => {
+    localStorage.setItem(SETTLED_OPEN_KEY, open ? '1' : '0')
+    setSettledOpen(open)
+  }
 
-  const shown = showAll ? (runs ?? []) : (runs ?? []).slice(0, RECENT_LIMIT)
+  const shown = showAll ? active : active.slice(0, RECENT_LIMIT)
   const onSettings = route.page === 'settings'
   const toggle = () =>
     setCollapsed((c) => {
       localStorage.setItem(COLLAPSED_KEY, c ? '0' : '1')
       return !c
     })
+  const openSettled = () => {
+    localStorage.setItem(COLLAPSED_KEY, '0')
+    setCollapsed(false)
+    toggleSettled(true)
+  }
 
   return (
     <aside
@@ -354,49 +425,101 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
         />
       </nav>
 
-      <div
-        className={cn(
-          'min-h-0 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4',
-          collapsed && 'invisible',
-        )}
-      >
-        {!runs ? (
-          <div className="space-y-4 px-3 pt-3">
-            {[0, 1, 2, 3].map((i) => (
-              <Skeleton key={i} className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
-            ))}
-          </div>
-        ) : null}
-        {group(shown).map(([label, list], index) => (
-          <div key={label} className={index ? 'mt-5' : 'mt-1'}>
-            <div className="text-faint mb-1 px-3.5 text-[12px] font-medium">{label}</div>
-            <div className="space-y-0.5">
-              {list.map((r) => (
-                <RunItem
-                  key={r.id}
-                  run={r}
-                  active={route.page === 'run' && route.id === r.id}
-                  onChanged={reload}
-                />
+      {collapsed ? (
+        <div className="border-line-strong/60 mt-1 min-h-0 flex-1 scrollbar-thin space-y-1.5 overflow-y-auto border-t px-2 pt-3 pb-3">
+          {active.slice(0, RAIL_RUNS).map((r) => (
+            <RailRun key={r.id} run={r} active={isOpen(r.id)} />
+          ))}
+          {active.length > RAIL_RUNS ? (
+            <button
+              type="button"
+              onClick={toggle}
+              className="group/rail text-faint hover:text-brand-strong relative mx-auto flex size-9 items-center justify-center rounded-full text-[11px] font-medium"
+            >
+              +{active.length - RAIL_RUNS}
+              <RailTip label="Show all threads" />
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4">
+          {!runs ? (
+            <div className="space-y-4 px-3 pt-3">
+              {[0, 1, 2, 3].map((i) => (
+                <Skeleton key={i} className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
               ))}
             </div>
+          ) : null}
+          {group(shown).map(([label, list], index) => (
+            <div key={label} className={index ? 'mt-5' : 'mt-1'}>
+              <div className="text-faint mb-1 px-3.5 text-[12px] font-medium">{label}</div>
+              <div className="space-y-0.5">
+                {list.map((r) => (
+                  <RunItem key={r.id} run={r} active={isOpen(r.id)} />
+                ))}
+              </div>
+            </div>
+          ))}
+          {!showAll && active.length > RECENT_LIMIT ? (
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              className="text-brand-strong hover:bg-canvas mt-3 h-9 w-full rounded-full px-3.5 text-left text-[12.5px] font-medium"
+            >
+              Show all {active.length} threads
+            </button>
+          ) : null}
+          {runs && !active.length ? (
+            <div className="text-faint px-3.5 py-3 text-[12.5px]">
+              {settled.length
+                ? 'Everything is settled. Start a new run with a case number or a question.'
+                : 'Your runs appear here. Start one with a case number or a question.'}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {settled.length ? (
+        collapsed ? (
+          <div className="flex shrink-0 justify-center pb-2">
+            <button
+              type="button"
+              onClick={openSettled}
+              className="group/rail text-faint hover:text-ok hover:bg-canvas relative flex h-8 items-center gap-1 rounded-full px-2 text-[11px] font-medium transition-colors"
+            >
+              <DoubleCheckIcon className="size-3.5" />
+              {settled.length}
+              <RailTip label="Settled threads" />
+            </button>
           </div>
-        ))}
-        {!showAll && (runs?.length ?? 0) > RECENT_LIMIT ? (
-          <button
-            type="button"
-            onClick={() => setShowAll(true)}
-            className="text-brand-strong hover:bg-canvas mt-3 h-9 w-full rounded-full px-3.5 text-left text-[12.5px] font-medium"
-          >
-            Show all {runs?.length} runs
-          </button>
-        ) : null}
-        {runs && !runs.length ? (
-          <div className="text-faint px-3.5 py-3 text-[12.5px]">
-            Your runs appear here. Start one with a case number or a question.
+        ) : (
+          <div className="border-line-strong/60 shrink-0 border-t px-3 py-2">
+            <button
+              type="button"
+              onClick={() => toggleSettled()}
+              aria-expanded={settledOpen}
+              className="text-muted hover:text-fg hover:bg-canvas flex h-8 w-full items-center gap-2 rounded-full px-3.5 text-[12px] font-medium transition-colors"
+            >
+              <DoubleCheckIcon className="text-ok size-3.5" />
+              <span className="flex-1 text-left">Settled</span>
+              <span className="text-faint tabular-nums">{settled.length}</span>
+              <ChevronUpIcon
+                className={cn(
+                  'size-3 transition-transform duration-200',
+                  !settledOpen && 'rotate-180',
+                )}
+              />
+            </button>
+            {settledOpen ? (
+              <div className="animate-fade-in mt-1 max-h-[32vh] scrollbar-thin space-y-0.5 overflow-y-auto">
+                {settled.map((r) => (
+                  <RunItem key={r.id} run={r} active={isOpen(r.id)} settled />
+                ))}
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
+        )
+      ) : null}
 
       {collapsed ? (
         <div className="border-line-strong/60 flex h-16 shrink-0 items-center justify-center border-t">

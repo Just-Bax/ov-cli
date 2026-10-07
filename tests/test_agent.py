@@ -250,7 +250,6 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
     assert [t["status"] for t in run.state["tools"]] == ["ok"]
     assert run.state["chat"][-1]["text"] == "All good."
     assert db.list_runs()[0]["status"] == "done"
-    runs.delete(run.id)
 
 
 @pytest.fixture
@@ -353,7 +352,6 @@ def test_attachments_that_could_run_script_are_downloaded(agent_server, monkeypa
     png = httpx.get(f"{agent_server}/api/runs/{run.id}/files/shot.png")
     assert png.headers["content-disposition"].startswith("inline")
     assert png.headers["content-security-policy"] == "sandbox"
-    runs.delete(run.id)
 
 
 def test_a_local_page_on_another_port_is_refused(agent_server):
@@ -401,7 +399,6 @@ def test_a_run_can_be_renamed(agent_server, monkeypatch):
     assert db.list_runs()[0]["title"] == "NORAD report"
     blank = httpx.post(f"{agent_server}/api/runs/{run.id}/title", json={"title": " "})
     assert blank.status_code == 400
-    runs.delete(run.id)
 
 
 def test_boolean_settings_are_stored_as_booleans():
@@ -598,7 +595,6 @@ def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch
     assert call["function"]["arguments"] == "{}"
     result = next(m for m in second if m["role"] == "tool")["content"]
     assert "cut off" in result and "in parts" in result
-    runs.delete(run.id)
 
 
 def test_workspace_edits_are_recorded_for_the_changes_view(workspace, tmp_path):
@@ -655,4 +651,11 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
     assert run.state["questions"][0]["answer"] == STOPPED_ANSWER
     with pytest.raises(RunError, match="no longer waiting"):
         run.answer(question["id"], "acme")
-    runs.delete(run.id)
+
+
+def test_runs_can_be_settled_and_a_follow_up_unsettles_them(logged_in):
+    db.create_run("rsettle", "t", "m", {"prompt": "x"})
+    db.set_settled("rsettle", True)
+    assert db.list_runs()[0]["settled"] is True
+    db.set_settled("rsettle", False)
+    assert "settled" not in db.list_runs()[0]

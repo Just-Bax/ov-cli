@@ -624,10 +624,14 @@ def get_run(_: Handler, run_id: str) -> str:
     return _run(run_id).snapshot()
 
 
-@route("DELETE", "/api/runs/([a-z0-9]+)")
-def delete_run(_: Handler, run_id: str) -> dict[str, bool]:
+@route("POST", "/api/runs/([a-z0-9]+)/settle")
+def settle(h: Handler, run_id: str) -> dict[str, bool]:
     _run(run_id)
-    runs.delete(run_id)
+    settled = h.json().get("settled")
+    if not isinstance(settled, bool):
+        raise HttpError(400, "Give settled as true or false.")
+
+    db.set_settled(run_id, settled)
     return {"ok": True}
 
 
@@ -689,6 +693,7 @@ def message(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     files = _objects(data, "files")
     _run(run_id).follow_up(str(data.get("text", "")), files)
+    db.set_settled(run_id, False)
     return {"ok": True}
 
 

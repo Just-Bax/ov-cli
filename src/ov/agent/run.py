@@ -102,7 +102,6 @@ class Run:
         self._busy = False
         self._finished = False
         self._requests = 0
-        self.deleted = False
 
     @property
     def instance(self) -> str:
@@ -126,8 +125,6 @@ class Run:
 
     def emit(self, event: dict[str, Any]) -> None:
         with self._lock:
-            if self.deleted:
-                return
             self.seq += 1
             stored = db.append_event(self.id, self.seq, event)
             reduce(self.state, stored)
@@ -146,8 +143,7 @@ class Run:
         return int(outcome["timeSaved"]["minutes"]) if outcome else 0
 
     def _save(self, key: str, value: Any) -> None:
-        if not self.deleted:
-            db.save_conversation(key, value)
+        db.save_conversation(key, value)
 
     def _set_status(self, status: str, error: str | None = None) -> None:
         if self.state["summary"]["status"] == status and not error:
@@ -760,17 +756,6 @@ class RunManager:
             run = Run(run_id, state, events[-1]["seq"] if events else -1)
             self._runs[run_id] = run
             return run
-
-    def delete(self, run_id: str) -> None:
-        with self._lock:
-            run = self._runs.pop(run_id, None)
-        if run is not None:
-            run.deleted = True
-            run.stop()
-        db.delete_run(run_id)
-        directory = run_dir(run_id)
-        if directory.exists():
-            shutil.rmtree(directory)
 
 
 def _base36(value: int) -> str:

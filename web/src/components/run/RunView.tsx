@@ -1,15 +1,14 @@
-import { ArrowTopRightOnSquareIcon, ClockIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { ArrowTopRightOnSquareIcon, ClockIcon } from '@heroicons/react/24/outline'
 import { formatMinutes, savedMinutes } from '@shared/estimate.ts'
 import { Composer } from '@/components/Composer'
 import { EditableTitle } from '@/components/EditableTitle'
-import { dialog } from '@/components/Dialog'
 import { WriteSwitch } from '@/components/WriteSwitch'
 import { useEffect, useRef, useState } from 'react'
 import type { ChatMessage, Rating, RunState, ThreadItem, ToolActivity } from '@shared/types.ts'
 import { StatusIcon } from '@/components/Sidebar'
 import {
   Dot,
-  IconButton,
+  Button,
   Markdown,
   Page,
   Skeleton,
@@ -19,9 +18,10 @@ import {
 } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { go } from '@/lib/route'
 import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
+import { setSettled, useRuns } from '@/lib/runs'
+import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
 import { ChangeCard } from './ChangeCard'
 import { FilesChanged, LineCounts, summarize } from './FilesChanged'
 import { ThreadRail } from './ThreadRail'
@@ -201,6 +201,7 @@ function Footer({
 export function RunView({ id }: { id: string }) {
   const { settings } = useSettings()
   const { state: loaded, error } = useRun(id)
+  const runs = useRuns()
   const [feedback, setFeedback] = useState<{ rating: Rating; note: string }>()
   const state = loaded && feedback ? { ...loaded, feedback } : loaded
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -343,28 +344,21 @@ export function RunView({ id }: { id: string }) {
     </>
   )
 
+  const settled = Boolean(runs?.find((r) => r.id === id)?.settled)
   const actions = (
-    <>
-      <IconButton
-        label="Delete run"
-        onClick={async () => {
-          if (
-            !(await dialog.confirm({
-              title: 'Delete this run?',
-              body: 'The conversation, findings and proposed fixes for this run will be removed. This cannot be undone.',
-              confirmLabel: 'Delete',
-              tone: 'danger',
-            }))
-          )
-            return
-
-          await api.deleteRun(id)
-          go({ page: 'home' })
-        }}
-      >
-        <TrashIcon className="size-3.5" />
-      </IconButton>
-    </>
+    <Button
+      variant={settled ? 'secondary' : 'ghost'}
+      disabled={busy}
+      title={
+        settled
+          ? 'Move back to active threads'
+          : 'Mark as settled: it moves to Settled in the sidebar'
+      }
+      onClick={() => void setSettled(id, !settled)}
+    >
+      <DoubleCheckIcon className="size-4" />
+      {settled ? 'Settled' : 'Settle'}
+    </Button>
   )
 
   return (
@@ -413,7 +407,11 @@ export function RunView({ id }: { id: string }) {
           return (
             <div key={turnId ?? `t${i}`} className="space-y-4">
               {turn.user ? (
-                <div data-mark="user" data-label={turn.user.text.slice(0, MARK_LABEL_CHARS)}>
+                <div
+                  className="animate-fade-up"
+                  data-mark="user"
+                  data-label={turn.user.text.slice(0, MARK_LABEL_CHARS)}
+                >
                   <UserMessage runId={id} message={turn.user} canRetry={!busy} />
                 </div>
               ) : null}
@@ -424,7 +422,9 @@ export function RunView({ id }: { id: string }) {
                   className="space-y-4"
                 >
                   {turn.blocks.map((b) => (
-                    <ThreadBlock key={b.key} block={b} state={state} />
+                    <div key={b.key} className="animate-fade-up">
+                      <ThreadBlock block={b} state={state} />
+                    </div>
                   ))}
                   <FilesChanged edits={edits} />
                 </div>

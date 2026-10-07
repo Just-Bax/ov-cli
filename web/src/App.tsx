@@ -131,7 +131,10 @@ export function App() {
     <SettingsContext.Provider value={{ settings: status.settings, update }}>
       <div className="flex h-full">
         <Sidebar route={route} user={status.copilot.user} />
-        <main className="min-w-0 flex-1">
+        <main
+          key={route.page === 'run' ? `run-${route.id}` : route.page}
+          className="animate-fade-in min-w-0 flex-1"
+        >
           {route.page === 'home' && <Home settings={status.settings} />}
           {route.page === 'settings' && <SettingsPage onChange={refresh} />}
           {route.page === 'map' && <MapPage />}

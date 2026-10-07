@@ -11,6 +11,7 @@ import { api } from '@/lib/api'
 import { takeDraft } from '@/lib/draft'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
+import { refreshRuns } from '@/lib/runs'
 import { reportError } from '@/components/Toasts'
 
 const WORDS = ['troubleshooting', 'investigating', 'configuring', 'automating', 'fixing']
@@ -102,6 +103,7 @@ export function Home({ settings }: { settings: Settings }) {
         model,
         allowWrite,
       })
+      void refreshRuns()
       go({ page: 'run', id })
     } catch (e) {
       setError((e as Error).message)

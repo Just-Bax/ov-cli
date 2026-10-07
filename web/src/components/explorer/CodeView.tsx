@@ -304,7 +304,7 @@ function RefCard({
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       style={style}
-      className="border-line absolute z-50 rounded-2xl border bg-white p-3.5 shadow-[0_8px_28px_rgba(38,50,56,0.14)]"
+      className="border-line animate-pop absolute z-50 rounded-2xl border bg-white p-3.5 shadow-[0_8px_28px_rgba(38,50,56,0.14)]"
     >
       <div className="flex items-start gap-2.5">
         <TypeDot type={node.type} />

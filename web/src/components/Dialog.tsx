@@ -96,7 +96,7 @@ export function DialogHost() {
   return createPortal(
     <div
       className={cn(
-        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 backdrop-blur-[2px] transition-opacity duration-150',
+        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 backdrop-blur-[2px] transition-opacity duration-200',
         shown ? 'opacity-100' : 'opacity-0',
       )}
       onMouseDown={(e) =>
@@ -107,8 +107,8 @@ export function DialogHost() {
         role="dialog"
         aria-modal="true"
         className={cn(
-          'w-full max-w-[420px] rounded-2xl bg-white p-5 shadow-[0_20px_60px_rgba(38,50,56,0.25)] transition-transform duration-150',
-          shown ? 'scale-100' : 'scale-95',
+          'ease-spring w-full max-w-[420px] rounded-2xl bg-white p-5 shadow-[0_20px_60px_rgba(38,50,56,0.25)] transition-[transform,opacity] duration-300',
+          shown ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-6 scale-[0.97] opacity-0',
         )}
       >
         <div className="flex gap-3.5">
