@@ -256,7 +256,7 @@ def run_ov_tool(args: list[str], instance: str | None, ctx: ToolContext, allow_s
 def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
     blocked = ToolError(
         "Blocked: this would change data and write access is OFF for this run. Do not "
-        "retry. Show the change with ov_propose and tell the user they can turn on "
+        "retry. Tell the user in chat what you would change and that they can turn on "
         '"Allow changes" below the chat if they want you to apply it.'
     )
     if not ctx.can_write():
@@ -967,11 +967,13 @@ TOOLS = [
     ),
     Tool(
         "ov_propose",
-        "Show a proposed change as a diff card. One call per object. Nothing is applied. Pass "
-        "the whole object text in both before and after.",
+        "Show a proposed change to code or component text (rule, automation or workflow "
+        "expression, report SQL, module file, PL/SQL data fix) as a diff card. One call per "
+        "object. Nothing is applied. Pass the whole object text in both before and after. Never "
+        "use it for record deletes, value edits, cleanup or UI steps; say those in chat.",
         {
             "title": _str("Short title"),
-            "entity_type": _str("rule, report, automation, module file, data fix, field, ..."),
+            "entity_type": _str("rule, automation, workflow, report, module file, field formula, data fix"),
             "entity_id": _str("ID if known"),
             "entity_name": _str("Name as shown in the admin UI"),
             "instance": _str("Instance host"),
@@ -995,9 +997,9 @@ TOOLS = [
             },
             "before": _str(
                 "The COMPLETE current text exactly as fetched, never a fragment. Empty only "
-                "for new objects or data fixes."
+                "for new objects or PL/SQL data fixes."
             ),
-            "after": _str("The COMPLETE proposed text, same scope as before"),
+            "after": _str("The COMPLETE proposed code, same scope as before; never prose"),
             "what": _str("What changes, one sentence"),
             "why": _str("Why, one sentence"),
             "how": _str("How to apply it, one sentence"),

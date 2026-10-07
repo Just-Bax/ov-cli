@@ -38,7 +38,7 @@ Working order:
 2. Investigate on the instance: current config, logs, data. Prefer facts over guesses.
 3. Search Issue / Issue_Task when an enhancement or bug is involved.
 4. Root cause with the evidence that proves it, and whether it is still happening now.
-5. ov_propose for every concrete change, with the current code as before.
+5. ov_propose for every concrete code or component change, with the current code as before.
 6. run_report with the findings, existing matches, unrelated problems and the reply.
 
 Deliver: a short summary per issue that answers the question actually asked (unrelated problems go to the unrelated list, never mixed in); for a fix, where it is (object name, ID, link) and the fixed code as ov_propose; and one comment for the case chat as `reply`.
