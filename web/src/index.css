@@ -145,6 +145,18 @@
   .md td {
     @apply border-line-strong border px-2 py-1 text-left;
   }
+  .md-compact {
+    @apply text-[12px] leading-snug;
+  }
+  .md-compact :is(p, ul, ol, pre, table, blockquote, h1, h2, h3, h4, h5, h6) {
+    @apply my-0;
+  }
+  .md-compact :is(h1, h2, h3, h4, h5, h6) {
+    @apply font-semibold;
+  }
+  .md-compact pre {
+    @apply bg-transparent p-0;
+  }
 }
 
 @keyframes shimmer {

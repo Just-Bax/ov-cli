@@ -14,8 +14,10 @@ import type {
   PagerDutyStatus,
   Rating,
   RunInput,
-  RunState,
-  RunSummary,
+  RunDetails,
+  RunSnapshot,
+  RunWindow,
+  RunList,
   SavedTotals,
   Settings,
   SkillInfo,
@@ -130,9 +132,15 @@ export const api = {
     ),
   activity: (instance: string, id: string) =>
     request<ObjectActivity[]>(`/explorer/activity?instance=${seg(instance)}&id=${seg(id)}`),
-  runs: () => request<RunSummary[]>('/runs'),
+  runs: (settled: number) => request<RunList>(`/runs?settled=${settled}`),
   stats: () => request<SavedTotals>('/stats'),
-  run: (id: string) => request<RunState>(`/runs/${id}`),
+  run: (id: string, turns: number) => request<RunSnapshot>(`/runs/${id}?turns=${turns}`),
+  runHistory: (id: string, end: number, turns: number) =>
+    request<RunWindow>(`/runs/${id}/history?end=${end}&turns=${turns}`),
+  runDetails: (id: string, tools: string[], edits: string[]) =>
+    request<RunDetails>(
+      `/runs/${id}/details?tools=${tools.map(seg).join(',')}&edits=${edits.map(seg).join(',')}`,
+    ),
   startRun: (input: RunInput) => post<{ id: string }>('/runs', input),
   answer: (id: string, questionId: string, answer: string) =>
     post(`/runs/${id}/answer`, { questionId, answer }),

@@ -2,10 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import type { Settings, Status } from '@shared/types.ts'
 import { DialogHost, dialog } from '@/components/Dialog'
 import { Home } from '@/components/Home'
-import { HealthPage } from '@/components/health/HealthPage'
-import { MapPage } from '@/components/map/MapPage'
 import { RunView } from '@/components/run/RunView'
-import { SettingsPage } from '@/components/Settings'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { Setup } from '@/components/Setup'
@@ -21,6 +18,20 @@ const WorkspacePage = lazy(() =>
 )
 const ExplorerPage = lazy(() =>
   import('@/components/explorer/ExplorerPage').then((m) => ({ default: m.ExplorerPage })),
+)
+const MapPage = lazy(() => import('@/components/map/MapPage').then((m) => ({ default: m.MapPage })))
+const HealthPage = lazy(() =>
+  import('@/components/health/HealthPage').then((m) => ({ default: m.HealthPage })),
+)
+const SettingsPage = lazy(() =>
+  import('@/components/Settings').then((m) => ({ default: m.SettingsPage })),
+)
+
+const PAGE_FALLBACK = (
+  <div className="space-y-3 p-6">
+    <Skeleton className="h-10 w-1/3 rounded-full" />
+    <Skeleton className="h-[60vh] w-full rounded-2xl" />
+  </div>
 )
 
 export function App() {
@@ -72,7 +83,7 @@ export function App() {
     return (
       <div className="flex h-full">
         <aside
-          className={`border-line-strong/60 flex shrink-0 flex-col overflow-hidden border-r bg-white ${isSidebarCollapsed() ? 'w-[72px]' : 'w-[272px]'}`}
+          className={`border-line-strong/60 flex shrink-0 flex-col overflow-hidden border-r bg-white ${isSidebarCollapsed() ? 'w-[72px]' : 'w-[320px]'}`}
         >
           {isSidebarCollapsed() ? (
             <div className="flex h-16 items-center justify-center">
@@ -135,35 +146,15 @@ export function App() {
           key={route.page === 'run' ? `run-${route.id}` : route.page}
           className="animate-fade-in min-w-0 flex-1"
         >
-          {route.page === 'home' && <Home settings={status.settings} />}
-          {route.page === 'settings' && <SettingsPage onChange={refresh} />}
-          {route.page === 'map' && <MapPage />}
-          {route.page === 'health' && <HealthPage />}
-          {route.page === 'explorer' && (
-            <Suspense
-              fallback={
-                <div className="space-y-3 p-6">
-                  <Skeleton className="h-10 w-1/3 rounded-full" />
-                  <Skeleton className="h-[60vh] w-full rounded-2xl" />
-                </div>
-              }
-            >
-              <ExplorerPage />
-            </Suspense>
-          )}
-          {route.page === 'workspace' && (
-            <Suspense
-              fallback={
-                <div className="space-y-3 p-6">
-                  <Skeleton className="h-10 w-1/3 rounded-full" />
-                  <Skeleton className="h-[60vh] w-full rounded-2xl" />
-                </div>
-              }
-            >
-              <WorkspacePage />
-            </Suspense>
-          )}
-          {route.page === 'run' && <RunView key={route.id} id={route.id} />}
+          <Suspense fallback={PAGE_FALLBACK}>
+            {route.page === 'home' && <Home settings={status.settings} />}
+            {route.page === 'settings' && <SettingsPage onChange={refresh} />}
+            {route.page === 'map' && <MapPage />}
+            {route.page === 'health' && <HealthPage />}
+            {route.page === 'explorer' && <ExplorerPage />}
+            {route.page === 'workspace' && <WorkspacePage />}
+            {route.page === 'run' && <RunView key={route.id} id={route.id} />}
+          </Suspense>
         </main>
         <DialogHost />
         <Toasts />

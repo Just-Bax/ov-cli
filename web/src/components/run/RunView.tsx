@@ -3,7 +3,7 @@ import { formatMinutes, savedMinutes } from '@shared/estimate.ts'
 import { Composer } from '@/components/Composer'
 import { EditableTitle } from '@/components/EditableTitle'
 import { WriteSwitch } from '@/components/WriteSwitch'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatMessage, Rating, RunState, ThreadItem, ToolActivity } from '@shared/types.ts'
 import { StatusIcon } from '@/components/Sidebar'
 import {
@@ -20,6 +20,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
+import { useSkeleton } from '@/components/skeletons'
 import { setSettled, useRuns } from '@/lib/runs'
 import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
 import { ChangeCard } from './ChangeCard'
@@ -33,6 +34,12 @@ const FOLLOW_BOTTOM_PX = 80
 const USER_SCROLL_MS = 600
 const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const
 const MARK_LABEL_CHARS = 160
+const OLDER_MARGIN_PX = 600
+const OLDER_ARM_MS = 500
+
+const MemoChangeCard = memo(ChangeCard)
+const MemoAnswer = memo(Answer)
+const MemoUserMessage = memo(UserMessage)
 
 const TONE_TEXT: Record<Tone, string> = {
   brand: 'text-brand-strong',
@@ -57,21 +64,24 @@ type Block =
 
 interface Turn {
   user?: ChatMessage
+  start: number
   blocks: Block[]
 }
 
 function toTurns(state: RunState): Turn[] {
-  const turns: Turn[] = [{ blocks: [] }]
-  for (const item of state.items) {
+  const chat = new Map(state.chat.map((m) => [m.id, m]))
+  const tools = new Map(state.tools.map((t) => [t.id, t]))
+  const turns: Turn[] = [{ start: state.start, blocks: [] }]
+  for (const [index, item] of state.items.entries()) {
     const turn = turns.at(-1)!
     if (item.kind === 'user') {
-      const user = state.chat.find((m) => m.id === item.id)
-      if (user) turns.push({ user, blocks: [] })
+      const user = chat.get(item.id)
+      if (user) turns.push({ user, start: state.start + index, blocks: [] })
       continue
     }
 
     if (item.kind === 'tool') {
-      const tool = state.tools.find((t) => t.id === item.id)
+      const tool = tools.get(item.id)
       if (!tool) continue
       const last = turn.blocks.at(-1)
       if (last?.kind === 'tools') last.tools.push(tool)
@@ -113,7 +123,7 @@ function turnTime(turn: Turn, state: RunState): number | undefined {
 }
 
 function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
-  if (block.kind === 'tools') return <ToolGroup tools={block.tools} />
+  if (block.kind === 'tools') return <ToolGroup runId={state.summary.id} tools={block.tools} />
 
   const { item } = block
   const id = state.summary.id
@@ -129,7 +139,7 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
     }
     case 'change': {
       const change = state.changes.find((c) => c.id === item.id)
-      return change ? <ChangeCard change={change} /> : null
+      return change ? <MemoChangeCard change={change} /> : null
     }
     case 'question': {
       const q = state.questions.find((x) => x.id === item.id)
@@ -144,7 +154,7 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
       if (item.id !== state.outcomeId || !state.outcome) {
         return <div className="text-faint text-[12px]">Earlier answer, updated below.</div>
       }
-      return <Answer outcome={state.outcome} caseUrl={state.caseUrl} />
+      return <MemoAnswer outcome={state.outcome} caseUrl={state.caseUrl} />
     default:
       return null
   }
@@ -198,15 +208,80 @@ function Footer({
   )
 }
 
+function OlderTurns({
+  scrollRef,
+  start,
+  loading,
+  onVisible,
+}: {
+  scrollRef: React.RefObject<HTMLDivElement | null>
+  start: number
+  loading: boolean
+  onVisible: () => Promise<void>
+}) {
+  const sentinel = useRef<HTMLDivElement>(null)
+  const showSkeleton = useSkeleton(loading)
+
+  useEffect(() => {
+    const el = sentinel.current
+    const root = scrollRef.current?.parentElement
+    if (!el || !root) return
+
+    let observer: IntersectionObserver | undefined
+    const arm = setTimeout(() => {
+      observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) void onVisible()
+        },
+        { root, rootMargin: `${OLDER_MARGIN_PX}px 0px 0px 0px` },
+      )
+      observer.observe(el)
+    }, OLDER_ARM_MS)
+    return () => {
+      clearTimeout(arm)
+      observer?.disconnect()
+    }
+  }, [scrollRef, start, onVisible])
+
+  return (
+    <div ref={sentinel} className="space-y-4">
+      {showSkeleton ? (
+        <>
+          <div className="flex justify-end">
+            <Skeleton className="h-9 w-56 rounded-2xl" />
+          </div>
+          <SkeletonText lines={3} />
+        </>
+      ) : null}
+    </div>
+  )
+}
+
 export function RunView({ id }: { id: string }) {
   const { settings } = useSettings()
-  const { state: loaded, error } = useRun(id)
-  const runs = useRuns()
+  const { state: loaded, error, loadOlder, loadingOlder } = useRun(id)
+  const list = useRuns()
   const [feedback, setFeedback] = useState<{ rating: Rating; note: string }>()
   const state = loaded && feedback ? { ...loaded, feedback } : loaded
   const scrollRef = useRef<HTMLDivElement>(null)
   const followBottom = useRef(true)
   const ready = Boolean(state)
+  const restoreHeight = useRef<number | undefined>(undefined)
+
+  const older = useCallback(
+    (until?: number) => {
+      restoreHeight.current = scrollRef.current?.parentElement?.scrollHeight
+      return loadOlder(until)
+    },
+    [loadOlder],
+  )
+
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current?.parentElement
+    if (restoreHeight.current === undefined || !scroller) return
+    scroller.scrollTop += scroller.scrollHeight - restoreHeight.current
+    restoreHeight.current = undefined
+  }, [state?.start])
 
   useEffect(() => {
     const content = scrollRef.current
@@ -344,7 +419,11 @@ export function RunView({ id }: { id: string }) {
     </>
   )
 
-  const settled = Boolean(runs?.find((r) => r.id === id)?.settled)
+  const settled = list?.settled.some((r) => r.id === id)
+    ? true
+    : list?.active.some((r) => r.id === id)
+      ? false
+      : Boolean(summary.settled)
   const actions = (
     <Button
       variant={settled ? 'secondary' : 'ghost'}
@@ -385,12 +464,25 @@ export function RunView({ id }: { id: string }) {
     >
       <ThreadRail
         contentRef={scrollRef}
-        version={`${state.items.length}:${state.chat.length}:${state.tools.length}`}
+        version={`${state.start}:${state.items.length}:${state.chat.length}:${state.tools.length}`}
+        outline={state.outline}
+        onLoadUntil={older}
         onJump={() => {
           followBottom.current = false
         }}
       />
-      <div ref={scrollRef} className="mx-auto max-w-[860px] space-y-5 px-6 pt-6 pb-8">
+      <div
+        ref={scrollRef}
+        className="mx-auto max-w-[860px] space-y-5 px-6 pt-6 pb-8 @max-[940px]:pr-11"
+      >
+        {state.start > 0 ? (
+          <OlderTurns
+            scrollRef={scrollRef}
+            start={state.start}
+            loading={loadingOlder}
+            onVisible={older}
+          />
+        ) : null}
         {turns.map((turn, i) => {
           const isLast = i === turns.length - 1
           const active = isLast && busy
@@ -410,14 +502,16 @@ export function RunView({ id }: { id: string }) {
                 <div
                   className="animate-fade-up"
                   data-mark="user"
+                  data-start={turn.start}
                   data-label={turn.user.text.slice(0, MARK_LABEL_CHARS)}
                 >
-                  <UserMessage runId={id} message={turn.user} canRetry={!busy} />
+                  <MemoUserMessage runId={id} message={turn.user} canRetry={!busy} />
                 </div>
               ) : null}
               {turn.blocks.length ? (
                 <div
                   data-mark="agent"
+                  data-start={turn.start}
                   data-label={(text || 'Working').slice(0, MARK_LABEL_CHARS)}
                   className="space-y-4"
                 >
@@ -426,7 +520,7 @@ export function RunView({ id }: { id: string }) {
                       <ThreadBlock block={b} state={state} />
                     </div>
                   ))}
-                  <FilesChanged edits={edits} />
+                  <FilesChanged runId={id} edits={edits} />
                 </div>
               ) : null}
               {!active && turnId && text ? (

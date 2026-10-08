@@ -58,7 +58,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 MAX_STEPS_LIMIT = 500
-RUN_LIST_LIMIT = 200
+RUN_LIST_LIMIT = 500
 ACTIVE = ("queued", "running", "waiting")
 
 _lock = threading.RLock()
@@ -207,9 +207,14 @@ def update_run(run_id: str, **patch: Any) -> None:
     _run(f"UPDATE runs SET {', '.join(sets)} WHERE id = ?", *values, run_id)
 
 
-def list_runs(limit: int = RUN_LIST_LIMIT) -> list[dict[str, Any]]:
-    rows = _all(f"{RUN_SELECT} ORDER BY r.created_at DESC LIMIT ?", limit)
+def list_runs(settled: bool | None = None, limit: int = RUN_LIST_LIMIT) -> list[dict[str, Any]]:
+    where = "" if settled is None else f"WHERE s.run_id IS {'NOT ' if settled else ''}NULL "
+    rows = _all(f"{RUN_SELECT} {where}ORDER BY r.created_at DESC LIMIT ?", limit)
     return [_summary(r) for r in rows]
+
+
+def settled_count() -> int:
+    return int(_one("SELECT COUNT(*) n FROM settled")["n"])
 
 
 def get_run(run_id: str) -> tuple[dict[str, Any], dict[str, Any]] | None:

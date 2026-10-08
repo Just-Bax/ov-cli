@@ -8,6 +8,7 @@ export interface ToolActivity {
   input?: string
   output?: string
   ms?: number
+  lazy?: boolean
 }
 
 export interface FileEdit {
@@ -17,9 +18,10 @@ export interface FileEdit {
   created: boolean
   added: number
   removed: number
-  before: string
-  after: string
+  before?: string
+  after?: string
   truncated: boolean
+  lazy?: boolean
 }
 
 export interface Change {
@@ -105,13 +107,13 @@ export type RunEvent =
   | { type: 'meta'; title?: string; caseKey?: string; caseUrl?: string; instance?: string }
   | { type: 'tool'; tool: ToolActivity }
   | { type: 'text'; messageId: string; delta: string }
+  | { type: 'message'; messageId: string; text: string; ts?: number }
   | { type: 'user'; message: ChatMessage }
   | { type: 'change'; change: Change }
   | { type: 'edit'; edit: FileEdit }
   | { type: 'outcome'; outcome: Outcome }
   | { type: 'question'; question: Question }
   | { type: 'login'; login: LoginPrompt }
-  | { type: 'usage'; requests: number }
   | { type: 'access'; write: boolean }
   | { type: 'queued'; message: ChatMessage }
   | { type: 'unqueue'; id: string }
@@ -121,7 +123,30 @@ export type RunEvent =
 export interface StoredEvent {
   seq: number
   ts: number
+  live?: boolean
   event: RunEvent
+}
+
+export interface OutlineMark {
+  kind: 'user' | 'agent'
+  start: number
+  label: string
+}
+
+export interface RunWindow {
+  items: ThreadItem[]
+  start: number
+  chat: ChatMessage[]
+  tools: ToolActivity[]
+  changes: Change[]
+  questions: Question[]
+  logins: LoginPrompt[]
+  outline: OutlineMark[]
+}
+
+export interface RunDetails {
+  tools: Record<string, { input?: string; output?: string }>
+  edits: Record<string, { before?: string; after?: string }>
 }
 
 export type ThreadItem =
@@ -161,25 +186,27 @@ export interface RunSummary {
 
 export type Rating = 'good' | 'off' | 'wrong'
 
-export interface RunState {
+export interface RunList {
+  active: RunSummary[]
+  settled: RunSummary[]
+  settledTotal: number
+}
+
+export interface RunState extends RunWindow {
   summary: RunSummary
   input: RunInput
   caseUrl?: string
-  items: ThreadItem[]
-  tools: ToolActivity[]
-  changes: Change[]
   edits: FileEdit[]
   outcome?: Outcome
   outcomeId?: string
-  questions: Question[]
-  logins: LoginPrompt[]
-  chat: ChatMessage[]
   error?: string
   feedback?: { rating: Rating; note: string }
   writeAccess: boolean
   queued: ChatMessage[]
   ratings: Record<string, { rating: Rating; note?: string }>
 }
+
+export type RunSnapshot = RunState & { seq: number }
 
 export interface Settings {
   defaultModel: string

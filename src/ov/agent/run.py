@@ -28,7 +28,7 @@ from .runfiles import (
     uploads_dir,
     within,
 )
-from .state import empty_state, reduce
+from .state import details, empty_state, reduce, snapshot, window
 from .tools import Tool, ToolError, tool_named, tool_specs
 
 CONTEXT_BUDGET = 360_000
@@ -52,6 +52,8 @@ NAMING_PROMPT = (
 )
 MAX_TITLE_WORDS = 10
 RUN_ID_SUFFIX_CHARS = 4
+IDLE_EVICT_MS = 5 * 60_000
+MAX_CACHED_RUNS = 6
 
 WRITE_ON_NOTE = (
     "The user turned ON write access for this run. You may now apply changes with ov and the PagerDuty change "
@@ -116,10 +118,10 @@ class Run:
         self.vision = True
         self._lock = threading.RLock()
         self._listeners: list[queue.Queue[dict[str, Any]]] = []
-        self._messages = _answered(db.load_conversation(run_id) or [])
+        self._loaded_messages: list[dict[str, Any]] | None = None
+        self._loaded_turns: dict[str, dict[str, Any]] | None = None
         self._cut_off: set[str] = set()
         self._local = threading.local()
-        self._turns: dict[str, dict[str, Any]] = db.load_conversation(f"{run_id}#turns") or {}
         self._pending_images: list[tuple[str, str]] = []
         self._notes: list[str] = []
         self._queue: list[tuple[dict[str, Any], Any]] = []
@@ -127,30 +129,99 @@ class Run:
         self._logins: dict[str, tuple[threading.Event, list[bool]]] = {}
         self._busy = False
         self._finished = False
-        self._requests = 0
+        self._streaming: str | None = None
+        self._background = 0
+        self.touched = db.now_ms()
+
+    @property
+    def _messages(self) -> list[dict[str, Any]]:
+        if self._loaded_messages is None:
+            self._loaded_messages = _answered(db.load_conversation(self.id) or [])
+        return self._loaded_messages
+
+    @_messages.setter
+    def _messages(self, messages: list[dict[str, Any]]) -> None:
+        self._loaded_messages = messages
+
+    @property
+    def _turns(self) -> dict[str, dict[str, Any]]:
+        if self._loaded_turns is None:
+            self._loaded_turns = db.load_conversation(f"{self.id}#turns") or {}
+        return self._loaded_turns
+
+    @_turns.setter
+    def _turns(self, turns: dict[str, dict[str, Any]]) -> None:
+        self._loaded_turns = turns
 
     @property
     def instance(self) -> str:
         return self.state["summary"].get("instance") or ""
 
-    def snapshot(self) -> str:
+    def idle(self) -> bool:
         with self._lock:
-            return json.dumps(self.state)
+            return not (
+                self._busy
+                or self._listeners
+                or self._questions
+                or self._logins
+                or self._queue
+                or self._streaming
+                or self._background
+            )
 
-    def subscribe(self) -> tuple[queue.Queue[dict[str, Any]], Callable[[], None]]:
+    def snapshot(self, turns: int) -> str:
+        with self._lock:
+            return json.dumps({**snapshot(self.state, turns), "seq": self.seq})
+
+    def history(self, end: int, turns: int) -> str:
+        with self._lock:
+            return json.dumps(window(self.state, min(end, len(self.state["items"])), turns))
+
+    def details(self, tool_ids: set[str], edit_ids: set[str]) -> str:
+        with self._lock:
+            return json.dumps(details(self.state, tool_ids, edit_ids))
+
+    def resume(self, after: int) -> tuple[queue.Queue[dict[str, Any]], Callable[[], None], list[dict[str, Any]]]:
         channel: queue.Queue[dict[str, Any]] = queue.Queue()
         with self._lock:
             self._listeners.append(channel)
+            backlog = db.load_events(self.id, after)
+            partial = next((m for m in self.state["chat"] if m["id"] == self._streaming), None)
+            if partial is not None:
+                event = {"type": "message", "messageId": partial["id"], "text": partial["text"], "ts": partial["ts"]}
+                backlog.append({"seq": self.seq, "ts": db.now_ms(), "live": True, "event": event})
 
         def unsubscribe() -> None:
             with self._lock:
                 if channel in self._listeners:
                     self._listeners.remove(channel)
+                self.touched = db.now_ms()
 
-        return channel, unsubscribe
+        return channel, unsubscribe, backlog
+
+    def _stream_text(self, message_id: str, delta: str) -> None:
+        with self._lock:
+            self._streaming = message_id
+            live = {
+                "seq": self.seq,
+                "ts": db.now_ms(),
+                "live": True,
+                "event": {"type": "text", "messageId": message_id, "delta": delta},
+            }
+            reduce(self.state, live)
+            for channel in self._listeners:
+                channel.put(live)
+
+    def _commit_text(self, message_id: str) -> None:
+        with self._lock:
+            self._streaming = None
+            message = next((m for m in self.state["chat"] if m["id"] == message_id), None)
+        if message is not None:
+            self.emit({"type": "message", "messageId": message_id, "text": message["text"], "ts": message["ts"]})
 
     def emit(self, event: dict[str, Any]) -> None:
         with self._lock:
+            self.touched = db.now_ms()
             self.seq += 1
             stored = db.append_event(self.id, self.seq, event)
             reduce(self.state, stored)
@@ -159,6 +230,7 @@ class Run:
                 db.update_run(self.id, status=event["status"])
             elif kind == "meta":
                 db.update_run(self.id, title=event.get("title"), instance=event.get("instance"))
+                status_feed.publish({"kind": "meta", "id": self.id})
             elif kind in ("outcome", "rewind"):
                 db.update_run(self.id, saved_minutes=self._saved_minutes())
             for channel in self._listeners:
@@ -178,7 +250,9 @@ class Run:
         if error:
             event["error"] = error
         self.emit(event)
-        status_feed.publish({"id": self.id, "status": status, "title": self.state["summary"]["title"]})
+        status_feed.publish(
+            {"kind": "status", "id": self.id, "status": status, "title": self.state["summary"]["title"]}
+        )
 
     def _claim(self) -> bool:
         with self._lock:
@@ -189,7 +263,17 @@ class Run:
             return True
 
     def _spawn(self, target: Callable[..., None], *args: Any) -> None:
-        threading.Thread(target=target, args=args, daemon=True, name=f"run-{self.id}").start()
+        with self._lock:
+            self._background += 1
+
+        def work() -> None:
+            try:
+                target(*args)
+            finally:
+                with self._lock:
+                    self._background -= 1
+
+        threading.Thread(target=work, daemon=True, name=f"run-{self.id}").start()
 
     def set_write_access(self, write: bool) -> None:
         if self.state["writeAccess"] == write:
@@ -587,16 +671,17 @@ class Run:
         for message in self._messages:
             if message.get("tool_calls"):
                 message["tool_calls"] = _repaired(message["tool_calls"])
-        result = copilot.stream_chat(
-            model,
-            self._messages,
-            specs,
-            initiator,
-            cancel=self.cancel,
-            on_text=lambda delta: self.emit({"type": "text", "messageId": message_id, "delta": delta}),
-        )
-        self._requests += 1
-        self.emit({"type": "usage", "requests": self._requests})
+        try:
+            result = copilot.stream_chat(
+                model,
+                self._messages,
+                specs,
+                initiator,
+                cancel=self.cancel,
+                on_text=lambda delta: self._stream_text(message_id, delta),
+            )
+        finally:
+            self._commit_text(message_id)
 
         reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
         if result.tool_calls:
@@ -759,6 +844,7 @@ class RunManager:
         run = Run(run_id, empty_state(*stored), -1)
         with self._lock:
             self._runs[run_id] = run
+        status_feed.publish({"kind": "list"})
         run.begin(stored[1])
         return run
 
@@ -766,6 +852,8 @@ class RunManager:
         with self._lock:
             live = self._runs.get(run_id)
             if live is not None:
+                live.touched = db.now_ms()
+                self._evict()
                 return live
 
             stored = db.get_run(run_id)
@@ -781,8 +869,16 @@ class RunManager:
             if feedback:
                 state["feedback"] = feedback
             run = Run(run_id, state, events[-1]["seq"] if events else -1)
+            self._evict()
             self._runs[run_id] = run
             return run
+
+    def _evict(self) -> None:
+        now = db.now_ms()
+        idle = sorted((r for r in self._runs.values() if r.idle()), key=lambda r: r.touched)
+        for run in idle:
+            if now - run.touched > IDLE_EVICT_MS or len(self._runs) >= MAX_CACHED_RUNS:
+                del self._runs[run.id]
 
 
 def _base36(value: int) -> str:

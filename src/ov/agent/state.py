@@ -6,6 +6,11 @@ from typing import Any
 State = dict[str, Any]
 Stored = dict[str, Any]
 
+MARK_LABEL_CHARS = 160
+WINDOWED = ("items", "chat", "tools", "changes", "questions", "logins", "edits")
+TOOL_DETAIL = ("input", "output")
+EDIT_DETAIL = ("before", "after")
+
 
 def empty_state(summary: dict[str, Any], data: dict[str, Any]) -> State:
     return {
@@ -76,6 +81,19 @@ def _on_text(state: State, stored: Stored) -> None:
     _add_item(state, "text", event["messageId"])
 
 
+def _on_message(state: State, stored: Stored) -> None:
+    event = stored["event"]
+    for message in state["chat"]:
+        if message["id"] == event["messageId"]:
+            message["text"] = event["text"]
+            break
+    else:
+        state["chat"].append(
+            {"id": event["messageId"], "role": "assistant", "text": event["text"], "ts": event.get("ts", stored["ts"])}
+        )
+    _add_item(state, "text", event["messageId"])
+
+
 def _on_user(state: State, stored: Stored) -> None:
     message = stored["event"]["message"]
     state["queued"] = _without(state["queued"], message["id"])
@@ -141,6 +159,7 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "meta": _on_meta,
     "tool": _on_tool,
     "text": _on_text,
+    "message": _on_message,
     "user": _on_user,
     "change": _upserter("change", "changes"),
     "edit": _on_edit,
@@ -160,3 +179,71 @@ def reduce(state: State, stored: Stored) -> State:
     if reducer is not None:
         reducer(state, stored)
     return state
+
+
+def _brief(entry: dict[str, Any], detail: tuple[str, ...]) -> dict[str, Any]:
+    if not any(entry.get(key) for key in detail):
+        return entry
+    return {**{k: v for k, v in entry.items() if k not in detail}, "lazy": True}
+
+
+def _turn_starts(items: list[dict[str, Any]]) -> list[int]:
+    starts = [i for i, item in enumerate(items) if item["kind"] == "user"]
+    return starts if starts and starts[0] == 0 else [0, *starts]
+
+
+def _agent_label(state: State, part: list[dict[str, Any]], chat: dict[str, dict[str, Any]]) -> str:
+    texts = [chat[x["id"]]["text"].strip() for x in part if x["kind"] == "text" and x["id"] in chat]
+    changes = {c["id"]: c["title"] for c in state["changes"]}
+    titles = [changes[x["id"]] for x in part if x["kind"] == "change" and x["id"] in changes]
+    return ("\n\n".join(t for t in texts if t) or "\n".join(titles) or "Working")[:MARK_LABEL_CHARS]
+
+
+def outline(state: State, end: int) -> list[dict[str, Any]]:
+    items = state["items"]
+    chat = {m["id"]: m for m in state["chat"]}
+    starts = [s for s in _turn_starts(items) if s < end]
+    marks: list[dict[str, Any]] = []
+    for index, start in enumerate(starts):
+        stop = starts[index + 1] if index + 1 < len(starts) else end
+        part = items[start:stop]
+        if part and part[0]["kind"] == "user" and part[0]["id"] in chat:
+            label = chat[part[0]["id"]]["text"][:MARK_LABEL_CHARS]
+            marks.append({"kind": "user", "start": start, "label": label})
+        rest = [x for x in part if x["kind"] != "user"]
+        if rest:
+            marks.append({"kind": "agent", "start": start, "label": _agent_label(state, rest, chat)})
+    return marks
+
+
+def window(state: State, end: int, turns: int) -> State:
+    items = state["items"]
+    starts = [s for s in _turn_starts(items) if s < end]
+    start = starts[-turns] if len(starts) > turns else 0
+    part = items[start:end]
+    keys = {(x["kind"], x["id"]) for x in part}
+    return {
+        "items": part,
+        "start": start,
+        "chat": [m for m in state["chat"] if ("user" if m["role"] == "user" else "text", m["id"]) in keys],
+        "tools": [_brief(t, TOOL_DETAIL) for t in state["tools"] if ("tool", t["id"]) in keys],
+        "changes": [c for c in state["changes"] if ("change", c["id"]) in keys],
+        "questions": [q for q in state["questions"] if ("question", q["id"]) in keys],
+        "logins": [x for x in state["logins"] if ("login", x["id"]) in keys],
+        "outline": outline(state, start),
+    }
+
+
+def snapshot(state: State, turns: int) -> State:
+    return {
+        **{k: v for k, v in state.items() if k not in WINDOWED},
+        **window(state, len(state["items"]), turns),
+        "edits": [_brief(e, EDIT_DETAIL) for e in state["edits"]],
+    }
+
+
+def details(state: State, tool_ids: set[str], edit_ids: set[str]) -> dict[str, Any]:
+    return {
+        "tools": {t["id"]: {k: t.get(k) for k in TOOL_DETAIL} for t in state["tools"] if t["id"] in tool_ids},
+        "edits": {e["id"]: {k: e.get(k) for k in EDIT_DETAIL} for e in state["edits"] if e["id"] in edit_ids},
+    }

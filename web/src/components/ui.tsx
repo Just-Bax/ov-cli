@@ -6,9 +6,10 @@ import {
   type TextareaHTMLAttributes,
   useState,
   type CSSProperties,
+  memo,
 } from 'react'
 import type { SparklesIcon } from '@heroicons/react/24/outline'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Dropdown } from '@/components/Dropdown'
 import { cn } from '@/lib/cn'
@@ -242,18 +243,26 @@ export function Select({
   )
 }
 
-export function Markdown({ text }: { text: string }) {
+const REMARK_PLUGINS = [remarkGfm]
+const MARKDOWN_COMPONENTS: Components = {
+  a: ({ node: _node, ...p }) => <a {...p} target="_blank" rel="noreferrer" />,
+}
+
+export const Markdown = memo(function Markdown({
+  text,
+  className,
+}: {
+  text: string
+  className?: string
+}) {
   return (
-    <div className="md">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{ a: ({ node: _node, ...p }) => <a {...p} target="_blank" rel="noreferrer" /> }}
-      >
+    <div className={cn('md', className)}>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
         {text}
       </ReactMarkdown>
     </div>
   )
-}
+})
 
 export function Label({ children }: { children: ReactNode }) {
   return (
@@ -298,8 +307,8 @@ export function Page({
   return (
     <div className="flex h-full min-w-0 flex-col bg-white">
       {title || actions ? (
-        <header className="border-line flex min-h-16 shrink-0 items-center gap-4 border-b px-6 py-2.5">
-          <div className="min-w-0 flex-1">
+        <header className="border-line flex min-h-16 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b px-6 py-2.5">
+          <div className="min-w-[min(100%,260px)] flex-1">
             {title ? (
               <div className="text-fg truncate text-[15px] leading-6 font-semibold">{title}</div>
             ) : null}
@@ -309,10 +318,12 @@ export function Page({
               </div>
             ) : null}
           </div>
-          {actions ? <div className="flex shrink-0 items-center gap-1">{actions}</div> : null}
+          {actions ? (
+            <div className="flex max-w-full min-w-0 flex-wrap items-center gap-1">{actions}</div>
+          ) : null}
         </header>
       ) : null}
-      <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">{children}</div>
+      <div className="@container min-h-0 flex-1 scrollbar-thin overflow-y-auto">{children}</div>
       {footer}
     </div>
   )

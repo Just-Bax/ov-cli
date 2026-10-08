@@ -26,7 +26,8 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
 import { useSettings } from '@/lib/settings'
-import { refreshRuns, setSettled, useRuns } from '@/lib/runs'
+import { prefetchRun } from '@/lib/useRun'
+import { onStatusChange, refreshRuns, setSettled, showMoreSettled, useRuns } from '@/lib/runs'
 
 const RECENT_LIMIT = 40
 
@@ -87,13 +88,12 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
 }
 
 const BUSY = new Set(['queued', 'running'])
+const HOVER_PREFETCH_MS = 150
 const NOTICE: Partial<Record<RunStatus, string>> = {
   done: 'Run finished',
   error: 'Run failed',
   waiting: 'Run needs you',
 }
-
-type StatusChange = { id: string; status: RunStatus; title: string }
 
 function useRunNotifications(route: Route, enabled: boolean) {
   const current = useRef(route)
@@ -104,35 +104,32 @@ function useRunNotifications(route: Route, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return
 
-    const source = new EventSource('/api/status-events')
-    source.onmessage = (message) => {
-      const change = JSON.parse(message.data as string) as StatusChange
-      void refreshRuns()
-      const title = NOTICE[change.status]
-      if (!title) return
+    return onStatusChange((change) => {
+      const title = change.kind === 'status' && change.status ? NOTICE[change.status] : undefined
+      if (!title || !change.id) return
+      const id = change.id
 
       const open = () => {
         window.focus()
-        go({ page: 'run', id: change.id })
+        go({ page: 'run', id })
       }
       const focused = document.visibilityState === 'visible' && document.hasFocus()
-      const watching = current.current.page === 'run' && current.current.id === change.id
+      const watching = current.current.page === 'run' && current.current.id === id
       if (focused && watching) return
       if (focused || !('Notification' in window) || Notification.permission !== 'granted')
-        return notifyInApp(title, change.title, open)
+        return notifyInApp(title, change.title ?? '', open)
 
       const notice = new Notification(title, {
         body: change.title,
         icon: '/favicon-32.png',
-        tag: change.id,
+        tag: id,
         requireInteraction: change.status === 'waiting',
       })
       notice.onclick = () => {
         notice.close()
         open()
       }
-    }
-    return () => source.close()
+    })
   }, [enabled])
 }
 
@@ -165,11 +162,14 @@ function RunItem({
   settled?: boolean
 }) {
   const busy = BUSY.has(run.status) || run.status === 'waiting'
+  const hover = useHoverPrefetch(run.id, active)
 
   return (
     <div
       role="link"
       tabIndex={0}
+      onMouseEnter={hover.start}
+      onMouseLeave={hover.stop}
       onClick={() => go({ page: 'run', id: run.id })}
       onKeyDown={(e) => e.key === 'Enter' && go({ page: 'run', id: run.id })}
       className={cn(
@@ -222,6 +222,20 @@ function RunItem({
   )
 }
 
+function useHoverPrefetch(id: string, active: boolean) {
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  return {
+    start: () => {
+      if (active) return
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => prefetchRun(id), HOVER_PREFETCH_MS)
+    },
+    stop: () => clearTimeout(timer.current),
+  }
+}
+
 function initials(title: string): string {
   const words = title.split(/[^A-Za-z0-9]+/).filter((w) => w && !/^\d+$/.test(w))
   return (
@@ -236,6 +250,7 @@ function initials(title: string): string {
 
 function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
   const [tip, setTip] = useState<number>()
+  const hover = useHoverPrefetch(run.id, active)
   const tone =
     run.status === 'waiting'
       ? 'ring-warn'
@@ -252,8 +267,12 @@ function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
       onMouseEnter={(e) => {
         const box = e.currentTarget.getBoundingClientRect()
         setTip(box.top + box.height / 2)
+        hover.start()
       }}
-      onMouseLeave={() => setTip(undefined)}
+      onMouseLeave={() => {
+        setTip(undefined)
+        hover.stop()
+      }}
       className="group/rail animate-fade-in relative mx-auto flex size-9 items-center justify-center"
     >
       <span
@@ -289,8 +308,27 @@ const RAIL_RUNS = 12
 
 const COLLAPSED_KEY = 'ov-agent.sidebar-collapsed'
 
-export function isSidebarCollapsed(): boolean {
+const DOCK_QUERY = '(min-width: 1200px)'
+
+function storedCollapsed(): boolean {
   return localStorage.getItem(COLLAPSED_KEY) === '1'
+}
+
+export function isSidebarCollapsed(): boolean {
+  return !matchMedia(DOCK_QUERY).matches || storedCollapsed()
+}
+
+function useDocked(): boolean {
+  const [docked, setDocked] = useState(() => matchMedia(DOCK_QUERY).matches)
+
+  useEffect(() => {
+    const query = matchMedia(DOCK_QUERY)
+    const update = () => setDocked(query.matches)
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+
+  return docked
 }
 
 function RailTip({ label }: { label: string }) {
@@ -341,15 +379,30 @@ function NavRow({
 }
 
 export function Sidebar({ route, user }: { route: Route; user?: string }) {
-  const runs = useRuns()
+  const list = useRuns()
   useRunNotifications(route, useSettings().settings.notify)
   const [showAll, setShowAll] = useState(false)
-  const [collapsed, setCollapsed] = useState(isSidebarCollapsed)
+  const [pinnedCollapsed, setCollapsed] = useState(storedCollapsed)
+  const docked = useDocked()
+  const [drawer, setDrawer] = useState(false)
+  const collapsed = docked ? pinnedCollapsed : !drawer
+  const overlay = !docked && drawer
+
+  const routeKey = JSON.stringify(route)
+  useEffect(() => setDrawer(false), [routeKey, docked])
+
+  useEffect(() => {
+    if (!overlay) return
+    const close = (e: KeyboardEvent) => e.key === 'Escape' && setDrawer(false)
+    document.addEventListener('keydown', close)
+    return () => document.removeEventListener('keydown', close)
+  }, [overlay])
   const [settledOpen, setSettledOpen] = useState(
     () => localStorage.getItem(SETTLED_OPEN_KEY) === '1',
   )
-  const active = (runs ?? []).filter((r) => !r.settled)
-  const settled = (runs ?? []).filter((r) => r.settled)
+  const active = list?.active ?? []
+  const settled = list?.settled ?? []
+  const settledTotal = list?.settledTotal ?? 0
   const isOpen = (id: string) => route.page === 'run' && route.id === id
   const toggleSettled = (open = !settledOpen) => {
     localStorage.setItem(SETTLED_OPEN_KEY, open ? '1' : '0')
@@ -358,229 +411,264 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
 
   const shown = showAll ? active : active.slice(0, RECENT_LIMIT)
   const onSettings = route.page === 'settings'
-  const toggle = () =>
+  const toggle = () => {
+    if (!docked) return setDrawer((d) => !d)
     setCollapsed((c) => {
       localStorage.setItem(COLLAPSED_KEY, c ? '0' : '1')
       return !c
     })
+  }
   const openSettled = () => {
-    localStorage.setItem(COLLAPSED_KEY, '0')
-    setCollapsed(false)
+    if (docked) {
+      localStorage.setItem(COLLAPSED_KEY, '0')
+      setCollapsed(false)
+    } else setDrawer(true)
     toggleSettled(true)
   }
 
   return (
-    <aside
-      className={cn(
-        'border-line-strong/60 relative z-20 flex shrink-0 flex-col border-r bg-white transition-[width] duration-200 ease-out',
-        collapsed ? 'w-[72px]' : 'w-[272px]',
-      )}
-    >
-      <button
-        type="button"
-        onClick={toggle}
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        className="border-line-strong text-muted hover:text-brand-strong hover:border-brand/50 absolute top-1/2 -right-3.5 z-30 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border bg-white shadow-[0_2px_8px_rgba(38,50,56,0.10)] transition-colors"
-      >
-        {collapsed ? (
-          <ChevronRightIcon className="size-3.5" />
-        ) : (
-          <ChevronLeftIcon className="size-3.5" />
-        )}
-      </button>
-      <div
-        className={cn(
-          'flex h-16 shrink-0 items-center overflow-hidden',
-          collapsed ? 'justify-center' : 'px-5',
-        )}
-      >
-        <a href="#/" aria-label="OV Agent home">
-          {collapsed ? (
-            <img src={mark} alt="OV Agent" className="h-[26px] w-auto" />
-          ) : (
-            <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto max-w-none" />
-          )}
-        </a>
-      </div>
-      <nav className={cn('px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}>
-        <NavRow
-          to="#/"
-          icon={PlusIcon}
-          label="New run"
-          active={route.page === 'home'}
-          collapsed={collapsed}
-        />
-        <NavRow
-          to={href({ page: 'map' })}
-          icon={MapIcon}
-          label="Instance map"
-          active={route.page === 'map'}
-          collapsed={collapsed}
-        />
-        <NavRow
-          to={href({ page: 'explorer' })}
-          icon={CodeBracketIcon}
-          label="Explorer"
-          active={route.page === 'explorer'}
-          collapsed={collapsed}
-        />
-        <NavRow
-          to={href({ page: 'health' })}
-          icon={HeartIcon}
-          label="Health"
-          active={route.page === 'health'}
-          collapsed={collapsed}
-        />
-        <NavRow
-          to={href({ page: 'workspace' })}
-          icon={FolderIcon}
-          label="Workspace"
-          active={route.page === 'workspace'}
-          collapsed={collapsed}
-        />
-      </nav>
-
-      {collapsed ? (
-        <div className="border-line-strong/60 mt-1 min-h-0 flex-1 scrollbar-thin space-y-1.5 overflow-y-auto border-t px-2 pt-3 pb-3">
-          {active.slice(0, RAIL_RUNS).map((r) => (
-            <RailRun key={r.id} run={r} active={isOpen(r.id)} />
-          ))}
-          {active.length > RAIL_RUNS ? (
-            <button
-              type="button"
-              onClick={toggle}
-              className="group/rail text-faint hover:text-brand-strong relative mx-auto flex size-9 items-center justify-center rounded-full text-[11px] font-medium"
-            >
-              +{active.length - RAIL_RUNS}
-              <RailTip label="Show all threads" />
-            </button>
-          ) : null}
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4">
-          {!runs ? (
-            <div className="space-y-4 px-3 pt-3">
-              {[0, 1, 2, 3].map((i) => (
-                <Skeleton key={i} className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
-              ))}
-            </div>
-          ) : null}
-          {group(shown).map(([label, list], index) => (
-            <div key={label} className={index ? 'mt-5' : 'mt-1'}>
-              <div className="text-faint mb-1 px-3.5 text-[12px] font-medium">{label}</div>
-              <div className="space-y-0.5">
-                {list.map((r) => (
-                  <RunItem key={r.id} run={r} active={isOpen(r.id)} />
-                ))}
-              </div>
-            </div>
-          ))}
-          {!showAll && active.length > RECENT_LIMIT ? (
-            <button
-              type="button"
-              onClick={() => setShowAll(true)}
-              className="text-brand-strong hover:bg-canvas mt-3 h-9 w-full rounded-full px-3.5 text-left text-[12.5px] font-medium"
-            >
-              Show all {active.length} threads
-            </button>
-          ) : null}
-          {runs && !active.length ? (
-            <div className="text-faint px-3.5 py-3 text-[12.5px]">
-              {settled.length
-                ? 'Everything is settled. Start a new run with a case number or a question.'
-                : 'Your runs appear here. Start one with a case number or a question.'}
-            </div>
-          ) : null}
-        </div>
-      )}
-
-      {settled.length ? (
-        collapsed ? (
-          <div className="flex shrink-0 justify-center pb-2">
-            <button
-              type="button"
-              onClick={openSettled}
-              className="group/rail text-faint hover:text-ok hover:bg-canvas relative flex h-8 items-center gap-1 rounded-full px-2 text-[11px] font-medium transition-colors"
-            >
-              <DoubleCheckIcon className="size-3.5" />
-              {settled.length}
-              <RailTip label="Settled threads" />
-            </button>
-          </div>
-        ) : (
-          <div className="border-line-strong/60 shrink-0 border-t px-3 py-2">
-            <button
-              type="button"
-              onClick={() => toggleSettled()}
-              aria-expanded={settledOpen}
-              className="text-muted hover:text-fg hover:bg-canvas flex h-8 w-full items-center gap-2 rounded-full px-3.5 text-[12px] font-medium transition-colors"
-            >
-              <DoubleCheckIcon className="text-ok size-3.5" />
-              <span className="flex-1 text-left">Settled</span>
-              <span className="text-faint tabular-nums">{settled.length}</span>
-              <ChevronUpIcon
-                className={cn(
-                  'size-3 transition-transform duration-200',
-                  !settledOpen && 'rotate-180',
-                )}
-              />
-            </button>
-            {settledOpen ? (
-              <div className="animate-fade-in mt-1 max-h-[32vh] scrollbar-thin space-y-0.5 overflow-y-auto">
-                {settled.map((r) => (
-                  <RunItem key={r.id} run={r} active={isOpen(r.id)} settled />
-                ))}
-              </div>
-            ) : null}
-          </div>
-        )
+    <>
+      {overlay ? (
+        <>
+          <div className="w-[72px] shrink-0" />
+          <div
+            aria-hidden
+            onClick={() => setDrawer(false)}
+            className="animate-fade-in fixed inset-0 z-40 bg-black/20"
+          />
+        </>
       ) : null}
+      <aside
+        className={cn(
+          'border-line-strong/60 z-20 flex shrink-0 flex-col border-r bg-white transition-[width] duration-200 ease-out',
+          overlay
+            ? 'animate-slide-in fixed inset-y-0 left-0 z-50 w-[320px] shadow-[0_12px_40px_rgba(38,50,56,0.22)]'
+            : 'relative',
+          !overlay && (collapsed ? 'w-[72px]' : 'w-[320px]'),
+        )}
+      >
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="border-line-strong text-muted hover:text-brand-strong hover:border-brand/50 absolute top-1/2 -right-3.5 z-30 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border bg-white shadow-[0_2px_8px_rgba(38,50,56,0.10)] transition-colors"
+        >
+          {collapsed ? (
+            <ChevronRightIcon className="size-3.5" />
+          ) : (
+            <ChevronLeftIcon className="size-3.5" />
+          )}
+        </button>
+        <div
+          className={cn(
+            'flex h-16 shrink-0 items-center overflow-hidden',
+            collapsed ? 'justify-center' : 'px-5',
+          )}
+        >
+          <a href="#/" aria-label="OV Agent home">
+            {collapsed ? (
+              <img src={mark} alt="OV Agent" className="h-[26px] w-auto" />
+            ) : (
+              <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto max-w-none" />
+            )}
+          </a>
+        </div>
+        <nav className={cn('shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}>
+          <NavRow
+            to="#/"
+            icon={PlusIcon}
+            label="New run"
+            active={route.page === 'home'}
+            collapsed={collapsed}
+          />
+          <NavRow
+            to={href({ page: 'map' })}
+            icon={MapIcon}
+            label="Instance map"
+            active={route.page === 'map'}
+            collapsed={collapsed}
+          />
+          <NavRow
+            to={href({ page: 'explorer' })}
+            icon={CodeBracketIcon}
+            label="Explorer"
+            active={route.page === 'explorer'}
+            collapsed={collapsed}
+          />
+          <NavRow
+            to={href({ page: 'health' })}
+            icon={HeartIcon}
+            label="Health"
+            active={route.page === 'health'}
+            collapsed={collapsed}
+          />
+          <NavRow
+            to={href({ page: 'workspace' })}
+            icon={FolderIcon}
+            label="Workspace"
+            active={route.page === 'workspace'}
+            collapsed={collapsed}
+          />
+        </nav>
 
-      {collapsed ? (
-        <div className="border-line-strong/60 flex h-16 shrink-0 items-center justify-center border-t">
-          <a
-            href={href({ page: 'settings' })}
-            aria-label="Settings"
-            className={cn(
-              'group/rail relative flex size-11 items-center justify-center rounded-full transition-colors',
-              onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
-            )}
-          >
-            <Avatar user={user} />
-            <RailTip label="Settings" />
-          </a>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {collapsed ? (
+            <div className="border-line-strong/60 mt-1 min-h-0 flex-1 scrollbar-thin space-y-1.5 overflow-y-auto border-t px-2 pt-3 pb-3">
+              {active.slice(0, RAIL_RUNS).map((r) => (
+                <RailRun key={r.id} run={r} active={isOpen(r.id)} />
+              ))}
+              {active.length > RAIL_RUNS ? (
+                <button
+                  type="button"
+                  onClick={toggle}
+                  className="group/rail text-faint hover:text-brand-strong relative mx-auto flex size-9 items-center justify-center rounded-full text-[11px] font-medium"
+                >
+                  +{active.length - RAIL_RUNS}
+                  <RailTip label="Show all threads" />
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="min-h-16 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4">
+              {!list ? (
+                <div className="space-y-4 px-3 pt-3">
+                  {[0, 1, 2, 3].map((i) => (
+                    <Skeleton key={i} className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
+                  ))}
+                </div>
+              ) : null}
+              {group(shown).map(([label, list], index) => (
+                <div key={label} className={index ? 'mt-5' : 'mt-1'}>
+                  <div className="text-faint mb-1 px-3.5 text-[12px] font-medium">{label}</div>
+                  <div className="space-y-0.5">
+                    {list.map((r) => (
+                      <RunItem key={r.id} run={r} active={isOpen(r.id)} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {!showAll && active.length > RECENT_LIMIT ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(true)}
+                  className="text-brand-strong hover:bg-canvas mt-3 h-9 w-full rounded-full px-3.5 text-left text-[12.5px] font-medium"
+                >
+                  Show all {active.length} threads
+                </button>
+              ) : null}
+              {list && !active.length ? (
+                <div className="text-faint px-3.5 py-3 text-[12.5px]">
+                  {settledTotal
+                    ? 'Everything is settled. Start a new run with a case number or a question.'
+                    : 'Your runs appear here. Start one with a case number or a question.'}
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {settledTotal ? (
+            collapsed ? (
+              <div className="flex shrink-0 justify-center pb-2">
+                <button
+                  type="button"
+                  onClick={openSettled}
+                  className="group/rail text-faint hover:text-ok hover:bg-canvas relative flex h-8 items-center gap-1 rounded-full px-2 text-[11px] font-medium transition-colors"
+                >
+                  <DoubleCheckIcon className="size-3.5" />
+                  {settledTotal}
+                  <RailTip label="Settled threads" />
+                </button>
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  'border-line-strong/60 flex min-h-0 flex-col border-t px-3 py-2',
+                  settledOpen ? 'max-h-[45%] min-h-[88px] shrink' : 'shrink-0',
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleSettled()}
+                  aria-expanded={settledOpen}
+                  className="text-muted hover:text-fg hover:bg-canvas flex h-8 w-full shrink-0 items-center gap-2 rounded-full px-3.5 text-[12px] font-medium transition-colors"
+                >
+                  <DoubleCheckIcon className="text-ok size-3.5" />
+                  <span className="flex-1 text-left">Settled</span>
+                  <span className="text-faint tabular-nums">{settledTotal}</span>
+                  <ChevronUpIcon
+                    className={cn(
+                      'size-3 transition-transform duration-200',
+                      !settledOpen && 'rotate-180',
+                    )}
+                  />
+                </button>
+                {settledOpen ? (
+                  <div className="animate-fade-in mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto">
+                    {settled.map((r) => (
+                      <RunItem key={r.id} run={r} active={isOpen(r.id)} settled />
+                    ))}
+                    {settledTotal > settled.length ? (
+                      <button
+                        type="button"
+                        onClick={() => void showMoreSettled()}
+                        className="text-brand-strong hover:bg-canvas h-8 w-full rounded-full px-3.5 text-left text-[12px] font-medium"
+                      >
+                        Show more ({settledTotal - settled.length} left)
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )
+          ) : null}
         </div>
-      ) : (
-        <div className="border-line-strong/60 flex h-16 shrink-0 items-center gap-1 border-t px-3">
-          <a
-            href={href({ page: 'settings' })}
-            className={cn(
-              'flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full pr-3 pl-1.5 transition-colors',
-              onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
-            )}
-          >
-            <Avatar user={user} />
-            <span className="min-w-0">
-              <span className="text-fg block truncate text-[13px] font-medium">
-                {user ?? 'Not signed in'}
+
+        {collapsed ? (
+          <div className="border-line-strong/60 flex h-16 shrink-0 items-center justify-center border-t">
+            <a
+              href={href({ page: 'settings' })}
+              aria-label="Settings"
+              className={cn(
+                'group/rail relative flex size-11 items-center justify-center rounded-full transition-colors',
+                onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
+              )}
+            >
+              <Avatar user={user} />
+              <RailTip label="Settings" />
+            </a>
+          </div>
+        ) : (
+          <div className="border-line-strong/60 flex h-16 shrink-0 items-center gap-1 border-t px-3">
+            <a
+              href={href({ page: 'settings' })}
+              className={cn(
+                'flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full pr-3 pl-1.5 transition-colors',
+                onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
+              )}
+            >
+              <Avatar user={user} />
+              <span className="min-w-0">
+                <span className="text-fg block truncate text-[13px] font-medium">
+                  {user ?? 'Not signed in'}
+                </span>
+                <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
               </span>
-              <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
-            </span>
-          </a>
-          <a
-            href={href({ page: 'settings' })}
-            aria-label="Settings"
-            className={cn(
-              'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors',
-              onSettings
-                ? 'bg-brand-soft text-brand-strong'
-                : 'text-muted hover:bg-canvas hover:text-fg',
-            )}
-          >
-            <Cog6ToothIcon className="size-[18px]" />
-          </a>
-        </div>
-      )}
-    </aside>
+            </a>
+            <a
+              href={href({ page: 'settings' })}
+              aria-label="Settings"
+              className={cn(
+                'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors',
+                onSettings
+                  ? 'bg-brand-soft text-brand-strong'
+                  : 'text-muted hover:bg-canvas hover:text-fg',
+              )}
+            >
+              <Cog6ToothIcon className="size-[18px]" />
+            </a>
+          </div>
+        )}
+      </aside>
+    </>
   )
 }

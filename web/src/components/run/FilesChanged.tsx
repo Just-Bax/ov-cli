@@ -1,7 +1,12 @@
 import { ChevronRightIcon, DocumentPlusIcon, PencilSquareIcon } from '@heroicons/react/24/outline'
-import { useState } from 'react'
-import type { FileEdit } from '@shared/types.ts'
+import { memo, useEffect, useState } from 'react'
+import type { FileEdit, RunDetails } from '@shared/types.ts'
+import { useSkeleton } from '@/components/skeletons'
+import { reportError } from '@/components/Toasts'
+import { Skeleton } from '@/components/ui'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { prefetch, take } from '@/lib/prefetch'
 import { Diff } from './Diff'
 
 type FileSummary = {
@@ -44,15 +49,37 @@ function splitPath(path: string): [string, string] {
   return at < 0 ? ['', path] : [path.slice(0, at + 1), path.slice(at + 1)]
 }
 
-function FileRow({ file }: { file: FileSummary }) {
+const DETAIL_SLOT = 'edit'
+
+function FileRow({ runId, file }: { runId: string; file: FileSummary }) {
   const [open, setOpen] = useState(false)
+  const [detail, setDetail] = useState<RunDetails['edits']>()
   const [folder, name] = splitPath(file.path)
   const Icon = file.created ? DocumentPlusIcon : PencilSquareIcon
+  const lazyIds = file.edits.filter((e) => e.lazy && e.before === undefined).map((e) => e.id)
+  const lazy = lazyIds.length > 0
+  const key = `${runId}:${lazyIds.join(',')}`
+  const loading = useSkeleton(open && lazy && !detail)
+
+  useEffect(() => {
+    if (!open || !lazy || detail) return
+
+    let stale = false
+    take(DETAIL_SLOT, key, () => api.runDetails(runId, [], lazyIds))
+      .then((d) => !stale && setDetail(d.edits))
+      .catch(reportError)
+    return () => {
+      stale = true
+    }
+  }, [open, lazy, detail, key, runId])
 
   return (
     <div>
       <button
         type="button"
+        onMouseEnter={() => {
+          if (lazy && !detail) prefetch(DETAIL_SLOT, key, () => api.runDetails(runId, [], lazyIds))
+        }}
         onClick={() => setOpen((v) => !v)}
         className="hover:bg-raised flex w-full items-center gap-2.5 rounded-full px-3 py-1.5 text-left"
       >
@@ -71,11 +98,21 @@ function FileRow({ file }: { file: FileSummary }) {
         ) : null}
         <LineCounts added={file.added} removed={file.removed} />
       </button>
-      {open ? (
+      {open && lazy && !detail ? (
+        loading ? (
+          <div className="mt-1 mb-2 px-1">
+            <Skeleton className="h-24 w-full rounded-2xl" />
+          </div>
+        ) : null
+      ) : null}
+      {open && (!lazy || detail) ? (
         <div className="mt-1 mb-2 space-y-2 px-1">
           {file.edits.map((e) => (
             <div key={e.id} className="border-line overflow-hidden rounded-2xl border">
-              <Diff before={e.before} after={e.after} />
+              <Diff
+                before={e.before ?? detail?.[e.id]?.before ?? ''}
+                after={e.after ?? detail?.[e.id]?.after ?? ''}
+              />
               {e.truncated ? (
                 <div className="text-faint border-line border-t px-3 py-1.5 text-[11px]">
                   Long file: only the first part is shown.
@@ -89,7 +126,24 @@ function FileRow({ file }: { file: FileSummary }) {
   )
 }
 
-export function FilesChanged({ edits }: { edits: FileEdit[] }) {
+function sameEdits(
+  a: { runId: string; edits: FileEdit[] },
+  b: { runId: string; edits: FileEdit[] },
+): boolean {
+  return (
+    a.runId === b.runId &&
+    a.edits.length === b.edits.length &&
+    a.edits.every((e, i) => e === b.edits[i])
+  )
+}
+
+export const FilesChanged = memo(function FilesChanged({
+  runId,
+  edits,
+}: {
+  runId: string
+  edits: FileEdit[]
+}) {
   const files = summarize(edits)
   if (!files.length) return null
 
@@ -105,8 +159,8 @@ export function FilesChanged({ edits }: { edits: FileEdit[] }) {
         <LineCounts added={added} removed={removed} />
       </div>
       {files.map((f) => (
-        <FileRow key={f.path} file={f} />
+        <FileRow key={f.path} runId={runId} file={f} />
       ))}
     </div>
   )
-}
+}, sameEdits)

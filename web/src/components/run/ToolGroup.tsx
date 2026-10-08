@@ -27,9 +27,13 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import type { Icon } from '@/components/ui'
-import { useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { ToolActivity } from '@shared/types.ts'
-import { CopyButton, Spinner } from '@/components/ui'
+import { useSkeleton } from '@/components/skeletons'
+import { reportError } from '@/components/Toasts'
+import { CopyButton, Skeleton, Spinner } from '@/components/ui'
+import { api } from '@/lib/api'
+import { prefetch, take } from '@/lib/prefetch'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
 
@@ -170,15 +174,47 @@ function Block({ title, text, error }: { title: string; text: string; error?: bo
   )
 }
 
-function ToolRow({ tool }: { tool: ToolActivity }) {
+const DETAIL_SLOT = 'tool'
+
+function DetailSkeleton() {
+  return (
+    <div className="space-y-2">
+      <Skeleton className="h-3 w-16" />
+      <Skeleton className="h-16 w-full rounded-2xl" />
+    </div>
+  )
+}
+
+function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
   const [open, setOpen] = useState(false)
+  const [detail, setDetail] = useState<Pick<ToolActivity, 'input' | 'output'>>()
+  const lazy = Boolean(tool.lazy) && tool.input === undefined && tool.output === undefined
+  const key = `${runId}:${tool.id}`
+  const loading = useSkeleton(open && lazy && !detail)
+  const full = lazy ? { ...tool, ...detail } : tool
   const Icon = ICONS[tool.name] ?? CommandLineIcon
-  const input = readableInput(tool)
+  const input = readableInput(full)
+
+  useEffect(() => {
+    if (!open || !lazy || detail) return
+
+    let stale = false
+    take(DETAIL_SLOT, key, () => api.runDetails(runId, [tool.id], []))
+      .then((d) => !stale && setDetail(d.tools[tool.id] ?? {}))
+      .catch(reportError)
+    return () => {
+      stale = true
+    }
+  }, [open, lazy, detail, key, runId, tool.id])
 
   return (
     <div>
       <button
         type="button"
+        onMouseEnter={() => {
+          if (lazy && !detail)
+            prefetch(DETAIL_SLOT, key, () => api.runDetails(runId, [tool.id], []))
+        }}
         onClick={() => setOpen(!open)}
         className="hover:bg-raised flex w-full items-center gap-2 rounded-full px-2.5 py-1 text-left"
       >
@@ -206,21 +242,46 @@ function ToolRow({ tool }: { tool: ToolActivity }) {
       </button>
       {open ? (
         <div className="animate-fade-in mt-1 mb-2 ml-7 space-y-2">
-          {input ? <Block title="Input" text={input} /> : null}
-          {tool.status !== 'running' ? (
-            <Block
-              title={tool.status === 'error' ? 'Error' : 'Output'}
-              text={tool.output ?? ''}
-              error={tool.status === 'error'}
-            />
-          ) : null}
+          {lazy && !detail ? (
+            loading ? (
+              <DetailSkeleton />
+            ) : null
+          ) : (
+            <>
+              {input ? <Block title="Input" text={input} /> : null}
+              {tool.status !== 'running' ? (
+                <Block
+                  title={tool.status === 'error' ? 'Error' : 'Output'}
+                  text={full.output ?? ''}
+                  error={tool.status === 'error'}
+                />
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
     </div>
   )
 }
 
-export function ToolGroup({ tools }: { tools: ToolActivity[] }) {
+function sameTools(
+  a: { runId: string; tools: ToolActivity[] },
+  b: { runId: string; tools: ToolActivity[] },
+): boolean {
+  return (
+    a.runId === b.runId &&
+    a.tools.length === b.tools.length &&
+    a.tools.every((t, i) => t === b.tools[i])
+  )
+}
+
+export const ToolGroup = memo(function ToolGroup({
+  runId,
+  tools,
+}: {
+  runId: string
+  tools: ToolActivity[]
+}) {
   const running = tools.find((t) => t.status === 'running')
   const failed = tools.filter((t) => t.status === 'error').length
   const [open, setOpen] = useState(useSettings().settings.expandTools)
@@ -256,10 +317,10 @@ export function ToolGroup({ tools }: { tools: ToolActivity[] }) {
       {open ? (
         <div className="border-line animate-fade-in mt-1 ml-1.5 border-l-2 pl-2">
           {tools.map((t) => (
-            <ToolRow key={t.id} tool={t} />
+            <ToolRow key={t.id} runId={runId} tool={t} />
           ))}
         </div>
       ) : null}
     </div>
   )
-}
+}, sameTools)

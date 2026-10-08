@@ -5,6 +5,8 @@ export function emptyState(summary: RunSummary, input: RunInput): RunState {
     summary,
     input,
     items: [],
+    start: 0,
+    outline: [],
     tools: [],
     changes: [],
     edits: [],
@@ -61,6 +63,23 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
               { id: event.messageId, role: 'assistant' as const, text: event.delta, ts },
             ]
           : state.chat.map((m, j) => (j === i ? { ...m, text: m.text + event.delta } : m))
+
+      return { ...state, chat, items: withItem(state.items, { kind: 'text', id: event.messageId }) }
+    }
+    case 'message': {
+      const i = state.chat.findIndex((m) => m.id === event.messageId)
+      const chat =
+        i < 0
+          ? [
+              ...state.chat,
+              {
+                id: event.messageId,
+                role: 'assistant' as const,
+                text: event.text,
+                ts: event.ts ?? ts,
+              },
+            ]
+          : state.chat.map((m, j) => (j === i ? { ...m, text: event.text } : m))
 
       return { ...state, chat, items: withItem(state.items, { kind: 'text', id: event.messageId }) }
     }

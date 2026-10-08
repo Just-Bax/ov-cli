@@ -59,7 +59,7 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section className="grid gap-6 py-6 md:grid-cols-[200px_1fr]">
+    <section className="grid gap-6 py-6 xl:grid-cols-[200px_1fr]">
       <div>
         <div className="text-fg text-[13.5px] font-semibold">{title}</div>
         {hint ? <div className="text-muted mt-1 text-[12px] leading-relaxed">{hint}</div> : null}
@@ -81,8 +81,8 @@ function Row({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex items-center gap-6 px-5 py-4">
-      <div className="min-w-0 flex-1">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
+      <div className="min-w-[240px] flex-1">
         <div className="text-fg text-[13.5px] font-medium">{title}</div>
         <div className="text-muted mt-0.5 text-[12px] leading-relaxed">{hint}</div>
       </div>

@@ -667,8 +667,8 @@ def test_status_changes_reach_the_status_feed(logged_in):
     finally:
         unsubscribe()
     assert changes == [
-        {"id": "rfeed", "status": "waiting", "title": "Feed run"},
-        {"id": "rfeed", "status": "done", "title": "Feed run"},
+        {"kind": "status", "id": "rfeed", "status": "waiting", "title": "Feed run"},
+        {"kind": "status", "id": "rfeed", "status": "done", "title": "Feed run"},
     ]
     assert channel.empty()
 
@@ -679,3 +679,106 @@ def test_runs_can_be_settled_and_a_follow_up_unsettles_them(logged_in):
     assert db.list_runs()[0]["settled"] is True
     db.set_settled("rsettle", False)
     assert "settled" not in db.list_runs()[0]
+
+
+def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypatch):
+    def fake_chat(*args, cancel, on_text):
+        on_text("All ")
+        on_text("good.")
+        return StreamResult(text="All good.")
+
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+
+    from ov.agent.run import runs
+
+    run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
+    for _ in range(100):
+        if run.state["summary"]["status"] in ("done", "error"):
+            break
+        time.sleep(0.05)
+
+    kinds = [e["event"]["type"] for e in db.load_events(run.id)]
+    assert "text" not in kinds
+    assert kinds.count("message") == 1
+    runs._runs.pop(run.id)
+    assert runs.get(run.id).state["chat"][-1]["text"] == "All good."
+
+
+def _turn(seq: int, n: int) -> list[dict]:
+    return [
+        {
+            "seq": seq,
+            "ts": 1,
+            "event": {"type": "user", "message": {"id": f"u{n}", "role": "user", "text": f"q{n}", "ts": 1}},
+        },
+        {
+            "seq": seq + 1,
+            "ts": 1,
+            "event": {
+                "type": "tool",
+                "tool": {"id": f"t{n}", "name": "ov", "label": "x", "status": "ok", "input": "{}", "output": "big"},
+            },
+        },
+        {"seq": seq + 2, "ts": 1, "event": {"type": "message", "messageId": f"a{n}", "text": f"**answer {n}**"}},
+    ]
+
+
+def test_snapshot_keeps_recent_turns_and_outlines_the_rest():
+    full = state.empty_state({"id": "r", "title": "t", "status": "done"}, {})
+    for n in range(3):
+        for stored in _turn(n * 3, n):
+            state.reduce(full, stored)
+
+    snap = state.snapshot(full, 2)
+    assert snap["start"] == 3
+    assert [x["id"] for x in snap["items"]] == ["u1", "t1", "a1", "u2", "t2", "a2"]
+    assert snap["tools"][0] == {"id": "t1", "name": "ov", "label": "x", "status": "ok", "lazy": True}
+    assert snap["outline"] == [
+        {"kind": "user", "start": 0, "label": "q0"},
+        {"kind": "agent", "start": 0, "label": "**answer 0**"},
+    ]
+
+    older = state.window(full, snap["start"], 10)
+    assert older["start"] == 0
+    assert [x["id"] for x in older["items"]] == ["u0", "t0", "a0"]
+    assert state.details(full, {"t0"}, set())["tools"]["t0"] == {"input": "{}", "output": "big"}
+
+
+def test_resuming_a_stream_sends_the_partial_message(logged_in):
+    from ov.agent.run import runs
+
+    db.create_run("rlive", "t", "m", {"prompt": "x"})
+    run = runs.get("rlive")
+    run._stream_text("a1", "Hel")
+    channel, unsubscribe, backlog = run.resume(run.seq)
+    try:
+        assert backlog[-1]["live"] is True
+        assert backlog[-1]["event"]["text"] == "Hel"
+        run._stream_text("a1", "lo")
+        assert channel.get_nowait()["event"] == {"type": "text", "messageId": "a1", "delta": "lo"}
+        run._commit_text("a1")
+        committed = channel.get_nowait()
+    finally:
+        unsubscribe()
+    assert committed["event"]["text"] == "Hello"
+    assert "live" not in committed
+
+
+def test_idle_runs_are_dropped_from_memory(logged_in):
+    from ov.agent.run import MAX_CACHED_RUNS, runs
+
+    for n in range(MAX_CACHED_RUNS + 3):
+        db.create_run(f"revict{n}", "t", "m", {"prompt": "x"})
+        runs.get(f"revict{n}")
+    assert len(runs._runs) <= MAX_CACHED_RUNS
+    assert "revict0" not in runs._runs
+
+
+def test_run_list_splits_active_and_settled(logged_in):
+    for n in range(3):
+        db.create_run(f"rlist{n}", "t", "m", {"prompt": "x"})
+    db.set_settled("rlist0", True)
+    assert {r["id"] for r in db.list_runs(settled=False)} >= {"rlist1", "rlist2"}
+    assert [r["id"] for r in db.list_runs(settled=True)] == ["rlist0"]
+    assert db.settled_count() == 1

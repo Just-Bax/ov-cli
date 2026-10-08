@@ -1,4 +1,6 @@
-import { type RefObject, useCallback, useEffect, useState } from 'react'
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import type { OutlineMark } from '@shared/types.ts'
+import { Markdown } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
 const MIN_MARKS = 4
@@ -7,7 +9,14 @@ const MIN_GAP_PX = 3
 const RAIL_PADDING_PX = 24
 const LABEL_CHARS = 140
 
-type Mark = { el: HTMLElement; kind: string; label: string; top: number; height: number }
+type Mark = {
+  el?: HTMLElement
+  kind: string
+  start: number
+  label: string
+  top: number
+  height: number
+}
 
 function collect(content: HTMLElement): Mark[] {
   const origin = content.getBoundingClientRect().top
@@ -16,6 +25,7 @@ function collect(content: HTMLElement): Mark[] {
     return {
       el,
       kind: el.dataset.mark ?? '',
+      start: Number(el.dataset.start),
       label: (el.dataset.label ?? '').slice(0, LABEL_CHARS),
       top: box.top - origin,
       height: box.height,
@@ -23,20 +33,30 @@ function collect(content: HTMLElement): Mark[] {
   })
 }
 
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
+}
+
 export function ThreadRail({
   contentRef,
   version,
+  outline,
+  onLoadUntil,
   onJump,
 }: {
   contentRef: RefObject<HTMLDivElement | null>
   version: unknown
+  outline: OutlineMark[]
+  onLoadUntil: (start: number) => Promise<void>
   onJump: () => void
 }) {
   const [marks, setMarks] = useState<Mark[]>([])
   const [view, setView] = useState({ top: 0, bottom: 0, height: 0 })
   const [hover, setHover] = useState<number>()
+  const frame = useRef<number | undefined>(undefined)
 
   const measure = useCallback(() => {
+    frame.current = undefined
     const content = contentRef.current
     const scroller = content?.parentElement
     if (!content || !scroller) return
@@ -46,27 +66,49 @@ export function ThreadRail({
     setView({ top, bottom: top + scroller.clientHeight, height: scroller.clientHeight })
   }, [contentRef])
 
-  useEffect(measure, [measure, version])
+  const schedule = useCallback(() => {
+    frame.current ??= requestAnimationFrame(measure)
+  }, [measure])
+
+  useEffect(schedule, [schedule, version])
 
   useEffect(() => {
     const scroller = contentRef.current?.parentElement
     if (!scroller) return
 
-    const resize = new ResizeObserver(measure)
+    const resize = new ResizeObserver(schedule)
     resize.observe(scroller)
-    scroller.addEventListener('scroll', measure, { passive: true })
+    scroller.addEventListener('scroll', schedule, { passive: true })
     return () => {
       resize.disconnect()
-      scroller.removeEventListener('scroll', measure)
+      scroller.removeEventListener('scroll', schedule)
+      if (frame.current !== undefined) cancelAnimationFrame(frame.current)
+      frame.current = undefined
     }
-  }, [contentRef, measure])
+  }, [contentRef, schedule])
 
-  if (marks.length < MIN_MARKS || !view.height) return null
+  const all: Mark[] = [
+    ...outline.map((m) => ({ ...m, label: m.label.slice(0, LABEL_CHARS), top: -1, height: 0 })),
+    ...marks,
+  ]
+  if (all.length < MIN_MARKS || !view.height) return null
 
   const room = view.height - RAIL_PADDING_PX * 2
-  const gap = Math.max(MIN_GAP_PX, Math.min(MARK_GAP_PX, room / marks.length))
-  const shown = marks.slice(-Math.floor(room / gap))
+  const gap = Math.max(MIN_GAP_PX, Math.min(MARK_GAP_PX, room / all.length))
+  const shown = all.slice(-Math.floor(room / gap))
   const tall = shown.length * gap
+
+  const jump = async (m: Mark) => {
+    onJump()
+    if (m.el) return m.el.scrollIntoView({ block: 'start', behavior: 'smooth' })
+
+    await onLoadUntil(m.start)
+    await nextFrame()
+    await nextFrame()
+    contentRef.current
+      ?.querySelector<HTMLElement>(`[data-mark="${m.kind}"][data-start="${m.start}"]`)
+      ?.scrollIntoView({ block: 'start' })
+  }
 
   return (
     <div className="pointer-events-none sticky top-0 z-20 h-0">
@@ -76,17 +118,14 @@ export function ThreadRail({
         onMouseLeave={() => setHover(undefined)}
       >
         {shown.map((m, i) => {
-          const visible = m.top < view.bottom && m.top + m.height > view.top
+          const visible = m.el !== undefined && m.top < view.bottom && m.top + m.height > view.top
           return (
             <button
-              key={i}
+              key={`${m.kind}:${m.start}`}
               type="button"
               aria-label={`Go to ${m.kind === 'user' ? 'your message' : 'reply'}`}
               onMouseEnter={() => setHover(i)}
-              onClick={() => {
-                onJump()
-                m.el.scrollIntoView({ block: 'start', behavior: 'smooth' })
-              }}
+              onClick={() => void jump(m)}
               className="flex w-full shrink-0 items-center justify-center"
               style={{ height: gap }}
             >
@@ -110,13 +149,15 @@ export function ThreadRail({
         })}
         {hover !== undefined && shown[hover]?.label ? (
           <div
-            className="border-line text-text pointer-events-none absolute right-7 w-[280px] -translate-y-1/2 rounded-2xl border bg-white px-3 py-2 text-[12px] leading-snug shadow-[0_6px_20px_rgba(38,50,56,0.14)]"
+            className="border-line text-text pointer-events-none absolute right-7 w-[280px] -translate-y-1/2 rounded-2xl border bg-white px-3 py-2 shadow-[0_6px_20px_rgba(38,50,56,0.14)]"
             style={{ top: hover * gap + gap / 2 }}
           >
             <div className="text-faint mb-0.5 text-[10.5px] font-medium">
               {shown[hover].kind === 'user' ? 'You' : 'Agent'}
             </div>
-            <div className="line-clamp-3">{shown[hover].label}</div>
+            <div className="line-clamp-3">
+              <Markdown text={shown[hover].label} className="md-compact" />
+            </div>
           </div>
         ) : null}
       </div>

@@ -38,6 +38,9 @@ DEV_PORT = 5179
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 GZIP_MIN_BYTES = 64 * 1024
 PING_SECONDS = 15
+SETTLED_PAGE = 50
+DEFAULT_TURNS = 10
+MAX_TURNS = 100
 GZIP_LEVEL = 5
 ASSET_CACHE = "public, max-age=31536000, immutable"
 UPLOAD_ID_SUFFIX_CHARS = 6
@@ -580,8 +583,13 @@ def pagerduty_disconnect(_: Handler) -> dict[str, Any]:
 
 
 @route("GET", "/api/runs")
-def list_runs(_: Handler) -> list[dict[str, Any]]:
-    return db.list_runs()
+def list_runs(h: Handler) -> dict[str, Any]:
+    settled = min(int(h.query.get("settled", str(SETTLED_PAGE))), db.RUN_LIST_LIMIT)
+    return {
+        "active": db.list_runs(settled=False),
+        "settled": db.list_runs(settled=True, limit=settled),
+        "settledTotal": db.settled_count(),
+    }
 
 
 @route("GET", "/api/stats")
@@ -620,8 +628,24 @@ def start_run(h: Handler) -> dict[str, str]:
 
 
 @route("GET", "/api/runs/([a-z0-9]+)")
-def get_run(_: Handler, run_id: str) -> str:
-    return _run(run_id).snapshot()
+def get_run(h: Handler, run_id: str) -> str:
+    return _run(run_id).snapshot(_turns(h))
+
+
+def _turns(h: Handler) -> int:
+    return max(1, min(int(h.query.get("turns", str(DEFAULT_TURNS))), MAX_TURNS))
+
+
+@route("GET", "/api/runs/([a-z0-9]+)/history")
+def run_history(h: Handler, run_id: str) -> str:
+    return _run(run_id).history(int(_required(h.query, "end")), _turns(h))
+
+
+@route("GET", "/api/runs/([a-z0-9]+)/details")
+def run_details(h: Handler, run_id: str) -> str:
+    tools = {x for x in h.query.get("tools", "").split(",") if x}
+    edits = {x for x in h.query.get("edits", "").split(",") if x}
+    return _run(run_id).details(tools, edits)
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/settle")
@@ -632,6 +656,7 @@ def settle(h: Handler, run_id: str) -> dict[str, bool]:
         raise HttpError(400, "Give settled as true or false.")
 
     db.set_settled(run_id, settled)
+    status_feed.publish({"kind": "list"})
     return {"ok": True}
 
 
@@ -661,14 +686,14 @@ def status_events(h: Handler) -> None:
 @route("GET", "/api/runs/([a-z0-9]+)/events")
 def run_events(h: Handler, run_id: str) -> None:
     run = _run(run_id)
-    last = int(h.query.get("after", "-1"))
-    channel, unsubscribe = run.subscribe()
+    last = int(_required(h.query, "after"))
+    channel, unsubscribe, backlog = run.resume(last)
     try:
         h.send_response(200)
         h.send_header("Content-Type", "text/event-stream")
         h.send_header("Cache-Control", "no-cache")
         h.end_headers()
-        for stored in db.load_events(run.id, last):
+        for stored in backlog:
             _write_event(h, stored)
             last = stored["seq"]
         while True:
@@ -678,7 +703,7 @@ def run_events(h: Handler, run_id: str) -> None:
                 h.wfile.write(b"event: ping\ndata: \n\n")
                 h.wfile.flush()
                 continue
-            if stored["seq"] > last:
+            if stored.get("live") or stored["seq"] > last:
                 _write_event(h, stored)
                 last = stored["seq"]
     except OSError:
@@ -717,6 +742,7 @@ def message(h: Handler, run_id: str) -> dict[str, bool]:
     files = _objects(data, "files")
     _run(run_id).follow_up(str(data.get("text", "")), files)
     db.set_settled(run_id, False)
+    status_feed.publish({"kind": "list"})
     return {"ok": True}
 
 
