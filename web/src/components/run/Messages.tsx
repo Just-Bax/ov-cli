@@ -9,6 +9,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { type ReactNode, useState } from 'react'
 import type { ChatMessage, MessageFile, Rating } from '@shared/types.ts'
+import { FilePreview } from '@/components/run/FilePreview'
 import { Spinner, Markdown } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -71,38 +72,44 @@ function CopyAction({ text }: { text: string }) {
 }
 
 function FileChips({ runId, files }: { runId: string; files: MessageFile[] }) {
+  const [open, setOpen] = useState<number>()
   if (!files.length) return null
 
   return (
     <div className="flex flex-wrap justify-end gap-1.5">
-      {files.map((f) =>
+      {files.map((f, i) =>
         f.kind === 'image' ? (
-          <a
+          <button
             key={f.name}
-            href={api.fileUrl(runId, f.name)}
-            target="_blank"
-            rel="noreferrer"
+            type="button"
             title={f.name}
+            aria-label={`Preview ${f.name}`}
+            onClick={() => setOpen(i)}
+            className="cursor-zoom-in"
           >
             <img
               src={api.fileUrl(runId, f.name)}
               alt={f.name}
               className="border-line bg-raised h-28 max-w-[260px] rounded-2xl border object-contain transition-opacity hover:opacity-90"
             />
-          </a>
+          </button>
         ) : (
-          <a
+          <button
             key={f.name}
-            href={api.fileUrl(runId, f.name)}
-            target="_blank"
-            rel="noreferrer"
-            className="border-line text-text hover:bg-raised inline-flex h-9 items-center gap-2 rounded-full border bg-white px-3 text-[12.5px]"
+            type="button"
+            title={f.name}
+            aria-label={`Preview ${f.name}`}
+            onClick={() => setOpen(i)}
+            className="border-line text-text hover:bg-raised inline-flex h-9 items-center gap-2 rounded-full border bg-white px-3 text-[12.5px] transition-colors"
           >
             <DocumentTextIcon className="text-muted size-4" />
             <span className="max-w-[200px] truncate">{f.name}</span>
-          </a>
+          </button>
         ),
       )}
+      {open !== undefined ? (
+        <FilePreview runId={runId} files={files} start={open} onClose={() => setOpen(undefined)} />
+      ) : null}
     </div>
   )
 }
