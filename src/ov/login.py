@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -30,6 +31,14 @@ PROGRESS_EVERY_SECONDS = 5.0
 STUCK_AFTER_ROUNDS = 20
 
 BROWSERS_PATH_ENV = "PLAYWRIGHT_BROWSERS_PATH"
+SCREEN_PORT_ENV = "OV_LOGIN_SCREEN_PORT"
+SCREEN_SIZE_ENV = "OV_LOGIN_SCREEN_SIZE"
+SCREEN_CHANNEL = "chromium"
+UA_PLATFORMS = {
+    "win32": "Windows NT 10.0; Win64; x64",
+    "darwin": "Macintosh; Intel Mac OS X 10_15_7",
+    "linux": "X11; Linux x86_64",
+}
 INSTALL_MARKER = "INSTALLATION_COMPLETE"
 
 PENDING_PATHS = (
@@ -41,6 +50,13 @@ PENDING_PATHS = (
 )
 
 _MISSING_BROWSER_HINTS = ("executable doesn't exist", "please run the following command")
+PROFILE_IN_USE_HINT = "exitcode=21"
+PROFILE_BUSY = (
+    "Another sign-in is still using the sign-in browser.\nFinish or close that one first, or wait for it to time out."
+)
+PARENT_GONE = "OV Agent closed before sign-in finished."
+
+_parent_gone = threading.Event()
 
 NO_WIDGET_PRIV = (
     "Signed in, but this account cannot mint an API token: it needs the WIDGET "
@@ -150,6 +166,8 @@ def _await_token(
     seen: list[str] = []
 
     while time.monotonic() < deadline:
+        if _parent_gone.is_set():
+            raise LoginFailed(PARENT_GONE)
         pages = _live_pages(context)
         seen = [page.url for page in pages]
         minted, last_error, signed_in = _try_signed_in_tabs(context, pages, seen, base_url, verify)
@@ -330,14 +348,21 @@ def _session_from(minted: dict[str, Any], cookies: dict[str, str], base_url: str
 
 
 def _launch(p: Any, headless: bool, report: Progress) -> Any:
-    options = {
+    options: dict[str, Any] = {
         "user_data_dir": str(browser_profile_dir()),
         "headless": headless,
         "args": ["--no-first-run", "--no-default-browser-check"],
     }
+    port = os.environ.get(SCREEN_PORT_ENV)
+    if port:
+        options.update(_screen_options(os.environ[SCREEN_SIZE_ENV]))
+        options["args"].append(f"--remote-debugging-port={port}")
+        threading.Thread(target=_watch_parent, daemon=True).start()
     try:
         return p.chromium.launch_persistent_context(**options)
     except PlaywrightError as exc:
+        if PROFILE_IN_USE_HINT in str(exc).lower():
+            raise LoginFailed(PROFILE_BUSY) from None
         if not _looks_like_missing_browser(exc):
             raise LoginFailed(f"Could not start the browser: {exc}") from exc
         _fetch_browser(report)
@@ -346,6 +371,36 @@ def _launch(p: Any, headless: bool, report: Progress) -> Any:
         return p.chromium.launch_persistent_context(**options)
     except PlaywrightError as exc:
         raise LoginFailed(f"Could not start the browser: {exc}") from exc
+
+
+def _watch_parent() -> None:
+    sys.stdin.read()
+    _parent_gone.set()
+
+
+def _screen_options(size: str) -> dict[str, Any]:
+    width, height = (int(n) for n in size.split("x"))
+    return {
+        "headless": True,
+        "channel": SCREEN_CHANNEL,
+        "viewport": {"width": width, "height": height},
+        "user_agent": _desktop_user_agent(),
+    }
+
+
+def _desktop_user_agent() -> str:
+    major = _pinned_version().split(".")[0]
+    platform = UA_PLATFORMS["linux" if sys.platform.startswith("linux") else sys.platform]
+    return f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+
+
+def _pinned_version() -> str:
+    entries = json.loads(_browsers_manifest().read_text(encoding="utf-8"))["browsers"]
+    return next(entry["browserVersion"] for entry in entries if entry["name"] == SCREEN_CHANNEL)
+
+
+def _browsers_manifest() -> Path:
+    return Path(playwright.__file__).parent / "driver" / "package" / "browsers.json"
 
 
 def _fetch_browser(report: Progress) -> None:
@@ -377,8 +432,7 @@ def _browsers_root() -> Path:
 
 
 def _pinned_builds() -> list[str]:
-    manifest = Path(playwright.__file__).parent / "driver" / "package" / "browsers.json"
-    entries = json.loads(manifest.read_text(encoding="utf-8"))["browsers"]
+    entries = json.loads(_browsers_manifest().read_text(encoding="utf-8"))["browsers"]
     return [
         f"{entry['name'].replace('-', '_')}-{entry['revision']}"
         for entry in entries

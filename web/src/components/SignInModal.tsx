@@ -8,9 +8,11 @@ import {
 } from '@heroicons/react/24/outline'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { RemoteScreen, SCREEN_BAR_PX, screenSize } from '@/components/RemoteScreen'
 import { Button, Input, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { reportError } from '@/components/Toasts'
 
 export type SignInMethod = 'browser' | 'token'
 
@@ -46,6 +48,7 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
 function likelyFixes(message: string, tenant?: string): string[] {
   const text = message.toLowerCase()
   const out: string[] = []
+  if (/another sign-in is still/.test(text)) return []
   if (tenant && /tenant|not allowed|no tenant/.test(text))
     out.push(
       `${tenant} needs a user with your email address. Ask an admin of that tenant to add one, or sign in without a tenant.`,
@@ -82,6 +85,7 @@ export function SignInModal({
   const [shown, setShown] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [method, setMethod] = useState<SignInMethod>('browser')
+  const [separate, setSeparate] = useState(false)
   const [accessKey, setAccessKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
   const startedAt = useRef(0)
@@ -100,6 +104,7 @@ export function SignInModal({
     setPhase(pending ? 'waiting' : 'intro')
     setMessage('')
     setMethod(target.tenant ? 'browser' : (target.mode ?? 'browser'))
+    setSeparate(false)
     setAccessKey('')
     setSecretKey('')
     const frame = requestAnimationFrame(() => setShown(true))
@@ -131,10 +136,11 @@ export function SignInModal({
   const byToken = method === 'token'
   const ready = !byToken || (accessKey.trim() && secretKey.trim())
 
-  const start = async () => {
+  const start = async (inWindow = false) => {
     const t = target
     startedAt.current = Date.now()
     setElapsed(0)
+    setSeparate(inWindow)
     setPhase('waiting')
     onStart(t)
 
@@ -143,6 +149,7 @@ export function SignInModal({
         t.url,
         t.tenant,
         byToken ? `${accessKey.trim()}:${secretKey.trim()}` : undefined,
+        byToken || inWindow ? undefined : screenSize(),
       )
       .catch((e: Error) => ({ ok: false, message: e.message }))
     onFinished(t, res.ok)
@@ -161,6 +168,45 @@ export function SignInModal({
   }
 
   const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
+  const embedded = phase === 'waiting' && !byToken && !separate
+
+  if (embedded) {
+    const size = screenSize()
+    return createPortal(
+      <div
+        className={cn(
+          'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 backdrop-blur-[2px] transition-opacity duration-200',
+          shown ? 'opacity-100' : 'opacity-0',
+        )}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Sign in to ${host}`}
+          className="animate-pop overflow-hidden rounded-2xl bg-white shadow-[0_20px_60px_rgba(38,50,56,0.3)]"
+          style={{ width: size.width, maxHeight: size.height + SCREEN_BAR_PX }}
+        >
+          <RemoteScreen
+            url={target.url}
+            host={host}
+            tenant={tenant}
+            onCancel={() => {
+              void api.cancelSignIn(target.url, tenant).catch(reportError)
+              onClose()
+            }}
+            status={
+              <span className="bg-brand-soft text-brand-strong hidden h-8 shrink-0 items-center gap-2 rounded-full px-3 text-[12px] font-medium sm:inline-flex">
+                <Spinner className="size-3" />
+                {tenant ? `Tenant ${tenant}` : 'Sign in'}
+                <span className="text-brand-strong/60 tabular-nums">{clock}</span>
+              </span>
+            }
+          />
+        </div>
+      </div>,
+      document.body,
+    )
+  }
 
   return createPortal(
     <div
@@ -274,8 +320,7 @@ export function SignInModal({
           <>
             <ol className="mt-5 space-y-3 px-5">
               <Step n={1}>
-                A browser window opens on <b className="text-fg font-medium">{host}</b>'s own login
-                page.
+                <b className="text-fg font-medium">{host}</b>'s own login page opens right here.
               </Step>
               <Step n={2}>Sign in the way you always do. Single sign-on and MFA are fine.</Step>
               {tenant ? (
@@ -285,9 +330,7 @@ export function SignInModal({
                   <b className="text-fg font-medium">{tenant}</b> for you.
                 </Step>
               ) : null}
-              <Step n={tenant ? 4 : 3}>
-                Leave the window alone. It closes on its own when you are through.
-              </Step>
+              <Step n={tenant ? 4 : 3}>It closes on its own when you are through.</Step>
             </ol>
             <div className="bg-raised text-muted mx-5 mt-4 flex gap-2.5 rounded-2xl px-3.5 py-3 text-[12px] leading-relaxed">
               <LockClosedIcon className="mt-0.5 size-3.5 shrink-0" />
@@ -327,11 +370,20 @@ export function SignInModal({
         <div className="mt-5 flex items-center justify-end gap-2 px-5 pb-5">
           {phase === 'intro' ? (
             <>
+              {byToken ? null : (
+                <button
+                  type="button"
+                  onClick={() => void start(true)}
+                  className="text-muted hover:text-brand-strong mr-auto text-[12px] transition-colors"
+                >
+                  Use a separate window
+                </button>
+              )}
               <Button variant="ghost" size="lg" onClick={onClose}>
                 Cancel
               </Button>
               <Button variant="primary" size="lg" disabled={!ready} onClick={() => void start()}>
-                <KeyIcon className="size-4" /> {byToken ? 'Sign in' : 'Open sign-in window'}
+                <KeyIcon className="size-4" /> {byToken ? 'Sign in' : 'Open sign-in page'}
               </Button>
             </>
           ) : phase === 'waiting' ? (

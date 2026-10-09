@@ -30,6 +30,7 @@ from .ovproc import instances, login, run_ov, version
 from .pagerduty import PagerDutyError
 from .run import RunError, runs, status_feed
 from .runfiles import attachments_dir, uploads_dir, within
+from .screen import ScreenError, find_screen, screen_key
 from .skills import SkillError
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -54,6 +55,8 @@ SECONDS_PER_DAY = 86_400
 FAILED_PROCESS_STATUSES = "3, 14, 21"
 FAILED_PROCESS_TYPES_SHOWN = 20
 APP_ID = "ov-agent"
+SCREEN_APPEAR_SECONDS = 10
+SCREEN_APPEAR_POLL_SECONDS = 0.2
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -84,6 +87,7 @@ CLIENT_ERRORS = (
     ExplorerError,
     DatadogError,
     PagerDutyError,
+    ScreenError,
     OvError,
     ValueError,
 )
@@ -330,7 +334,9 @@ def login_instance(h: Handler) -> dict[str, Any]:
     if token and tenant:
         raise HttpError(400, "An API token is tied to its own tenant; leave the tenant out.")
 
-    result = login(url, tenant, token)
+    screen = data.get("screen")
+    size = (int(screen["width"]), int(screen["height"])) if screen else None
+    result = login(url, tenant, token, size)
     return {"ok": result.code == 0, "message": result.message[-LOGIN_MESSAGE_CHARS:]}
 
 
@@ -681,6 +687,57 @@ def status_events(h: Handler) -> None:
         pass
     finally:
         unsubscribe()
+
+
+def _screen_of(h: Handler) -> Any:
+    key = screen_key(_required(h.query, "url"), h.query.get("tenant", ""))
+    deadline = time.monotonic() + SCREEN_APPEAR_SECONDS
+    while (screen := find_screen(key)) is None:
+        if time.monotonic() > deadline:
+            raise HttpError(404, "No sign-in browser is open for this instance.")
+        time.sleep(SCREEN_APPEAR_POLL_SECONDS)
+    return screen
+
+
+@route("GET", "/api/signin/screen")
+def signin_screen(h: Handler) -> None:
+    screen = _screen_of(h)
+    h.send_response(200)
+    h.send_header("Content-Type", "text/event-stream")
+    h.send_header("Cache-Control", "no-cache")
+    h.end_headers()
+    seen = -1
+    try:
+        while not screen.closed:
+            if not screen.wait(seen, PING_SECONDS):
+                h.wfile.write(b"event: ping\ndata: \n\n")
+                h.wfile.flush()
+                continue
+            seen = screen.seq
+            if screen.frame is not None:
+                h.wfile.write(f"data: {json.dumps(screen.frame)}\n\n".encode())
+                h.wfile.flush()
+        h.wfile.write(b"event: end\ndata: \n\n")
+        h.wfile.flush()
+    except OSError:
+        pass
+
+
+@route("POST", "/api/signin/input")
+def signin_input(h: Handler) -> dict[str, bool]:
+    events = h.json().get("events")
+    if not isinstance(events, list):
+        raise HttpError(400, "Give a list of events.")
+    _screen_of(h).push(events)
+    return {"ok": True}
+
+
+@route("POST", "/api/signin/cancel")
+def signin_cancel(h: Handler) -> dict[str, bool]:
+    screen = find_screen(screen_key(_required(h.query, "url"), h.query.get("tenant", "")))
+    if screen is not None:
+        screen.cancel.set()
+    return {"ok": True}
 
 
 @route("GET", "/api/runs/([a-z0-9]+)/events")

@@ -17,6 +17,7 @@ from .. import session as session_store
 from ..errors import EXIT_AUTH
 from ..paths import agent_dir
 from .cancel import Cancel
+from .screen import Screen, close_screen, open_screen, screen_key
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -24,6 +25,7 @@ DEFAULT_TIMEOUT_SECONDS = 120
 LOGIN_TIMEOUT_SECONDS = 300
 BROWSER_LOGIN_TIMEOUT_SECONDS = 280
 POLL_SECONDS = 0.2
+SIGN_IN_CANCELLED = "Sign-in cancelled."
 CONSOLE_COLUMNS = "200"
 
 
@@ -55,9 +57,12 @@ def run_ov(
     cancel: Cancel | None = None,
     cwd: Path | None = None,
     stdin: str | None = None,
+    extra_env: dict[str, str] | None = None,
+    hold_stdin: bool = False,
 ) -> OvResult:
     env = {
         **os.environ,
+        **(extra_env or {}),
         "OV_READONLY": "1" if read_only else "",
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUTF8": "1",
@@ -68,7 +73,7 @@ def run_ov(
         process = subprocess.Popen(
             [sys.executable, "-P", "-m", "ov", *args],
             cwd=cwd or agent_dir(),
-            stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE,
+            stdin=subprocess.DEVNULL if stdin is None and not hold_stdin else subprocess.PIPE,
             stdout=out,
             stderr=err,
             env=env,
@@ -79,6 +84,8 @@ def run_ov(
             process.stdin.close()
 
         timed_out = _wait(process, timeout, cancel)
+        if hold_stdin:
+            process.stdin.close()
         out.seek(0)
         err.seek(0)
         return OvResult(
@@ -148,10 +155,10 @@ _logins: dict[tuple[str, str], tuple[threading.Event, list[OvResult]]] = {}
 _logins_lock = threading.Lock()
 
 
-def login(url: str, tenant: str = "", token: str = "") -> OvResult:
+def login(url: str, tenant: str = "", token: str = "", screen: tuple[int, int] | None = None) -> OvResult:
     url = url.strip().rstrip("/")
     tenant = tenant.strip()
-    key = (url.lower(), tenant.lower())
+    key = screen_key(url, tenant)
     with _logins_lock:
         running = _logins.get(key)
         owner = running is None
@@ -164,27 +171,38 @@ def login(url: str, tenant: str = "", token: str = "") -> OvResult:
         done.wait()
         return holder[0]
 
+    shown = open_screen(key, *screen) if screen and not token else None
     try:
-        holder.append(
-            run_ov(
-                [
-                    "login",
-                    url,
-                    "--keep-current",
-                    "--timeout",
-                    str(BROWSER_LOGIN_TIMEOUT_SECONDS),
-                    *(["--tenant", tenant] if tenant else []),
-                    *(["--token", "-"] if token else []),
-                ],
-                timeout=LOGIN_TIMEOUT_SECONDS,
-                read_only=False,
-                stdin=token or None,
-            )
-        )
+        holder.append(_run_login(url, tenant, token, shown))
     finally:
+        if shown:
+            close_screen(key, shown)
         if not holder:
             holder.append(OvResult(1, "", "Sign-in failed."))
         with _logins_lock:
             _logins.pop(key, None)
         done.set()
     return holder[0]
+
+
+def _run_login(url: str, tenant: str, token: str, shown: Screen | None) -> OvResult:
+    result = run_ov(
+        [
+            "login",
+            url,
+            "--keep-current",
+            "--timeout",
+            str(BROWSER_LOGIN_TIMEOUT_SECONDS),
+            *(["--tenant", tenant] if tenant else []),
+            *(["--token", "-"] if token else []),
+        ],
+        timeout=LOGIN_TIMEOUT_SECONDS,
+        read_only=False,
+        stdin=token or None,
+        extra_env=shown.env if shown else None,
+        hold_stdin=shown is not None,
+        cancel=shown.cancel if shown else None,
+    )
+    if shown and shown.cancel.is_set():
+        return OvResult(1, "", SIGN_IN_CANCELLED)
+    return result

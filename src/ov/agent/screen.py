@@ -1,0 +1,232 @@
+from __future__ import annotations
+
+import contextlib
+import queue
+import socket
+import threading
+import time
+from typing import Any
+
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import sync_playwright
+
+from ..login import SCREEN_PORT_ENV, SCREEN_SIZE_ENV
+from .cancel import Cancel
+
+CONNECT_WAIT_SECONDS = 600
+CONNECT_RETRY_SECONDS = 0.5
+LOOP_MS = 15
+JPEG_QUALITY = 75
+MIN_SIDE = 320
+MAX_WIDTH = 1600
+MAX_HEIGHT = 1200
+MAX_EVENTS = 200
+MAX_TEXT_CHARS = 2000
+
+MOUSE_EVENTS = {"mousePressed", "mouseReleased", "mouseMoved"}
+KEY_EVENTS = {"keyDown", "keyUp", "rawKeyDown", "char"}
+BUTTONS = {"none", "left", "middle", "right"}
+COMMANDS = {"selectAll", "undo", "redo"}
+
+Key = tuple[str, str]
+
+
+class ScreenError(Exception):
+    pass
+
+
+def screen_key(url: str, tenant: str) -> Key:
+    return url.strip().rstrip("/").lower(), tenant.strip().lower()
+
+
+def clamp_size(width: int, height: int) -> tuple[int, int]:
+    return max(MIN_SIDE, min(MAX_WIDTH, width)), max(MIN_SIDE, min(MAX_HEIGHT, height))
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+class Screen:
+    def __init__(self, width: int, height: int) -> None:
+        self.port = _free_port()
+        self.width, self.height = clamp_size(width, height)
+        self.frame: dict[str, Any] | None = None
+        self.seq = 0
+        self.closed = False
+        self.cancel = Cancel()
+        self._changed = threading.Condition()
+        self._input: queue.SimpleQueue[dict[str, Any]] = queue.SimpleQueue()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="signin-screen", daemon=True)
+
+    @property
+    def env(self) -> dict[str, str]:
+        return {SCREEN_PORT_ENV: str(self.port), SCREEN_SIZE_ENV: f"{self.width}x{self.height}"}
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def push(self, events: list[dict[str, Any]]) -> None:
+        if self.closed:
+            raise ScreenError("The sign-in browser has closed.")
+        for event in events[:MAX_EVENTS]:
+            self._input.put(_checked(event))
+
+    def wait(self, seen: int, timeout: float) -> bool:
+        with self._changed:
+            return self._changed.wait_for(lambda: self.seq != seen or self.closed, timeout)
+
+    def _publish(self, frame: dict[str, Any] | None = None) -> None:
+        with self._changed:
+            if frame is not None:
+                self.frame = frame
+            self.seq += 1
+            self._changed.notify_all()
+
+    def _run(self) -> None:
+        try:
+            with sync_playwright() as p:
+                browser = self._connect(p)
+                if browser is not None:
+                    self._mirror(browser.contexts[0])
+        except PlaywrightError:
+            pass
+        finally:
+            self.closed = True
+            self._publish()
+
+    def _connect(self, p: Any) -> Any:
+        deadline = time.monotonic() + CONNECT_WAIT_SECONDS
+        while not self._stop.is_set() and time.monotonic() < deadline:
+            try:
+                return p.chromium.connect_over_cdp(f"http://127.0.0.1:{self.port}")
+            except PlaywrightError:
+                time.sleep(CONNECT_RETRY_SECONDS)
+        return None
+
+    def _mirror(self, context: Any) -> None:
+        page: Any = None
+        cdp: Any = None
+        acks: list[int] = []
+
+        def on_frame(event: dict[str, Any]) -> None:
+            acks.append(event["sessionId"])
+            meta = event["metadata"]
+            self._publish(
+                {
+                    "data": event["data"],
+                    "url": page.url,
+                    "width": meta["deviceWidth"],
+                    "height": meta["deviceHeight"],
+                }
+            )
+
+        while not self._stop.is_set():
+            pages = [pg for pg in context.pages if not pg.is_closed()]
+            if not pages:
+                return
+            if pages[-1] is not page:
+                if cdp is not None:
+                    with contextlib.suppress(PlaywrightError):
+                        cdp.detach()
+                page = pages[-1]
+                cdp = context.new_cdp_session(page)
+                cdp.on("Page.screencastFrame", on_frame)
+                cdp.send("Page.startScreencast", {"format": "jpeg", "quality": JPEG_QUALITY})
+                acks.clear()
+
+            with contextlib.suppress(PlaywrightError):
+                while acks:
+                    cdp.send("Page.screencastFrameAck", {"sessionId": acks.pop(0)})
+                while not self._input.empty():
+                    _apply(cdp, self._input.get())
+                page.wait_for_timeout(LOOP_MS)
+
+
+def _checked(event: dict[str, Any]) -> dict[str, Any]:
+    kind = event.get("type")
+    if kind == "mouse" and event.get("event") in MOUSE_EVENTS and event.get("button", "none") in BUTTONS:
+        return event
+    if kind in ("wheel", "back"):
+        return event
+    if kind == "key" and event.get("event") in KEY_EVENTS:
+        return event
+    if kind == "text" and isinstance(event.get("text"), str):
+        return {**event, "text": event["text"][:MAX_TEXT_CHARS]}
+    raise ScreenError(f"Unknown input: {kind}")
+
+
+def _apply(cdp: Any, event: dict[str, Any]) -> None:
+    kind = event["type"]
+    if kind == "mouse":
+        cdp.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": event["event"],
+                "x": float(event["x"]),
+                "y": float(event["y"]),
+                "button": event.get("button", "none"),
+                "buttons": int(event.get("buttons", 0)),
+                "clickCount": int(event.get("clickCount", 0)),
+                "modifiers": int(event.get("modifiers", 0)),
+            },
+        )
+    elif kind == "wheel":
+        cdp.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": "mouseWheel",
+                "x": float(event["x"]),
+                "y": float(event["y"]),
+                "deltaX": float(event.get("dx", 0)),
+                "deltaY": float(event.get("dy", 0)),
+            },
+        )
+    elif kind == "key":
+        params: dict[str, Any] = {
+            "type": event["event"],
+            "key": str(event.get("key", "")),
+            "code": str(event.get("code", "")),
+            "windowsVirtualKeyCode": int(event.get("keyCode", 0)),
+            "modifiers": int(event.get("modifiers", 0)),
+        }
+        if event.get("text"):
+            params["text"] = params["unmodifiedText"] = str(event["text"])
+        commands = [c for c in event.get("commands", []) if c in COMMANDS]
+        if commands:
+            params["commands"] = commands
+        cdp.send("Input.dispatchKeyEvent", params)
+    elif kind == "text":
+        cdp.send("Input.insertText", {"text": event["text"]})
+    elif kind == "back":
+        cdp.send("Runtime.evaluate", {"expression": "history.back()"})
+
+
+_screens: dict[Key, Screen] = {}
+_lock = threading.Lock()
+
+
+def open_screen(key: Key, width: int, height: int) -> Screen:
+    screen = Screen(width, height)
+    with _lock:
+        _screens[key] = screen
+    screen.start()
+    return screen
+
+
+def close_screen(key: Key, screen: Screen) -> None:
+    screen.stop()
+    with _lock:
+        if _screens.get(key) is screen:
+            del _screens[key]
+
+
+def find_screen(key: Key) -> Screen | None:
+    with _lock:
+        return _screens.get(key)

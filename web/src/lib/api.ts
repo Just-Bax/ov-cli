@@ -64,8 +64,14 @@ export const api = {
   copilotLogout: () => post('/copilot/logout'),
   models: () => request<ModelInfo[]>('/models'),
   instances: () => request<Instance[]>('/instances'),
-  loginInstance: (url: string, tenant?: string, token?: string) =>
-    post<{ ok: boolean; message: string }>('/instances/login', { url, tenant, token }),
+  loginInstance: (
+    url: string,
+    tenant?: string,
+    token?: string,
+    screen?: { width: number; height: number },
+  ) => post<{ ok: boolean; message: string }>('/instances/login', { url, tenant, token, screen }),
+  cancelSignIn: (url: string, tenant?: string) =>
+    post(`/signin/cancel?url=${seg(url)}&tenant=${seg(tenant ?? '')}`),
   datadog: () => request<DatadogStatus>('/datadog'),
   datadogConnect: (site: string, apiKey: string, appKey: string) =>
     post<DatadogStatus>('/datadog/connect', { site, apiKey, appKey }),

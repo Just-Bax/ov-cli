@@ -1,1 +1,0 @@
-import{ct as e,ot as t}from"./index-CYeJdG6v.js";var n=e(t(),1);function r(e){(0,n.useEffect)(()=>{if(!e)return;let t=e=>e.preventDefault();return window.addEventListener(`beforeunload`,t),()=>window.removeEventListener(`beforeunload`,t)},[e])}function i({dirty:e}){return r(e),null}export{r as n,i as t};
