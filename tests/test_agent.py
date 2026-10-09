@@ -10,7 +10,7 @@ import pytest
 from conftest import BASE_URL, seed_session
 
 from ov.agent import db, skills, state
-from ov.agent.copilot import StreamResult
+from ov.agent.copilot import StreamResult, Usage, usage_of
 from ov.agent.ovproc import OvResult
 from ov.agent.tools import ToolError, entity_link, run_ov_tool
 
@@ -514,7 +514,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
 
     def fake_complete(model, system, user_text):
         seen.append(model)
-        return '"Tag listing question."'
+        return '"Tag listing question."', Usage(tokens={"input": 50, "output": 4}, nano=30_000_000)
 
     monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
     monkeypatch.setattr("ov.agent.copilot.complete", fake_complete)
@@ -530,6 +530,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
 
     assert run.state["summary"]["title"] == "Tag listing question"
     assert seen == ["fast-model"]
+    assert db.run_cost(run.id)["models"][0] == {"model": "fast-model", "credits": 0.03, "requests": 1}
 
 
 def test_components_are_exported_to_workspace_files(logged_in, tmp_path, monkeypatch):
@@ -782,3 +783,147 @@ def test_run_list_splits_active_and_settled(logged_in):
     assert {r["id"] for r in db.list_runs(settled=False)} >= {"rlist1", "rlist2"}
     assert [r["id"] for r in db.list_runs(settled=True)] == ["rlist0"]
     assert db.settled_count() == 1
+
+
+COPILOT_USAGE = {
+    "token_details": [
+        {"token_type": "input", "token_count": 12000},
+        {"token_type": "cache_read", "token_count": 3000},
+        {"token_type": "output", "token_count": 40},
+    ],
+    "total_nano_aiu": 4_900_000_000,
+}
+
+
+def _wait_done(run):
+    for _ in range(100):
+        if run.state["summary"]["status"] in ("done", "error"):
+            break
+        time.sleep(0.05)
+    assert run.state["summary"]["status"] == "done", run.state.get("error")
+
+
+def test_copilot_usage_is_read_from_a_reply():
+    assert usage_of({"choices": []}) is None
+    usage = usage_of({"copilot_usage": COPILOT_USAGE})
+    assert usage == Usage(tokens={"input": 12000, "cache_read": 3000, "output": 40}, nano=4_900_000_000)
+
+
+def test_the_streamed_usage_chunk_is_kept():
+    from ov.agent.copilot import _read_stream
+
+    chunks = [
+        {"choices": [{"index": 0, "delta": {"content": "ok"}}]},
+        {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "copilot_usage": COPILOT_USAGE},
+    ]
+    body = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+    result = _read_stream(httpx.Response(200, content=body.encode()), lambda _: None)
+    assert result.text == "ok"
+    assert result.usage is not None and result.usage.nano == 4_900_000_000
+
+
+def test_a_run_records_what_each_request_cost(logged_in, monkeypatch):
+    usage = Usage(tokens={"input": 1000, "output": 10}, nano=1_500_000_000)
+    replies = iter(
+        [
+            StreamResult(
+                text="Checking.",
+                tool_calls=[{"id": "c1", "type": "function", "function": {"name": "ov", "arguments": '{"args": []}'}}],
+                usage=usage,
+            ),
+            StreamResult(text="Done.", usage=usage),
+        ]
+    )
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text: next(replies))
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
+
+    from ov.agent.run import runs
+
+    run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
+    _wait_done(run)
+
+    assert run.state["summary"]["cost"] == {"credits": 3.0, "requests": 2}
+    assert db.list_runs()[0]["cost"] == {"credits": 3.0, "requests": 2}
+    cost = db.run_cost(run.id)
+    assert cost["tokens"] == {"input": 2000, "output": 20}
+    kinds = [r["kind"] for r in db._all("SELECT kind FROM usage WHERE run_id = ? ORDER BY ts", run.id)]
+    assert kinds == ["turn", "step"]
+
+
+def test_a_thread_without_usage_has_no_cost():
+    db.create_run("rold", "Old", "m", {"prompt": "x"})
+    assert "cost" not in db.list_runs()[0]
+    assert db.run_cost("rold") == {"credits": 0.0, "requests": 0, "tokens": {}, "models": []}
+
+
+def test_the_cost_report_adds_up_by_day_model_and_thread():
+    db.create_run("ra", "Alpha", "m", {"prompt": "x"})
+    db.create_run("rb", "Beta", "m", {"prompt": "x"})
+    db.add_usage("ra", "opus", "turn", {"input": 100}, 2_000_000_000)
+    db.add_usage("ra", "haiku", "step", {"input": 50, "output": 5}, 500_000_000)
+    db.add_usage("rb", "opus", "turn", {"output": 10}, 4_000_000_000)
+
+    since = db.now_ms() - 3 * 86_400_000
+    report = db.cost_report(since)
+    assert report["credits"] == 6.5
+    assert report["requests"] == 3
+    assert report["tokens"] == {"input": 150, "output": 15}
+    assert [m["model"] for m in report["models"]] == ["opus", "haiku"]
+    assert [(t["id"], t["title"], t["credits"]) for t in report["threads"]] == [
+        ("rb", "Beta", 4.0),
+        ("ra", "Alpha", 2.5),
+    ]
+    assert len(report["days"]) == 4
+    assert report["days"][-1]["credits"] == 6.5
+    assert db.cost_report(db.now_ms() + 1000)["requests"] == 0
+
+
+def test_a_thread_exports_as_markdown(agent_server, monkeypatch):
+    replies = iter(
+        [
+            StreamResult(
+                text="Checking the tags.",
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "ov", "arguments": '{"args": ["api", "tags"]}'},
+                    }
+                ],
+            ),
+            StreamResult(text="There are **3** tags."),
+        ]
+    )
+
+    def fake_chat(*args, cancel, on_text):
+        reply = next(replies)
+        on_text(reply.text)
+        return reply
+
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
+
+    from ov.agent.run import runs
+
+    run = runs.create({"prompt": "what tags?", "instance": "acme"}, "test-model")
+    _wait_done(run)
+    run.rename("Tags: on acme?")
+
+    res = httpx.get(f"{agent_server}/api/runs/{run.id}/export")
+    assert res.status_code == 200
+    assert res.headers["content-disposition"] == "attachment; filename*=UTF-8''Tags%20on%20acme.md"
+    text = res.text
+    assert text.startswith("# Tags: on acme?\n\nModel: test-model | Instance: acme")
+    assert "Cost: not tracked" in text
+    assert "\n## You, " in text and "\nwhat tags?\n" in text
+    assert "\n## Agent\n\nChecking the tags.\n\n- " in text
+    assert "(ok, " in text
+    assert text.rstrip().endswith("There are **3** tags.")
+
+
+def test_cost_routes_answer(agent_server):
+    assert httpx.get(f"{agent_server}/api/cost?range=7d").json()["requests"] == 0
+    assert httpx.get(f"{agent_server}/api/cost?range=year").status_code == 400
+    assert httpx.get(f"{agent_server}/api/runs/rmissing/cost").status_code == 404

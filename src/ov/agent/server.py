@@ -12,6 +12,7 @@ import time
 import webbrowser
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ from .cancel import Cancel
 from .copilot import CopilotError
 from .datadog import DatadogError
 from .explorer import ExplorerError
+from .export import to_markdown
 from .ovproc import instances, login, run_ov, version
 from .pagerduty import PagerDutyError
 from .run import RunError, runs, status_feed
@@ -56,6 +58,9 @@ FAILED_PROCESS_STATUSES = "3, 14, 21"
 FAILED_PROCESS_TYPES_SHOWN = 20
 APP_ID = "ov-agent"
 SCREEN_APPEAR_SECONDS = 10
+EXPORT_NAME_CHARS = 80
+COST_RANGE_DAYS = {"7d": 7, "30d": 30}
+_UNSAFE_FILE_CHARS = re.compile(r"[^\w\- ]+")
 SCREEN_APPEAR_POLL_SECONDS = 0.2
 
 CONTENT_TYPES = {
@@ -311,6 +316,25 @@ def copilot_poll(h: Handler) -> dict[str, Any]:
 def copilot_logout(_: Handler) -> dict[str, Any]:
     copilot.sign_out()
     return {"ok": True}
+
+
+@route("GET", "/api/copilot/account")
+def copilot_account(_: Handler) -> dict[str, Any]:
+    return copilot.account()
+
+
+@route("GET", "/api/cost")
+def cost(h: Handler) -> dict[str, Any]:
+    return db.cost_report(_cost_since(h.query.get("range", "month")))
+
+
+def _cost_since(range_name: str) -> int:
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    if range_name == "month":
+        return int(today.replace(day=1).timestamp() * 1000)
+    if range_name not in COST_RANGE_DAYS:
+        raise HttpError(400, f"Unknown range: {range_name}")
+    return int((today - timedelta(days=COST_RANGE_DAYS[range_name] - 1)).timestamp() * 1000)
 
 
 @route("GET", "/api/models")
@@ -826,6 +850,24 @@ def rate(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     _run(run_id).rate(_required(data, "turnId"), data.get("rating"), data.get("note"))
     return {"ok": True}
+
+
+@route("GET", "/api/runs/([a-z0-9]+)/cost")
+def run_cost(_: Handler, run_id: str) -> dict[str, Any]:
+    _run(run_id)
+    return db.run_cost(run_id)
+
+
+@route("GET", "/api/runs/([a-z0-9]+)/export")
+def export_run(h: Handler, run_id: str) -> None:
+    run = _run(run_id)
+    name = _UNSAFE_FILE_CHARS.sub("", run.state["summary"]["title"]).strip()[:EXPORT_NAME_CHARS] or run_id
+    h.send(
+        200,
+        to_markdown(run.state).encode("utf-8"),
+        "text/markdown; charset=utf-8",
+        extra={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}.md"},
+    )
 
 
 @route("GET", "/api/runs/([a-z0-9]+)/files/([^/]+)")

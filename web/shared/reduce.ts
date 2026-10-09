@@ -31,6 +31,8 @@ function withItem(items: ThreadItem[], item: ThreadItem): ThreadItem[] {
 
 export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunState {
   switch (event.type) {
+    case 'cost':
+      return { ...state, summary: { ...state.summary, cost: event.cost } }
     case 'status':
       return {
         ...state,

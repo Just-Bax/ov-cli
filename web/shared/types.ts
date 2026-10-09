@@ -119,6 +119,38 @@ export type RunEvent =
   | { type: 'unqueue'; id: string }
   | { type: 'rewind'; itemId: string }
   | { type: 'rate'; turnId: string; rating: Rating | null; note?: string }
+  | { type: 'cost'; cost: CostTotal }
+
+export interface CostTotal {
+  credits: number
+  requests: number
+}
+
+export interface ModelCost extends CostTotal {
+  model: string
+}
+
+export interface RunCost extends CostTotal {
+  tokens: Record<string, number>
+  models: ModelCost[]
+}
+
+export type CostRange = 'month' | '7d' | '30d'
+
+export interface CostReport extends RunCost {
+  days: { day: string; credits: number }[]
+  threads: { id: string; title: string; credits: number }[]
+}
+
+export interface CopilotAccount {
+  plan: string
+  resetDate: string | null
+  tokenBased: boolean
+  creditsUsed: number | null
+  unlimited: boolean
+  entitlement: number | null
+  remaining: number | null
+}
 
 export interface StoredEvent {
   seq: number
@@ -182,6 +214,7 @@ export interface RunSummary {
   updatedAt: number
   rating?: Rating
   settled?: boolean
+  cost?: CostTotal
 }
 
 export type Rating = 'good' | 'off' | 'wrong'

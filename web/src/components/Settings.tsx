@@ -16,6 +16,7 @@ import {
   DatadogCard,
   useDatadog,
 } from '@/components/datadog/Datadog'
+import { CostSettings } from '@/components/CostSettings'
 import { dialog } from '@/components/Dialog'
 import { PagerDutyAccountRow, PagerDutyCard, usePagerDuty } from '@/components/pagerduty/PagerDuty'
 import {
@@ -702,7 +703,8 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
       title="Settings"
       subtitle={
         <span>
-          Defaults, instances, workspace, integrations, skills and accounts. Stored on this machine.
+          Defaults, instances, workspace, integrations, skills, cost and accounts. Stored on this
+          machine.
         </span>
       }
     >
@@ -739,6 +741,12 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           hint="One folder with your code. The agent reads, edits and runs commands only inside it; deleting files, git push and the like wait for your approval."
         >
           <Workspace />
+        </Section>
+        <Section
+          title="Cost"
+          hint="What the agent costs in Copilot credits. Each thread shows its own total in its header."
+        >
+          <CostSettings />
         </Section>
         <Section title="Accounts" hint="Services this computer is signed in to.">
           <Card className="divide-line divide-y overflow-hidden">

@@ -417,8 +417,16 @@ In **Settings**:
   Vizion Hub modules side by side). The agent searches, reads, edits and creates files and
   runs commands (git, builds, tests) only inside it. Add notes so it knows where things
   are. See [Coding in the workspace](#coding-in-the-workspace).
-- **Instances** lists your `ov` sign-ins and signs in to new ones, through the browser or
-  with an API token (access key and secret key from Admin > Auth Tokens).
+- **Instances** lists your `ov` sign-ins and signs in to new ones, on the instance's own
+  login page shown inside the app (or in a separate window), or with an API token (access
+  key and secret key from Admin > Auth Tokens).
+- **Cost** shows what the agent costs in Copilot credits: your Copilot plan and the credits
+  used this billing cycle across all your Copilot use, then OV Agent's own credits, requests
+  and tokens per day, per model and per thread. The numbers are the credits Copilot reports
+  for each request; threads from before usage was recorded show "Not tracked".
+
+Each thread shows its credits in its header (hover for tokens and models), and **Export**
+downloads the whole thread as Markdown.
 
 The agent's tools come in groups, and the system prompt lists the ones a run has:
 

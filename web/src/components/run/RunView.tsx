@@ -1,4 +1,8 @@
-import { ArrowTopRightOnSquareIcon, ClockIcon } from '@heroicons/react/24/outline'
+import {
+  ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
+  ClockIcon,
+} from '@heroicons/react/24/outline'
 import { formatMinutes, savedMinutes } from '@shared/estimate.ts'
 import { Composer } from '@/components/Composer'
 import { EditableTitle } from '@/components/EditableTitle'
@@ -24,6 +28,7 @@ import { useSkeleton } from '@/components/skeletons'
 import { setSettled, useRuns } from '@/lib/runs'
 import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
 import { ChangeCard } from './ChangeCard'
+import { CostPill } from './CostPill'
 import { FilesChanged, LineCounts, summarize } from './FilesChanged'
 import { ThreadRail } from './ThreadRail'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
@@ -425,19 +430,31 @@ export function RunView({ id }: { id: string }) {
       ? false
       : Boolean(summary.settled)
   const actions = (
-    <Button
-      variant={settled ? 'secondary' : 'ghost'}
-      disabled={busy}
-      title={
-        settled
-          ? 'Move back to active threads'
-          : 'Mark as settled: it moves to Settled in the sidebar'
-      }
-      onClick={() => void setSettled(id, !settled)}
-    >
-      <DoubleCheckIcon className="size-4" />
-      {settled ? 'Settled' : 'Settle'}
-    </Button>
+    <>
+      {busy && !summary.cost ? null : <CostPill runId={id} cost={summary.cost} />}
+      <a
+        href={api.exportUrl(id)}
+        download
+        title="Download this thread as Markdown"
+        className="text-text inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium transition-colors hover:bg-black/[0.06]"
+      >
+        <ArrowDownTrayIcon className="size-4" />
+        Export
+      </a>
+      <Button
+        variant={settled ? 'secondary' : 'ghost'}
+        disabled={busy}
+        title={
+          settled
+            ? 'Move back to active threads'
+            : 'Mark as settled: it moves to Settled in the sidebar'
+        }
+        onClick={() => void setSettled(id, !settled)}
+      >
+        <DoubleCheckIcon className="size-4" />
+        {settled ? 'Settled' : 'Settle'}
+      </Button>
+    </>
   )
 
   return (

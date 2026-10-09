@@ -24,6 +24,7 @@ DEVICE_CODE_URL = "https://github.com/login/device/code"
 ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
+COPILOT_USER_URL = "https://api.github.com/copilot_internal/user"
 HTTP_TIMEOUT_SECONDS = 30
 CHAT_READ_TIMEOUT_SECONDS = 300
 MODELS_TTL_SECONDS = 600
@@ -41,9 +42,26 @@ class CopilotError(Exception):
 
 
 @dataclass
+class Usage:
+    tokens: dict[str, int]
+    nano: int
+
+
+@dataclass
 class StreamResult:
     text: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    usage: Usage | None = None
+
+
+def usage_of(body: dict[str, Any]) -> Usage | None:
+    billed = body.get("copilot_usage")
+    if not billed:
+        return None
+    tokens: dict[str, int] = {}
+    for detail in billed.get("token_details") or []:
+        tokens[detail["token_type"]] = tokens.get(detail["token_type"], 0) + int(detail["token_count"])
+    return Usage(tokens=tokens, nano=int(billed["total_nano_aiu"]))
 
 
 _lock = threading.Lock()
@@ -269,6 +287,7 @@ def stream_chat(
         "tools": tools,
         "tool_choice": "auto",
         "stream": True,
+        "stream_options": {"include_usage": True},
         "max_tokens": MAX_TOKENS,
     }
 
@@ -286,7 +305,7 @@ def stream_chat(
                 raise
 
 
-def complete(model: str, system: str, user_text: str) -> str:
+def complete(model: str, system: str, user_text: str) -> tuple[str, Usage | None]:
     api, headers = _headers(**{"X-Initiator": "agent"})
     payload = {
         "model": model,
@@ -300,7 +319,33 @@ def complete(model: str, system: str, user_text: str) -> str:
     if response.status_code >= 400:
         raise CopilotError(f"Copilot chat failed ({response.status_code}): {response.text[:ERROR_DETAIL_CHARS]}")
 
-    return response.json()["choices"][0]["message"]["content"].strip()
+    body = response.json()
+    return body["choices"][0]["message"]["content"].strip(), usage_of(body)
+
+
+def account() -> dict[str, Any]:
+    auth = credentials.get(CREDENTIAL_KEY)
+    if auth is None:
+        raise CopilotError("Not signed in to GitHub Copilot. Open Setup to sign in.")
+    response = httpx.get(
+        COPILOT_USER_URL,
+        headers={"Authorization": f"token {auth['github_token']}", **EDITOR_HEADERS},
+        timeout=HTTP_TIMEOUT_SECONDS,
+    )
+    if response.status_code >= 400:
+        raise CopilotError(f"GitHub did not return Copilot usage ({response.status_code}).")
+
+    body = response.json()
+    premium = body["quota_snapshots"]["premium_interactions"]
+    return {
+        "plan": body.get("copilot_plan") or "",
+        "resetDate": body.get("quota_reset_date") or None,
+        "tokenBased": bool(premium.get("token_based_billing")),
+        "creditsUsed": premium.get("credits_used"),
+        "unlimited": bool(premium.get("unlimited")),
+        "entitlement": premium.get("entitlement"),
+        "remaining": premium.get("remaining"),
+    }
 
 
 def _chunks(response: httpx.Response) -> Iterator[dict[str, Any]]:
@@ -331,6 +376,7 @@ def _read_stream(response: httpx.Response, on_text: Callable[[str], None]) -> St
     result = StreamResult()
     calls: dict[tuple[int, int], dict[str, Any]] = {}
     for chunk in _chunks(response):
+        result.usage = usage_of(chunk) or result.usage
         for choice in chunk.get("choices") or []:
             delta = choice.get("delta") or {}
             if delta.get("content"):

@@ -219,6 +219,16 @@ class Run:
         if message is not None:
             self.emit({"type": "message", "messageId": message_id, "text": message["text"], "ts": message["ts"]})
 
+    def _record_usage(self, model: str, kind: str, usage: copilot.Usage | None) -> None:
+        if usage is None:
+            return
+        cost = db.add_usage(self.id, model, kind, usage.tokens, usage.nano)
+        with self._lock:
+            self.state["summary"]["cost"] = cost
+            live = {"seq": self.seq, "ts": db.now_ms(), "live": True, "event": {"type": "cost", "cost": cost}}
+            for channel in self._listeners:
+                channel.put(live)
+
     def emit(self, event: dict[str, Any]) -> None:
         with self._lock:
             self.touched = db.now_ms()
@@ -528,7 +538,8 @@ class Run:
             self._spawn(self._name, fast, self.state["summary"]["title"], text)
 
     def _name(self, model: str, placeholder: str, text: str) -> None:
-        reply = copilot.complete(model, NAMING_PROMPT, f"<message>\n{text[:NAMING_INPUT_CHARS]}\n</message>")
+        reply, usage = copilot.complete(model, NAMING_PROMPT, f"<message>\n{text[:NAMING_INPUT_CHARS]}\n</message>")
+        self._record_usage(model, "naming", usage)
         title = reply.strip().splitlines()[0].strip("\"'#*` .") if reply.strip() else ""
         if not title or len(title.split()) > MAX_TITLE_WORDS:
             return
@@ -682,6 +693,7 @@ class Run:
             )
         finally:
             self._commit_text(message_id)
+        self._record_usage(model, "turn" if initiator == "user" else "step", result.usage)
 
         reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
         if result.tool_calls:

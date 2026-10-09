@@ -1,5 +1,9 @@
 import type {
   CodeSection,
+  CopilotAccount,
+  CostRange,
+  CostReport,
+  RunCost,
   DatadogDiscovery,
   DatadogStatus,
   GraphStatus,
@@ -62,6 +66,10 @@ export const api = {
       { deviceCode },
     ),
   copilotLogout: () => post('/copilot/logout'),
+  copilotAccount: () => request<CopilotAccount>('/copilot/account'),
+  cost: (range: CostRange) => request<CostReport>(`/cost?range=${range}`),
+  runCost: (id: string) => request<RunCost>(`/runs/${id}/cost`),
+  exportUrl: (id: string) => `/api/runs/${id}/export`,
   models: () => request<ModelInfo[]>('/models'),
   instances: () => request<Instance[]>('/instances'),
   loginInstance: (
