@@ -644,6 +644,8 @@ class Run:
         return parts
 
     def _fail(self, exc: Exception) -> None:
+        for tool in [t for t in self.state["tools"] if t["status"] == "running"]:
+            self.emit({"type": "tool", "tool": {"id": tool["id"], "status": "error", "output": "Interrupted."}})
         if self.cancel.is_set():
             self._set_status("cancelled")
             return
@@ -679,6 +681,7 @@ class Run:
 
     def _ask_model(self, model: str, specs: list[dict[str, Any]], initiator: str) -> list[dict[str, Any]]:
         message_id = _uid("a")
+        self._messages = _answered(self._messages)
         for message in self._messages:
             if message.get("tool_calls"):
                 message["tool_calls"] = _repaired(message["tool_calls"])

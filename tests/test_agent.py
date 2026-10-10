@@ -927,3 +927,34 @@ def test_cost_routes_answer(agent_server):
     assert httpx.get(f"{agent_server}/api/cost?range=7d").json()["requests"] == 0
     assert httpx.get(f"{agent_server}/api/cost?range=year").status_code == 400
     assert httpx.get(f"{agent_server}/api/runs/rmissing/cost").status_code == 404
+
+
+def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(logged_in, monkeypatch):
+    sent: list[list[dict]] = []
+
+    def fake_chat(model, messages, *args, cancel, on_text):
+        sent.append([dict(m) for m in messages])
+        return StreamResult(text="Carrying on.")
+
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+
+    from ov.agent.run import runs
+
+    run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
+    _wait_done(run)
+    call = {"id": "c9", "type": "function", "function": {"name": "ov_sql", "arguments": "{}"}}
+    run._messages.append({"role": "assistant", "content": None, "tool_calls": [call]})
+    run.emit({"type": "tool", "tool": {"id": "c9", "name": "ov_sql", "label": "SQL", "status": "running"}})
+    run._fail(RuntimeError("tool thread died"))
+    assert run.state["tools"][-1]["status"] == "error"
+
+    run.follow_up("continue", [])
+    for _ in range(100):
+        if len(sent) == 2:
+            break
+        time.sleep(0.05)
+    last = sent[-1]
+    at = next(i for i, m in enumerate(last) if m.get("tool_calls") == [call])
+    assert last[at + 1] == {"role": "tool", "tool_call_id": "c9", "content": "Error: interrupted."}
+    assert last[at + 2]["role"] == "user"
