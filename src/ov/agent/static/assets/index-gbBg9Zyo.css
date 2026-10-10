@@ -246,9 +246,6 @@
   .-right-1\.5 {
     right: calc(var(--spacing) * -1.5);
   }
-  .-right-3\.5 {
-    right: calc(var(--spacing) * -3.5);
-  }
   .right-0 {
     right: 0px;
   }
@@ -282,6 +279,9 @@
   .-left-20 {
     left: calc(var(--spacing) * -20);
   }
+  .-left-\[5px\] {
+    left: calc(5px * -1);
+  }
   .left-0 {
     left: 0px;
   }
@@ -300,12 +300,6 @@
   .left-\[19px\] {
     left: 19px;
   }
-  .left-\[84px\] {
-    left: 84px;
-  }
-  .left-full {
-    left: 100%;
-  }
   .z-10 {
     z-index: 10;
   }
@@ -320,6 +314,9 @@
   }
   .z-50 {
     z-index: 50;
+  }
+  .z-\[60\] {
+    z-index: 60;
   }
   .z-\[100\] {
     z-index: 100;
@@ -435,9 +432,6 @@
   .ml-2 {
     margin-left: calc(var(--spacing) * 2);
   }
-  .ml-3 {
-    margin-left: calc(var(--spacing) * 3);
-  }
   .ml-7 {
     margin-left: calc(var(--spacing) * 7);
   }
@@ -446,6 +440,12 @@
   }
   .box-content {
     box-sizing: content-box;
+  }
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
   .line-clamp-3 {
     overflow: hidden;
@@ -880,9 +880,6 @@
   .max-w-\[260px\] {
     max-width: 260px;
   }
-  .max-w-\[280px\] {
-    max-width: 280px;
-  }
   .max-w-\[320px\] {
     max-width: 320px;
   }
@@ -999,6 +996,9 @@
   .scale-\[0\.97\] {
     scale: 0.97;
   }
+  .rotate-45 {
+    rotate: 45deg;
+  }
   .rotate-90 {
     rotate: 90deg;
   }
@@ -1019,6 +1019,9 @@
   }
   .animate-spin {
     animation: var(--animate-spin);
+  }
+  .animate-tip {
+    animation: tip-in 120ms ease-out both;
   }
   .animate-toast {
     animation: toast-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -1907,20 +1910,12 @@
     --tw-shadow: 0 1px 3px var(--tw-shadow-color, rgba(38,50,56,0.08));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
-  .shadow-\[0_2px_8px_rgba\(38\,50\,56\,0\.10\)\] {
-    --tw-shadow: 0 2px 8px var(--tw-shadow-color, rgba(38,50,56,0.10));
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
   .shadow-\[0_2px_12px_rgba\(38\,50\,56\,0\.04\)\] {
     --tw-shadow: 0 2px 12px var(--tw-shadow-color, rgba(38,50,56,0.04));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .shadow-\[0_2px_12px_rgba\(38\,50\,56\,0\.06\)\] {
     --tw-shadow: 0 2px 12px var(--tw-shadow-color, rgba(38,50,56,0.06));
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
-  .shadow-\[0_4px_14px_rgba\(38\,50\,56\,0\.18\)\] {
-    --tw-shadow: 0 4px 14px var(--tw-shadow-color, rgba(38,50,56,0.18));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .shadow-\[0_4px_14px_rgba\(66\,165\,245\,0\.35\)\] {
@@ -2080,6 +2075,12 @@
     .group-hover\:opacity-100:is(:where(.group):hover *) {
       opacity: 100%;
     }
+    .group-hover\/logo\:opacity-0:is(:where(.group\/logo):hover *) {
+      opacity: 0%;
+    }
+    .group-hover\/logo\:opacity-100:is(:where(.group\/logo):hover *) {
+      opacity: 100%;
+    }
     .group-hover\/rail\:bg-brand-soft:is(:where(.group\/rail):hover *) {
       background-color: #e1f5fe;
     }
@@ -2088,9 +2089,6 @@
     }
     .group-hover\/rail\:text-brand-strong:is(:where(.group\/rail):hover *) {
       color: #1e88e5;
-    }
-    .group-hover\/rail\:opacity-100:is(:where(.group\/rail):hover *) {
-      opacity: 100%;
     }
     .group-hover\/run\:opacity-100:is(:where(.group\/run):hover *) {
       opacity: 100%;
@@ -2117,9 +2115,6 @@
   @media (hover: hover) {
     .hover\:border-brand:hover {
       border-color: #42a5f5;
-    }
-    .hover\:border-brand\/50:hover {
-      border-color: color-mix(in oklab, #42a5f5 50%, transparent);
     }
     .hover\:bg-\[\#f4f6f7\]:hover {
       background-color: #f4f6f7;
@@ -2575,6 +2570,12 @@ svg[data-slot='icon']:is(.size-3, .size-3\.5) {
   to {
     opacity: 1;
     transform: none;
+  }
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,8 +1,8 @@
 import {
   FolderIcon,
   CheckCircleIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
+  ChevronDoubleLeftIcon,
+  ChevronDoubleRightIcon,
   CodeBracketIcon,
   Cog6ToothIcon,
   ExclamationCircleIcon,
@@ -14,7 +14,8 @@ import {
   ChevronUpIcon,
 } from '@heroicons/react/24/outline'
 import type { Icon } from '@/components/ui'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { RunStatus, RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
@@ -248,8 +249,17 @@ function initials(title: string): string {
   )
 }
 
+const RAIL_STATUS: Record<RunStatus, string> = {
+  queued: 'Starting',
+  running: 'Working',
+  waiting: 'Needs you',
+  done: 'Done',
+  error: 'Failed',
+  cancelled: 'Stopped',
+}
+
 function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
-  const [tip, setTip] = useState<number>()
+  const tip = useRailTip()
   const hover = useHoverPrefetch(run.id, active)
   const tone =
     run.status === 'waiting'
@@ -265,12 +275,11 @@ function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
       href={href({ page: 'run', id: run.id })}
       aria-label={run.title}
       onMouseEnter={(e) => {
-        const box = e.currentTarget.getBoundingClientRect()
-        setTip(box.top + box.height / 2)
+        tip.show(e)
         hover.start()
       }}
       onMouseLeave={() => {
-        setTip(undefined)
+        tip.hide()
         hover.stop()
       }}
       className="group/rail animate-fade-in relative mx-auto flex size-9 items-center justify-center"
@@ -291,14 +300,13 @@ function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
           <StatusIcon status={run.status} className="size-3" />
         </span>
       ) : null}
-      {tip !== undefined ? (
-        <span
-          className="bg-fg animate-pop pointer-events-none fixed left-[84px] z-50 max-w-[280px] -translate-y-1/2 truncate rounded-full px-3 py-1 text-[12px] font-medium text-white shadow-[0_4px_14px_rgba(38,50,56,0.18)]"
-          style={{ top: tip }}
-        >
-          {run.title}
+      <RailTip at={tip.at}>
+        <span className="line-clamp-2">{run.title}</span>
+        <span className="text-muted mt-0.5 flex items-center gap-1.5 text-[11.5px] font-normal">
+          <StatusIcon status={run.status} className="size-3" />
+          {RAIL_STATUS[run.status]}
         </span>
-      ) : null}
+      </RailTip>
     </a>
   )
 }
@@ -331,11 +339,34 @@ function useDocked(): boolean {
   return docked
 }
 
-function RailTip({ label }: { label: string }) {
-  return (
-    <span className="bg-fg pointer-events-none absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2 rounded-full px-3 py-1 text-[12px] font-medium whitespace-nowrap text-white opacity-0 shadow-[0_4px_14px_rgba(38,50,56,0.18)] transition-opacity group-hover/rail:opacity-100">
-      {label}
-    </span>
+const TIP_GAP_PX = 10
+
+type TipAt = { x: number; y: number }
+
+function useRailTip() {
+  const [at, setAt] = useState<TipAt>()
+  return {
+    at,
+    show: (e: React.MouseEvent<HTMLElement>) => {
+      const box = e.currentTarget.getBoundingClientRect()
+      setAt({ x: box.right + TIP_GAP_PX, y: box.top + box.height / 2 })
+    },
+    hide: () => setAt(undefined),
+  }
+}
+
+function RailTip({ at, children }: { at?: TipAt; children: ReactNode }) {
+  if (!at) return null
+  return createPortal(
+    <div
+      role="tooltip"
+      className="animate-tip border-line-strong/70 text-fg pointer-events-none fixed z-[60] flex max-w-[260px] -translate-y-1/2 flex-col rounded-xl border bg-white px-3 py-1.5 text-[12.5px] leading-snug font-medium shadow-[0_6px_20px_rgba(38,50,56,0.14)]"
+      style={{ left: at.x, top: at.y }}
+    >
+      <span className="border-line-strong/70 absolute top-1/2 -left-[5px] size-2.5 -translate-y-1/2 rotate-45 border-b border-l bg-white" />
+      {children}
+    </div>,
+    document.body,
   )
 }
 
@@ -352,10 +383,13 @@ function NavRow({
   active: boolean
   collapsed: boolean
 }) {
+  const tip = useRailTip()
   return (
     <a
       href={to}
       aria-label={collapsed ? label : undefined}
+      onMouseEnter={collapsed ? tip.show : undefined}
+      onMouseLeave={tip.hide}
       className={cn(
         'group/rail relative flex h-9 items-center rounded-full text-[13px] font-medium transition-colors',
         collapsed ? 'mx-auto w-9 justify-center' : 'gap-2.5 pr-3 pl-1',
@@ -373,7 +407,11 @@ function NavRow({
       >
         <Icon className="size-3.5" />
       </span>
-      {collapsed ? <RailTip label={label} /> : <span className="truncate">{label}</span>}
+      {collapsed ? (
+        <RailTip at={tip.at}>{label}</RailTip>
+      ) : (
+        <span className="truncate">{label}</span>
+      )}
     </a>
   )
 }
@@ -383,6 +421,10 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   useRunNotifications(route, useSettings().settings.notify)
   const [showAll, setShowAll] = useState(false)
   const [pinnedCollapsed, setCollapsed] = useState(storedCollapsed)
+  const toggleTip = useRailTip()
+  const moreTip = useRailTip()
+  const settledTip = useRailTip()
+  const settingsTip = useRailTip()
   const docked = useDocked()
   const [drawer, setDrawer] = useState(false)
   const collapsed = docked ? pinnedCollapsed : !drawer
@@ -412,6 +454,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const shown = showAll ? active : active.slice(0, RECENT_LIMIT)
   const onSettings = route.page === 'settings'
   const toggle = () => {
+    toggleTip.hide()
     if (!docked) return setDrawer((d) => !d)
     setCollapsed((c) => {
       localStorage.setItem(COLLAPSED_KEY, c ? '0' : '1')
@@ -447,31 +490,45 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           !overlay && (collapsed ? 'w-[72px]' : 'w-[320px]'),
         )}
       >
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="border-line-strong text-muted hover:text-brand-strong hover:border-brand/50 absolute top-1/2 -right-3.5 z-30 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border bg-white shadow-[0_2px_8px_rgba(38,50,56,0.10)] transition-colors"
-        >
-          {collapsed ? (
-            <ChevronRightIcon className="size-3.5" />
-          ) : (
-            <ChevronLeftIcon className="size-3.5" />
-          )}
-        </button>
         <div
           className={cn(
             'flex h-16 shrink-0 items-center overflow-hidden',
-            collapsed ? 'justify-center' : 'px-5',
+            collapsed ? 'justify-center' : 'justify-between pr-3 pl-5',
           )}
         >
-          <a href="#/" aria-label="OV Agent home">
-            {collapsed ? (
-              <img src={mark} alt="OV Agent" className="h-[26px] w-auto" />
-            ) : (
-              <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto max-w-none" />
-            )}
-          </a>
+          {collapsed ? (
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label="Expand sidebar"
+              onMouseEnter={toggleTip.show}
+              onMouseLeave={toggleTip.hide}
+              className="group/logo hover:bg-brand-soft relative flex size-10 items-center justify-center rounded-full transition-colors"
+            >
+              <img
+                src={mark}
+                alt=""
+                className="h-[26px] w-auto transition-opacity group-hover/logo:opacity-0"
+              />
+              <ChevronDoubleRightIcon className="text-brand-strong absolute size-4 opacity-0 transition-opacity group-hover/logo:opacity-100" />
+              <RailTip at={toggleTip.at}>Expand sidebar</RailTip>
+            </button>
+          ) : (
+            <>
+              <a href="#/" aria-label="OV Agent home">
+                <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto max-w-none" />
+              </a>
+              <button
+                type="button"
+                onClick={toggle}
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+                className="text-faint hover:bg-canvas hover:text-brand-strong flex size-8 items-center justify-center rounded-full transition-colors"
+              >
+                <ChevronDoubleLeftIcon className="size-4" />
+              </button>
+            </>
+          )}
         </div>
         <nav className={cn('shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}>
           <NavRow
@@ -521,10 +578,12 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 <button
                   type="button"
                   onClick={toggle}
-                  className="group/rail text-faint hover:text-brand-strong relative mx-auto flex size-9 items-center justify-center rounded-full text-[11px] font-medium"
+                  onMouseEnter={moreTip.show}
+                  onMouseLeave={moreTip.hide}
+                  className="text-faint hover:text-brand-strong hover:bg-canvas relative mx-auto flex size-9 items-center justify-center rounded-full text-[11px] font-medium"
                 >
                   +{active.length - RAIL_RUNS}
-                  <RailTip label="Show all threads" />
+                  <RailTip at={moreTip.at}>Show all threads</RailTip>
                 </button>
               ) : null}
             </div>
@@ -572,11 +631,13 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 <button
                   type="button"
                   onClick={openSettled}
-                  className="group/rail text-faint hover:text-ok hover:bg-canvas relative flex h-8 items-center gap-1 rounded-full px-2 text-[11px] font-medium transition-colors"
+                  onMouseEnter={settledTip.show}
+                  onMouseLeave={settledTip.hide}
+                  className="text-faint hover:text-ok hover:bg-canvas relative flex h-8 items-center gap-1 rounded-full px-2 text-[11px] font-medium transition-colors"
                 >
                   <DoubleCheckIcon className="size-3.5" />
                   {settledTotal}
-                  <RailTip label="Settled threads" />
+                  <RailTip at={settledTip.at}>Settled threads</RailTip>
                 </button>
               </div>
             ) : (
@@ -628,13 +689,15 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             <a
               href={href({ page: 'settings' })}
               aria-label="Settings"
+              onMouseEnter={settingsTip.show}
+              onMouseLeave={settingsTip.hide}
               className={cn(
-                'group/rail relative flex size-11 items-center justify-center rounded-full transition-colors',
+                'relative flex size-11 items-center justify-center rounded-full transition-colors',
                 onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
               )}
             >
               <Avatar user={user} />
-              <RailTip label="Settings" />
+              <RailTip at={settingsTip.at}>Settings</RailTip>
             </a>
           </div>
         ) : (
