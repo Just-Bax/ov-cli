@@ -18,6 +18,15 @@ export type SignInMethod = 'browser' | 'token'
 
 export type SignInTarget = { url: string; host: string; tenant?: string; mode?: SignInMethod }
 
+export type SignInSubmit = (
+  target: SignInTarget,
+  token?: string,
+  screen?: { width: number; height: number },
+) => Promise<{ ok: boolean; message: string }>
+
+const signInInstance: SignInSubmit = (target, token, screen) =>
+  api.loginInstance(target.url, target.tenant, token, screen)
+
 export const signInKey = (t: SignInTarget) => `${t.host}|${(t.tenant ?? '').toLowerCase()}`
 
 function hostOf(value: string): string {
@@ -73,12 +82,14 @@ export function SignInModal({
   onClose,
   onStart,
   onFinished,
+  submit = signInInstance,
 }: {
   target?: SignInTarget
   pending: boolean
   onClose: () => void
   onStart: (target: SignInTarget) => void
   onFinished: (target: SignInTarget, ok: boolean) => void
+  submit?: SignInSubmit
 }) {
   const [phase, setPhase] = useState<Phase>('intro')
   const [message, setMessage] = useState('')
@@ -144,14 +155,11 @@ export function SignInModal({
     setPhase('waiting')
     onStart(t)
 
-    const res = await api
-      .loginInstance(
-        t.url,
-        t.tenant,
-        byToken ? `${accessKey.trim()}:${secretKey.trim()}` : undefined,
-        byToken || inWindow ? undefined : screenSize(),
-      )
-      .catch((e: Error) => ({ ok: false, message: e.message }))
+    const res = await submit(
+      t,
+      byToken ? `${accessKey.trim()}:${secretKey.trim()}` : undefined,
+      byToken || inWindow ? undefined : screenSize(),
+    ).catch((e: Error) => ({ ok: false, message: e.message }))
     onFinished(t, res.ok)
     startedAt.current = 0
     if (!stillShowing(t)) return

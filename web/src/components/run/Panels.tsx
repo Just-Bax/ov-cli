@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
 import { reportError } from '@/components/Toasts'
+import { SignInModal, type SignInTarget } from '@/components/SignInModal'
 
 const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   fix: { label: 'Fix needed', tone: 'warn' },
@@ -293,6 +294,9 @@ export function QuestionCard({
 }
 
 export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt }) {
+  const [open, setOpen] = useState(false)
+  const target: SignInTarget = { url: login.url, host: login.instance, tenant: login.tenant }
+
   if (login.state === 'done') {
     return (
       <div className="text-muted text-[12.5px]">
@@ -312,28 +316,44 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
         </div>
         <div className="text-muted text-[12px]">
           {login.state === 'running'
-            ? login.tenant
-              ? `Finish signing in in the browser window that opened. You land in your own tenant; ov then switches to ${login.tenant} for you.`
-              : 'Finish signing in in the browser window that opened. It closes on its own.'
+            ? 'Signing in. Open the sign-in window to continue.'
             : login.state === 'failed'
               ? (login.message ?? 'Sign-in failed.')
               : login.tenant
                 ? `Needed to continue. Sign in as usual; ov switches to ${login.tenant} afterwards. Access is read-only.`
-                : 'Needed to continue. A browser window opens on the login page. Access is read-only.'}
+                : 'Needed to continue. Access is read-only.'}
         </div>
       </div>
       {login.state === 'running' ? (
-        <Spinner className="text-brand" />
+        <>
+          <Spinner className="text-brand" />
+          {open ? null : (
+            <Button variant="ghost" onClick={() => setOpen(true)}>
+              Show
+            </Button>
+          )}
+        </>
       ) : (
         <>
-          <Button variant="ghost" onClick={() => void api.login(runId, login.id, true)}>
+          <Button
+            variant="ghost"
+            onClick={() => void api.login(runId, login.id, { skip: true }).catch(reportError)}
+          >
             Skip
           </Button>
-          <Button variant="primary" onClick={() => void api.login(runId, login.id)}>
+          <Button variant="primary" onClick={() => setOpen(true)}>
             {login.state === 'failed' ? 'Try again' : 'Sign in'}
           </Button>
         </>
       )}
+      <SignInModal
+        target={open ? target : undefined}
+        pending={login.state === 'running'}
+        onClose={() => setOpen(false)}
+        onStart={() => undefined}
+        onFinished={() => undefined}
+        submit={(_, token, screen) => api.login(runId, login.id, { token, screen })}
+      />
     </div>
   )
 }

@@ -145,8 +145,10 @@ def test_ws_run_asks_before_risky_commands(workspace, tmp_path):
 
     ctx = FakeContext(tmp_path, approve="Reject")
     tool = tool_named("ws_run")
-    assert "hello" in tool.handler({"command": "echo hello", "cwd": "module"}, ctx)
+    assert "git version" in tool.handler({"command": "git --version", "cwd": "module"}, ctx)
     assert ctx.asked == []
+    with pytest.raises(ToolError, match="Nothing to run"):
+        tool.handler({"command": "echo skip"}, ctx)
     with pytest.raises(ToolError, match="rejected"):
         tool.handler({"command": "git push"}, ctx)
     assert ctx.asked == ["the workspace root> git push"]
@@ -958,3 +960,91 @@ def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(l
     at = next(i for i, m in enumerate(last) if m.get("tool_calls") == [call])
     assert last[at + 1] == {"role": "tool", "tool_call_id": "c9", "content": "Error: interrupted."}
     assert last[at + 2]["role"] == "user"
+
+
+def test_sql_results_mask_secrets_without_refusing_the_query(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools import tool_named
+
+    body = {
+        "status": "SUCCESS",
+        "columns": ["NAME", "VALUE", "API_TOKEN", "MODULE_ID"],
+        "rows": [
+            {"cells": ["kafkaPassword", "hunter2", "abc", 12]},
+            {"cells": ["batchSize", "500", "def", 12]},
+            {"cells": ["settings", '{"url": "x", "client_secret": "s3"}', None, 13]},
+        ],
+    }
+    big = json.dumps(body) + " " * 30_000
+    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, big, ""))
+    out = tool_named("ov_sql").handler(
+        {"query": "select name, value from module_param where name not like '%PASS%'"}, FakeContext(tmp_path)
+    )
+    lines = out.splitlines()
+    assert lines[2] == "kafkaPassword\t***\t***\t12"
+    assert lines[3] == "batchSize\t500\t***\t12"
+    assert '"client_secret": "***"' in lines[4] and '"url": "x"' in lines[4]
+    assert "[took " in out
+
+
+def test_sql_timeout_explains_what_to_do(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools import tool_named
+
+    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(1, "", "", timed_out=True))
+    with pytest.raises(ToolError, match="may still be running"):
+        tool_named("ov_sql").handler({"query": "select 1 from dual", "timeout": 30}, FakeContext(tmp_path))
+
+
+def test_ws_search_takes_a_file_path_and_brace_globs(workspace):
+    from ov.agent import project
+
+    root = project.root()
+    (root / "a.sql").write_text("create index i1 on xitor (x);\n")
+    (root / "b.sql").write_text("create index i2 on cv (y);\n")
+    (root / "c.txt").write_text("create index i3;\n")
+    assert project.expand_glob("{a,b}.sql") == ["a.sql", "b.sql"]
+    found = project.search("create index", "", "{a,b}.sql", False)
+    assert "a.sql:1" in found and "b.sql:1" in found and "c.txt" not in found
+    assert project.search("i2", "b.sql", "", False).startswith("b.sql:1:")
+
+
+def test_datadog_queries_naming_a_host_skip_the_instance_lookup(logged_in, tmp_path):
+    from ov.agent.tools import _datadog_scope
+
+    assert _datadog_scope({"query": "host:app01.test-lumen-vpc status:error"}, FakeContext(tmp_path)) == ""
+
+
+def test_the_system_prompt_follows_write_access(logged_in, monkeypatch):
+    sent: list[str] = []
+
+    def fake_chat(model, messages, *args, cancel, on_text):
+        sent.append(messages[0]["content"])
+        return StreamResult(text="ok")
+
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+
+    from ov.agent.run import runs
+
+    run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
+    _wait_done(run)
+    run.set_write_access(True)
+    run.follow_up("go", [])
+    for _ in range(100):
+        if len(sent) == 2:
+            break
+        time.sleep(0.05)
+    assert "currently OFF" in sent[0]
+    assert "currently ON" in sent[1]
+
+
+def test_an_empty_reply_is_asked_for_once(logged_in, monkeypatch):
+    replies = iter([StreamResult(text=""), StreamResult(text="Here it is.")])
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text: next(replies))
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+
+    from ov.agent.run import runs
+
+    run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
+    _wait_done(run)
+    assert run._messages[-2]["content"].startswith("[Your last reply was empty")
+    assert run._messages[-1]["content"] == "Here it is."

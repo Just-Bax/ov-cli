@@ -158,8 +158,11 @@ export const api = {
   startRun: (input: RunInput) => post<{ id: string }>('/runs', input),
   answer: (id: string, questionId: string, answer: string) =>
     post(`/runs/${id}/answer`, { questionId, answer }),
-  login: (id: string, loginId: string, skip = false) =>
-    post(`/runs/${id}/login`, { loginId, skip }),
+  login: (
+    id: string,
+    loginId: string,
+    options: { skip?: boolean; token?: string; screen?: { width: number; height: number } } = {},
+  ) => post<{ ok: boolean; message: string }>(`/runs/${id}/login`, { loginId, ...options }),
   message: (id: string, text: string, files: Upload[] = []) =>
     post(`/runs/${id}/message`, { text, files }),
   retry: (id: string, itemId: string) => post(`/runs/${id}/retry`, { itemId }),

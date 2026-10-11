@@ -7,6 +7,7 @@ import json
 import queue
 import random
 import shutil
+import sqlite3
 import string
 import threading
 from collections.abc import Callable
@@ -55,6 +56,7 @@ RUN_ID_SUFFIX_CHARS = 4
 IDLE_EVICT_MS = 5 * 60_000
 MAX_CACHED_RUNS = 6
 
+EMPTY_REPLY_NOTE = "Your last reply was empty. Answer the user's last message."
 WRITE_ON_NOTE = (
     "The user turned ON write access for this run. You may now apply changes with ov and the PagerDuty change "
     "tools (pd_note, pd_ack, pd_resolve, pd_escalate, pd_reassign, pd_snooze); each change still "
@@ -233,7 +235,11 @@ class Run:
         with self._lock:
             self.touched = db.now_ms()
             self.seq += 1
-            stored = db.append_event(self.id, self.seq, event)
+            try:
+                stored = db.append_event(self.id, self.seq, event)
+            except sqlite3.IntegrityError:
+                self.seq = db.last_seq(self.id) + 1
+                stored = db.append_event(self.id, self.seq, event)
             reduce(self.state, stored)
             kind = event["type"]
             if kind == "status":
@@ -380,24 +386,28 @@ class Run:
         self._set_status("running")
         return waiter[1][0]
 
-    def login(self, login_id: str, skip: bool) -> None:
+    def login(
+        self, login_id: str, skip: bool, token: str = "", screen: tuple[int, int] | None = None
+    ) -> dict[str, Any]:
         prompt = next((item for item in self.state["logins"] if item["id"] == login_id), None)
         if prompt is None:
             raise RunError("No such login prompt.")
         if skip:
             self.emit({"type": "login", "login": {**prompt, "state": "failed", "message": "Skipped"}})
             self._resolve_login(login_id, False)
-            return
+            return {"ok": False, "message": "Skipped"}
 
         self.emit({"type": "login", "login": {**prompt, "state": "running"}})
-        result = ov_login(prompt["url"], prompt.get("tenant") or "")
+        result = ov_login(prompt["url"], prompt.get("tenant") or "", token, screen)
         ok = result.code == 0
+        message = "" if ok else result.message[-LOGIN_MESSAGE_CHARS:] or "Sign-in failed."
         update = {**prompt, "state": "done" if ok else "failed"}
         if not ok:
-            update["message"] = result.message[-LOGIN_MESSAGE_CHARS:] or "Sign-in failed."
+            update["message"] = message
         self.emit({"type": "login", "login": update})
         if ok:
             self._resolve_login(login_id, True)
+        return {"ok": ok, "message": message}
 
     def _resolve_login(self, login_id: str, ok: bool) -> None:
         with self._lock:
@@ -656,6 +666,7 @@ class Run:
         max_steps = int(db.get_settings()["maxSteps"])
         self.vision = copilot.supports_vision(model)
         self._finished = False
+        nudged = False
         for step in range(max_steps):
             self._prepare_step()
             specs = tool_specs(self.can_write())
@@ -664,6 +675,9 @@ class Run:
                 self._run_tools(calls)
                 if self._finished and not self._queue:
                     break
+            elif not self._messages[-1].get("content") and not nudged:
+                nudged = True
+                self._notes.append(EMPTY_REPLY_NOTE)
             elif not self._queue:
                 break
 
@@ -671,6 +685,8 @@ class Run:
 
     def _prepare_step(self) -> None:
         self.cancel.check()
+        if self._messages and self._messages[0]["role"] == "system":
+            self._messages[0] = {"role": "system", "content": system_prompt(self.can_write(), self.instance)}
         self._compact()
         if self._notes:
             notes, self._notes = self._notes, []

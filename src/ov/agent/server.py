@@ -358,10 +358,13 @@ def login_instance(h: Handler) -> dict[str, Any]:
     if token and tenant:
         raise HttpError(400, "An API token is tied to its own tenant; leave the tenant out.")
 
-    screen = data.get("screen")
-    size = (int(screen["width"]), int(screen["height"])) if screen else None
-    result = login(url, tenant, token, size)
+    result = login(url, tenant, token, _screen_size(data))
     return {"ok": result.code == 0, "message": result.message[-LOGIN_MESSAGE_CHARS:]}
+
+
+def _screen_size(data: dict[str, Any]) -> tuple[int, int] | None:
+    screen = data.get("screen")
+    return (int(screen["width"]), int(screen["height"])) if screen else None
 
 
 @route("POST", "/api/instances/logout")
@@ -806,15 +809,14 @@ def answer(h: Handler, run_id: str) -> dict[str, bool]:
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/login")
-def run_login(h: Handler, run_id: str) -> dict[str, bool]:
+def run_login(h: Handler, run_id: str) -> dict[str, Any]:
     data = h.json()
     run = _run(run_id)
     login_id = _required(data, "loginId")
     if not any(item["id"] == login_id for item in run.state["logins"]):
         raise HttpError(404, "No such login prompt.")
-
-    threading.Thread(target=run.login, args=(login_id, bool(data.get("skip"))), daemon=True).start()
-    return {"ok": True}
+    token = str(data.get("token") or "").strip()
+    return run.login(login_id, bool(data.get("skip")), token, _screen_size(data))
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/message")

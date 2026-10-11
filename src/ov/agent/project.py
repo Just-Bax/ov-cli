@@ -171,19 +171,43 @@ def _is_text(path: Path) -> bool:
         return b"\0" not in handle.read(BINARY_SNIFF_BYTES)
 
 
-def search(pattern: str, rel: str, glob: str, ignore_case: bool) -> str:
-    folder = resolve(rel)
-    if shutil.which("rg"):
-        return _ripgrep(pattern, folder, glob, ignore_case)
+_BRACES = re.compile(r"\{([^{}]*)\}")
 
+
+def expand_glob(glob: str) -> list[str]:
+    match = _BRACES.search(glob)
+    if not match:
+        return [glob] if glob else []
+    head, tail = glob[: match.start()], glob[match.end() :]
+    return [g for part in match.group(1).split(",") for g in expand_glob(f"{head}{part}{tail}")]
+
+
+def search(pattern: str, rel: str, glob: str, ignore_case: bool) -> str:
+    target = resolve(rel)
+    if not target.exists():
+        raise ProjectError(f"No such file or folder: {rel}")
+    if target.is_file():
+        return "\n".join(_matches(target, _regex(pattern, ignore_case))) or "No matches."
+
+    globs = expand_glob(glob)
+    if shutil.which("rg"):
+        return _ripgrep(pattern, target, globs, ignore_case)
+    return _grep_folder(target, pattern, globs, ignore_case)
+
+
+def _regex(pattern: str, ignore_case: bool) -> re.Pattern[str]:
     try:
-        regex = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+        return re.compile(pattern, re.IGNORECASE if ignore_case else 0)
     except re.error as exc:
         raise ProjectError(f"Bad regex: {exc}") from None
 
-    repos, loose = _repos_and_loose_files(folder, glob)
+
+def _grep_folder(folder: Path, pattern: str, globs: list[str], ignore_case: bool) -> str:
+    regex = _regex(pattern, ignore_case)
+
+    repos, loose = _repos_and_loose_files(folder, globs)
     with ThreadPoolExecutor(max_workers=SEARCH_WORKERS) as pool:
-        found = list(pool.map(lambda repo: _git_grep(repo, pattern, glob, ignore_case), repos))
+        found = list(pool.map(lambda repo: _git_grep(repo, pattern, globs, ignore_case), repos))
 
     hits = [hit for batch in found for hit in batch]
     for path in loose:
@@ -203,7 +227,7 @@ def _repo_of(folder: Path) -> Path | None:
     return None
 
 
-def _repos_and_loose_files(folder: Path, glob: str) -> tuple[list[Path], list[Path]]:
+def _repos_and_loose_files(folder: Path, globs: list[str]) -> tuple[list[Path], list[Path]]:
     owner = _repo_of(folder)
     if owner is not None:
         return [folder], []
@@ -217,19 +241,21 @@ def _repos_and_loose_files(folder: Path, glob: str) -> tuple[list[Path], list[Pa
             dirs[:] = []
             continue
         dirs[:] = sorted(d for d in dirs if not _skipped(d))
-        loose += [here / name for name in sorted(files) if _wanted(here / name, glob)]
+        loose += [here / name for name in sorted(files) if _wanted(here / name, globs)]
     return repos, loose
 
 
-def _wanted(path: Path, glob: str) -> bool:
-    matches_glob = not glob or fnmatch.fnmatch(path.name, glob) or fnmatch.fnmatch(relative(path), glob)
+def _wanted(path: Path, globs: list[str]) -> bool:
+    matches_glob = not globs or any(
+        fnmatch.fnmatch(path.name, glob) or fnmatch.fnmatch(relative(path), glob) for glob in globs
+    )
     return matches_glob and _is_text(path)
 
 
-def _git_grep(repo: Path, pattern: str, glob: str, ignore_case: bool) -> list[str]:
+def _git_grep(repo: Path, pattern: str, globs: list[str], ignore_case: bool) -> list[str]:
     args = ["git", "-c", "core.quotepath=off", "grep", "-n", "-I", "-P", "--untracked", "--max-count", "50"]
     args += ["-i"] if ignore_case else []
-    args += ["-e", pattern, "--", f"*{glob}" if glob and "/" not in glob else (glob or ".")]
+    args += ["-e", pattern, "--", *([f"*{g}" if "/" not in g else g for g in globs] or ["."])]
     result = subprocess.run(
         args,
         cwd=repo,
@@ -261,10 +287,10 @@ def _matches(path: Path, regex: re.Pattern[str]) -> list[str]:
     ]
 
 
-def _ripgrep(pattern: str, folder: Path, glob: str, ignore_case: bool) -> str:
+def _ripgrep(pattern: str, folder: Path, globs: list[str], ignore_case: bool) -> str:
     args = ["rg", "-n", "--no-heading", "--max-columns", str(MAX_LINE_CHARS), "-m", "50"]
     args += ["-i"] if ignore_case else []
-    args += ["-g", glob] if glob else []
+    args += [arg for glob in globs for arg in ("-g", glob)]
     result = subprocess.run(
         [*args, "-e", pattern, "."], cwd=folder, capture_output=True, text=True, encoding="utf-8", errors="replace"
     )

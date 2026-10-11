@@ -4,6 +4,7 @@ import base64
 import itertools
 import json
 import re
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ from .runfiles import IMAGE_EXTS, image_mime, within
 
 MAX_OUTPUT = 24_000
 OV_TIMEOUT_SECONDS = 180
+MAX_SQL_TIMEOUT_SECONDS = 600
+SECRET_MASK = "***"
 MAX_TIME_SAVED_MINUTES = 8 * 60
 DEFAULT_SQL_ROWS = 100
 MAX_SQL_ROWS = 1000
@@ -53,6 +56,8 @@ EDIT_FORMS = (
 )
 
 _counter = itertools.count(1)
+_file_locks: dict[str, threading.Lock] = {}
+_file_locks_guard = threading.Lock()
 
 
 MAX_EXPORT_IDS = 20
@@ -225,7 +230,15 @@ def _check_ov_args(args: list[str], allow_sql: bool) -> None:
         raise ToolError("Run SQL with the ov_sql tool, not through ov.")
 
 
-def run_ov_tool(args: list[str], instance: str | None, ctx: ToolContext, allow_sql: bool = False) -> str:
+def run_ov_tool(
+    args: list[str],
+    instance: str | None,
+    ctx: ToolContext,
+    allow_sql: bool = False,
+    *,
+    raw: bool = False,
+    timeout: int = OV_TIMEOUT_SECONDS,
+) -> str:
     cleaned = [str(a) for a in args]
     if cleaned[:1] == ["ov"]:
         cleaned.pop(0)
@@ -237,7 +250,7 @@ def run_ov_tool(args: list[str], instance: str | None, ctx: ToolContext, allow_s
         alias, host, tenant = _alias_for(target, ctx)
         result = run_ov(
             ["-i", alias, *cleaned],
-            timeout=OV_TIMEOUT_SECONDS,
+            timeout=timeout,
             cancel=ctx.cancel,
             cwd=ctx.work_dir,
         )
@@ -246,10 +259,10 @@ def run_ov_tool(args: list[str], instance: str | None, ctx: ToolContext, allow_s
                 raise ToolError(f"Session for {target} expired and the user skipped sign-in.")
             continue
         if result.timed_out:
-            raise ToolError(f"ov timed out after {OV_TIMEOUT_SECONDS}s")
+            raise ToolError(f"ov timed out after {timeout}s")
         if result.code == EXIT_READ_ONLY:
             return _write(alias, host, cleaned, ctx)
-        return clip(_output(result), ctx, "ov output")
+        return _output(result) if raw else clip(_output(result), ctx, "ov output")
     raise ToolError(f"Still not signed in to {target}.")
 
 
@@ -287,6 +300,21 @@ def _sql_cell(value: Any) -> str:
     return str(value).replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n")
 
 
+def _masked(columns: list[str], cells: list[Any]) -> list[Any]:
+    secret_row = any(isinstance(c, str) and _SECRET_KEY.match(c) and _SECRET_NAME.search(c) for c in cells)
+    out = []
+    for name, cell in zip(columns, cells, strict=True):
+        if cell is None or isinstance(cell, (int, float)):
+            out.append(cell)
+        elif _SECRET_NAME.search(name) or (
+            secret_row and not (_SECRET_KEY.match(str(cell)) and _SECRET_NAME.search(str(cell)))
+        ):
+            out.append(SECRET_MASK)
+        else:
+            out.append(_SECRET_JSON.sub(rf'\1"{SECRET_MASK}"', str(cell)))
+    return out
+
+
 def _format_sql(raw: str) -> str:
     try:
         parsed = json.loads(raw)
@@ -298,8 +326,9 @@ def _format_sql(raw: str) -> str:
         raise ToolError(f"SQL failed: {parsed.get('error_message') or raw}")
 
     rows = parsed["rows"]
-    lines = ["\t".join(parsed["columns"])]
-    lines += ["\t".join(_sql_cell(c) for c in row["cells"]) for row in rows]
+    columns = parsed["columns"]
+    lines = ["\t".join(columns)]
+    lines += ["\t".join(_sql_cell(c) for c in _masked(columns, row["cells"])) for row in rows]
     total = parsed.get("total_rows")
     more = f", {total} total" if total and total > len(rows) else ""
     return f"{len(rows)} rows{more} (tab separated)\n" + "\n".join(lines)
@@ -307,8 +336,12 @@ def _format_sql(raw: str) -> str:
 
 _SELECT = re.compile(r"^(select|with)\b", re.IGNORECASE)
 _PLSQL_IN_WITH = re.compile(r"\bwith\s+(function|procedure)\b", re.IGNORECASE)
-_SECRET_SQL = re.compile(
-    r"password|passwd|secret|\bselect\s+\*\s+from\s+(module|users?|auth_token\w*)\b", re.IGNORECASE
+_SECRET_SQL = re.compile(r"\bselect\s+\*\s+from\s+(module|users?|auth_token\w*)\b", re.IGNORECASE)
+_SECRET_NAME = re.compile(r"pass(word|wd)?|secret|token|api_?key|private_?key|credential", re.IGNORECASE)
+_SECRET_KEY = re.compile(r"^[\w.\-]{0,60}$")
+_SECRET_JSON = re.compile(
+    r'("[\w.\-]*(?:pass(?:word|wd)?|secret|token|api_?key|private_?key|credential)[\w.\-]*"\s*:\s*)"[^"]*"',
+    re.IGNORECASE,
 )
 
 
@@ -317,23 +350,39 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
     if not _SELECT.match(query) or _PLSQL_IN_WITH.search(query):
         raise ToolError("Only SELECT / WITH queries are allowed.")
     if _SECRET_SQL.search(query):
-        raise ToolError("Do not read credential columns. Select the non-secret columns you need.")
+        raise ToolError(
+            "Refused: select * from this table can include credentials. Name the columns you need; "
+            "secret-looking values are masked in results."
+        )
 
     rows = min(max(int(args.get("limit") or DEFAULT_SQL_ROWS), 1), MAX_SQL_ROWS)
-    raw = run_ov_tool(
-        [
-            *graph.SQL_REQUEST,
-            "-q",
-            f"rows_count={rows}",
-            "-d",
-            query,
-            "--json",
-        ],
-        args.get("instance"),
-        ctx,
-        allow_sql=True,
-    )
-    return clip(_format_sql(raw), ctx, "result")
+    timeout = min(max(int(args.get("timeout") or OV_TIMEOUT_SECONDS), 1), MAX_SQL_TIMEOUT_SECONDS)
+    started = time.monotonic()
+    try:
+        raw = run_ov_tool(
+            [
+                *graph.SQL_REQUEST,
+                "-q",
+                f"rows_count={rows}",
+                "-d",
+                query,
+                "--json",
+            ],
+            args.get("instance"),
+            ctx,
+            allow_sql=True,
+            raw=True,
+            timeout=timeout,
+        )
+    except ToolError as exc:
+        if "timed out" not in str(exc):
+            raise
+        raise ToolError(
+            f"The query did not finish in {timeout}s and may still be running on the database. Do not retry "
+            "it unchanged: narrow it with selective key or date filters, or sample with fetch first."
+        ) from None
+    took = time.monotonic() - started
+    return clip(f"{_format_sql(raw)}\n[took {took:.1f}s including the ov call]", ctx, "result")
 
 
 def _export_ids(args: dict[str, Any]) -> list[int]:
@@ -508,24 +557,37 @@ def _ws_read(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(project.read(str(args["path"]), int(args.get("start") or 1), end), ctx, "file")
 
 
+def _file_lock(rel: str) -> threading.Lock:
+    key = str(project.resolve(rel)).lower()
+    with _file_locks_guard:
+        return _file_locks.setdefault(key, threading.Lock())
+
+
 def _ws_edit(args: dict[str, Any], ctx: ToolContext) -> str:
     path, old, new = str(args["path"]), str(args["old"]), str(args["new"])
-    result = project.edit(path, old, new, bool(args.get("replace_all")))
+    with _file_lock(path):
+        result = project.edit(path, old, new, bool(args.get("replace_all")))
     ctx.record_edit(path, old, new, created=False)
     return result
 
 
 def _ws_write(args: dict[str, Any], ctx: ToolContext) -> str:
     path, content = str(args["path"]), str(args["content"])
-    existed = project.resolve(path).is_file()
-    before = project.text_of(path) if existed else ""
-    result = project.write(path, content)
+    with _file_lock(path):
+        existed = project.resolve(path).is_file()
+        before = project.text_of(path) if existed else ""
+        result = project.write(path, content)
     ctx.record_edit(path, before, content, created=not existed)
     return result
 
 
+_NO_OP_COMMAND = re.compile(r"^(echo|write-host|write-output)\b[^|;&>]*$|^\s*$", re.IGNORECASE)
+
+
 def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
     command = str(args["command"]).strip()
+    if _NO_OP_COMMAND.match(command):
+        raise ToolError("Nothing to run. To just answer, reply without a tool call.")
     folder = str(args.get("cwd") or "")
     risky = project.risks(command, project.resolve(folder))
     if risky:
@@ -543,6 +605,21 @@ def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(project.run(command, folder, timeout, ctx.cancel), ctx, "command output")
 
 
+def _text_arg(args: dict[str, Any], key: str, ctx: ToolContext) -> str:
+    source = args.get(f"{key}_file")
+    if not source:
+        return str(args.get(key) or "")
+    if args.get(key):
+        raise ToolError(f"Pass {key} or {key}_file, not both.")
+    name = str(source)
+    run_file = within(ctx.work_dir, name)
+    if run_file.is_file():
+        return run_file.read_text(encoding="utf-8", errors="replace")
+    if project.configured():
+        return project.text_of(name)
+    raise ToolError(f"No such file in the run folder: {name}")
+
+
 def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
     entity_type = str(args["entity_type"])
     entity_id = str(args["entity_id"]) if args.get("entity_id") else None
@@ -556,13 +633,15 @@ def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
         "instance": instance,
         "link": entity_link(entity_type, entity_id, instance) or args.get("link") or None,
         "language": "sql" if args["language"] == "plsql" else str(args["language"]),
-        "before": str(args.get("before") or ""),
-        "after": str(args["after"]),
+        "before": _text_arg(args, "before", ctx),
+        "after": _text_arg(args, "after", ctx),
         "what": str(args["what"]),
         "why": str(args["why"]),
         "how": str(args["how"]),
     }
 
+    if not change["after"].strip():
+        raise ToolError("Give the proposed text in after or after_file.")
     ctx.emit({"type": "change", "change": {k: v for k, v in change.items() if v is not None}})
     return f"Change card shown ({change['id']})."
 
@@ -650,7 +729,12 @@ def _datadog_site() -> str:
     return site
 
 
+_SCOPED_QUERY = re.compile(r"(?<![\w.])(host|service):\S", re.IGNORECASE)
+
+
 def _datadog_scope(args: dict[str, Any], ctx: ToolContext) -> str:
+    if _SCOPED_QUERY.search(str(args.get("query") or "")):
+        return ""
     _, scope = datadog.resolve_scope(args.get("instance"), ctx.instance, args.get("role"))
     return scope
 
@@ -830,11 +914,12 @@ TOOLS = [
     Tool(
         "ov_sql",
         "Run a read-only SELECT (or WITH) on an instance database through the platform's Test "
-        "SQL endpoint. Max 1000 rows.",
+        "SQL endpoint. Max 1000 rows. Secret-looking values are masked in the result.",
         {
             "instance": INSTANCE,
             "query": _str("A single SELECT statement, no trailing semicolon"),
             "limit": _int("Row limit, default 100, max 1000"),
+            "timeout": _int(f"Seconds, default {OV_TIMEOUT_SECONDS}, max {MAX_SQL_TIMEOUT_SECONDS}"),
         },
         ["query"],
         lambda a: (
@@ -969,7 +1054,8 @@ TOOLS = [
         "ov_propose",
         "Show a proposed change to code or component text (rule, automation or workflow "
         "expression, report SQL, module file, PL/SQL data fix) as a diff card. One call per "
-        "object. Nothing is applied. Pass the whole object text in both before and after. Never "
+        "object. Nothing is applied. Pass the whole object text in both before and after, any length; "
+        "for long code write it to a file and pass after_file. Never "
         "use it for record deletes, value edits, cleanup or UI steps; say those in chat.",
         {
             "title": _str("Short title"),
@@ -1000,11 +1086,13 @@ TOOLS = [
                 "for new objects or PL/SQL data fixes."
             ),
             "after": _str("The COMPLETE proposed code, same scope as before; never prose"),
+            "before_file": _str("Instead of before: a file with the current text, in the run folder or workspace"),
+            "after_file": _str("Instead of after: a file with the proposed text, in the run folder or workspace"),
             "what": _str("What changes, one sentence"),
             "why": _str("Why, one sentence"),
             "how": _str("How to apply it, one sentence"),
         },
-        ["title", "entity_type", "language", "after", "what", "why", "how"],
+        ["title", "entity_type", "language", "what", "why", "how"],
         lambda a: f"propose {a.get('entity_type')}: {a.get('title')}",
         _propose_change,
         silent=True,

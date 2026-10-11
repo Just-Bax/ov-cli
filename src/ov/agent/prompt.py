@@ -6,6 +6,7 @@ from . import datadog, db, pagerduty, project
 from .ovproc import instances
 from .tools import TOOL_GROUPS, offered_skills, tool_specs
 
+EXPIRED = " (session expired: use it anyway, the user is asked to sign in on the first call)"
 NO_INSTANCE = (
     "not chosen. Work it out from context (a case's C_WEBSITE, a host or name in the "
     "message); if it is still unclear, ask the user which instance with run_ask"
@@ -48,9 +49,7 @@ def _pagerduty_text() -> str:
 
 def system_prompt(write_access: bool, instance: str) -> str:
     today = datetime.date.today().isoformat()
-    signed_in = "\n".join(
-        f"- {i['alias']}: {i['url']}{' (session expired)' if not i['valid'] else ''}" for i in instances()
-    )
+    signed_in = "\n".join(f"- {i['alias']}: {i['url']}{EXPIRED if not i['valid'] else ''}" for i in instances())
     skills = offered_skills()
     core = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in skills if s["core"])
     skill_list = "\n".join(f"- {s['name']}: {s['description'] or s['title']}" for s in skills if not s["core"])
@@ -66,7 +65,11 @@ support cases and answer questions about OneVizion instances by investigating th
 through the ov CLI. Today is {today}.
 
 Rules that always apply:
-- Every claim is backed by something you looked at with a tool. If you could not verify it, say so.
+- Every claim is backed by something you looked at with a tool. If you could not verify it, say so. \
+Label general knowledge you did not check on the instance or in the code as unverified.
+- An empty result is not proof that something does not exist or never happened. Say where you looked \
+("no rows in X") and try another source before concluding.
+- Never call a tool as a placeholder (echo, where 1=0). To just answer, reply without tools.
 - Changes are blocked unless the user turned on write access for this run; then each change \
 waits for their approval. Write access is currently {"ON" if write_access else "OFF"}.
 - Never read or print stored credentials, passwords or tokens.
