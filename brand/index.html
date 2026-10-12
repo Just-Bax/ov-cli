@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OV CLI brand</title>
+    <link rel="icon" href="svg/ov-icon.svg" type="image/svg+xml" />
+    <style>
+      @font-face {
+        font-family: 'Poppins';
+        src: url('fonts/poppins-latin-400.woff2') format('woff2');
+        font-weight: 400;
+        font-display: swap;
+      }
+
+      @font-face {
+        font-family: 'Poppins';
+        src: url('fonts/poppins-latin-500.woff2') format('woff2');
+        font-weight: 500;
+        font-display: swap;
+      }
+
+      @font-face {
+        font-family: 'JetBrains Mono';
+        src: url('fonts/jetbrains-mono-latin-500.woff2') format('woff2');
+        font-weight: 500;
+        font-display: swap;
+      }
+
+      :root {
+        --accent: #208ddf;
+        --ink: #110f4c;
+        --muted: #565a7a;
+        --faint: #8c88a0;
+        --line: #e2e5f0;
+        --canvas: #f5f7fb;
+        --panel: #ffffff;
+        --dark: #0c0b33;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
+        letter-spacing: -0.006em;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 72px 28px 96px;
+      }
+
+      header img {
+        display: block;
+        height: 38px;
+      }
+
+      h1 {
+        margin: 40px 0 10px;
+        font-size: 40px;
+        line-height: 1.1;
+        letter-spacing: -0.035em;
+        font-weight: 500;
+      }
+
+      .lead {
+        max-width: 620px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      section {
+        margin-top: 72px;
+      }
+
+      h2 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        letter-spacing: -0.025em;
+        font-weight: 500;
+      }
+
+      section > p {
+        max-width: 620px;
+        margin: 0 0 24px;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      }
+
+      .tile {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--panel);
+      }
+
+      .stage {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 220px;
+        padding: 40px;
+      }
+
+      .stage img {
+        max-width: 100%;
+        max-height: 100%;
+      }
+
+      .stage.light {
+        background: var(--panel);
+      }
+
+      .stage.dark {
+        background: var(--dark);
+      }
+
+      .stage.art {
+        padding: 0;
+      }
+
+      .stage.art img {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        object-fit: cover;
+      }
+
+      section > p.recipe {
+        max-width: 720px;
+        margin: 18px 0 0;
+        font-size: 13.5px;
+      }
+
+      .wordmark img {
+        width: 240px;
+      }
+
+      .mark img {
+        height: 96px;
+      }
+
+      .icon img {
+        width: 112px;
+      }
+
+      .meta {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 18px;
+        border-top: 1px solid var(--line);
+        font-size: 13.5px;
+      }
+
+      .meta strong {
+        flex: 1;
+        font-weight: 500;
+      }
+
+      .meta a {
+        color: var(--accent);
+        font-weight: 500;
+        text-decoration: none;
+      }
+
+      .meta a:hover {
+        text-decoration: underline;
+      }
+
+      .swatches {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      }
+
+      .swatch {
+        overflow: hidden;
+        padding: 0;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--panel);
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: transform 160ms ease;
+      }
+
+      .swatch:hover {
+        transform: translateY(-2px);
+      }
+
+      .swatch span {
+        display: block;
+        height: 96px;
+      }
+
+      .swatch div {
+        padding: 12px 16px 14px;
+        font-size: 13.5px;
+        font-weight: 500;
+      }
+
+      .swatch code {
+        display: block;
+        color: var(--muted);
+        font-family: ui-monospace, 'Cascadia Code', Menlo, monospace;
+        font-size: 12.5px;
+        font-weight: 400;
+      }
+
+      .type {
+        padding: 32px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--panel);
+      }
+
+      .type .display {
+        margin: 0;
+        font-size: 44px;
+        line-height: 1.1;
+        letter-spacing: -0.035em;
+        font-weight: 500;
+      }
+
+      .type .body {
+        max-width: 560px;
+        margin: 14px 0 0;
+        color: var(--muted);
+      }
+
+      .rules {
+        display: grid;
+        gap: 12px 40px;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .rules li {
+        padding-left: 18px;
+        border-left: 2px solid var(--line);
+        color: var(--muted);
+      }
+
+      .rules b {
+        display: block;
+        color: var(--ink);
+        font-weight: 500;
+      }
+
+      footer {
+        margin-top: 80px;
+        color: var(--faint);
+        font-size: 13px;
+      }
+
+      .type code {
+        display: block;
+        margin-top: 18px;
+        font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+        font-size: 15px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="svg/ov-cli-wordmark-ink.svg" alt="OV CLI" />
+        <h1>Brand assets</h1>
+        <p class="lead">The OV mark, the OV CLI and OV Agent wordmarks, the app icon, and the colors and type that go with them. Every file here is ready to drop into a landing page, a deck or a README.</p>
+      </header>
+
+      <section>
+        <h2>Wordmark</h2>
+        <p>The OV mark followed by the product name in Poppins Medium. OV CLI is the terminal client, OV Agent is the web app that ships with it.</p>
+        <div class="grid">
+          <div class="tile wordmark">
+            <div class="stage light"><img src="svg/ov-cli-wordmark-ink.svg" alt="" /></div>
+            <div class="meta">
+              <strong>OV CLI, ink on light</strong>
+              <a href="svg/ov-cli-wordmark-ink.svg" download>SVG</a>
+              <a href="png/ov-cli-wordmark-ink.png" download>PNG</a>
+            </div>
+          </div>
+          <div class="tile wordmark">
+            <div class="stage dark"><img src="svg/ov-cli-wordmark-white.svg" alt="" /></div>
+            <div class="meta">
+              <strong>OV CLI, white on dark</strong>
+              <a href="svg/ov-cli-wordmark-white.svg" download>SVG</a>
+              <a href="png/ov-cli-wordmark-white.png" download>PNG</a>
+            </div>
+          </div>
+          <div class="tile wordmark">
+            <div class="stage light"><img src="svg/ov-agent-wordmark.svg" alt="" /></div>
+            <div class="meta">
+              <strong>OV Agent, ink on light</strong>
+              <a href="svg/ov-agent-wordmark.svg" download>SVG</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Mark</h2>
+        <p>The letters O and V, running from mint through teal to azure. The gradient is part of the mark, so it has one version that works on light and dark.</p>
+        <div class="grid">
+          <div class="tile mark">
+            <div class="stage light"><img src="svg/ov-mark.svg" alt="" /></div>
+            <div class="meta">
+              <strong>On light</strong>
+              <a href="svg/ov-mark.svg" download>SVG</a>
+              <a href="png/ov-mark.png" download>PNG</a>
+            </div>
+          </div>
+          <div class="tile mark">
+            <div class="stage dark"><img src="svg/ov-mark.svg" alt="" /></div>
+            <div class="meta">
+              <strong>On dark</strong>
+              <a href="svg/ov-mark.svg" download>SVG</a>
+              <a href="png/ov-mark.png" download>PNG</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>App icon</h2>
+        <p>The mark on a pale rounded square. This is the favicon and the home screen icon of OV Agent.</p>
+        <div class="grid">
+          <div class="tile icon">
+            <div class="stage light"><img src="svg/ov-icon.svg" alt="" /></div>
+            <div class="meta">
+              <strong>Icon</strong>
+              <a href="svg/ov-icon.svg" download>SVG</a>
+              <a href="png/ov-icon-512.png" download>512</a>
+              <a href="png/ov-apple-touch-icon.png" download>180</a>
+              <a href="png/ov-favicon-32.png" download>32</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Color</h2>
+        <p>Mint to azure is the brand. Click a color to copy its hex value.</p>
+        <div class="swatches">
+          <button class="swatch" data-hex="#46d39c">
+            <span style="background: #46d39c"></span>
+            <div>Mint<code>#46d39c</code></div>
+          </button>
+          <button class="swatch" data-hex="#38bbb5">
+            <span style="background: #38bbb5"></span>
+            <div>Teal<code>#38bbb5</code></div>
+          </button>
+          <button class="swatch" data-hex="#208ddf">
+            <span style="background: #208ddf"></span>
+            <div>Azure<code>#208ddf</code></div>
+          </button>
+          <button class="swatch" data-hex="#110f4c">
+            <span style="background: #110f4c"></span>
+            <div>Ink<code>#110f4c</code></div>
+          </button>
+          <button class="swatch" data-hex="#0c0b33">
+            <span style="background: #0c0b33"></span>
+            <div>Night<code>#0c0b33</code></div>
+          </button>
+          <button class="swatch" data-hex="#f5f7fb">
+            <span style="background: #f5f7fb"></span>
+            <div>Canvas<code>#f5f7fb</code></div>
+          </button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Imagery</h2>
+        <p>One family only: soft gradient fields that run from mint through teal to azure, with fine grain. Each image has a light and a dark version; use the one that matches the theme around it. Never mix in 3D renders, flat illustrations or stock photos.</p>
+        <div class="grid">
+          <div class="tile">
+            <div class="stage art"><img src="art/gradient-wide.webp" alt="" /></div>
+            <div class="meta">
+              <strong>Wide, light theme</strong>
+              <a href="art/gradient-wide.webp" download>WebP</a>
+            </div>
+          </div>
+          <div class="tile">
+            <div class="stage art"><img src="art/gradient-tall.webp" alt="" /></div>
+            <div class="meta">
+              <strong>Tall, light theme</strong>
+              <a href="art/gradient-tall.webp" download>WebP</a>
+            </div>
+          </div>
+          <div class="tile">
+            <div class="stage art"><img src="art/gradient-wide-dark.webp" alt="" /></div>
+            <div class="meta">
+              <strong>Wide, dark theme</strong>
+              <a href="art/gradient-wide-dark.webp" download>WebP</a>
+            </div>
+          </div>
+          <div class="tile">
+            <div class="stage art"><img src="art/gradient-tall-dark.webp" alt="" /></div>
+            <div class="meta">
+              <strong>Tall, dark theme</strong>
+              <a href="art/gradient-tall-dark.webp" download>WebP</a>
+            </div>
+          </div>
+        </div>
+        <p class="recipe">To generate more in the same family, prompt for: an abstract soft luminous gradient mesh, blending mint green, teal and azure blue on a pale near-white base, smooth blurred color fields with fine film grain, no text, no objects. For the dark version, ask for a deep midnight indigo base with glowing mint and azure fields.</p>
+      </section>
+
+      <section>
+        <h2>Type</h2>
+        <p>Poppins for names and headings, JetBrains Mono for commands and output.</p>
+        <div class="type">
+          <p class="display">Every endpoint as a command.</p>
+          <p class="body">Poppins for headings and body text, in the muted ink color when it is secondary.</p>
+          <code>$ ov --help</code>
+        </div>
+      </section>
+
+      <section>
+        <h2>Using the logo</h2>
+        <ul class="rules">
+          <li><b>Keep the gradient.</b>The mark is never flattened to one color, recolored or outlined.</li>
+          <li><b>Give it room.</b>Leave clear space of at least the width of the letter "O" on every side.</li>
+          <li><b>Keep it legible.</b>The wordmark is at least 96 pixels wide. Below that, use the mark.</li>
+          <li><b>Ink or white lettering.</b>The product name next to the mark is ink on light and white on dark, nothing else.</li>
+          <li><b>Do not reshape it.</b>No stretching, rotating or changing the spacing between the mark and the name.</li>
+          <li><b>Say it is unofficial.</b>OV CLI is not a OneVizion product. Never place it next to OneVizion logos as if it were.</li>
+        </ul>
+      </section>
+
+      <footer>OV CLI brand assets. SVG files are the source; PNG files are exported from them.</footer>
+    </main>
+    <script>
+      document.querySelectorAll('.swatch').forEach((swatch) => {
+        swatch.addEventListener('click', async () => {
+          const code = swatch.querySelector('code')
+          await navigator.clipboard.writeText(swatch.dataset.hex)
+          code.textContent = 'Copied'
+          setTimeout(() => (code.textContent = swatch.dataset.hex), 1200)
+        })
+      })
+    </script>
+  </body>
+</html>

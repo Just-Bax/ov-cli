@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<defs>
+	<linearGradient id="Gradient1" gradientUnits="userSpaceOnUse" x1="564.602" y1="469.239" x2="737.423" y2="496.606">
+		<stop class="stop0" offset="0" stop-opacity="1" stop-color="rgb(66,195,176)"/>
+		<stop class="stop1" offset="1" stop-opacity="1" stop-color="rgb(34,157,216)"/>
+	</linearGradient>
+	<linearGradient id="Gradient2" gradientUnits="userSpaceOnUse" x1="368.938" y1="483.626" x2="598.062" y2="482.368">
+		<stop class="stop0" offset="0" stop-opacity="1" stop-color="rgb(74,219,161)"/>
+		<stop class="stop1" offset="1" stop-opacity="1" stop-color="rgb(56,184,185)"/>
+	</linearGradient>
+</defs>
+<rect width="512" height="512" rx="112" fill="#eceff1"/>
+<g transform="translate(-264.01 -169.01) scale(0.8787)">
+<path transform="translate(0,0)" fill="url(#Gradient2)" fill-rule="evenodd" d="M 468.25 367.16 C 532.452 358.594 591.467 403.631 600.149 467.818 C 608.831 532.005 563.902 591.101 499.731 599.9 C 435.395 608.721 376.113 563.651 367.408 499.299 C 358.704 434.947 403.882 375.747 468.25 367.16 z M 482.061 422.386 C 554.982 422.189 561.621 532.016 490.47 543.215 C 456.597 543.82 433.731 525.038 430.037 491.264 C 426.148 455.71 443.558 425.779 482.061 422.386 z"/>
+<path transform="translate(0,0)" fill="url(#Gradient1)" d="M 576.98 370.998 L 643.317 370.999 C 646.579 382.989 651.21 394.68 655.138 406.468 C 676.529 470.664 701.114 533.303 725.636 596.321 L 660.79 596.055 C 635.823 522.953 604.525 443.8 576.98 370.998 z"/>
+<path transform="translate(0,0)" fill="rgb(19,162,233)" d="M 757.774 371.02 L 824.826 370.901 C 799.149 431.169 773.914 491.625 749.123 552.263 L 738.617 578.598 C 727.691 552.681 716.546 526.858 705.185 501.129 C 722.66 457.931 739.854 413.965 757.774 371.02 z"/>
+</g>
+</svg>

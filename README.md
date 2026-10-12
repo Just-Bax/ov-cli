@@ -4,6 +4,8 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#install)
 
+[Install](#install) | [Sign in](#sign-in) | [Full API coverage](#full-api-coverage) | [Sending data](#sending-data) | [Settings](#settings) | [Read-only mode](#read-only-mode) | [The agent](#the-agent) | [Exit codes](#exit-codes) | [Use from an AI agent](#use-from-an-ai-agent) | [Contributing](#contributing)
+
 Command line client for the [OneVizion](https://onevizion.com) API.
 
 Installs as the package `ov-cli` and gives you an `ov` command.
@@ -652,6 +654,8 @@ network. `test_login_browser.py` is the exception: it starts a real headless Chr
 against a local stand-in for OneVizion, because the sign-in wait depends on how Playwright
 delivers browser events and that cannot be checked with fakes. It skips itself if the
 browser is not installed.
+
+The wordmark, mark, app icon, colors and artwork are in `brand/`; open `brand/index.html`.
 
 ## License
 
