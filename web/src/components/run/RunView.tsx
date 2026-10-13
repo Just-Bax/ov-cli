@@ -26,6 +26,7 @@ import { FindBar } from './FindBar'
 import { InstanceChip } from './InstanceChip'
 import { WatchChip, WatchDialog } from './WatchButton'
 import { RunMenu } from '@/components/RunMenu'
+import { layerOpen } from '@/lib/layers'
 import { OPEN_FIND } from '@/components/CommandPalette'
 import { ThreadRail } from './ThreadRail'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
@@ -279,10 +280,17 @@ export function RunView({ id }: { id: string }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.code !== 'KeyF') return
+      const open = document.querySelector<HTMLInputElement>('input[aria-label="Find in thread"]')
+      if (open) {
         e.preventDefault()
-        setFinding(true)
+        open.focus()
+        open.select()
+        return
       }
+      if (layerOpen() || (e.target as HTMLElement | null)?.closest?.('.monaco-editor')) return
+      e.preventDefault()
+      setFinding(true)
     }
     const onFind = () => setFinding(true)
     window.addEventListener('keydown', onKey)

@@ -6,6 +6,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui'
+import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 
 type Tone = 'default' | 'danger' | 'warn'
@@ -56,6 +57,7 @@ export function DialogHost() {
   const [queue, setQueue] = useState<DialogRequest[]>([])
   const [shown, setShown] = useState(false)
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const closed = useRef<DialogRequest | undefined>(undefined)
   const current = queue[0]
 
   useEffect(() => {
@@ -70,20 +72,14 @@ export function DialogHost() {
 
     const frame = requestAnimationFrame(() => setShown(true))
     confirmRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close(false)
-      if (e.key === 'Enter') close(true)
-    }
-    window.addEventListener('keydown', onKey)
-
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => cancelAnimationFrame(frame)
   }, [current])
 
+  useLayer(() => current?.cancelLabel !== null && close(false), Boolean(current))
+
   const close = (ok: boolean) => {
-    if (!current) return
+    if (!current || closed.current === current) return
+    closed.current = current
     current.resolve(ok)
     setShown(false)
     setQueue((q) => q.slice(1))

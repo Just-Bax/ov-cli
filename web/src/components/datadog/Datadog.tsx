@@ -22,6 +22,7 @@ import { Button, Card, Chip, IconBadge, Select, Skeleton, Spinner, timeAgo } fro
 import { api } from '@/lib/api'
 import { useUnsavedWarning } from '@/lib/unsaved'
 import { hostsIn, roleOf, scopeOf, shortHost } from '@/lib/servers'
+import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 import { reportError } from '@/components/Toasts'
 
@@ -182,14 +183,10 @@ export function DatadogConnectModal({
     setAppKey('')
     setError(undefined)
     const frame = requestAnimationFrame(() => setShown(true))
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !busy && onClose()
-    window.addEventListener('keydown', onKey)
-
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => cancelAnimationFrame(frame)
   }, [open])
+
+  useLayer(() => !busy && onClose(), open)
 
   if (!open) return null
 

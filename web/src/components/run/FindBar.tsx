@@ -9,6 +9,7 @@ import { reportError } from '@/components/Toasts'
 import { Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { useLayer } from '@/lib/layers'
 
 const SEARCH_DELAY_MS = 200
 const MATCH = 'ov-find'
@@ -70,6 +71,8 @@ export function FindBar({
   const input = useRef<HTMLInputElement>(null)
   const startRef = useRef(start)
   startRef.current = start
+
+  useLayer(onClose)
 
   useEffect(() => {
     input.current?.focus()
@@ -135,7 +138,6 @@ export function FindBar({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Escape') onClose()
           if (e.key === 'Enter') {
             e.preventDefault()
             step(e.shiftKey ? 1 : -1)

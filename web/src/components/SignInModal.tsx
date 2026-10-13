@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom'
 import { RemoteScreen, SCREEN_BAR_PX, screenSize } from '@/components/RemoteScreen'
 import { Button, Input, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
+import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 import { reportError } from '@/components/Toasts'
 
@@ -133,13 +134,7 @@ export function SignInModal({
     return () => clearInterval(timer)
   }, [phase])
 
-  useEffect(() => {
-    if (!target) return
-
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [target, onClose])
+  useLayer(onClose, Boolean(target))
 
   if (!target) return null
 

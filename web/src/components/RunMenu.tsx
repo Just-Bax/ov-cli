@@ -16,6 +16,7 @@ import type { RunSummary } from '@shared/types.ts'
 import { reportError } from '@/components/Toasts'
 import { Button } from '@/components/ui'
 import { api } from '@/lib/api'
+import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 import { setPinned, setSettled, setSnoozed } from '@/lib/runs'
 
@@ -217,16 +218,15 @@ export function RunMenu({
       if (!menu.current?.contains(e.target as Node) && !trigger.current?.contains(e.target as Node))
         close()
     }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
     document.addEventListener('mousedown', outside)
     document.addEventListener('scroll', outside, true)
-    window.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('mousedown', outside)
       document.removeEventListener('scroll', outside, true)
-      window.removeEventListener('keydown', onKey)
     }
   }, [pos])
+
+  useLayer(close, Boolean(pos))
 
   const act = (work: () => Promise<void> | void) => {
     close()

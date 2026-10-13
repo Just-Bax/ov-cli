@@ -15,6 +15,7 @@ import { AccountRow, CollapseButton, KeyField, useOpen } from '@/components/data
 import { dialog } from '@/components/Dialog'
 import { Button, Card, Chip, IconBadge, Input, Skeleton, Spinner, timeAgo } from '@/components/ui'
 import { api } from '@/lib/api'
+import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 import { reportError } from '@/components/Toasts'
 
@@ -77,14 +78,10 @@ function PagerDutyConnectModal({
     setApiKey('')
     setError(undefined)
     const frame = requestAnimationFrame(() => setShown(true))
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !busy && onClose()
-    window.addEventListener('keydown', onKey)
-
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => cancelAnimationFrame(frame)
   }, [open])
+
+  useLayer(() => !busy && onClose(), open)
 
   if (!open) return null
 

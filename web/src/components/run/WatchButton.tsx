@@ -1,10 +1,11 @@
 import { Eye as EyeIcon, X as XMarkIcon } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { RunWatch } from '@shared/types.ts'
 import { reportError } from '@/components/Toasts'
 import { Button, Textarea } from '@/components/ui'
 import { api } from '@/lib/api'
+import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 
 const EVERY_MINUTES = [5, 15, 30, 60]
@@ -71,11 +72,7 @@ export function WatchDialog({ runId, onClose }: { runId: string; onClose: () => 
   const [hours, setHours] = useState(4)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useLayer(onClose)
 
   const start = async () => {
     setSaving(true)

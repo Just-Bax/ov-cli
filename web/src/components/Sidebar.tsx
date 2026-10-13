@@ -26,6 +26,7 @@ import { TOGGLE_SIDEBAR } from '@/components/CommandPalette'
 import { EditableTitle } from '@/components/EditableTitle'
 import { Skeleton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
+import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
 import { prefetchRun } from '@/lib/useRun'
@@ -379,12 +380,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const routeKey = JSON.stringify(route)
   useEffect(() => setDrawer(false), [routeKey, docked])
 
-  useEffect(() => {
-    if (!overlay) return
-    const close = (e: KeyboardEvent) => e.key === 'Escape' && setDrawer(false)
-    document.addEventListener('keydown', close)
-    return () => document.removeEventListener('keydown', close)
-  }, [overlay])
+  useLayer(() => setDrawer(false), overlay)
   const [settledOpen, setSettledOpen] = useState(
     () => localStorage.getItem(SETTLED_OPEN_KEY) === '1',
   )

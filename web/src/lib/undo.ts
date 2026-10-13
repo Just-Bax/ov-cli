@@ -4,27 +4,17 @@ const UNDO_MS = 5000
 
 let last: { undo: () => Promise<void>; toast: number; at: number } | undefined
 
-function editable(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null
-  return Boolean(
-    el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable),
-  )
+export function canUndo(): boolean {
+  return Boolean(last && Date.now() - last.at <= UNDO_MS)
 }
 
-function runUndo() {
+export function runUndo(): void {
   const action = last
   last = undefined
   if (!action || Date.now() - action.at > UNDO_MS) return
   dismissToast(action.toast)
   void action.undo().catch(reportError)
 }
-
-window.addEventListener('keydown', (e) => {
-  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return
-  if (editable(e.target) || !last) return
-  e.preventDefault()
-  runUndo()
-})
 
 export function remember(message: string, undo: () => Promise<void>): void {
   if (last) dismissToast(last.toast)

@@ -3,10 +3,11 @@ import {
   EnvelopeSimple as EnvelopeIcon,
   X as XMarkIcon,
 } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, CopyButton, Skeleton } from '@/components/ui'
 import { api } from '@/lib/api'
+import { useLayer } from '@/lib/layers'
 
 export function ReplyDraft({
   runId,
@@ -20,6 +21,7 @@ export function ReplyDraft({
   const [text, setText] = useState('')
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(true)
+  const edited = useRef(false)
 
   const draft = () => {
     setLoading(true)
@@ -33,11 +35,7 @@ export function ReplyDraft({
 
   useEffect(draft, [runId, messageId])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useLayer(() => !edited.current && onClose())
 
   return createPortal(
     <div
@@ -81,7 +79,10 @@ export function ReplyDraft({
           ) : (
             <textarea
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                edited.current = true
+                setText(e.target.value)
+              }}
               aria-label="Reply text"
               className="border-line-strong focus:border-brand text-fg block field-sizing-content min-h-[200px] w-full resize-none rounded-2xl border px-4 py-3 text-[13.5px] leading-relaxed outline-none"
             />

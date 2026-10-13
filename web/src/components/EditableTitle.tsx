@@ -54,7 +54,10 @@ export function EditableTitle({
       onKeyDown={(e) => {
         e.stopPropagation()
         if (e.key === 'Enter') void commit()
-        if (e.key === 'Escape') setEditing(false)
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setEditing(false)
+        }
       }}
       onBlur={() => void commit()}
       className={cn(

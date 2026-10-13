@@ -22,6 +22,8 @@ import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
 import { go, type Route } from '@/lib/route'
 import { useRuns } from '@/lib/runs'
+import { layerOpen, useLayer } from '@/lib/layers'
+import { canUndo, runUndo } from '@/lib/undo'
 
 const MAX_THREADS = 30
 const THREAD_JUMPS = 9
@@ -85,27 +87,37 @@ export function CommandPalette({ route }: { route: Route }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase()
-      if ((e.ctrlKey || e.metaKey) && key === 'k') {
+      if (e.isComposing || e.defaultPrevented) return
+      const command = e.ctrlKey || e.metaKey
+      const inEditor = (e.target as HTMLElement | null)?.closest?.('.monaco-editor')
+      if (command && !e.shiftKey && !e.altKey && e.code === 'KeyK' && !inEditor) {
+        if (layerOpen() && !open) return
         e.preventDefault()
         setHelp(false)
         setOpen((v) => !v)
         return
       }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'b') {
+      if (layerOpen() || editable(e.target)) return
+      if (command && !e.shiftKey && !e.altKey && e.code === 'KeyZ' && canUndo()) {
+        e.preventDefault()
+        runUndo()
+        return
+      }
+      if (command && !e.shiftKey && !e.altKey && e.code === 'KeyB') {
         e.preventDefault()
         window.dispatchEvent(new Event(TOGGLE_SIDEBAR))
         return
       }
-      if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        if (key === 'n') {
+      if (e.altKey && !command && !e.shiftKey) {
+        const digit = /^Digit([1-9])$/.exec(e.code)
+        if (e.code === 'KeyN') {
           e.preventDefault()
           go({ page: 'home' })
-        } else if (key === 's' && runId) {
+        } else if (e.code === 'KeyS' && runId) {
           e.preventDefault()
           void api.cancel(runId).catch(reportError)
-        } else if (/^[1-9]$/.test(e.key)) {
-          const target = sidebarOrder(list?.active ?? [])[Number(e.key) - 1]
+        } else if (digit) {
+          const target = sidebarOrder(list?.active ?? [])[Number(digit[1]) - 1]
           if (target) {
             e.preventDefault()
             go({ page: 'run', id: target.id })
@@ -113,7 +125,7 @@ export function CommandPalette({ route }: { route: Route }) {
         }
         return
       }
-      if (e.key === '?' && !editable(e.target)) {
+      if (e.key === '?') {
         e.preventDefault()
         setOpen(false)
         setHelp((v) => !v)
@@ -121,7 +133,9 @@ export function CommandPalette({ route }: { route: Route }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [runId, list])
+  }, [runId, list, open])
+
+  useLayer(() => setOpen(false), open)
 
   useEffect(() => {
     if (!open) return
@@ -279,8 +293,7 @@ export function CommandPalette({ route }: { route: Route }) {
               setActive(0)
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setOpen(false)
-              else if (e.key === 'ArrowDown') {
+              if (e.key === 'ArrowDown') {
                 e.preventDefault()
                 setActive((i) => Math.min(visible.length - 1, i + 1))
               } else if (e.key === 'ArrowUp') {
@@ -341,11 +354,7 @@ export function CommandPalette({ route }: { route: Route }) {
 }
 
 function ShortcutsDialog({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useLayer(onClose)
 
   return createPortal(
     <div

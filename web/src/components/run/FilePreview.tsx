@@ -15,6 +15,7 @@ import { reportError } from '@/components/Toasts'
 import { Spinner } from '@/components/ui'
 import type { Icon } from '@/components/ui'
 import { api } from '@/lib/api'
+import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 
 const MAX_TEXT_CHARS = 400_000
@@ -235,19 +236,22 @@ export function FilePreview({
   const many = files.length > 1
   const step = (by: number) => setIndex((i) => (i + by + files.length) % files.length)
 
+  useLayer(onClose)
+
   useEffect(() => {
     const frame = requestAnimationFrame(() => setShown(true))
+    return () => cancelAnimationFrame(frame)
+  }, [])
+
+  useEffect(() => {
+    if (!many) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      if (e.key === 'ArrowLeft' && many) step(-1)
-      if (e.key === 'ArrowRight' && many) step(1)
+      if (e.key === 'ArrowLeft') setIndex((i) => (i - 1 + files.length) % files.length)
+      if (e.key === 'ArrowRight') setIndex((i) => (i + 1) % files.length)
     }
     window.addEventListener('keydown', onKey)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('keydown', onKey)
-    }
-  })
+    return () => window.removeEventListener('keydown', onKey)
+  }, [many, files.length])
 
   if (!file) throw new Error(`No file at ${index}`)
   const Icon = KIND_ICON[file.kind]
