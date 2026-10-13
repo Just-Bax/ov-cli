@@ -148,7 +148,7 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
       if (!msg?.text.trim()) return null
       return (
         <div className="text-fg">
-          <Markdown text={msg.text} />
+          <Markdown text={msg.text} links={msg.links} />
         </div>
       )
     }

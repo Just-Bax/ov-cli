@@ -79,9 +79,10 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
                 role: 'assistant' as const,
                 text: event.text,
                 ts: event.ts ?? ts,
+                links: event.links,
               },
             ]
-          : state.chat.map((m, j) => (j === i ? { ...m, text: event.text } : m))
+          : state.chat.map((m, j) => (j === i ? { ...m, text: event.text, links: event.links } : m))
 
       return { ...state, chat, items: withItem(state.items, { kind: 'text', id: event.messageId }) }
     }

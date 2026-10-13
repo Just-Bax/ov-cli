@@ -436,6 +436,9 @@
   .-ml-2 {
     margin-left: calc(var(--spacing) * -2);
   }
+  .ml-0\.5 {
+    margin-left: calc(var(--spacing) * 0.5);
+  }
   .ml-1 {
     margin-left: var(--spacing);
   }
@@ -477,6 +480,9 @@
   }
   .hidden {
     display: none;
+  }
+  .inline {
+    display: inline;
   }
   .inline-block {
     display: inline-block;
@@ -1736,6 +1742,9 @@
   .text-right {
     text-align: right;
   }
+  .align-\[-1px\] {
+    vertical-align: -1px;
+  }
   .font-mono {
     font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
   }
@@ -1929,6 +1938,18 @@
   }
   .line-through {
     text-decoration-line: line-through;
+  }
+  .underline {
+    text-decoration-line: underline;
+  }
+  .decoration-warn {
+    text-decoration-color: #e46b00;
+  }
+  .decoration-dotted {
+    text-decoration-style: dotted;
+  }
+  .underline-offset-2 {
+    text-underline-offset: 2px;
   }
   .opacity-0 {
     opacity: 0%;

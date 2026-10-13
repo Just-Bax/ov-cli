@@ -88,9 +88,15 @@ def _on_message(state: State, stored: Stored) -> None:
             message["text"] = event["text"]
             break
     else:
-        state["chat"].append(
-            {"id": event["messageId"], "role": "assistant", "text": event["text"], "ts": event.get("ts", stored["ts"])}
-        )
+        message = {
+            "id": event["messageId"],
+            "role": "assistant",
+            "text": event["text"],
+            "ts": event.get("ts", stored["ts"]),
+        }
+        state["chat"].append(message)
+    if event.get("links"):
+        message["links"] = event["links"]
     _add_item(state, "text", event["messageId"])
 
 

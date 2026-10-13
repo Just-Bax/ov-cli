@@ -101,6 +101,12 @@ export interface ChatMessage {
   ts: number
   files?: MessageFile[]
   steer?: boolean
+  links?: MessageLinks
+}
+
+export interface MessageLinks {
+  mentions: { text: string; url: string }[]
+  unverified: string[]
 }
 
 export type RunEvent =
@@ -108,7 +114,7 @@ export type RunEvent =
   | { type: 'meta'; title?: string; caseKey?: string; caseUrl?: string; instance?: string }
   | { type: 'tool'; tool: ToolActivity }
   | { type: 'text'; messageId: string; delta: string }
-  | { type: 'message'; messageId: string; text: string; ts?: number }
+  | { type: 'message'; messageId: string; text: string; ts?: number; links?: MessageLinks }
   | { type: 'user'; message: ChatMessage }
   | { type: 'change'; change: Change }
   | { type: 'edit'; edit: FileEdit }

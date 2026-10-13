@@ -1,4 +1,4 @@
-import { CheckIcon, Square2StackIcon } from '@heroicons/react/24/outline'
+import { CheckIcon, ExclamationTriangleIcon, Square2StackIcon } from '@heroicons/react/24/outline'
 import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
@@ -7,7 +7,9 @@ import {
   useState,
   type CSSProperties,
   memo,
+  useMemo,
 } from 'react'
+import type { MessageLinks } from '@shared/types.ts'
 import type { SparklesIcon } from '@heroicons/react/24/outline'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -248,17 +250,66 @@ const MARKDOWN_COMPONENTS: Components = {
   a: ({ node: _node, ...p }) => <a {...p} target="_blank" rel="noreferrer" />,
 }
 
+const CODE_SPANS = /(```[\s\S]*?```|`[^`\n]*`)/
+const UNVERIFIED_TITLE =
+  "This ID did not show up in the agent's tool results. Check it before relying on the link."
+
+function escaped(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function withMentions(text: string, links?: MessageLinks): string {
+  if (!links?.mentions.length) return text
+  return text
+    .split(CODE_SPANS)
+    .map((part, i) => {
+      if (i % 2) return part
+      let out = part
+      for (const m of links.mentions)
+        out = out.replace(
+          new RegExp(`(?<![\\[\\w/=])${escaped(m.text)}(?![\\w\\]])`, 'g'),
+          `[${m.text}](${m.url})`,
+        )
+      return out
+    })
+    .join('')
+}
+
 export const Markdown = memo(function Markdown({
   text,
   className,
+  links,
 }: {
   text: string
   className?: string
+  links?: MessageLinks
 }) {
+  const components = useMemo<Components>(() => {
+    const flagged = new Set(links?.unverified ?? [])
+    if (!flagged.size) return MARKDOWN_COMPONENTS
+    return {
+      a: ({ node: _node, ...p }) =>
+        p.href && flagged.has(p.href) ? (
+          <a
+            {...p}
+            target="_blank"
+            rel="noreferrer"
+            title={UNVERIFIED_TITLE}
+            className="decoration-warn underline decoration-dotted underline-offset-2"
+          >
+            {p.children}
+            <ExclamationTriangleIcon className="text-warn ml-0.5 inline size-3 align-[-1px]" />
+          </a>
+        ) : (
+          <a {...p} target="_blank" rel="noreferrer" />
+        ),
+    }
+  }, [links])
+
   return (
     <div className={cn('md', className)}>
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
-        {text}
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+        {withMentions(text, links)}
       </ReactMarkdown>
     </div>
   )

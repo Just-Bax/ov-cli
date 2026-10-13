@@ -16,8 +16,9 @@ from typing import Any
 
 from . import cases, copilot, db
 from .cancel import Cancel
+from .links import links_for, seen_ids
+from .ovproc import find_instance, url_for
 from .ovproc import login as ov_login
-from .ovproc import url_for
 from .prompt import system_prompt
 from .runfiles import (
     IMAGE_EXTS,
@@ -223,8 +224,21 @@ class Run:
         with self._lock:
             self._streaming = None
             message = next((m for m in self.state["chat"] if m["id"] == message_id), None)
-        if message is not None:
-            self.emit({"type": "message", "messageId": message_id, "text": message["text"], "ts": message["ts"]})
+        if message is None:
+            return
+        event: dict[str, Any] = {
+            "type": "message",
+            "messageId": message_id,
+            "text": message["text"],
+            "ts": message["ts"],
+        }
+        found = find_instance(self.instance) if self.instance else None
+        if found is not None:
+            with self._lock:
+                linked = links_for(message["text"], found["host"], seen_ids(self.state))
+            if linked["mentions"] or linked["unverified"]:
+                event["links"] = linked
+        self.emit(event)
 
     def _record_usage(self, model: str, kind: str, usage: copilot.Usage | None) -> None:
         if usage is None:
