@@ -94,8 +94,9 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
   return pinned.length ? [['Pinned', pinned], ...rest] : rest
 }
 
-function Avatar({ user }: { user?: string }) {
+function Avatar({ user, loading }: { user?: string; loading?: boolean }) {
   const [broken, setBroken] = useState(false)
+  if (loading) return <Skeleton className="size-8 rounded-full" />
   if (!user || broken)
     return (
       <span className="bg-brand-soft text-brand-strong flex size-8 items-center justify-center rounded-full text-[13px] font-semibold">
@@ -264,10 +265,6 @@ function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
 
 function storedCollapsed(): boolean {
   return localStorage.getItem(COLLAPSED_KEY) === '1'
-}
-
-export function isSidebarCollapsed(): boolean {
-  return !matchMedia(DOCK_QUERY).matches || storedCollapsed()
 }
 
 function useDocked(): boolean {
@@ -498,7 +495,15 @@ function ShelfToggle({
   )
 }
 
-export function Sidebar({ route, user }: { route: Route; user?: string }) {
+export function Sidebar({
+  route,
+  user,
+  loading,
+}: {
+  route: Route
+  user?: string
+  loading?: boolean
+}) {
   const list = useRuns()
   const [showAll, setShowAll] = useState(false)
   const [pinnedCollapsed, setCollapsed] = useState(storedCollapsed)
@@ -845,7 +850,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
               )}
             >
-              <Avatar user={user} />
+              <Avatar user={user} loading={loading} />
               <RailTip at={settingsTip.at}>Settings</RailTip>
             </a>
           </div>
@@ -858,13 +863,20 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
               )}
             >
-              <Avatar user={user} />
-              <span className="min-w-0">
-                <span className="text-fg block truncate text-[13px] font-medium">
-                  {user ?? 'Not signed in'}
+              <Avatar user={user} loading={loading} />
+              {loading ? (
+                <span className="space-y-1.5">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-2.5 w-24" />
                 </span>
-                <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
-              </span>
+              ) : (
+                <span className="min-w-0">
+                  <span className="text-fg block truncate text-[13px] font-medium">
+                    {user ?? 'Not signed in'}
+                  </span>
+                  <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
+                </span>
+              )}
             </a>
             <a
               href={href({ page: 'settings' })}

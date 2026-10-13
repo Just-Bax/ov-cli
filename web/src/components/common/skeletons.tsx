@@ -79,6 +79,28 @@ export function ComposerSkeleton() {
   )
 }
 
+export function HomeSkeleton() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-6 py-12">
+      <div className="w-full max-w-[760px]">
+        <Skeleton className="mx-auto mb-6 h-7 w-[440px] max-w-full rounded-full" />
+        <div className="border-line-strong/60 rounded-[28px] border bg-white">
+          <div className="min-h-[72px] px-4 pt-4">
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+          <div className="flex items-center gap-2 px-3 pb-3">
+            <Skeleton className="size-8 rounded-full" />
+            <Skeleton className="h-8 w-32 rounded-full" />
+            <Skeleton className="h-8 w-28 rounded-full" />
+            <Skeleton className="ml-auto size-8 rounded-full" />
+          </div>
+        </div>
+        <Skeleton className="mx-auto mt-3 h-2.5 w-80" />
+      </div>
+    </div>
+  )
+}
+
 export function ExplorerSkeleton() {
   return (
     <div className="flex h-full min-h-[480px]">

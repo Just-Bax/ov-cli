@@ -4,12 +4,10 @@ import { CommandPalette } from '@/components/layout/CommandPalette'
 import { DialogHost } from '@/components/common/Dialog'
 import { Home } from '@/components/home/Home'
 import { RunView } from '@/components/run/RunView'
-import mark from '@/assets/ov-mark.svg'
-import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { Setup } from '@/components/settings/Setup'
-import { isSidebarCollapsed, Sidebar } from '@/components/layout/Sidebar'
+import { Sidebar } from '@/components/layout/Sidebar'
 import { Toasts } from '@/components/common/Toasts'
-import { Skeleton } from '@/components/common/ui'
+import { HomeSkeleton } from '@/components/common/skeletons'
 import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
 import { SettingsContext } from '@/lib/settings'
@@ -23,13 +21,6 @@ const HealthPage = lazy(() =>
 )
 const SettingsPage = lazy(() =>
   import('@/components/settings/Settings').then((m) => ({ default: m.SettingsPage })),
-)
-
-const PAGE_FALLBACK = (
-  <div className="h-full space-y-3 bg-white p-6">
-    <Skeleton className="h-10 w-1/3 rounded-full" />
-    <Skeleton className="h-[60vh] w-full rounded-2xl" />
-  </div>
 )
 
 export function App() {
@@ -69,55 +60,15 @@ export function App() {
     )
   }
 
-  if (!status) {
+  if (!status)
     return (
       <div className="flex h-full">
-        <aside
-          className={`border-line-strong/60 flex shrink-0 flex-col overflow-hidden border-r bg-white ${isSidebarCollapsed() ? 'w-[72px]' : 'w-[320px]'}`}
-        >
-          {isSidebarCollapsed() ? (
-            <div className="flex h-16 items-center justify-center">
-              <img src={mark} alt="OV Agent" className="h-[26px] w-auto" />
-            </div>
-          ) : (
-            <div className="flex h-16 items-center px-5">
-              <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto" />
-            </div>
-          )}
-          <div className="px-3">
-            <Skeleton className="h-10 w-full rounded-full" />
-          </div>
-          <div className="mt-6 space-y-4 px-5">
-            {['w-4/5', 'w-3/5', 'w-11/12', 'w-2/3'].map((w) => (
-              <Skeleton key={w} className={`h-3 ${w}`} />
-            ))}
-          </div>
-        </aside>
-        <main className="flex flex-1 items-center justify-center bg-white">
-          <div className="w-full max-w-[720px] px-6">
-            <Skeleton className="mx-auto h-7 w-[420px] max-w-full rounded-full" />
-            <div className="border-line mt-6 rounded-[26px] border p-4 shadow-[0_2px_12px_rgba(38,50,56,0.04)]">
-              <Skeleton className="h-3.5 w-2/3" />
-              <div className="mt-8 flex items-center gap-2">
-                <Skeleton className="size-7 rounded-full" />
-                <Skeleton className="h-3 w-32" />
-                <div className="flex-1" />
-                <Skeleton className="size-8 rounded-full" />
-              </div>
-            </div>
-            <div className="mt-8 grid grid-cols-2 gap-2">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="border-line space-y-2 rounded-2xl border p-3">
-                  <Skeleton className="h-2.5 w-24" />
-                  <Skeleton className="h-3 w-11/12" />
-                </div>
-              ))}
-            </div>
-          </div>
+        <Sidebar route={route} loading />
+        <main className="min-w-0 flex-1 bg-white">
+          {route.page === 'home' ? <HomeSkeleton /> : null}
         </main>
       </div>
     )
-  }
 
   if (!status.ready || inSetup)
     return (
@@ -136,7 +87,7 @@ export function App() {
           key={route.page === 'thread' ? `run-${route.id}` : route.page}
           className="animate-fade-in min-w-0 flex-1 bg-white"
         >
-          <Suspense fallback={PAGE_FALLBACK}>
+          <Suspense fallback={null}>
             {route.page === 'home' && <Home />}
             {route.page === 'settings' && <SettingsPage onChange={refresh} />}
             {route.page === 'map' && <MapPage />}
