@@ -76,6 +76,17 @@ function dayLabel(ts: number): string {
   })
 }
 
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+function timeLeft(until: number): string {
+  const left = Math.max(0, until - Date.now())
+  if (left < HOUR_MS) return `${Math.max(1, Math.round(left / MINUTE_MS))}m`
+  if (left < DAY_MS) return `${Math.round(left / HOUR_MS)}h`
+  return `${Math.round(left / DAY_MS)}d`
+}
+
 function group(runs: RunSummary[]): [string, RunSummary[]][] {
   const groups = new Map<string, RunSummary[]>()
   const pinned = runs.filter((r) => r.pinned)
@@ -163,8 +174,11 @@ function RunItem({
         <BookmarkIcon className="text-brand size-3.5 shrink-0 group-hover/run:hidden" />
       ) : null}
       {run.snoozedUntil ? (
-        <span className="text-faint shrink-0 text-[11px] font-normal group-hover/run:hidden">
-          {snoozeLabel(run.snoozedUntil)}
+        <span
+          title={`Snoozed until ${snoozeLabel(run.snoozedUntil)}`}
+          className="text-brand shrink-0 text-[11px] font-normal tabular-nums group-hover/run:hidden"
+        >
+          {timeLeft(run.snoozedUntil)}
         </span>
       ) : null}
       <RunMenu run={run} settled={Boolean(settled)} inRow />
@@ -368,6 +382,32 @@ function NavRow({
   )
 }
 
+function FooterLink({
+  to,
+  icon: Icon,
+  label,
+  active,
+}: {
+  to: string
+  icon: Icon
+  label: string
+  active: boolean
+}) {
+  return (
+    <a
+      href={to}
+      aria-label={label}
+      title={label}
+      className={cn(
+        'flex size-9 shrink-0 items-center justify-center rounded-full transition-colors',
+        active ? 'bg-brand-soft text-brand-strong' : 'text-muted hover:bg-canvas hover:text-fg',
+      )}
+    >
+      <Icon className="size-[17px]" />
+    </a>
+  )
+}
+
 export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const list = useRuns()
   const [showAll, setShowAll] = useState(false)
@@ -441,9 +481,9 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
         className={cn(
           'border-line-strong/60 z-20 flex shrink-0 flex-col border-r bg-white transition-[width] duration-200 ease-out',
           overlay
-            ? 'animate-slide-in fixed inset-y-0 left-0 z-50 w-[320px] shadow-[0_12px_40px_rgba(38,50,56,0.22)]'
+            ? 'animate-slide-in fixed inset-y-0 left-0 z-50 w-[352px] shadow-[0_12px_40px_rgba(38,50,56,0.22)]'
             : 'relative',
-          !overlay && (collapsed ? 'w-[72px]' : 'w-[320px]'),
+          !overlay && (collapsed ? 'w-[72px]' : 'w-[352px]'),
         )}
       >
         <div
@@ -502,24 +542,10 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             collapsed={collapsed}
           />
           <NavRow
-            to={href({ page: 'explorer' })}
-            icon={CodeBracketIcon}
-            label="Explorer"
-            active={route.page === 'explorer'}
-            collapsed={collapsed}
-          />
-          <NavRow
             to={href({ page: 'health' })}
             icon={HeartIcon}
             label="Health"
             active={route.page === 'health'}
-            collapsed={collapsed}
-          />
-          <NavRow
-            to={href({ page: 'workspace' })}
-            icon={FolderIcon}
-            label="Workspace"
-            active={route.page === 'workspace'}
             collapsed={collapsed}
           />
         </nav>
@@ -718,9 +744,22 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
               </span>
             </a>
+            <FooterLink
+              to={href({ page: 'explorer' })}
+              icon={CodeBracketIcon}
+              label="Explorer"
+              active={route.page === 'explorer'}
+            />
+            <FooterLink
+              to={href({ page: 'workspace' })}
+              icon={FolderIcon}
+              label="Workspace"
+              active={route.page === 'workspace'}
+            />
             <a
               href={href({ page: 'settings' })}
               aria-label="Settings"
+              title="Settings"
               className={cn(
                 'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors',
                 onSettings

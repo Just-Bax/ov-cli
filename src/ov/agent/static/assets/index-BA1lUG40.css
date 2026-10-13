@@ -588,6 +588,10 @@
     width: calc(var(--spacing) * 16);
     height: calc(var(--spacing) * 16);
   }
+  .size-\[17px\] {
+    width: 17px;
+    height: 17px;
+  }
   .size-\[18px\] {
     width: 18px;
     height: 18px;
@@ -911,6 +915,9 @@
   }
   .w-\[340px\] {
     width: 340px;
+  }
+  .w-\[352px\] {
+    width: 352px;
   }
   .w-\[360px\] {
     width: 360px;
