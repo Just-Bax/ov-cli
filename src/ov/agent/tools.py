@@ -84,6 +84,8 @@ class ToolContext(Protocol):
     def finish(self, outcome: dict[str, Any]) -> None: ...
     def can_write(self) -> bool: ...
     def load_case(self, ref: str) -> str: ...
+    def watch(self, prompt: str, every_minutes: int, hours: float) -> dict[str, Any]: ...
+    def unwatch(self) -> None: ...
 
 
 Handler = Callable[[dict[str, Any], ToolContext], str]
@@ -646,6 +648,27 @@ def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
     return f"Change card shown ({change['id']})."
 
 
+def _watch(args: dict[str, Any], ctx: ToolContext) -> str:
+    if args.get("stop"):
+        ctx.unwatch()
+        return "Watch stopped."
+    what = str(args.get("what") or "").strip()
+    every = int(args.get("every_minutes") or 0)
+    hours = float(args.get("hours") or 0)
+    if not what or not every or not hours:
+        raise ToolError("Give what, every_minutes and hours, or stop=true.")
+    answer = ctx.ask_user(
+        f"Check this every {every} minutes for {hours:g} hours? Each check is a new turn and uses credits.",
+        ["Approve", "Reject"],
+        False,
+        what,
+    )
+    if answer != "Approve":
+        raise ToolError("The user did not want a watch. Do not set one again unless they ask.")
+    ctx.watch(what, every, hours)
+    return f"Watching: every {every} minutes for {hours:g} hours. Each check arrives as a new message."
+
+
 def _ask_user(args: dict[str, Any], ctx: ToolContext) -> str:
     options = [str(o) for o in args["options"]]
     return f"User answered: {ctx.ask_user(str(args['question']), options, bool(args.get('multiple')))}"
@@ -1110,6 +1133,21 @@ TOOLS = [
         lambda a: f"ask: {str(a.get('question', ''))[:LABEL_CHARS]}",
         _ask_user,
         silent=True,
+    ),
+    Tool(
+        "run_watch",
+        "Recheck something later instead of polling: schedules a check every few minutes for some hours, "
+        "each one a new turn in this thread. Use it when waiting on something slow (a queue draining, a "
+        "scheduled rule or module run, a deployment). The user approves it. stop=true ends it.",
+        {
+            "what": _str("What to check and what counts as done, e.g. queue X back under 1000 rows"),
+            "every_minutes": _int("Minutes between checks, 5 to 240"),
+            "hours": {"type": "number", "description": "How long to keep checking, up to 72"},
+            "stop": {"type": "boolean", "description": "End the current watch"},
+        },
+        [],
+        lambda a: "stop watching" if a.get("stop") else f"watch every {a.get('every_minutes')} min: {a.get('what')}",
+        _watch,
     ),
     Tool(
         "run_report",
@@ -1617,7 +1655,7 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     ("Datadog", "logs, metrics, monitors, events and APM", list(DATADOG_TOOLS)),
     ("PagerDuty", "incidents and on-call; changes only while allowed", [*PAGERDUTY_TOOLS, *PAGERDUTY_WRITE_TOOLS]),
     ("Skills", "guides for each area", ["skill_read"]),
-    ("Run", "the run folder, questions to the user and the result", ["run_read", "run_ask", "run_report"]),
+    ("Run", "the run folder, questions to the user and the result", ["run_read", "run_ask", "run_watch", "run_report"]),
 ]
 
 

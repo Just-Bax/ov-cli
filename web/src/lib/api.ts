@@ -69,6 +69,9 @@ export const api = {
   copilotLogout: () => post('/copilot/logout'),
   copilotAccount: () => request<CopilotAccount>('/copilot/account'),
   cost: (range: CostRange) => request<CostReport>(`/cost?range=${range}`),
+  watch: (id: string, prompt: string, every: number, hours: number) =>
+    post(`/runs/${id}/watch`, { prompt, every, hours }),
+  unwatch: (id: string) => del(`/runs/${id}/watch`),
   pinRun: (id: string, pinned: boolean) => post(`/runs/${id}/pin`, { pinned }),
   snoozeRun: (id: string, until: number | null) => post(`/runs/${id}/snooze`, { until }),
   searchRun: (id: string, q: string) =>

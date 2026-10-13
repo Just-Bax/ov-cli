@@ -39,6 +39,7 @@ import { CostPill } from './CostPill'
 import { FilesChanged, LineCounts, summarize } from './FilesChanged'
 import { FindBar } from './FindBar'
 import { InstanceChip } from './InstanceChip'
+import { WatchButton } from './WatchButton'
 import { OPEN_FIND } from '@/components/CommandPalette'
 import { ThreadRail } from './ThreadRail'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
@@ -465,6 +466,7 @@ export function RunView({ id }: { id: string }) {
   const actions = (
     <>
       {busy && !summary.cost ? null : <CostPill runId={id} cost={summary.cost} />}
+      <WatchButton runId={id} watch={state.watch} />
       <a
         href={api.exportUrl(id)}
         download

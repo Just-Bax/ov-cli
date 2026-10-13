@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE TABLE IF NOT EXISTS conversation (run_id TEXT PRIMARY KEY, messages TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settled (run_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS watches (
+  run_id TEXT PRIMARY KEY,
+  prompt TEXT NOT NULL,
+  every_ms INTEGER NOT NULL,
+  until INTEGER NOT NULL,
+  next_at INTEGER NOT NULL,
+  fired INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS pinned (run_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS snoozed (run_id TEXT PRIMARY KEY, until INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS feedback (
@@ -432,3 +440,43 @@ def cost_report(since: int) -> dict[str, Any]:
             for run_id, nano in top
         ],
     }
+
+
+def _watch(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "prompt": row["prompt"],
+        "everyMs": row["every_ms"],
+        "until": row["until"],
+        "nextAt": row["next_at"],
+        "fired": row["fired"],
+    }
+
+
+def set_watch(run_id: str, prompt: str, every_ms: int, until: int) -> dict[str, Any]:
+    _run(
+        "INSERT OR REPLACE INTO watches (run_id, prompt, every_ms, until, next_at, fired) VALUES (?, ?, ?, ?, ?, 0)",
+        run_id,
+        prompt,
+        every_ms,
+        until,
+        now_ms() + every_ms,
+    )
+    return get_watch(run_id) or {}
+
+
+def get_watch(run_id: str) -> dict[str, Any] | None:
+    row = _one("SELECT * FROM watches WHERE run_id = ?", run_id)
+    return _watch(row) if row else None
+
+
+def clear_watch(run_id: str) -> None:
+    _run("DELETE FROM watches WHERE run_id = ?", run_id)
+
+
+def due_watches(now: int) -> list[str]:
+    return [r["run_id"] for r in _all("SELECT run_id FROM watches WHERE next_at <= ?", now)]
+
+
+def advance_watch(run_id: str, next_at: int) -> dict[str, Any] | None:
+    _run("UPDATE watches SET next_at = ?, fired = fired + 1 WHERE run_id = ?", next_at, run_id)
+    return get_watch(run_id)

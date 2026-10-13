@@ -737,6 +737,9 @@
   .min-h-\[56px\] {
     min-height: 56px;
   }
+  .min-h-\[72px\] {
+    min-height: 72px;
+  }
   .min-h-\[88px\] {
     min-height: 88px;
   }
@@ -2212,6 +2215,9 @@
     }
     .hover\:bg-brand-strong:hover {
       background-color: #1e88e5;
+    }
+    .hover\:bg-brand\/15:hover {
+      background-color: color-mix(in oklab, #42a5f5 15%, transparent);
     }
     .hover\:bg-canvas:hover {
       background-color: #eceff1;
