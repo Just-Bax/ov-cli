@@ -46,4 +46,4 @@ uv run --extra dev pytest -q
 cd web && pnpm check && pnpm build
 ```
 
-`pnpm build` writes `src/ov/agent/static`, which is committed so `pip install` ships the web app; CI checks that it matches the source.
+`pnpm build` writes `src/ov/agent/static`, which is committed so `pip install` ships the web app; rebuild and commit it with every web change.

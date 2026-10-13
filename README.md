@@ -645,8 +645,6 @@ uv run --extra dev ruff check src tests
 uv run --extra dev ruff format --check src tests
 ```
 
-CI runs the same on Windows, Linux and macOS with Python 3.11 to 3.13.
-
 The agent's UI is React in `web/`. Its build is committed to `src/ov/agent/static`, so
 installing `ov` never needs Node. After changing it:
 
@@ -658,7 +656,7 @@ pnpm check        # typecheck + prettier
 pnpm build        # writes src/ov/agent/static; commit the result
 ```
 
-CI fails if the committed build does not match `web/`.
+Run these before committing; there is no CI.
 
 The layout follows the request path: `client.py` speaks HTTP and owns the two auth
 schemes, `auth.py` mints tokens, `session.py` keeps one credential set per instance and
