@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from ...spec import METHODS, Operation
-from ..context import Context
-from ..opargs import add_invocation_flags, run_operation
+from ov.cli.context import Context
+from ov.cli.opargs import add_invocation_flags, run_operation
+from ov.onevizion.spec import METHODS, Operation
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:

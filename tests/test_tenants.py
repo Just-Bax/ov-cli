@@ -6,12 +6,12 @@ import httpx
 import pytest
 from conftest import BASE_URL, seed_session
 
-from ov import session as session_store
 from ov.cli.main import main
-from ov.client import Client
-from ov.errors import Ambiguous, NotFound, OvError
-from ov.session import Session, default_alias
-from ov.tenants import parse_program_menu, resolve_tenant
+from ov.core.errors import Ambiguous, NotFound, OvError
+from ov.onevizion import session as session_store
+from ov.onevizion.client import Client
+from ov.onevizion.session import Session, default_alias
+from ov.onevizion.tenants import parse_program_menu, resolve_tenant
 
 MENU = {"100": "North", "200": "Harbor", "300": "Metro"}
 
@@ -222,7 +222,7 @@ def tenant_server(monkeypatch):
     transport = recording_transport(calls)
 
     from ov.cli import context as context_module
-    from ov.client import Client as RealClient
+    from ov.onevizion.client import Client as RealClient
 
     def build(config, session):
         return RealClient(session, timeout=float(config.timeout_seconds), transport=transport)
@@ -286,7 +286,7 @@ def test_two_hosts_still_disambiguate_normally(ov_home):
 
 
 def test_a_tenant_login_is_stored_under_a_tenant_alias(capsys, ov_home, tenant_server, monkeypatch):
-    from ov.session import Session as S
+    from ov.onevizion.session import Session as S
 
     monkeypatch.setattr(
         "ov.cli.commands.auth._browser_login",

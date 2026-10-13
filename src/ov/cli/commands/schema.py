@@ -4,9 +4,9 @@ import argparse
 import json
 from datetime import datetime
 
-from ... import spec as spec_module
-from ..context import Context
-from ..output import build_table, emit
+from ov.cli.context import Context
+from ov.cli.output import build_table, emit
+from ov.onevizion import spec as spec_module
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:

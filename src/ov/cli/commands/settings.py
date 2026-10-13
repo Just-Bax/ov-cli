@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 
-from ... import config as config_module
-from ... import session
-from ...paths import cache_dir, config_file, downloads_dir, home, spec_dir
-from ..context import Context
-from ..output import build_table, emit
+from ov.cli.context import Context
+from ov.cli.output import build_table, emit
+from ov.core import config as config_module
+from ov.core.paths import cache_dir, config_file, downloads_dir, home, spec_dir
+from ov.onevizion import session
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:

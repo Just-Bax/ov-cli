@@ -8,9 +8,11 @@ import httpx
 import pytest
 from conftest import BASE_URL, seed_session
 
-from ov import credentials
-from ov.agent import pagerduty, prompt
-from ov.agent.tools import TOOLS_BY_NAME, ToolError, tool_specs
+from ov.agent.engine import prompt
+from ov.agent.integrations import pagerduty
+from ov.agent.tools import TOOLS_BY_NAME, tool_specs
+from ov.agent.tools.base import ToolError
+from ov.core import credentials
 
 KEY = "u+abcdefghijklmn1234"
 HOST = "acme.onevizion.test"
@@ -155,7 +157,7 @@ class FakePagerDuty:
 def fake(monkeypatch):
     pd = FakePagerDuty()
     monkeypatch.setattr(pagerduty, "TRANSPORT", httpx.MockTransport(pd.handler))
-    pagerduty._forget_caches()
+    pagerduty._health_cache.clear()
     return pd
 
 
@@ -216,8 +218,8 @@ def test_incidents_are_tied_to_instances_by_website_database_and_host(linked):
 
 
 def test_a_tenant_sees_its_host_incidents(linked):
-    from ov import session as session_store
-    from ov.session import Session
+    from ov.onevizion import session as session_store
+    from ov.onevizion.session import Session
 
     session_store.save(
         Session(
@@ -282,7 +284,7 @@ def test_health_section(linked):
 
 
 def test_the_api_never_returns_the_key(linked):
-    from ov.agent.server import AgentServer, Handler
+    from ov.agent.api.server import AgentServer, Handler
 
     httpd = AgentServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

@@ -6,14 +6,14 @@ import os
 import sys
 from typing import Any, NoReturn
 
-from .. import __version__
-from .. import config as config_module
-from ..errors import EXIT_INTERRUPTED, EXIT_USAGE, ApiError, OvError
-from ..paths import home
-from .commands import BUILTIN_NAMES, GROUPS
-from .context import INSTANCE_ENV, Context
-from .dynamic import cached_spec, register_tag
-from .output import console
+from ov import __version__
+from ov.cli.commands import BUILTIN_NAMES, GROUPS
+from ov.cli.context import INSTANCE_ENV, Context
+from ov.cli.dynamic import cached_spec, register_tag
+from ov.cli.output import console
+from ov.core import config as config_module
+from ov.core.errors import EXIT_INTERRUPTED, EXIT_USAGE, ApiError, OvError
+from ov.core.paths import home
 
 DESCRIPTION = "Command line client for the OneVizion API."
 

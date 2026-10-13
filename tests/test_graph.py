@@ -6,9 +6,9 @@ import httpx
 import pytest
 from conftest import BASE_URL, seed_session
 
-from ov.agent import graph
+from ov.agent.instances import graph
 from ov.agent.tools import TOOLS_BY_NAME
-from ov.paths import write_atomic
+from ov.core.paths import write_atomic
 
 
 def rows(**tables):
@@ -120,7 +120,7 @@ def test_the_api_reports_a_missing_map(agent_server):
 def agent_server(logged_in):
     import threading
 
-    from ov.agent.server import AgentServer, Handler
+    from ov.agent.api.server import AgentServer, Handler
 
     httpd = AgentServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

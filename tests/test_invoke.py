@@ -5,9 +5,9 @@ import json
 import pytest
 from conftest import OPENAPI
 
-from ov.errors import OvError
-from ov.invoke import build_plan, dest_name, flag_name
-from ov.spec import Param, parse
+from ov.core.errors import OvError
+from ov.onevizion.invoke import build_plan, dest_name, flag_name
+from ov.onevizion.spec import Param, parse
 
 
 @pytest.fixture
@@ -129,7 +129,7 @@ def test_a_file_upload_becomes_multipart(spec, tmp_path):
 
 
 def test_a_non_json_content_type_sends_data_verbatim():
-    from ov.spec import Operation
+    from ov.onevizion.spec import Operation
 
     operation = Operation(name="request", tag="raw", method="POST", path="/v3/x/search")
     condition = 'greater(C_CREATED_AT, "2026-04-01T00:00:00")'
@@ -139,7 +139,7 @@ def test_a_non_json_content_type_sends_data_verbatim():
 
 
 def test_a_raw_body_is_read_from_a_file(tmp_path):
-    from ov.spec import Operation
+    from ov.onevizion.spec import Operation
 
     path = tmp_path / "q.txt"
     path.write_text('equal(A, "x")', encoding="utf-8")
@@ -149,7 +149,7 @@ def test_a_raw_body_is_read_from_a_file(tmp_path):
 
 
 def test_json_is_still_parsed_without_a_content_type():
-    from ov.spec import Operation
+    from ov.onevizion.spec import Operation
 
     operation = Operation(name="request", tag="raw", method="POST", path="/v3/x")
     with pytest.raises(OvError, match="not valid JSON"):
@@ -170,8 +170,8 @@ def test_json_is_still_parsed_without_a_content_type():
     ],
 )
 def test_read_only_guard(monkeypatch, method, path, allowed):
-    from ov.client import guard_read_only
-    from ov.errors import ReadOnlyBlocked
+    from ov.core.errors import ReadOnlyBlocked
+    from ov.onevizion.client import guard_read_only
 
     monkeypatch.setenv("OV_READONLY", "1")
     if allowed:
@@ -182,7 +182,7 @@ def test_read_only_guard(monkeypatch, method, path, allowed):
 
 
 def test_read_only_guard_is_off_by_default(monkeypatch):
-    from ov.client import guard_read_only
+    from ov.onevizion.client import guard_read_only
 
     monkeypatch.delenv("OV_READONLY", raising=False)
     guard_read_only("DELETE", "/v3/trackors/1")

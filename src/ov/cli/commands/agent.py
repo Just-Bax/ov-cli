@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from ... import update
-from ..context import Context
-from ..output import emit
+from ov.cli.context import Context
+from ov.cli.output import emit
+from ov.core import update
 
 DEFAULT_PORT = 5180
 
@@ -25,9 +25,9 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
 
 def cmd_agent(ctx: Context) -> int:
     update.require_dependencies()
-    from ...agent import db
-    from ...agent.forget import prune
-    from ...agent.server import serve
+    from ov.agent.api.server import serve
+    from ov.agent.instances.forget import prune
+    from ov.agent.storage import db
 
     if ctx.args.migrate:
         upgraded = db.migrate()

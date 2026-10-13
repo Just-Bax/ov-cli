@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from ov.login import browser_is_installed, interactive_login
+from ov.onevizion.login import browser_is_installed, interactive_login
 
 pytestmark = pytest.mark.skipif(not browser_is_installed(), reason="chromium is not installed for playwright")
 

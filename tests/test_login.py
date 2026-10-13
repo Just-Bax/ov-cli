@@ -6,9 +6,9 @@ from typing import Any
 import pytest
 from playwright.sync_api import Error as PlaywrightError
 
-from ov import login as login_module
-from ov.errors import LoginFailed
-from ov.login import _await_token, _looks_signed_in, _mint
+from ov.core.errors import LoginFailed
+from ov.onevizion import login as login_module
+from ov.onevizion.login import _await_token, _looks_signed_in, _mint
 
 BASE_URL = "https://acme.onevizion.test"
 HOST = "acme.onevizion.test"
@@ -105,8 +105,8 @@ def wait(context: FakeContext, timeout_ms: int = 10_000, report=None) -> dict[st
 
 @pytest.fixture(autouse=True)
 def no_sleeping(monkeypatch):
-    monkeypatch.setattr("ov.login.POLL_INTERVAL_SECONDS", 0)
-    monkeypatch.setattr("ov.login.PROGRESS_EVERY_SECONDS", 0)
+    monkeypatch.setattr("ov.onevizion.login.POLL_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr("ov.onevizion.login.PROGRESS_EVERY_SECONDS", 0)
 
 
 def test_the_identity_providers_domain_is_never_minted_against():
@@ -249,7 +249,7 @@ def test_plain_http_with_the_browsers_cookies_is_the_last_resort(monkeypatch):
         session.bearer_token = "HTTP:KEY"
         session.expires_text = "2100-01-01T00:00:00"
 
-    monkeypatch.setattr("ov.auth.mint_web_session_token", mint)
+    monkeypatch.setattr("ov.onevizion.auth.mint_web_session_token", mint)
     minted, error = _mint(context, page, BASE_URL)
 
     assert minted == {"bearerToken": "HTTP:KEY", "expirationTime": "2100-01-01T00:00:00"}
@@ -265,7 +265,7 @@ def test_the_http_fallback_waits_rather_than_guessing_without_cookies():
 
 
 def test_a_missing_widget_privilege_over_plain_http_fails_fast(monkeypatch):
-    from ov.errors import Forbidden
+    from ov.core.errors import Forbidden
 
     page = FakePage([f"{BASE_URL}/Home.do"], result=PlaywrightError(DESTROYED))
     context = FakeContext(
@@ -275,7 +275,7 @@ def test_a_missing_widget_privilege_over_plain_http_fails_fast(monkeypatch):
     def refuse(http, session):
         raise Forbidden("needs the WIDGET module at Read")
 
-    monkeypatch.setattr("ov.auth.mint_web_session_token", refuse)
+    monkeypatch.setattr("ov.onevizion.auth.mint_web_session_token", refuse)
     with pytest.raises(LoginFailed, match="WIDGET"):
         _mint(context, page, BASE_URL)
 
@@ -390,7 +390,7 @@ def test_an_unrelated_launch_failure_is_not_treated_as_a_missing_browser(monkeyp
 
 
 def test_only_the_instance_cookies_are_kept():
-    from ov.session import cookies_from_playwright
+    from ov.onevizion.session import cookies_from_playwright
 
     raw = [
         {"name": "JSESSIONID", "value": "a", "domain": "acme.onevizion.test"},

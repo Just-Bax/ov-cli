@@ -1,4 +1,4 @@
-from . import agent, api, auth, request, schema, settings, setup, update
+from ov.cli.commands import agent, api, auth, request, schema, settings, setup, update
 
 GROUPS = (auth, api, request, schema, settings, setup, update, agent)
 

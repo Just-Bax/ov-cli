@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from ov import update
-from ov.errors import OvError
+from ov.core import update
+from ov.core.errors import OvError
 
 
 def git(*args: str, cwd: Path) -> str:
@@ -103,7 +103,7 @@ def test_installed_dependencies_are_all_present():
 
 
 def test_the_database_upgrade_runs_in_the_new_code_and_waits_for_a_running_agent(monkeypatch):
-    from ov.errors import EXIT_IN_USE
+    from ov.core.errors import EXIT_IN_USE
 
     calls = []
 

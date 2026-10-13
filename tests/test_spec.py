@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from conftest import OPENAPI, signature
 
-from ov.errors import Ambiguous, NotFound
-from ov.spec import kebab, operation_name, parse, plain
+from ov.core.errors import Ambiguous, NotFound
+from ov.onevizion.spec import kebab, operation_name, parse, plain
 
 
 @pytest.fixture

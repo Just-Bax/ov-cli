@@ -5,18 +5,18 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from ... import session as session_store
-from ...cache import Cache
-from ...client import Client
-from ...config import normalize_base_url
-from ...errors import EXIT_AUTH, LoginFailed, NotConfigured, NotLoggedIn, OvError, SessionExpired
-from ...paths import config_file
-from ...service import AUTHORIZE_PATH, OvService
-from ...session import Session
-from ...tenants import NO_TENANTS, resolve_tenant, tenant_rows
-from ..context import Context, build_client
-from ..dynamic import reset_cache
-from ..output import build_table, emit, note, warn
+from ov.cli.context import Context, build_client
+from ov.cli.dynamic import reset_cache
+from ov.cli.output import build_table, emit, note, warn
+from ov.core.cache import Cache
+from ov.core.config import normalize_base_url
+from ov.core.errors import EXIT_AUTH, LoginFailed, NotConfigured, NotLoggedIn, OvError, SessionExpired
+from ov.core.paths import config_file
+from ov.onevizion import session as session_store
+from ov.onevizion.client import Client
+from ov.onevizion.service import AUTHORIZE_PATH, OvService
+from ov.onevizion.session import Session
+from ov.onevizion.tenants import NO_TENANTS, resolve_tenant, tenant_rows
 
 LOGOFF_PATH = "/LogOff.do"
 LOGIN_TIMEOUT_SECONDS = 300
@@ -193,7 +193,7 @@ def _target_url(ctx: Context) -> str:
 
 
 def _browser_login(ctx: Context, base_url: str) -> Session:
-    from ...login import interactive_login
+    from ov.onevizion.login import interactive_login
 
     note(
         ctx,
@@ -282,13 +282,13 @@ def cmd_logout(ctx: Context) -> int:
 
 
 def _forget(session: Session) -> None:
-    from ...agent.forget import forget
+    from ov.agent.instances.forget import forget
 
     forget(session.alias, session.base_url)
 
 
 def _prune() -> None:
-    from ...agent.forget import prune
+    from ov.agent.instances.forget import prune
 
     prune()
 

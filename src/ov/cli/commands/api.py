@@ -3,10 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 
-from ...spec import Operation, Param
-from ..context import Context
-from ..opargs import add_invocation_flags, run_operation
-from ..output import build_table, emit, emit_payload
+from ov.cli.context import Context
+from ov.cli.opargs import add_invocation_flags, run_operation
+from ov.cli.output import build_table, emit, emit_payload
+from ov.onevizion.spec import Operation, Param
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:

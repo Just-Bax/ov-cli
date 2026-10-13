@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from ...errors import EXIT_ERROR
-from ..context import Context
-from ..output import emit, note
+from ov.cli.context import Context
+from ov.cli.output import emit, note
+from ov.core.errors import EXIT_ERROR
 
 READY = {"browser": "installed", "ready": True}
 READY_TEXT = "[green]Ready.[/green] ov login"
@@ -17,7 +17,7 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
 
 
 def cmd_setup(ctx: Context) -> int:
-    from ...login import browser_is_installed, install_chromium
+    from ov.onevizion.login import browser_is_installed, install_chromium
 
     if browser_is_installed():
         emit(ctx, READY, text=READY_TEXT)

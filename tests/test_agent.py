@@ -10,23 +10,28 @@ import pytest
 from conftest import BASE_URL, seed_session
 from sqlalchemy import select, update
 
-from ov.agent import db, models, skills, state
-from ov.agent.copilot import StreamResult, Usage, usage_of
-from ov.agent.ovproc import OvResult
-from ov.agent.tools import ToolError, entity_link, run_ov_tool
+from ov.agent import skills
+from ov.agent.engine import state
+from ov.agent.engine.run import runs
+from ov.agent.instances.ovproc import OvResult
+from ov.agent.integrations.copilot import StreamResult, Usage, usage_of
+from ov.agent.storage import db, models
+from ov.agent.tools.base import ToolError
+from ov.agent.tools.onevizion import entity_link, run_ov_tool
 
 
 @pytest.fixture(autouse=True)
 def fresh_db(ov_home, monkeypatch):
-    monkeypatch.setattr("ov.agent.copilot.complete", lambda *a, **k: ("Test thread", None))
+    monkeypatch.setattr("ov.agent.integrations.copilot.complete", lambda *a, **k: ("Test thread", None))
     db.close()
     yield
+    runs.close()
     db.close()
 
 
 class FakeContext:
     def __init__(self, work_dir: Path, write: bool = False, approve: str = "Approve") -> None:
-        from ov.agent.cancel import Cancel
+        from ov.agent.engine.cancel import Cancel
 
         self.work_dir = work_dir
         self.cancel = Cancel()
@@ -115,7 +120,7 @@ def workspace(tmp_path):
 
 
 def test_the_workspace_reads_searches_and_edits_inside_its_folder(workspace, tmp_path):
-    from ov.agent import project
+    from ov.agent import workspace as project
 
     assert "module/" in project.listing("", "")
     assert project.listing("", "*.py") == "module/main.py"
@@ -134,7 +139,7 @@ def test_the_workspace_reads_searches_and_edits_inside_its_folder(workspace, tmp
 
 
 def test_risky_commands_need_approval(workspace, tmp_path):
-    from ov.agent import project
+    from ov.agent import workspace as project
 
     base = project.root()
     assert project.risks("git status && pytest tests/x.py", base) == []
@@ -151,7 +156,8 @@ def test_risky_commands_need_approval(workspace, tmp_path):
 
 
 def test_ws_run_asks_before_risky_commands(workspace, tmp_path):
-    from ov.agent.tools import ToolError, tool_named
+    from ov.agent.tools import tool_named
+    from ov.agent.tools.base import ToolError
 
     ctx = FakeContext(tmp_path, approve="Reject")
     tool = tool_named("ws_run")
@@ -211,7 +217,7 @@ def test_a_blocked_write_needs_access_then_approval(logged_in, tmp_path, monkeyp
             return OvResult(7, "", "Read-only mode (OV_READONLY) blocks DELETE")
         return OvResult(0, "deleted", "")
 
-    monkeypatch.setattr("ov.agent.tools.run_ov", fake_run)
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", fake_run)
     with pytest.raises(ToolError, match="write access is OFF"):
         run_ov_tool(["request", "DELETE", "/v3/users/1"], "acme", FakeContext(tmp_path))
 
@@ -246,11 +252,11 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
         on_text(reply.text)
         return reply
 
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
-    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, "users\n", ""))
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, "users\n", ""))
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "what tags?", "instance": "acme"}, "test-model")
     for _ in range(100):
@@ -266,7 +272,7 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
 
 @pytest.fixture
 def agent_server(logged_in):
-    from ov.agent.server import AgentServer, Handler
+    from ov.agent.api.server import AgentServer, Handler
 
     httpd = AgentServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -294,7 +300,7 @@ def test_uploads_round_trip(agent_server):
     )
     saved = response.json()
     assert saved["name"] == "a b.txt"
-    from ov.agent.runfiles import uploads_dir
+    from ov.agent.engine.files import uploads_dir
 
     assert (uploads_dir() / saved["id"]).read_bytes() == b"hello"
 
@@ -308,7 +314,7 @@ def test_settings_reject_unknown_keys(agent_server):
 
 def test_ov_tool_keeps_files_in_the_workspace(logged_in, tmp_path, monkeypatch):
     seen = []
-    monkeypatch.setattr("ov.agent.tools.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", ""))
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", ""))
     ctx = FakeContext(tmp_path)
     run_ov_tool(["request", "GET", "/x", "--out=C:/evil/a.bin"], "acme", ctx)
     run_ov_tool(["request", "POST", "/x", "-d", "@~/.ov/credentials.json"], "acme", ctx)
@@ -329,7 +335,7 @@ def test_ov_tool_rejects_option_first_and_raw_sql(logged_in, tmp_path):
 
 
 def test_dangling_tool_calls_get_stub_results():
-    from ov.agent.run import _answered
+    from ov.agent.engine.run import _answered
 
     messages = [
         {"role": "user", "content": "hi"},
@@ -351,10 +357,10 @@ def test_a_restart_marks_running_runs_interrupted(ov_home):
 
 
 def test_attachments_that_could_run_script_are_downloaded(agent_server, monkeypatch):
-    from ov.agent.run import runs
-    from ov.agent.runfiles import attachments_dir
+    from ov.agent.engine.files import attachments_dir
+    from ov.agent.engine.run import runs
 
-    monkeypatch.setattr("ov.agent.run.Run.begin", lambda self, data: None)
+    monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     run = runs.create({"prompt": "x"}, "m")
     (attachments_dir(run.id) / "page.html").write_text("<script>1</script>")
     (attachments_dir(run.id) / "shot.png").write_bytes(b"png")
@@ -373,7 +379,7 @@ def test_a_local_page_on_another_port_is_refused(agent_server):
 
 
 def test_a_bare_case_number_or_link_is_a_case():
-    from ov.agent.cases import case_ref
+    from ov.agent.engine.cases import case_ref
 
     assert case_ref("193915") == "193915"
     assert case_ref(" Case #193915 ") == "193915"
@@ -403,9 +409,9 @@ def test_finish_keeps_existing_matches_and_the_reply(tmp_path):
 
 
 def test_a_run_can_be_renamed(agent_server, monkeypatch):
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
-    monkeypatch.setattr("ov.agent.run.Run.begin", lambda self, data: None)
+    monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     run = runs.create({"prompt": "x"}, "m")
     ok = httpx.post(f"{agent_server}/api/runs/{run.id}/title", json={"title": "  NORAD   report "})
     assert ok.status_code == 200
@@ -422,7 +428,9 @@ def test_boolean_settings_are_stored_as_booleans():
 
 def test_instance_sign_in_keeps_the_url_and_tenant(agent_server, monkeypatch):
     seen: list[list[str]] = []
-    monkeypatch.setattr("ov.agent.ovproc.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", ""))
+    monkeypatch.setattr(
+        "ov.agent.instances.ovproc.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", "")
+    )
     url = "http://portal.customer.example:8443/ov"
     res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "tenant": "North"})
     assert res.json()["ok"]
@@ -440,7 +448,7 @@ def test_instance_sign_in_passes_a_token_on_stdin(agent_server, monkeypatch):
         seen.append((args, kwargs.get("stdin")))
         return OvResult(0, "ok", "")
 
-    monkeypatch.setattr("ov.agent.ovproc.run_ov", fake)
+    monkeypatch.setattr("ov.agent.instances.ovproc.run_ov", fake)
     url = "https://acme.onevizion.test"
     res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "token": "K:S"})
     assert res.json()["ok"]
@@ -456,12 +464,12 @@ def test_an_instance_can_be_removed(agent_server, monkeypatch):
     def fake(args, **kwargs):
         seen.append(args)
         assert kwargs.get("read_only") is False
-        from ov import session as session_store
+        from ov.onevizion import session as session_store
 
         session_store.remove(args[1])
         return OvResult(0, "{}", "")
 
-    monkeypatch.setattr("ov.agent.server.run_ov", fake)
+    monkeypatch.setattr("ov.agent.api.server.run_ov", fake)
     rows = httpx.post(f"{agent_server}/api/instances/logout", json={"alias": "acme"}).json()
     assert seen == [["logout", "acme", "--json"]] and rows == []
     missing = httpx.post(f"{agent_server}/api/instances/logout", json={"alias": "acme"})
@@ -477,7 +485,7 @@ def test_every_tool_is_in_one_group():
 
 
 def test_the_prompt_lists_tools_by_group(logged_in):
-    from ov.agent.prompt import system_prompt
+    from ov.agent.engine.prompt import system_prompt
 
     text = system_prompt(False, "")
     assert "- OV CLI (signed-in OneVizion instances): ov, ov_sql, ov_export, ov_search, ov_map, ov_case" in text
@@ -488,7 +496,8 @@ def test_the_prompt_lists_tools_by_group(logged_in):
 
 
 def test_skills_are_read_on_demand(logged_in):
-    from ov.agent.tools import ToolError, tool_named
+    from ov.agent.tools import tool_named
+    from ov.agent.tools.base import ToolError
 
     skill = tool_named("skill_read")
     assert skill.handler({"name": "ov-cli"}, None).startswith("# OV CLI\n\n")
@@ -497,9 +506,10 @@ def test_skills_are_read_on_demand(logged_in):
 
 
 def test_forgetting_an_instance_removes_its_local_data_but_keeps_runs(logged_in):
-    from ov import session as session_store
-    from ov.agent import datadog, graph
-    from ov.agent.forget import forget, prune
+    from ov.agent.instances import graph
+    from ov.agent.instances.forget import forget, prune
+    from ov.agent.integrations import datadog
+    from ov.onevizion import session as session_store
 
     for alias in ("acme", "gone"):
         graph.graph_file(alias).write_text("{}", encoding="utf-8")
@@ -529,11 +539,11 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
         seen.append(model)
         return '"Tag listing question."', Usage(tokens={"input": 50, "output": 4}, nano=30_000_000)
 
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.complete", fake_complete)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.complete", fake_complete)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "what tags are there on this instance?", "instance": "acme"}, "main-model")
     for _ in range(100):
@@ -562,7 +572,7 @@ def test_components_are_exported_to_workspace_files(logged_in, tmp_path, monkeyp
         Path(args[args.index("--out") + 1]).write_text(xml, encoding="utf-8")
         return OvResult(0, "{}", "")
 
-    monkeypatch.setattr("ov.agent.tools.run_ov", fake)
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", fake)
     text = tool_named("ov_export").handler({"component_type": "db_package", "ids": [12]}, FakeContext(tmp_path))
 
     assert "DB_PKG_NAME: PKG_BIG" in text
@@ -592,10 +602,10 @@ def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch
         on_text(reply.text)
         return reply
 
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "build it", "instance": "acme"}, "test-model")
     for _ in range(100):
@@ -612,7 +622,7 @@ def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch
 
 
 def test_workspace_edits_are_recorded_for_the_changes_view(workspace, tmp_path):
-    from ov.agent.run import _line_changes
+    from ov.agent.engine.run import _line_changes
     from ov.agent.tools import tool_named
 
     ctx = FakeContext(tmp_path)
@@ -633,7 +643,7 @@ def test_the_reducer_keeps_edits_out_of_the_thread():
 
 
 def test_stopping_closes_open_questions(logged_in, monkeypatch):
-    from ov.agent.run import STOPPED_ANSWER, RunError, runs
+    from ov.agent.engine.run import STOPPED_ANSWER, RunError, runs
 
     ask = {"question": "Which instance?", "options": ["acme", "other"]}
     replies = iter(
@@ -646,8 +656,8 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
             StreamResult(text="Stopped."),
         ]
     )
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
     run = runs.create({"prompt": "help", "instance": "acme"}, "test-model")
     for _ in range(100):
@@ -668,7 +678,7 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
 
 
 def test_status_changes_reach_the_status_feed(logged_in):
-    from ov.agent.run import runs, status_feed
+    from ov.agent.engine.run import runs, status_feed
 
     db.create_thread("rfeed", "Feed run", "m", prompt="x", instance=None, allow_write=False)
     run = runs.get("rfeed")
@@ -701,10 +711,10 @@ def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypat
         on_text("good.")
         return StreamResult(text="All good.")
 
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
     for _ in range(100):
@@ -760,7 +770,7 @@ def test_snapshot_keeps_recent_turns_and_outlines_the_rest():
 
 
 def test_resuming_a_stream_sends_the_partial_message(logged_in):
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     db.create_thread("rlive", "t", "m", prompt="x", instance=None, allow_write=False)
     run = runs.get("rlive")
@@ -780,7 +790,7 @@ def test_resuming_a_stream_sends_the_partial_message(logged_in):
 
 
 def test_idle_runs_are_dropped_from_memory_but_never_while_in_use(logged_in):
-    from ov.agent.run import EVICT_GRACE_MS, MAX_CACHED_RUNS, runs
+    from ov.agent.engine.run import EVICT_GRACE_MS, MAX_CACHED_RUNS, runs
 
     runs._runs.clear()
     held = []
@@ -830,7 +840,7 @@ def test_copilot_usage_is_read_from_a_reply():
 
 
 def test_the_streamed_usage_chunk_is_kept():
-    from ov.agent.copilot import _read_stream
+    from ov.agent.integrations.copilot import _read_stream
 
     chunks = [
         {"choices": [{"index": 0, "delta": {"content": "ok"}}]},
@@ -854,11 +864,11 @@ def test_a_run_records_what_each_request_cost(logged_in, monkeypatch):
             StreamResult(text="Done.", usage=usage),
         ]
     )
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
-    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
     _wait_done(run)
@@ -924,11 +934,11 @@ def test_a_thread_exports_as_markdown(agent_server, monkeypatch):
         on_text(reply.text)
         return reply
 
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
-    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "what tags?", "instance": "acme"}, "test-model")
     _wait_done(run)
@@ -959,10 +969,10 @@ def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(l
         sent.append([dict(m) for m in messages])
         return StreamResult(text="Carrying on.")
 
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
     _wait_done(run)
@@ -996,7 +1006,7 @@ def test_sql_results_mask_secrets_without_refusing_the_query(logged_in, tmp_path
         ],
     }
     big = json.dumps(body) + " " * 30_000
-    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, big, ""))
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, big, ""))
     out = tool_named("ov_sql").handler(
         {"query": "select name, value from module_param where name not like '%PASS%'"}, FakeContext(tmp_path)
     )
@@ -1010,13 +1020,13 @@ def test_sql_results_mask_secrets_without_refusing_the_query(logged_in, tmp_path
 def test_sql_timeout_explains_what_to_do(logged_in, tmp_path, monkeypatch):
     from ov.agent.tools import tool_named
 
-    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(1, "", "", timed_out=True))
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(1, "", "", timed_out=True))
     with pytest.raises(ToolError, match="may still be running"):
         tool_named("ov_sql").handler({"query": "select 1 from dual", "timeout": 30}, FakeContext(tmp_path))
 
 
 def test_ws_search_takes_a_file_path_and_brace_globs(workspace):
-    from ov.agent import project
+    from ov.agent import workspace as project
 
     root = project.root()
     (root / "a.sql").write_text("create index i1 on xitor (x);\n")
@@ -1029,7 +1039,7 @@ def test_ws_search_takes_a_file_path_and_brace_globs(workspace):
 
 
 def test_datadog_queries_naming_a_host_skip_the_instance_lookup(logged_in, tmp_path):
-    from ov.agent.tools import _datadog_scope
+    from ov.agent.tools.datadog import _datadog_scope
 
     assert _datadog_scope({"query": "host:app01.test-lumen-vpc status:error"}, FakeContext(tmp_path)) == ""
 
@@ -1041,10 +1051,10 @@ def test_the_system_prompt_follows_write_access(logged_in, monkeypatch):
         sent.append(messages[0]["content"])
         return StreamResult(text="ok")
 
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
     _wait_done(run)
@@ -1060,10 +1070,10 @@ def test_the_system_prompt_follows_write_access(logged_in, monkeypatch):
 
 def test_an_empty_reply_is_asked_for_once(logged_in, monkeypatch):
     replies = iter([StreamResult(text=""), StreamResult(text="Here it is.")])
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
     _wait_done(run)
@@ -1072,7 +1082,7 @@ def test_an_empty_reply_is_asked_for_once(logged_in, monkeypatch):
 
 
 def test_reasoning_picks_the_nearest_level_the_model_accepts(monkeypatch):
-    from ov.agent import copilot
+    from ov.agent.integrations import copilot
 
     monkeypatch.setattr(
         copilot,
@@ -1107,11 +1117,11 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
             )
         return StreamResult(text="ok")
 
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
-    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "start", "instance": "acme"}, "test-model")
     for _ in range(100):
@@ -1183,14 +1193,14 @@ def test_an_instance_check_reads_the_platform_version(agent_server, monkeypatch)
             return httpx.Response(200, text='<script>var Version = "26.14.2-RC1";</script>')
         return real_get(url, *args, **kwargs)
 
-    monkeypatch.setattr("ov.agent.server.httpx.get", fake_get)
+    monkeypatch.setattr("ov.agent.api.server.httpx.get", fake_get)
     res = httpx.get(f"{agent_server}/api/instances/check?instance=acme.onevizion.com").json()
     assert res["version"] == "26.14.2-RC1"
     assert res["url"] == "https://acme.onevizion.com"
 
 
 def test_object_mentions_link_only_ids_the_agent_saw():
-    from ov.agent.links import links_for, seen_ids
+    from ov.agent.engine.links import links_for, seen_ids
 
     s = state.empty_state({"id": "r1", "status": "done"}, {"prompt": "hi"})
     s["tools"] = [
@@ -1216,16 +1226,16 @@ def test_a_case_reply_is_drafted_with_the_reply_style(logged_in, monkeypatch):
         calls.append((model, system, user_text, max_tokens))
         return "Fixed.\n\nI've updated the rule.", Usage(tokens={"output": 10}, nano=100_000_000)
 
-    monkeypatch.setattr("ov.agent.copilot.complete", fake_complete)
+    monkeypatch.setattr("ov.agent.integrations.copilot.complete", fake_complete)
 
     def fake_chat(*args, cancel, on_text, **_):
         on_text("Found it.")
         return StreamResult(text="Found it.")
 
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "case 1234: rule fails", "instance": "acme"}, "test-model")
     _wait_done(run)
@@ -1237,7 +1247,7 @@ def test_a_case_reply_is_drafted_with_the_reply_style(logged_in, monkeypatch):
 
 
 def test_commands_leaving_the_workspace_need_approval(workspace):
-    from ov.agent import project
+    from ov.agent import workspace as project
 
     sub = project.root() / "module"
     sub.mkdir(exist_ok=True)
@@ -1249,8 +1259,8 @@ def test_commands_leaving_the_workspace_need_approval(workspace):
 
 
 def test_a_cancelled_command_stops_its_children(workspace):
-    from ov.agent import project
-    from ov.agent.cancel import Cancel
+    from ov.agent import workspace as project
+    from ov.agent.engine.cancel import Cancel
 
     marker = project.root() / "child-alive.txt"
     script = project.root() / "child.py"
@@ -1263,7 +1273,7 @@ def test_a_cancelled_command_stops_its_children(workspace):
 
 
 def test_bad_sign_in_input_is_refused():
-    from ov.agent.screen import ScreenError, _checked
+    from ov.agent.api.screen import ScreenError, _checked
 
     assert _checked({"type": "mouse", "event": "mousePressed", "x": 3, "y": 4, "button": "left"})["x"] == 3.0
     for bad in (
@@ -1282,14 +1292,14 @@ def test_cross_site_requests_are_refused(agent_server):
 
 
 def test_secrets_are_masked_in_any_tool_output(tmp_path):
-    from ov.agent.tools import clip
+    from ov.agent.tools.base import clip
 
     out = clip('DB_PASSWORD=Xy9abc {"apiKey": "k-123"} max_tokens=32000', FakeContext(tmp_path), "output")
     assert out == 'DB_PASSWORD=*** {"apiKey": "***"} max_tokens=32000'
 
 
 def test_two_open_questions_keep_the_run_waiting(logged_in):
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     db.create_thread("rwait", "t", "m", prompt="x", instance=None, allow_write=False)
     run = runs.get("rwait")
@@ -1314,7 +1324,7 @@ def test_two_open_questions_keep_the_run_waiting(logged_in):
 
 
 def test_titles_are_cleaned_and_kept_short():
-    from ov.agent.run import TITLE_CHARS, clean_title, short_title
+    from ov.agent.engine.run import TITLE_CHARS, clean_title, short_title
 
     assert clean_title('Title: "Kafka staging backlog on dev-lumen."\nmore') == "Kafka staging backlog on dev-lumen"
     assert clean_title("**Rule queue**") == "Rule queue"
@@ -1335,11 +1345,13 @@ def test_a_thread_is_named_with_the_main_model_without_a_fast_model(logged_in, m
         seen.append(model)
         return "Rule queue backlog", None
 
-    monkeypatch.setattr("ov.agent.copilot.complete", fake_complete)
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text, **_: StreamResult(text="ok"))
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.integrations.copilot.complete", fake_complete)
+    monkeypatch.setattr(
+        "ov.agent.integrations.copilot.stream_chat", lambda *a, cancel, on_text, **_: StreamResult(text="ok")
+    )
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.run import runs
+    from ov.agent.engine.run import runs
 
     run = runs.create({"prompt": "why is the rule queue so long today on acme?", "instance": "acme"}, "main-model")
     for _ in range(100):
@@ -1365,8 +1377,8 @@ def test_restart_closes_tools_left_running():
 
 
 def test_chat_retries_a_dropped_connection_before_any_text(monkeypatch):
-    from ov.agent import copilot
-    from ov.agent.cancel import Cancel
+    from ov.agent.engine.cancel import Cancel
+    from ov.agent.integrations import copilot
 
     calls = []
 
@@ -1385,8 +1397,8 @@ def test_chat_retries_a_dropped_connection_before_any_text(monkeypatch):
 
 
 def test_chat_does_not_retry_after_text_streamed(monkeypatch):
-    from ov.agent import copilot
-    from ov.agent.cancel import Cancel
+    from ov.agent.engine.cancel import Cancel
+    from ov.agent.integrations import copilot
 
     def dropped(api, headers, payload, cancel, on_text):
         on_text("partial")
@@ -1426,7 +1438,7 @@ LEGACY_ROWS = (
 def _legacy_database(home: Path, monkeypatch) -> Path:
     import sqlite3
 
-    from ov.agent.migrations.versions import v0001_baseline as baseline
+    from ov.agent.storage.migrations.versions import v0001_baseline as baseline
 
     monkeypatch.setenv("OV_HOME", str(home))
     path = home / "agent" / "agent.db"
@@ -1472,7 +1484,7 @@ def test_deleting_a_thread_removes_everything_it_owns(agent_server):
     db.save_messages("rdel", 0, [{"role": "user", "content": "x"}], {0: "u_start"})
     db.add_usage("rdel", "m", "turn", {"input": 1}, 5)
     db.add_attachments("rdel", "u_start", ["a.txt"])
-    from ov.agent.runfiles import run_dir
+    from ov.agent.engine.files import run_dir
 
     (run_dir("rdel") / "note.txt").write_text("x", encoding="utf-8")
 
@@ -1503,7 +1515,7 @@ def test_an_upgrade_waits_while_another_process_has_the_database_open(ov_home, m
     import subprocess
     import sys
 
-    from ov.agent.migrations.versions import v0001_baseline as baseline
+    from ov.agent.storage.migrations.versions import v0001_baseline as baseline
 
     ov_home = ov_home / "busy"
     monkeypatch.setenv("OV_HOME", str(ov_home))

@@ -145,7 +145,7 @@ def test_login_with_a_token_stores_a_static_session(capsys, ov_home, server, mon
     assert code == 0
     assert data["mode"] == "token"
     assert data["access_key"] == "KEY"
-    from ov import session as session_store
+    from ov.onevizion import session as session_store
 
     assert session_store.load().is_static
 
@@ -178,7 +178,7 @@ def test_responses_are_not_cached_by_default(capsys, logged_in, server):
 
 
 def test_caching_is_opt_in_and_scoped_to_one_instance(capsys, two_instances, server):
-    from ov import config as config_module
+    from ov.core import config as config_module
 
     config_module.set_value(config_module.load(), "cache_ttl_seconds", "600")
 
@@ -191,7 +191,7 @@ def test_caching_is_opt_in_and_scoped_to_one_instance(capsys, two_instances, ser
 
 
 def test_refresh_bypasses_a_cached_response(capsys, logged_in, server):
-    from ov import config as config_module
+    from ov.core import config as config_module
 
     config_module.set_value(config_module.load(), "cache_ttl_seconds", "600")
     run(capsys, "request", "GET", "/v3/server_info", "--json")
@@ -200,7 +200,7 @@ def test_refresh_bypasses_a_cached_response(capsys, logged_in, server):
 
 
 def test_writes_are_never_cached(capsys, logged_in, server):
-    from ov import config as config_module
+    from ov.core import config as config_module
 
     config_module.set_value(config_module.load(), "cache_ttl_seconds", "600")
     for _ in range(2):

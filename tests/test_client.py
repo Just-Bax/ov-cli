@@ -4,9 +4,9 @@ import httpx
 import pytest
 from conftest import BASE_URL, Recorder
 
-from ov.client import Client, api_path
-from ov.errors import ApiError, Forbidden, NotFound, SessionExpired, Unreachable
-from ov.session import Session
+from ov.core.errors import ApiError, Forbidden, NotFound, SessionExpired, Unreachable
+from ov.onevizion.client import Client, api_path
+from ov.onevizion.session import Session
 
 
 def session(mode: str = "session", token: str = "ACCESS:SECRET") -> Session:

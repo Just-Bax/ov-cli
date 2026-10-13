@@ -8,9 +8,11 @@ import httpx
 import pytest
 from conftest import BASE_URL, seed_session
 
-from ov import credentials
-from ov.agent import datadog, prompt
-from ov.agent.tools import TOOLS_BY_NAME, ToolError, tool_specs
+from ov.agent.engine import prompt
+from ov.agent.integrations import datadog
+from ov.agent.tools import TOOLS_BY_NAME, tool_specs
+from ov.agent.tools.base import ToolError
+from ov.core import credentials
 
 API_KEY = "a" * 28 + "1234"
 APP_KEY = "b" * 36 + "5678"
@@ -236,8 +238,8 @@ def test_server_groups_become_metric_scopes_and_roles():
 
 
 def test_a_tenant_uses_its_hosts_match(linked):
-    from ov import session as session_store
-    from ov.session import Session
+    from ov.onevizion import session as session_store
+    from ov.onevizion.session import Session
 
     session_store.save(
         Session(
@@ -355,7 +357,7 @@ def test_long_series_are_averaged_into_buckets():
 
 
 def test_the_api_never_returns_keys(linked):
-    from ov.agent.server import AgentServer, Handler
+    from ov.agent.api.server import AgentServer, Handler
 
     httpd = AgentServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

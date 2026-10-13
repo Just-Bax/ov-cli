@@ -5,8 +5,8 @@ import re
 import httpx
 import pytest
 
-from ov.agent import explorer
-from ov.agent.ovproc import OvResult
+from ov.agent.instances import explorer
+from ov.agent.instances.ovproc import OvResult
 
 PACKAGE_BODY = "".join(f"-- line {i:05d}\n" for i in range(2500))
 
@@ -15,7 +15,7 @@ class FakeReader:
     alias = "acme"
 
     def __init__(self, clobs: dict[str, str]) -> None:
-        from ov.agent.cancel import Cancel
+        from ov.agent.engine.cancel import Cancel
 
         self.cancel = Cancel()
         self.clobs = clobs
@@ -62,7 +62,7 @@ def test_packages_are_read_with_one_component_export(reader, monkeypatch):
         seen.append(args)
         return OvResult(0, xml, "")
 
-    monkeypatch.setattr("ov.agent.components.run_ov", fake_run)
+    monkeypatch.setattr("ov.agent.instances.components.run_ov", fake_run)
     body, spec = explorer.source("acme", "db_package:7")["sections"]
     assert (body["title"], body["code"], spec["code"]) == ("Body", PACKAGE_BODY, "package spec")
     assert len(seen) == 1 and '"component_ids": [7]' in seen[0][seen[0].index("-d") + 1]
@@ -155,7 +155,7 @@ def test_explorer_api(agent_server, reader):
 def agent_server(logged_in):
     import threading
 
-    from ov.agent.server import AgentServer, Handler
+    from ov.agent.api.server import AgentServer, Handler
 
     httpd = AgentServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

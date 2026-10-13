@@ -5,10 +5,10 @@ import json
 import pytest
 from conftest import BASE_URL, OPENAPI, OTHER_URL, seed_session
 
-from ov import session as session_store
 from ov.cli.main import main
-from ov.errors import Ambiguous, NotFound, NotLoggedIn
-from ov.session import Session, default_alias
+from ov.core.errors import Ambiguous, NotFound, NotLoggedIn
+from ov.onevizion import session as session_store
+from ov.onevizion.session import Session, default_alias
 
 
 def run(capsys, *argv: str) -> tuple[int, str]:
@@ -138,7 +138,7 @@ def test_use_changes_what_later_commands_target(capsys, two_instances, server):
 
 
 def test_each_instance_generates_commands_from_its_own_schema(capsys, two_instances, server):
-    from ov import spec as spec_module
+    from ov.onevizion import spec as spec_module
 
     trimmed = json.loads(json.dumps(OPENAPI))
     del trimmed["paths"]["/v3/users/{user_id}"]
@@ -157,7 +157,7 @@ def test_each_instance_generates_commands_from_its_own_schema(capsys, two_instan
 
 
 def test_a_generated_group_is_built_for_the_targeted_instance(capsys, two_instances, server):
-    from ov import spec as spec_module
+    from ov.onevizion import spec as spec_module
 
     spec_module.save_cached(OTHER_URL, "v3", OPENAPI)
     server.route("GET", "/api/v3/users/42", 200, {"user_name": "jsmith"})
@@ -169,7 +169,7 @@ def test_a_generated_group_is_built_for_the_targeted_instance(capsys, two_instan
 
 
 def test_a_generated_group_is_absent_for_an_instance_without_a_schema(capsys, two_instances, server):
-    from ov import spec as spec_module
+    from ov.onevizion import spec as spec_module
 
     trimmed = json.loads(json.dumps(OPENAPI))
     del trimmed["paths"]["/v3/users/{user_id}"]

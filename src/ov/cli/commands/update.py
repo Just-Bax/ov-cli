@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from ... import update
-from ..context import Context
-from ..output import emit, note
+from ov.cli.context import Context
+from ov.cli.output import emit, note
+from ov.core import update
 
 SHORT = 7
 DATABASE_WAITS = (

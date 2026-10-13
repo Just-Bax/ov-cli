@@ -4,13 +4,13 @@ import argparse
 import os
 from pathlib import Path
 
-from .. import config as config_module
-from ..cache import Cache
-from ..client import Client
-from ..config import Config
-from ..service import OvService
-from ..session import Session
-from ..session import load as load_session
+from ov.core import config as config_module
+from ov.core.cache import Cache
+from ov.core.config import Config
+from ov.onevizion.client import Client
+from ov.onevizion.service import OvService
+from ov.onevizion.session import Session
+from ov.onevizion.session import load as load_session
 
 INSTANCE_ENV = "OV_INSTANCE"
 

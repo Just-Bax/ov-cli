@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.json import JSON
 from rich.table import Table
 
-from .context import Context
+from ov.cli.context import Context
 
 TABLE_ROW_LIMIT = 200
 TABLE_MAX_COLUMNS = 12

@@ -139,8 +139,8 @@ def ov_home(tmp_path, monkeypatch):
 
 
 def seed_session(base_url: str, alias: str = "", token: str = "ACCESS:SECRET", **kwargs):
-    from ov import session as session_store
-    from ov.session import Session
+    from ov.onevizion import session as session_store
+    from ov.onevizion.session import Session
 
     return session_store.save(
         Session(
@@ -171,7 +171,7 @@ def two_instances(ov_home):
 
 @pytest.fixture
 def with_spec(logged_in):
-    from ov import spec as spec_module
+    from ov.onevizion import spec as spec_module
 
     spec_module.save_cached(BASE_URL, "v3", OPENAPI)
     return logged_in
@@ -212,7 +212,7 @@ def server(monkeypatch):
     recorder = Recorder()
 
     from ov.cli import context as context_module
-    from ov.client import Client
+    from ov.onevizion.client import Client
 
     def build(config, session):
         return Client(

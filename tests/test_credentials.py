@@ -5,12 +5,12 @@ import json
 import pytest
 from conftest import BASE_URL, Recorder, seed_session
 
-from ov import credentials, store
-from ov import session as session_store
-from ov.client import Client
-from ov.errors import ReadOnlyBlocked
-from ov.paths import config_file
-from ov.session import Session
+from ov.core import credentials, store
+from ov.core.errors import ReadOnlyBlocked
+from ov.core.paths import config_file
+from ov.onevizion import session as session_store
+from ov.onevizion.client import Client
+from ov.onevizion.session import Session
 
 
 class FakeKeyring:
@@ -43,7 +43,7 @@ def test_secrets_stay_out_of_config_json(logged_in):
 
 
 def test_secrets_live_encrypted_in_the_vault(logged_in):
-    from ov.credentials import key_file, vault_file
+    from ov.core.credentials import key_file, vault_file
 
     text = vault_file().read_text(encoding="utf-8")
     assert "ACCESS:SECRET" not in text and "JSESSIONID" not in text
@@ -105,7 +105,7 @@ def test_read_only_blocks_web_actions(logged_in, monkeypatch):
 
 
 def test_read_only_web_paths_cannot_climb_out(monkeypatch):
-    from ov.client import guard_web_read_only
+    from ov.onevizion.client import guard_web_read_only
 
     monkeypatch.setenv("OV_READONLY", "1")
     guard_web_read_only("/api/docs/openapi/v3")

@@ -3,14 +3,14 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 
-from .. import session as session_store
-from .. import spec as spec_module
-from ..config import Config
-from ..errors import NotLoggedIn
-from ..spec import Operation, Spec
-from .context import Context
-from .opargs import add_invocation_flags, add_param_flags, run_operation
-from .output import build_table, emit
+from ov.cli.context import Context
+from ov.cli.opargs import add_invocation_flags, add_param_flags, run_operation
+from ov.cli.output import build_table, emit
+from ov.core.config import Config
+from ov.core.errors import NotLoggedIn
+from ov.onevizion import session as session_store
+from ov.onevizion import spec as spec_module
+from ov.onevizion.spec import Operation, Spec
 
 _cached: dict[str, Spec | None] = {}
 

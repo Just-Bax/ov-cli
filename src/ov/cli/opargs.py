@@ -5,12 +5,12 @@ from typing import Any
 
 import httpx
 
-from ..errors import OvError
-from ..invoke import RequestPlan, build_plan, dest_name, flag_name
-from ..service import payload_of
-from ..spec import Operation, Param
-from .context import Context
-from .output import console, emit, emit_payload, note, rows_from
+from ov.cli.context import Context
+from ov.cli.output import console, emit, emit_payload, note, rows_from
+from ov.core.errors import OvError
+from ov.onevizion.invoke import RequestPlan, build_plan, dest_name, flag_name
+from ov.onevizion.service import payload_of
+from ov.onevizion.spec import Operation, Param
 
 
 def add_invocation_flags(parser: argparse.ArgumentParser, with_path: bool = True) -> None:
