@@ -434,10 +434,8 @@ next step) or queue (sent after the turn). Ctrl+Enter sends the other way.
 In a thread:
 
 - The header shows its credits (hover for tokens and models) and a **...** menu: pin, snooze,
-  watch, export as Markdown and settle. Click the instance in the subtitle for its sign-in
+  export as Markdown and settle. Click the instance in the subtitle for its sign-in
   state and to check its platform version and response time.
-- **Watch** has the agent recheck something every few minutes for some hours, each check a
-  new turn in the thread. The agent can propose one with `run_watch`.
 - Mentions like "rule 123" link to their page on the instance when that ID appeared in the
   agent's tool results; links to IDs it never looked up get a warning.
 - The envelope under an answer writes it as a case reply in your reply style.
@@ -457,7 +455,7 @@ The agent's tools come in groups, and the system prompt lists the ones a run has
 | Datadog | `dd_logs`, `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm` |
 | PagerDuty | `pd_incidents`, `pd_incident`, `pd_oncall`, `pd_directory`; with changes allowed also `pd_note`, `pd_ack`, `pd_resolve`, `pd_escalate`, `pd_reassign`, `pd_snooze` |
 | Skills | `skill_read` |
-| Run | `run_read` (attachments, exports and long output in the run folder), `run_ask`, `run_watch` (scheduled rechecks you approve), `run_report` |
+| Run | `run_read` (attachments, exports and long output in the run folder), `run_ask`, `run_report` |
 
 Nothing leaves your machine except calls to your instances and to GitHub Copilot. The
 server listens on 127.0.0.1 only. History and uploads live in `~/.ov/agent`; the

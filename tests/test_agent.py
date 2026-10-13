@@ -1195,41 +1195,6 @@ def test_object_mentions_link_only_ids_the_agent_saw():
     assert linked["unverified"] == ["https://dev-lumen.onevizion.com/admin/dbpackage/Form.do?id=4444"]
 
 
-def test_a_watch_sends_scheduled_checks_and_ends(logged_in, monkeypatch):
-    sent: list[str] = []
-
-    def fake_chat(model, messages, *args, cancel, on_text, **_):
-        sent.append(messages[-1]["content"] if messages[-1]["role"] == "user" else "")
-        return StreamResult(text="ok")
-
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
-    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
-
-    from ov.agent.run import RunError, runs
-
-    run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
-    _wait_done(run)
-    with pytest.raises(RunError):
-        run.watch("queue drained", 1, 2)
-    run.watch("queue drained", 15, 2)
-    assert run.state["watch"]["prompt"] == "queue drained"
-    assert db.due_watches(db.now_ms()) == []
-
-    db._run("UPDATE watches SET next_at = 0")
-    assert db.due_watches(db.now_ms()) == [run.id]
-    run.fire_watch()
-    for _ in range(100):
-        if len(sent) == 2 and run.state["summary"]["status"] == "done":
-            break
-        time.sleep(0.05)
-    assert sent[-1].startswith("Watch check 1 of about 8: queue drained")
-    assert run.state["watch"]["fired"] == 1
-
-    db._run("UPDATE watches SET next_at = 0, until = 1")
-    run.fire_watch()
-    assert db.get_watch(run.id) is None and "watch" not in run.state
-
-
 def test_a_case_reply_is_drafted_with_the_reply_style(logged_in, monkeypatch):
     calls: list[tuple] = []
 

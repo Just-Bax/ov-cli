@@ -10,7 +10,6 @@
     --font-weight-medium: 500;
     --font-weight-semibold: 600;
     --tracking-tight: -0.025em;
-    --tracking-normal: 0em;
     --tracking-wide: 0.025em;
     --leading-tight: 1.25;
     --leading-snug: 1.375;
@@ -766,9 +765,6 @@
   .min-h-\[56px\] {
     min-height: 56px;
   }
-  .min-h-\[72px\] {
-    min-height: 72px;
-  }
   .min-h-\[88px\] {
     min-height: 88px;
   }
@@ -999,6 +995,9 @@
   }
   .min-w-0 {
     min-width: 0px;
+  }
+  .min-w-7 {
+    min-width: calc(var(--spacing) * 7);
   }
   .min-w-11 {
     min-width: calc(var(--spacing) * 11);
@@ -1468,6 +1467,9 @@
   .bg-brand-strong {
     background-color: #1e88e5;
   }
+  .bg-brand\/30 {
+    background-color: color-mix(in oklab, #42a5f5 30%, transparent);
+  }
   .bg-brand\/45 {
     background-color: color-mix(in oklab, #42a5f5 45%, transparent);
   }
@@ -1497,6 +1499,9 @@
   }
   .bg-line-strong {
     background-color: #cfd8dc;
+  }
+  .bg-line-strong\/60 {
+    background-color: color-mix(in oklab, #cfd8dc 60%, transparent);
   }
   .bg-muted {
     background-color: #607d8b;
@@ -1878,10 +1883,6 @@
     --tw-tracking: 0.16em;
     letter-spacing: 0.16em;
   }
-  .tracking-normal {
-    --tw-tracking: var(--tracking-normal);
-    letter-spacing: var(--tracking-normal);
-  }
   .tracking-tight {
     --tw-tracking: var(--tracking-tight);
     letter-spacing: var(--tracking-tight);
@@ -1970,12 +1971,6 @@
     @supports (color: color-mix(in lab, red, red)) {
       color: color-mix(in oklab, var(--color-white) 85%, transparent);
     }
-  }
-  .normal-case {
-    text-transform: none;
-  }
-  .uppercase {
-    text-transform: uppercase;
   }
   .italic {
     font-style: italic;
@@ -2187,6 +2182,9 @@
     -webkit-user-select: none;
     user-select: none;
   }
+  .group-focus-within\/run\:invisible:is(:where(.group\/run):focus-within *) {
+    visibility: hidden;
+  }
   .group-focus-within\/run\:opacity-100:is(:where(.group\/run):focus-within *) {
     opacity: 100%;
   }
@@ -2209,13 +2207,13 @@
     .group-hover\/rail\:text-brand-strong:is(:where(.group\/rail):hover *) {
       color: #1e88e5;
     }
+    .group-hover\/run\:invisible:is(:where(.group\/run):hover *) {
+      visibility: hidden;
+    }
     .group-hover\/run\:hidden:is(:where(.group\/run):hover *) {
       display: none;
     }
     .group-hover\/run\:opacity-100:is(:where(.group\/run):hover *) {
-      opacity: 100%;
-    }
-    .group-hover\/shelf\:opacity-100:is(:where(.group\/shelf):hover *) {
       opacity: 100%;
     }
     .group-hover\/tab\:opacity-100:is(:where(.group\/tab):hover *) {
@@ -2263,9 +2261,6 @@
     }
     .hover\:bg-brand-strong:hover {
       background-color: #1e88e5;
-    }
-    .hover\:bg-brand\/15:hover {
-      background-color: color-mix(in oklab, #42a5f5 15%, transparent);
     }
     .hover\:bg-canvas:hover {
       background-color: #eceff1;

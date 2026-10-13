@@ -156,14 +156,6 @@ def _on_rate(state: State, stored: Stored) -> None:
         state["ratings"].pop(event["turnId"], None)
 
 
-def _on_watch(state: State, stored: Stored) -> None:
-    watch = stored["event"]["watch"]
-    if watch:
-        state["watch"] = watch
-    else:
-        state.pop("watch", None)
-
-
 def _on_access(state: State, stored: Stored) -> None:
     state["writeAccess"] = stored["event"]["write"]
 
@@ -185,7 +177,6 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "rewind": _on_rewind,
     "rate": _on_rate,
     "access": _on_access,
-    "watch": _on_watch,
 }
 
 

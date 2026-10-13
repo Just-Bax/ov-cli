@@ -153,8 +153,6 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
     }
     case 'access':
       return { ...state, writeAccess: event.write }
-    case 'watch':
-      return { ...state, watch: event.watch ?? undefined }
     default:
       return state
   }

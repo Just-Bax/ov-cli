@@ -5,7 +5,6 @@ import {
   Checks,
   DotsThree,
   DownloadSimple,
-  Eye,
   PushPin,
   PushPinSlash,
   Sparkle,
@@ -18,6 +17,7 @@ import { reportError } from '@/components/Toasts'
 import { Button } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useLayer } from '@/lib/layers'
+import { shortSpan } from '@/lib/span'
 import { cn } from '@/lib/cn'
 import { refreshRuns, setPinned, setSettled, setSnoozed } from '@/lib/runs'
 
@@ -185,12 +185,10 @@ function SnoozePanel({ onPick }: { onPick: (until: number) => void }) {
 export function RunMenu({
   run,
   settled,
-  onWatch,
   inRow,
 }: {
   run: RunSummary
   settled: boolean
-  onWatch?: () => void
   inRow?: boolean
 }) {
   const [pos, setPos] = useState<{ left: number; top: number }>()
@@ -302,7 +300,7 @@ export function RunMenu({
                 <Item
                   icon={<SunHorizon className="size-4" />}
                   label="Wake up now"
-                  hint={snoozeLabel(run.snoozedUntil)}
+                  hint={`in ${shortSpan(run.snoozedUntil - Date.now())}`}
                   onHover={() => setSnoozing(false)}
                   onClick={() => act(() => setSnoozed(run.id, null))}
                 />
@@ -318,15 +316,9 @@ export function RunMenu({
                   })
                 }
               />
-              {onWatch ? (
+              {inRow ? null : (
                 <>
                   <div className="bg-line mx-2 my-1 h-px" />
-                  <Item
-                    icon={<Eye className="size-4" />}
-                    label="Watch..."
-                    onHover={() => setSnoozing(false)}
-                    onClick={() => act(onWatch)}
-                  />
                   <Item
                     icon={<DownloadSimple className="size-4" />}
                     label="Export as Markdown"
@@ -334,7 +326,7 @@ export function RunMenu({
                     onClick={() => act(() => window.location.assign(api.exportUrl(run.id)))}
                   />
                 </>
-              ) : null}
+              )}
               <div className="bg-line mx-2 my-1 h-px" />
               <Item
                 icon={

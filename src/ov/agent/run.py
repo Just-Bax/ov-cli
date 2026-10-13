@@ -63,17 +63,6 @@ MAX_CACHED_RUNS = 6
 LOGIN_ATTEMPTS = 2
 EVICT_GRACE_MS = 60_000
 
-MINUTE_MS = 60_000
-HOUR_MS = 60 * MINUTE_MS
-WATCH_MIN_MINUTES = 5
-WATCH_MAX_MINUTES = 240
-WATCH_MAX_HOURS = 72
-WATCH_RETRY_MS = MINUTE_MS
-WATCH_SUFFIX = (
-    "\n\n(Scheduled check. Check it, then answer in two or three sentences: what changed since the last "
-    "check and whether it is resolved. If it is resolved or no longer worth checking, call run_watch with "
-    "stop=true.)"
-)
 REPLY_PROMPT = (
     "Rewrite the engineer's findings below as the comment they will post to the customer on the support "
     "case. Use only facts in the findings; never add new ones. Output only the comment text."
@@ -651,41 +640,6 @@ class Run:
             self._queue = [q for q in self._queue if q[0]["id"] != message_id]
             self._held.discard(message_id)
         self.emit({"type": "unqueue", "id": message_id})
-
-    def watch(self, prompt: str, every_minutes: int, hours: float) -> dict[str, Any]:
-        text = " ".join(prompt.split())
-        if not text:
-            raise RunError("Say what to check.")
-        if not WATCH_MIN_MINUTES <= every_minutes <= WATCH_MAX_MINUTES:
-            raise RunError(f"Check every {WATCH_MIN_MINUTES} to {WATCH_MAX_MINUTES} minutes.")
-        if not 0 < hours <= WATCH_MAX_HOURS:
-            raise RunError(f"Watch for up to {WATCH_MAX_HOURS} hours.")
-        watch = db.set_watch(self.id, text, every_minutes * MINUTE_MS, db.now_ms() + int(hours * HOUR_MS))
-        self.emit({"type": "watch", "watch": watch})
-        return watch
-
-    def unwatch(self) -> None:
-        db.clear_watch(self.id)
-        self.emit({"type": "watch", "watch": None})
-
-    def fire_watch(self) -> None:
-        watch = db.get_watch(self.id)
-        if watch is None:
-            return
-        now = db.now_ms()
-        if now >= watch["until"]:
-            self.unwatch()
-            return
-        with self._lock:
-            busy = self._busy or bool(self._queue)
-        if busy:
-            db.advance_watch(self.id, now + WATCH_RETRY_MS)
-            return
-
-        updated = db.advance_watch(self.id, now + watch["everyMs"])
-        self.emit({"type": "watch", "watch": updated})
-        total = watch["fired"] + 1 + max(0, (watch["until"] - now) // watch["everyMs"])
-        self.follow_up(f"Watch check {watch['fired'] + 1} of about {total}: {watch['prompt']}{WATCH_SUFFIX}", [])
 
     def steer_queued(self, message_id: str) -> None:
         with self._lock:

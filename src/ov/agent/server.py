@@ -58,7 +58,6 @@ FAILED_PROCESS_STATUSES = "3, 14, 21"
 FAILED_PROCESS_TYPES_SHOWN = 20
 APP_ID = "ov-agent"
 SCREEN_APPEAR_SECONDS = 10
-WATCH_TICK_SECONDS = 20
 INSTANCE_CHECK_TIMEOUT_SECONDS = 20
 _PLATFORM_VERSION = re.compile(r'Version\s*=\s*"([^"]+)"')
 EXPORT_NAME_CHARS = 80
@@ -720,36 +719,6 @@ def run_details(h: Handler, run_id: str) -> str:
     return _run(run_id).details(tools, edits)
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/watch")
-def watch(h: Handler, run_id: str) -> dict[str, Any]:
-    data = h.json()
-    every, hours = data.get("every"), data.get("hours")
-    if not isinstance(every, int) or not isinstance(hours, (int, float)):
-        raise HttpError(400, "Give every in minutes and hours as numbers.")
-    return _run(run_id).watch(str(data.get("prompt") or ""), every, float(hours))
-
-
-@route("DELETE", "/api/runs/([a-z0-9]+)/watch")
-def unwatch(_: Handler, run_id: str) -> dict[str, bool]:
-    _run(run_id).unwatch()
-    return {"ok": True}
-
-
-def _watcher(stop: threading.Event) -> None:
-    while not stop.wait(WATCH_TICK_SECONDS):
-        for run_id in db.due_watches(db.now_ms()):
-            run = runs.get(run_id)
-            if run is None:
-                db.clear_watch(run_id)
-                continue
-            try:
-                run.fire_watch()
-            except Exception as exc:
-                db.clear_watch(run_id)
-                run.emit({"type": "watch", "watch": None})
-                run.emit({"type": "status", "status": "error", "error": f"Watch stopped: {exc}"})
-
-
 @route("POST", "/api/runs/([a-z0-9]+)/retitle")
 def retitle(_: Handler, run_id: str) -> dict[str, str]:
     return {"title": _run(run_id).retitle()}
@@ -1040,8 +1009,6 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True) -> int:
         return 0
 
     print(f"OV Agent running at {url}  (Ctrl+C to stop)", flush=True)
-    stop_watching = threading.Event()
-    threading.Thread(target=_watcher, args=(stop_watching,), daemon=True, name="watcher").start()
     if open_browser:
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
     try:
@@ -1049,7 +1016,6 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        stop_watching.set()
         server.server_close()
         db.close()
     return 0

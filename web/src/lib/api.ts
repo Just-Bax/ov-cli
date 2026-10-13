@@ -72,9 +72,6 @@ export const api = {
   retitleRun: (id: string) => post<{ title: string }>(`/runs/${id}/retitle`),
   draftReply: (id: string, messageId: string) =>
     post<{ text: string }>(`/runs/${id}/reply`, { messageId }),
-  watch: (id: string, prompt: string, every: number, hours: number) =>
-    post(`/runs/${id}/watch`, { prompt, every, hours }),
-  unwatch: (id: string) => del(`/runs/${id}/watch`),
   pinRun: (id: string, pinned: boolean) => post(`/runs/${id}/pin`, { pinned }),
   snoozeRun: (id: string, until: number | null) => post(`/runs/${id}/snooze`, { until }),
   searchRun: (id: string, q: string, signal?: AbortSignal) =>

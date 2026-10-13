@@ -25,7 +25,6 @@ import { CostPill } from './CostPill'
 import { FilesChanged } from './FilesChanged'
 import { FindBar } from './FindBar'
 import { InstanceChip } from './InstanceChip'
-import { WatchChip, WatchDialog } from './WatchButton'
 import { RunMenu } from '@/components/RunMenu'
 import { layerOpen } from '@/lib/layers'
 import { OPEN_FIND } from '@/components/CommandPalette'
@@ -300,7 +299,6 @@ export function RunView({ id }: { id: string }) {
   const ready = Boolean(state)
   const restoreHeight = useRef<number | undefined>(undefined)
   const [finding, setFinding] = useState(false)
-  const [watching, setWatching] = useState(false)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -456,9 +454,7 @@ export function RunView({ id }: { id: string }) {
   const actions = (
     <>
       {busy && !summary.cost ? null : <CostPill runId={id} cost={summary.cost} />}
-      {state.watch ? <WatchChip runId={id} watch={state.watch} /> : null}
-      <RunMenu run={listed ?? summary} settled={settled} onWatch={() => setWatching(true)} />
-      {watching ? <WatchDialog runId={id} onClose={() => setWatching(false)} /> : null}
+      <RunMenu run={listed ?? summary} settled={settled} />
     </>
   )
 

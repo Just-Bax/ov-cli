@@ -127,15 +127,6 @@ type RunEvent =
   | { type: 'rewind'; itemId: string }
   | { type: 'rate'; turnId: string; rating: Rating | null; note?: string }
   | { type: 'cost'; cost: CostTotal }
-  | { type: 'watch'; watch: RunWatch | null }
-
-export interface RunWatch {
-  prompt: string
-  everyMs: number
-  until: number
-  nextAt: number
-  fired: number
-}
 
 export interface CostTotal {
   credits: number
@@ -254,7 +245,6 @@ export interface RunState extends RunWindow {
   error?: string
   feedback?: { rating: Rating; note: string }
   writeAccess: boolean
-  watch?: RunWatch
   queued: ChatMessage[]
   ratings: Record<string, { rating: Rating; note?: string }>
 }

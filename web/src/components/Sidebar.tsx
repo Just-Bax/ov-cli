@@ -12,7 +12,6 @@ import {
   Plus as PlusIcon,
   CaretUp as ChevronUpIcon,
   PushPin as BookmarkIcon,
-  BellZ as BellSnoozeIcon,
 } from '@phosphor-icons/react'
 import type { Icon } from '@/components/ui'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
@@ -30,6 +29,7 @@ import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
 import { prefetchRun } from '@/lib/useRun'
+import { shortSpan } from '@/lib/span'
 import { refreshRuns, showMoreSettled, sidebarOrder, useRuns } from '@/lib/runs'
 
 const RECENT_LIMIT = 40
@@ -76,17 +76,6 @@ function dayLabel(ts: number): string {
   })
 }
 
-const MINUTE_MS = 60_000
-const HOUR_MS = 60 * MINUTE_MS
-const DAY_MS = 24 * HOUR_MS
-
-function timeLeft(until: number): string {
-  const left = Math.max(0, until - Date.now())
-  if (left < HOUR_MS) return `${Math.max(1, Math.round(left / MINUTE_MS))}m`
-  if (left < DAY_MS) return `${Math.round(left / HOUR_MS)}h`
-  return `${Math.round(left / DAY_MS)}d`
-}
-
 function group(runs: RunSummary[]): [string, RunSummary[]][] {
   const groups = new Map<string, RunSummary[]>()
   const pinned = runs.filter((r) => r.pinned)
@@ -125,6 +114,18 @@ function Avatar({ user }: { user?: string }) {
   )
 }
 
+function RunMeta({ run }: { run: RunSummary }) {
+  if (BUSY.has(run.status)) return <Spinner className="text-brand size-3.5" />
+  if (run.status === 'waiting') return <span className="text-warn font-medium">Needs you</span>
+  if (run.snoozedUntil)
+    return (
+      <span title={`Snoozed until ${snoozeLabel(run.snoozedUntil)}`} className="text-brand">
+        {shortSpan(run.snoozedUntil - Date.now())}
+      </span>
+    )
+  return <span className="text-faint">{shortSpan(Date.now() - run.updatedAt)}</span>
+}
+
 function RunItem({
   run,
   active,
@@ -145,7 +146,7 @@ function RunItem({
       onClick={() => go({ page: 'run', id: run.id })}
       onKeyDown={(e) => e.key === 'Enter' && go({ page: 'run', id: run.id })}
       className={cn(
-        'group/run animate-slide-in flex h-9 cursor-pointer items-center gap-2.5 rounded-full pr-1 pl-3.5 text-[12.5px] font-medium transition-colors outline-none',
+        'group/run animate-slide-in flex h-9 cursor-pointer items-center gap-2 rounded-full pr-1.5 pl-3.5 text-[12.5px] font-medium transition-colors outline-none',
         active
           ? 'bg-brand-soft text-brand-strong'
           : settled
@@ -154,13 +155,6 @@ function RunItem({
         !active && BUSY.has(run.status) && 'opacity-55 hover:opacity-100 focus-visible:opacity-100',
       )}
     >
-      <span className="flex size-3 shrink-0 items-center justify-center">
-        {settled ? (
-          <DoubleCheckIcon className="text-ok size-3.5" />
-        ) : (
-          <StatusIcon status={run.status} />
-        )}
-      </span>
       <EditableTitle
         value={run.title}
         onSave={async (title) => {
@@ -173,15 +167,14 @@ function RunItem({
       {run.pinned && !settled ? (
         <BookmarkIcon className="text-brand size-3.5 shrink-0 group-hover/run:hidden" />
       ) : null}
-      {run.snoozedUntil ? (
-        <span
-          title={`Snoozed until ${snoozeLabel(run.snoozedUntil)}`}
-          className="text-brand shrink-0 text-[11px] font-normal tabular-nums group-hover/run:hidden"
-        >
-          {timeLeft(run.snoozedUntil)}
+      <span className="relative flex h-7 min-w-7 shrink-0 items-center justify-end text-[11.5px] font-normal tabular-nums">
+        <span className="pr-1 group-focus-within/run:invisible group-hover/run:invisible">
+          <RunMeta run={run} />
         </span>
-      ) : null}
-      <RunMenu run={run} settled={Boolean(settled)} inRow />
+        <span className="absolute inset-y-0 right-0 flex items-center">
+          <RunMenu run={run} settled={Boolean(settled)} inRow />
+        </span>
+      </span>
     </div>
   )
 }
@@ -379,6 +372,38 @@ function NavRow({
         <span className="truncate">{label}</span>
       )}
     </a>
+  )
+}
+
+function ShelfToggle({
+  label,
+  count,
+  open,
+  onClick,
+}: {
+  label: string
+  count: number
+  open: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={open}
+      className={cn(
+        'flex h-8 w-full shrink-0 items-center gap-3 px-3.5 text-[12px] font-medium transition-colors',
+        open ? 'text-brand-strong' : 'text-faint hover:text-fg',
+      )}
+    >
+      <span className="shrink-0">
+        {label} <span className="tabular-nums">({count})</span>
+      </span>
+      <span className={cn('h-px flex-1', open ? 'bg-brand/30' : 'bg-line-strong/60')} />
+      <ChevronUpIcon
+        className={cn('size-3 shrink-0 transition-transform duration-200', !open && 'rotate-180')}
+      />
+    </button>
   )
 }
 
@@ -610,32 +635,16 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           {snoozed.length && !collapsed ? (
             <div
               className={cn(
-                'border-line-strong/60 flex min-h-0 flex-col border-t px-3 py-2',
+                'flex min-h-0 flex-col px-3 pt-1 pb-2',
                 snoozedOpen ? 'max-h-[30%] shrink' : 'shrink-0',
               )}
             >
-              <button
-                type="button"
+              <ShelfToggle
+                label="Snoozed"
+                count={snoozed.length}
+                open={snoozedOpen}
                 onClick={() => setSnoozedOpen((v) => !v)}
-                aria-expanded={snoozedOpen}
-                className="group/shelf text-faint hover:text-fg flex h-8 w-full shrink-0 items-center gap-2 rounded-full px-3.5 text-[11px] font-semibold tracking-wide uppercase transition-colors"
-              >
-                <BellSnoozeIcon className="text-brand size-3.5" />
-                <span className="text-left">Snoozed</span>
-                <span className="bg-raised text-muted rounded-full px-1.5 text-[10.5px] tabular-nums">
-                  {snoozed.length}
-                </span>
-                <span className="flex-1" />
-                <span className="text-[10.5px] tracking-normal normal-case opacity-0 transition-opacity group-hover/shelf:opacity-100">
-                  {snoozedOpen ? 'Hide' : 'Show'}
-                </span>
-                <ChevronUpIcon
-                  className={cn(
-                    'size-3 transition-transform duration-200',
-                    !snoozedOpen && 'rotate-180',
-                  )}
-                />
-              </button>
+              />
               {snoozedOpen ? (
                 <div className="animate-fade-in mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto">
                   {snoozed.map((r) => (
@@ -664,32 +673,16 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             ) : (
               <div
                 className={cn(
-                  'border-line-strong/60 flex min-h-0 flex-col border-t px-3 py-2',
+                  'flex min-h-0 flex-col px-3 pt-1 pb-2',
                   settledOpen ? 'max-h-[45%] min-h-[88px] shrink' : 'shrink-0',
                 )}
               >
-                <button
-                  type="button"
+                <ShelfToggle
+                  label="Settled"
+                  count={settledTotal}
+                  open={settledOpen}
                   onClick={() => toggleSettled()}
-                  aria-expanded={settledOpen}
-                  className="group/shelf text-faint hover:text-fg flex h-8 w-full shrink-0 items-center gap-2 rounded-full px-3.5 text-[11px] font-semibold tracking-wide uppercase transition-colors"
-                >
-                  <DoubleCheckIcon className="text-ok size-3.5" />
-                  <span className="text-left">Settled</span>
-                  <span className="bg-raised text-muted rounded-full px-1.5 text-[10.5px] tabular-nums">
-                    {settledTotal}
-                  </span>
-                  <span className="flex-1" />
-                  <span className="text-[10.5px] tracking-normal normal-case opacity-0 transition-opacity group-hover/shelf:opacity-100">
-                    {settledOpen ? 'Hide' : 'Show'}
-                  </span>
-                  <ChevronUpIcon
-                    className={cn(
-                      'size-3 transition-transform duration-200',
-                      !settledOpen && 'rotate-180',
-                    )}
-                  />
-                </button>
+                />
                 {settledOpen ? (
                   <div className="animate-fade-in mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto">
                     {settled.map((r) => (
