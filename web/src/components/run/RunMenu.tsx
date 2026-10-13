@@ -276,7 +276,7 @@ export function RunMenu({
           setPos({ left: box.right - MENU_WIDTH, top: box.bottom + MENU_GAP })
         }}
         className={cn(
-          'text-muted hover:text-fg flex shrink-0 items-center justify-center rounded-full transition-[opacity,color,background-color] hover:bg-black/[0.06]',
+          'text-muted hover:text-fg flex shrink-0 items-center justify-center rounded-full transition-[color,background-color] hover:bg-black/[0.06]',
           inRow ? 'size-7' : 'size-8',
           inRow &&
             !pos &&

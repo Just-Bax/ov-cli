@@ -52,6 +52,9 @@ const CLOSE_SIDEBAR_LABEL = 'Close sidebar (Ctrl+B)'
 const HEADER_BUTTON =
   'text-faint hover:bg-canvas hover:text-brand-strong flex size-8 items-center justify-center rounded-full transition-colors'
 const BODY_INSET = 'px-3'
+const SHELF_PREVIEW = 5
+const SHELF_STEP = 10
+const SCROLL_EDGE_PX = 2
 const CONTENT_INSET = 'px-2'
 const ROW_INSET = 'pr-2 pl-2'
 const GROUP_GAP = 'mt-4'
@@ -462,19 +465,67 @@ function ToolRows({
   ))
 }
 
+function useScrollFades(ref: RefObject<HTMLDivElement | null>): string {
+  const [edges, setEdges] = useState({ top: false, bottom: false })
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+
+    const measure = () =>
+      setEdges({
+        top: el.scrollTop > SCROLL_EDGE_PX,
+        bottom: el.scrollTop + el.clientHeight < el.scrollHeight - SCROLL_EDGE_PX,
+      })
+    const resize = new ResizeObserver(measure)
+    resize.observe(el)
+    for (const child of el.children) resize.observe(child)
+    el.addEventListener('scroll', measure, { passive: true })
+    measure()
+    return () => {
+      resize.disconnect()
+      el.removeEventListener('scroll', measure)
+    }
+  }, [ref])
+
+  if (edges.top && edges.bottom) return 'fade-y'
+  if (edges.top) return 'fade-top'
+  return edges.bottom ? 'fade-bottom' : ''
+}
+
 function Shelf({
   label,
-  count,
+  runs,
+  total,
   open,
   onToggle,
-  children,
+  onLoadMore,
+  settled,
+  isOpen,
 }: {
   label: string
-  count: number
+  runs: RunSummary[]
+  total: number
   open: boolean
   onToggle: () => void
-  children: ReactNode
+  onLoadMore?: () => Promise<void>
+  settled?: boolean
+  isOpen: (id: string) => boolean
 }) {
+  const [limit, setLimit] = useState(SHELF_PREVIEW)
+  const visible = runs.slice(0, limit)
+  const left = total - visible.length
+
+  useEffect(() => {
+    if (!open) setLimit(SHELF_PREVIEW)
+  }, [open])
+
+  const more = () => {
+    const next = limit + SHELF_STEP
+    setLimit(next)
+    if (onLoadMore && next > runs.length && runs.length < total) void onLoadMore()
+  }
+
   return (
     <section>
       <button
@@ -488,14 +539,32 @@ function Shelf({
         )}
       >
         <span className="shrink-0">
-          {label} <span className="tabular-nums">({count})</span>
+          {label} <span className="tabular-nums">({total})</span>
         </span>
         <span className={cn('h-px flex-1', open ? 'bg-brand/30' : 'bg-line-strong/60')} />
         <ChevronUpIcon
           className={cn('size-3 shrink-0 transition-transform duration-200', !open && 'rotate-180')}
         />
       </button>
-      {open ? <div className="animate-fade-in mt-1 space-y-0.5">{children}</div> : null}
+      {open ? (
+        <div className="animate-fade-in mt-1 space-y-0.5">
+          {visible.map((r) => (
+            <RunItem key={r.id} run={r} active={isOpen(r.id)} settled={settled} />
+          ))}
+          {left > 0 ? (
+            <button
+              type="button"
+              onClick={more}
+              className={cn(
+                'text-brand-strong hover:bg-canvas h-8 w-full rounded-full text-left text-[12px] font-medium',
+                CONTENT_INSET,
+              )}
+            >
+              Show more ({left} left)
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -511,6 +580,8 @@ export function Sidebar({
 }) {
   const list = useRuns()
   const [showAll, setShowAll] = useState(false)
+  const scroller = useRef<HTMLDivElement>(null)
+  const fades = useScrollFades(scroller)
   const [pinnedCollapsed, setCollapsed] = useState(storedCollapsed)
   const [drawer, setDrawer] = useState(false)
   const [snoozedOpen, setSnoozedOpen] = useState(false)
@@ -730,7 +801,7 @@ export function Sidebar({
             ) : null}
           </div>
         ) : (
-          <div className={cn('min-h-0 flex-1 overflow-y-auto', BODY_INSET)}>
+          <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto', BODY_INSET, fades)}>
             <div className="flex min-h-full flex-col pt-2 pb-3">
               {!list ? (
                 <div className={cn('space-y-4 pt-3', CONTENT_INSET)}>
@@ -775,38 +846,24 @@ export function Sidebar({
                   {snoozed.length ? (
                     <Shelf
                       label="Snoozed"
-                      count={snoozed.length}
+                      runs={snoozed}
+                      total={snoozed.length}
                       open={snoozedOpen}
                       onToggle={() => setSnoozedOpen((v) => !v)}
-                    >
-                      {snoozed.map((r) => (
-                        <RunItem key={r.id} run={r} active={isOpen(r.id)} />
-                      ))}
-                    </Shelf>
+                      isOpen={isOpen}
+                    />
                   ) : null}
                   {settledTotal ? (
                     <Shelf
                       label="Settled"
-                      count={settledTotal}
+                      runs={settled}
+                      total={settledTotal}
                       open={settledOpen}
                       onToggle={() => toggleSettled()}
-                    >
-                      {settled.map((r) => (
-                        <RunItem key={r.id} run={r} active={isOpen(r.id)} settled />
-                      ))}
-                      {settledTotal > settled.length ? (
-                        <button
-                          type="button"
-                          onClick={() => void showMoreSettled()}
-                          className={cn(
-                            'text-brand-strong hover:bg-canvas h-8 w-full rounded-full text-left text-[12px] font-medium',
-                            CONTENT_INSET,
-                          )}
-                        >
-                          Show more ({settledTotal - settled.length} left)
-                        </button>
-                      ) : null}
-                    </Shelf>
+                      onLoadMore={showMoreSettled}
+                      settled
+                      isOpen={isOpen}
+                    />
                   ) : null}
                 </div>
               ) : null}

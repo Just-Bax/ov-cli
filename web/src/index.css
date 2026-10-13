@@ -371,3 +371,21 @@
     animation-duration: 1.6s !important;
   }
 }
+
+@utility fade-top {
+  mask-image: linear-gradient(to bottom, transparent, black 28px);
+}
+
+@utility fade-bottom {
+  mask-image: linear-gradient(to top, transparent, black 28px);
+}
+
+@utility fade-y {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 28px,
+    black calc(100% - 28px),
+    transparent
+  );
+}

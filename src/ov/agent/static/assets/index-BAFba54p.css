@@ -1550,6 +1550,15 @@
     --tw-gradient-to: transparent;
     --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position));
   }
+  .fade-bottom {
+    mask-image: linear-gradient(to top, transparent, black 28px);
+  }
+  .fade-top {
+    mask-image: linear-gradient(to bottom, transparent, black 28px);
+  }
+  .fade-y {
+    mask-image: linear-gradient( to bottom, transparent, black 28px, black calc(100% - 28px), transparent );
+  }
   .stroke-line {
     stroke: #eceff1;
   }
@@ -2111,8 +2120,8 @@
     -webkit-backdrop-filter: var(--tw-backdrop-blur,) var(--tw-backdrop-brightness,) var(--tw-backdrop-contrast,) var(--tw-backdrop-grayscale,) var(--tw-backdrop-hue-rotate,) var(--tw-backdrop-invert,) var(--tw-backdrop-opacity,) var(--tw-backdrop-saturate,) var(--tw-backdrop-sepia,);
     backdrop-filter: var(--tw-backdrop-blur,) var(--tw-backdrop-brightness,) var(--tw-backdrop-contrast,) var(--tw-backdrop-grayscale,) var(--tw-backdrop-hue-rotate,) var(--tw-backdrop-invert,) var(--tw-backdrop-opacity,) var(--tw-backdrop-saturate,) var(--tw-backdrop-sepia,);
   }
-  .transition-\[opacity\,color\,background-color\] {
-    transition-property: opacity,color,background-color;
+  .transition-\[color\,background-color\] {
+    transition-property: color,background-color;
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
   }
