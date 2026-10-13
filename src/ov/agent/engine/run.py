@@ -70,6 +70,8 @@ LOGIN_ATTEMPTS = 2
 EVICT_GRACE_MS = 60_000
 START_TURN = "u_start"
 SHUTDOWN_SECONDS = 10
+STREAM_END = object()
+WAKE_STATUSES = ("waiting", "error", "done")
 SHUTDOWN_POLL_SECONDS = 0.05
 
 REPLY_PROMPT = (
@@ -292,6 +294,7 @@ class Run:
             kind = event["type"]
             if kind == "status":
                 db.update_thread(self.id, status=event["status"])
+                self._raise_hand(event["status"])
             elif kind == "meta":
                 db.update_thread(self.id, title=event.get("title"), instance=event.get("instance"))
                 status_feed.publish({"kind": "meta", "id": self.id})
@@ -299,6 +302,25 @@ class Run:
                 db.update_thread(self.id, allow_write=event["write"])
             for channel in self._listeners:
                 channel.put(stored)
+
+    def _raise_hand(self, status: str) -> None:
+        if status in WAKE_STATUSES:
+            db.set_snoozed(self.id, None)
+        if status == "waiting":
+            db.set_settled(self.id, False)
+
+    def shut_down(self) -> None:
+        self.stop()
+        deadline = time.monotonic() + SHUTDOWN_SECONDS
+        while self.working():
+            if time.monotonic() > deadline:
+                raise RunError("The thread is still stopping. Try again in a moment.")
+            time.sleep(SHUTDOWN_POLL_SECONDS)
+
+        with self._lock:
+            listeners, self._listeners = self._listeners, []
+        for channel in listeners:
+            channel.put(STREAM_END)
 
     def _set_status(self, status: str, error: str | None = None) -> None:
         with self._lock:
@@ -966,6 +988,7 @@ class RunManager:
     def __init__(self) -> None:
         self._runs: dict[str, Run] = {}
         self._lock = threading.Lock()
+        self._deleting: set[str] = set()
 
     def create(self, data: dict[str, Any], model: str) -> Run:
         suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=RUN_ID_SUFFIX_CHARS))
@@ -986,6 +1009,8 @@ class RunManager:
 
     def get(self, run_id: str) -> Run | None:
         with self._lock:
+            if run_id in self._deleting:
+                return None
             live = self._runs.get(run_id)
             if live is not None:
                 live.touched = db.now_ms()
@@ -1007,14 +1032,19 @@ class RunManager:
             return run
 
     def delete(self, run_id: str) -> None:
+        if db.get_thread(run_id) is None:
+            raise RunError("No such thread.")
+
         with self._lock:
-            live = self._runs.get(run_id)
-            if live is not None and not live.idle():
-                raise RunError("Stop this thread before deleting it.")
-            if db.get_thread(run_id) is None:
-                raise RunError("No such thread.")
-            self._runs.pop(run_id, None)
+            live = self._runs.pop(run_id, None)
+            self._deleting.add(run_id)
+        try:
+            if live is not None:
+                live.shut_down()
             db.delete_thread(run_id)
+        finally:
+            with self._lock:
+                self._deleting.discard(run_id)
         folder = run_dir(run_id)
         if folder.exists():
             shutil.rmtree(folder)
@@ -1024,12 +1054,7 @@ class RunManager:
         with self._lock:
             live, self._runs = list(self._runs.values()), {}
         for run in live:
-            run.stop()
-        deadline = time.monotonic() + SHUTDOWN_SECONDS
-        while any(run.working() for run in live):
-            if time.monotonic() > deadline:
-                raise RunError("Threads did not stop in time.")
-            time.sleep(SHUTDOWN_POLL_SECONDS)
+            run.shut_down()
 
     def _evict(self) -> None:
         now = db.now_ms()

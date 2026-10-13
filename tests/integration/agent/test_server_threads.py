@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import time
+
 import httpx
 from helpers.agent import wait_done
 from sqlalchemy import update
@@ -103,3 +106,91 @@ def test_deleting_a_thread_removes_everything_it_owns(agent_server):
     assert db.get_thread("rdel") is None and db.load_events("rdel") == []
     assert db.load_messages("rdel") == ([], {}) and db.thread_cost("rdel")["requests"] == 0
     assert not run_dir("rdel").exists() or not any(run_dir("rdel").iterdir())
+
+
+STOP_SECONDS = 5
+POLL_SECONDS = 0.05
+
+
+def _working_thread(monkeypatch):
+    from ov.agent.engine.run import runs
+
+    started = threading.Event()
+
+    def endless_chat(*_, cancel, on_text, **__):
+        on_text("Looking")
+        started.set()
+        cancel.wait(STOP_SECONDS * 4)
+        cancel.check()
+        return StreamResult(text="never")
+
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", endless_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
+    run = runs.create({"prompt": "hi"}, "test-model")
+    assert started.wait(STOP_SECONDS)
+    return run
+
+
+def _until(check) -> bool:
+    deadline = time.monotonic() + STOP_SECONDS
+    while not check():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(POLL_SECONDS)
+    return True
+
+
+def test_stop_really_stops_a_working_thread(logged_in, monkeypatch):
+    run = _working_thread(monkeypatch)
+
+    run.stop()
+
+    assert _until(lambda: not run.working())
+    assert run.state["summary"]["status"] == "cancelled"
+    assert db.get_thread(run.id)["status"] == "cancelled"
+
+
+def test_an_open_working_thread_is_stopped_and_deleted(logged_in, agent_server, monkeypatch):
+    from ov.agent.engine.run import STREAM_END
+
+    run = _working_thread(monkeypatch)
+    channel, unsubscribe, _ = run.resume(-1)
+
+    assert httpx.delete(f"{agent_server}/api/runs/{run.id}").status_code == 200
+
+    assert not run.working()
+    assert db.get_thread(run.id) is None and db.load_events(run.id) == []
+    seen = []
+    while True:
+        item = channel.get(timeout=STOP_SECONDS)
+        if item is STREAM_END:
+            break
+        seen.append(item)
+    assert any(s["event"].get("status") == "cancelled" for s in seen)
+    assert httpx.get(f"{agent_server}/api/runs/{run.id}").status_code == 404
+    unsubscribe()
+
+
+def test_snooze_and_settle_wait_for_an_answer_and_a_waiting_thread_wakes(agent_server):
+    from ov.agent.engine.run import runs
+
+    db.create_thread("rwake", "Wake", "m", prompt="x", instance=None, allow_write=False)
+    later = db.now_ms() + 3_600_000
+    db.set_snoozed("rwake", later)
+    db.set_settled("rwake", True)
+    run = runs.get("rwake")
+
+    run.emit({"type": "status", "status": "waiting"})
+
+    thread = db.get_thread("rwake")
+    assert "snoozedUntil" not in thread and "settled" not in thread
+    J = {"Content-Type": "application/json"}
+    snoozed = httpx.post(f"{agent_server}/api/runs/rwake/snooze", json={"until": later}, headers=J)
+    settled = httpx.post(f"{agent_server}/api/runs/rwake/settle", json={"settled": True}, headers=J)
+    assert snoozed.status_code == 400 and "waiting for you" in snoozed.json()["error"]
+    assert settled.status_code == 400
+
+    run.emit({"type": "status", "status": "running"})
+    assert httpx.post(f"{agent_server}/api/runs/rwake/snooze", json={"until": later}, headers=J).status_code == 200
+    run.emit({"type": "status", "status": "done"})
+    assert "snoozedUntil" not in db.get_thread("rwake")

@@ -2330,8 +2330,16 @@
   .focus-visible\:opacity-100:focus-visible {
     opacity: 100%;
   }
+  @media (hover: hover) {
+    .enabled\:hover\:bg-raised:enabled:hover {
+      background-color: #f4f6f7;
+    }
+  }
   .disabled\:pointer-events-none:disabled {
     pointer-events: none;
+  }
+  .disabled\:cursor-not-allowed:disabled {
+    cursor: not-allowed;
   }
   .disabled\:bg-line-strong:disabled {
     background-color: #cfd8dc;
@@ -2350,6 +2358,9 @@
   }
   .disabled\:opacity-40:disabled {
     opacity: 40%;
+  }
+  .disabled\:opacity-50:disabled {
+    opacity: 50%;
   }
   @media (width >= 40rem) {
     .sm\:inline-flex {

@@ -27,7 +27,7 @@ from ov.agent.api.screen import ScreenError, find_screen, screen_key
 from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.export import to_markdown
 from ov.agent.engine.files import attachments_dir, uploads_dir, within
-from ov.agent.engine.run import RunError, runs, status_feed
+from ov.agent.engine.run import STREAM_END, RunError, runs, status_feed
 from ov.agent.instances import explorer, graph
 from ov.agent.instances.explorer import ExplorerError
 from ov.agent.instances.ovproc import find_instance, instances, login, run_ov, url_for, version
@@ -728,12 +728,20 @@ def pin(h: Handler, run_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
+def _not_waiting(run_id: str, action: str) -> None:
+    thread = db.get_thread(run_id)
+    if thread is not None and thread["status"] == "waiting":
+        raise HttpError(400, f"This thread is waiting for you. Answer it before {action}.")
+
+
 @route("POST", "/api/runs/([a-z0-9]+)/snooze")
 def snooze(h: Handler, run_id: str) -> dict[str, bool]:
     _known(run_id)
     until = h.json().get("until")
     if until is not None and not isinstance(until, int):
         raise HttpError(400, "Give until as a time in milliseconds, or null.")
+    if until is not None:
+        _not_waiting(run_id, "snoozing")
     db.set_snoozed(run_id, until)
     status_feed.publish({"kind": "list"})
     return {"ok": True}
@@ -745,6 +753,8 @@ def settle(h: Handler, run_id: str) -> dict[str, bool]:
     settled = h.json().get("settled")
     if not isinstance(settled, bool):
         raise HttpError(400, "Give settled as true or false.")
+    if settled:
+        _not_waiting(run_id, "settling")
 
     db.set_settled(run_id, settled)
     status_feed.publish({"kind": "list"})
@@ -770,6 +780,8 @@ def _pump(h: Handler, channel: queue.Queue[Any], emit: Callable[[Any], None]) ->
         except queue.Empty:
             _write_stream(h, SSE_PING)
             continue
+        if item is STREAM_END:
+            return
         emit(item)
 
 

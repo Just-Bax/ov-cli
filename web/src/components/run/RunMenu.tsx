@@ -23,7 +23,7 @@ import { useLayer } from '@/lib/layers'
 import { go, href } from '@/lib/route'
 import { HOUR_MS, MINUTE_MS, shortSpan, timeWithDay } from '@/lib/time'
 import { cn } from '@/lib/cn'
-import { refreshRuns, setPinned, setSettled, setSnoozed } from '@/lib/runs'
+import { refreshRuns, setPinned, setSettled, setSnoozed, WORKING } from '@/lib/runs'
 
 const MORNING_HOUR = 9
 const MONDAY = 1
@@ -33,6 +33,7 @@ const SUBMENU_WIDTH = 248
 const MENU_GAP = 6
 const EDGE_PX = 8
 const DATETIME_LOCAL_CHARS = 16
+const WAITING_HINT = 'Answer first'
 
 function at(days: number, hour: number): number {
   const when = new Date()
@@ -75,7 +76,8 @@ export function runActions(run: RunSummary, settled: boolean): RunAction[] {
     },
   ]
 
-  if (!settled) {
+  const waiting = run.status === 'waiting'
+  if (!settled && !waiting) {
     if (run.snoozedUntil)
       actions.push({
         label: 'Wake up now',
@@ -91,11 +93,12 @@ export function runActions(run: RunSummary, settled: boolean): RunAction[] {
       })
   }
 
-  actions.push({
-    label: settled ? 'Move back to active' : 'Settle',
-    icon: settled ? <ArrowCounterClockwise className="size-4" /> : <Checks className="size-4" />,
-    run: () => setSettled(run.id, !settled),
-  })
+  if (settled || !waiting)
+    actions.push({
+      label: settled ? 'Move back to active' : 'Settle',
+      icon: settled ? <ArrowCounterClockwise className="size-4" /> : <Checks className="size-4" />,
+      run: () => setSettled(run.id, !settled),
+    })
 
   return actions
 }
@@ -108,6 +111,7 @@ function Item({
   onHover,
   active,
   danger,
+  disabled,
   trailing,
 }: {
   icon: ReactNode
@@ -117,21 +121,23 @@ function Item({
   onHover?: () => void
   active?: boolean
   danger?: boolean
+  disabled?: boolean
   trailing?: ReactNode
 }) {
   return (
     <button
       type="button"
       role="menuitem"
+      disabled={disabled}
       onClick={onClick}
       onMouseEnter={onHover}
       className={cn(
-        'flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[12.5px] transition-colors',
+        'flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         active
           ? 'bg-brand-soft text-brand-strong'
           : danger
             ? 'text-danger hover:bg-danger-soft'
-            : 'text-fg hover:bg-raised',
+            : 'text-fg enabled:hover:bg-raised',
       )}
     >
       <span className={active ? 'text-brand-strong' : danger ? 'text-danger' : 'text-muted'}>
@@ -144,10 +150,12 @@ function Item({
   )
 }
 
-async function deleteThread(id: string): Promise<void> {
+async function deleteThread(id: string, working: boolean): Promise<void> {
   const ok = await dialog.confirm({
     title: 'Delete this thread?',
-    body: 'Its messages and files are removed for good.',
+    body: working
+      ? 'It is still working, so it is stopped first. Its messages and files are removed for good.'
+      : 'Its messages and files are removed for good.',
     confirmLabel: 'Delete',
     tone: 'danger',
   })
@@ -218,6 +226,7 @@ export function RunMenu({
 }) {
   const [pos, setPos] = useState<{ left: number; top: number }>()
   const [snoozing, setSnoozing] = useState(false)
+  const waiting = run.status === 'waiting'
   const [side, setSide] = useState<'right' | 'left'>('right')
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
@@ -300,11 +309,13 @@ export function RunMenu({
                     icon={<BellZ className="size-4" />}
                     label="Snooze"
                     active={snoozing}
-                    onHover={() => setSnoozing(true)}
+                    disabled={waiting}
+                    hint={waiting ? WAITING_HINT : undefined}
+                    onHover={() => setSnoozing(!waiting)}
                     onClick={() => setSnoozing(true)}
-                    trailing={<CaretRight className="text-faint size-3.5" />}
+                    trailing={waiting ? null : <CaretRight className="text-faint size-3.5" />}
                   />
-                  {snoozing ? (
+                  {snoozing && !waiting ? (
                     <div
                       style={{ width: SUBMENU_WIDTH }}
                       className={cn(
@@ -358,6 +369,8 @@ export function RunMenu({
                   )
                 }
                 label={settled ? 'Move back to active' : 'Settle'}
+                disabled={!settled && waiting}
+                hint={!settled && waiting ? WAITING_HINT : undefined}
                 onHover={() => setSnoozing(false)}
                 onClick={() => act(() => setSettled(run.id, !settled))}
               />
@@ -367,7 +380,7 @@ export function RunMenu({
                 label="Delete thread"
                 danger
                 onHover={() => setSnoozing(false)}
-                onClick={() => act(() => deleteThread(run.id))}
+                onClick={() => act(() => deleteThread(run.id, WORKING.has(run.status)))}
               />
             </div>,
             document.body,
