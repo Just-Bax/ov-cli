@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
@@ -73,9 +74,19 @@ def _direct_url() -> dict:
     return json.loads(text)
 
 
+def _declared_requirements() -> list[str]:
+    info = _direct_url()
+    if not info.get("dir_info", {}).get("editable"):
+        return metadata.requires(PACKAGE) or []
+
+    checkout = Path(url2pathname(unquote(urlsplit(info["url"]).path)))
+    with (checkout / "pyproject.toml").open("rb") as file:
+        return tomllib.load(file)["project"]["dependencies"]
+
+
 def missing_dependencies() -> list[str]:
     missing = []
-    for requirement in metadata.requires(PACKAGE) or []:
+    for requirement in _declared_requirements():
         if "extra ==" in requirement:
             continue
         name = REQUIREMENT_NAME.match(requirement)

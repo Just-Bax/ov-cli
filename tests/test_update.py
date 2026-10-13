@@ -134,3 +134,11 @@ def test_the_windows_reinstall_upgrades_the_database_after_installing(monkeypatc
     assert update.reinstall(["uv", "tool", "install"]) is True
     script = started[0][-1]
     assert script.index("'uv', 'tool', 'install'") < script.index("'agent', '--migrate'")
+
+
+def test_an_editable_install_checks_the_dependencies_of_its_checkout(tmp_path, monkeypatch):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\ndependencies = ["httpx>=0.28", "surely-not-installed-pkg>=1"]\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(update, "_direct_url", lambda: {"url": tmp_path.as_uri(), "dir_info": {"editable": True}})
+    assert update.missing_dependencies() == ["surely-not-installed-pkg"]
