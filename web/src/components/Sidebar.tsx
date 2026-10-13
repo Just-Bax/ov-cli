@@ -12,6 +12,8 @@ import {
   PlusIcon,
   ArrowUturnLeftIcon,
   ChevronUpIcon,
+  BookmarkIcon,
+  BellSnoozeIcon,
 } from '@heroicons/react/24/outline'
 import type { Icon } from '@/components/ui'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
@@ -20,6 +22,7 @@ import type { RunStatus, RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
+import { RunMenu, snoozeLabel } from '@/components/RunMenu'
 import { EditableTitle } from '@/components/EditableTitle'
 import { notifyInApp } from '@/components/Toasts'
 import { Skeleton, Spinner } from '@/components/ui'
@@ -76,7 +79,8 @@ function dayLabel(ts: number): string {
 
 function group(runs: RunSummary[]): [string, RunSummary[]][] {
   const groups = new Map<string, RunSummary[]>()
-  for (const r of runs) {
+  const pinned = runs.filter((r) => r.pinned)
+  for (const r of runs.filter((x) => !x.pinned)) {
     const label = ['queued', 'running', 'waiting'].includes(r.status)
       ? 'In progress'
       : dayLabel(r.createdAt)
@@ -85,7 +89,8 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
 
   const active = groups.get('In progress')
   groups.delete('In progress')
-  return active ? [['In progress', active], ...groups] : [...groups]
+  const rest: [string, RunSummary[]][] = active ? [['In progress', active], ...groups] : [...groups]
+  return pinned.length ? [['Pinned', pinned], ...rest] : rest
 }
 
 const BUSY = new Set(['queued', 'running'])
@@ -198,6 +203,15 @@ function RunItem({
         className="min-w-0 flex-1 truncate"
         inputClassName="h-7 text-[12.5px] font-medium"
       />
+      {run.pinned && !settled ? (
+        <BookmarkIcon className="text-brand size-3.5 shrink-0 group-hover/run:hidden" />
+      ) : null}
+      {run.snoozedUntil ? (
+        <span className="text-faint shrink-0 text-[11px] font-normal group-hover/run:hidden">
+          {snoozeLabel(run.snoozedUntil)}
+        </span>
+      ) : null}
+      <RunMenu run={run} settled={Boolean(settled)} />
       {busy ? null : (
         <button
           type="button"
@@ -444,6 +458,8 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   )
   const active = list?.active ?? []
   const settled = list?.settled ?? []
+  const snoozed = list?.snoozed ?? []
+  const [snoozedOpen, setSnoozedOpen] = useState(false)
   const settledTotal = list?.settledTotal ?? 0
   const isOpen = (id: string) => route.page === 'run' && route.id === id
   const toggleSettled = (open = !settledOpen) => {
@@ -624,6 +640,39 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
               ) : null}
             </div>
           )}
+
+          {snoozed.length && !collapsed ? (
+            <div
+              className={cn(
+                'border-line-strong/60 flex min-h-0 flex-col border-t px-3 py-2',
+                snoozedOpen ? 'max-h-[30%] shrink' : 'shrink-0',
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => setSnoozedOpen((v) => !v)}
+                aria-expanded={snoozedOpen}
+                className="text-muted hover:text-fg hover:bg-canvas flex h-8 w-full shrink-0 items-center gap-2 rounded-full px-3.5 text-[12px] font-medium transition-colors"
+              >
+                <BellSnoozeIcon className="text-brand size-3.5" />
+                <span className="flex-1 text-left">Snoozed</span>
+                <span className="text-faint tabular-nums">{snoozed.length}</span>
+                <ChevronUpIcon
+                  className={cn(
+                    'size-3 transition-transform duration-200',
+                    !snoozedOpen && 'rotate-180',
+                  )}
+                />
+              </button>
+              {snoozedOpen ? (
+                <div className="animate-fade-in mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto">
+                  {snoozed.map((r) => (
+                    <RunItem key={r.id} run={r} active={isOpen(r.id)} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {settledTotal ? (
             collapsed ? (

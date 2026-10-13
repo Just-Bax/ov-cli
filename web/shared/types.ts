@@ -215,6 +215,8 @@ export interface RunSummary {
   updatedAt: number
   rating?: Rating
   settled?: boolean
+  pinned?: boolean
+  snoozedUntil?: number
   cost?: CostTotal
 }
 
@@ -222,6 +224,7 @@ export type Rating = 'good' | 'off' | 'wrong'
 
 export interface RunList {
   active: RunSummary[]
+  snoozed: RunSummary[]
   settled: RunSummary[]
   settledTotal: number
 }

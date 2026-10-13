@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import type { RunList, RunStatus } from '@shared/types.ts'
 import { reportError } from '@/components/Toasts'
 import { api } from '@/lib/api'
+import { remember } from '@/lib/undo'
 
 const FALLBACK_POLL_MS = 60_000
 const REFRESH_DEBOUNCE_MS = 150
@@ -99,9 +100,9 @@ export function showMoreSettled(): Promise<void> {
   return refreshRuns()
 }
 
-export async function setSettled(id: string, settled: boolean): Promise<void> {
+export async function setSettled(id: string, settled: boolean, undoable = true): Promise<void> {
   if (list) {
-    const run = [...list.active, ...list.settled].find((r) => r.id === id)
+    const run = [...list.active, ...list.snoozed, ...list.settled].find((r) => r.id === id)
     if (run) {
       const moved = { ...run, settled }
       const active = list.active.filter((r) => r.id !== id)
@@ -109,7 +110,9 @@ export async function setSettled(id: string, settled: boolean): Promise<void> {
       const byNewest = (a: { createdAt: number }, b: { createdAt: number }) =>
         b.createdAt - a.createdAt
       publish({
+        ...list,
         active: settled ? active : [...active, moved].sort(byNewest),
+        snoozed: list.snoozed.filter((r) => r.id !== id),
         settled: settled ? [...done, moved].sort(byNewest) : done,
         settledTotal: list.settledTotal + (settled ? 1 : -1),
       })
@@ -120,4 +123,25 @@ export async function setSettled(id: string, settled: boolean): Promise<void> {
   } finally {
     await refreshRuns()
   }
+  if (undoable)
+    remember(settled ? 'Thread settled' : 'Thread moved back', () =>
+      setSettled(id, !settled, false),
+    )
+}
+
+export async function setPinned(id: string, pinned: boolean, undoable = true): Promise<void> {
+  await api.pinRun(id, pinned)
+  await refreshRuns()
+  if (undoable)
+    remember(pinned ? 'Thread pinned' : 'Thread unpinned', () => setPinned(id, !pinned, false))
+}
+
+export async function setSnoozed(id: string, until: number | null, undoable = true): Promise<void> {
+  const before = list?.snoozed.find((r) => r.id === id)?.snoozedUntil ?? null
+  await api.snoozeRun(id, until)
+  await refreshRuns()
+  if (undoable)
+    remember(until ? 'Thread snoozed' : 'Thread woken up', () =>
+      setSnoozed(id, before && before > Date.now() ? before : null, false),
+    )
 }

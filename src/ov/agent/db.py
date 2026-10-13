@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE TABLE IF NOT EXISTS conversation (run_id TEXT PRIMARY KEY, messages TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settled (run_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS pinned (run_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS snoozed (run_id TEXT PRIMARY KEY, until INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS feedback (
   run_id TEXT PRIMARY KEY,
   rating TEXT NOT NULL,
@@ -179,8 +181,9 @@ def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
 
 
 RUN_SELECT = (
-    "SELECT r.*, f.rating, s.ts settled_at, u.nano, u.requests FROM runs r "
+    "SELECT r.*, f.rating, s.ts settled_at, u.nano, u.requests, p.ts pinned_at, z.until snoozed_until FROM runs r "
     "LEFT JOIN feedback f ON f.run_id = r.id LEFT JOIN settled s ON s.run_id = r.id "
+    "LEFT JOIN pinned p ON p.run_id = r.id LEFT JOIN snoozed z ON z.run_id = r.id "
     "LEFT JOIN (SELECT run_id, SUM(nano) nano, COUNT(*) requests FROM usage GROUP BY run_id) u ON u.run_id = r.id"
 )
 
@@ -200,6 +203,10 @@ def _summary(row: sqlite3.Row) -> dict[str, Any]:
         summary["rating"] = row["rating"]
     if row["settled_at"]:
         summary["settled"] = True
+    if row["pinned_at"]:
+        summary["pinned"] = True
+    if row["snoozed_until"] and row["snoozed_until"] > now_ms():
+        summary["snoozedUntil"] = row["snoozed_until"]
     if row["requests"]:
         summary["cost"] = {"credits": row["nano"] / NANO_PER_CREDIT, "requests": row["requests"]}
     return summary
@@ -235,6 +242,22 @@ def list_runs(settled: bool | None = None, limit: int = RUN_LIST_LIMIT) -> list[
     where = "" if settled is None else f"WHERE s.run_id IS {'NOT ' if settled else ''}NULL "
     rows = _all(f"{RUN_SELECT} {where}ORDER BY r.created_at DESC LIMIT ?", limit)
     return [_summary(r) for r in rows]
+
+
+def set_pinned(run_id: str, pinned: bool) -> None:
+    if pinned:
+        _run("INSERT OR REPLACE INTO pinned (run_id, ts) VALUES (?, ?)", run_id, now_ms())
+    else:
+        _run("DELETE FROM pinned WHERE run_id = ?", run_id)
+
+
+def set_snoozed(run_id: str, until: int | None) -> None:
+    if until is None:
+        _run("DELETE FROM snoozed WHERE run_id = ?", run_id)
+    elif until <= now_ms():
+        raise ValueError("Snooze until a time in the future.")
+    else:
+        _run("INSERT OR REPLACE INTO snoozed (run_id, until) VALUES (?, ?)", run_id, until)
 
 
 def settled_count() -> int:

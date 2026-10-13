@@ -618,8 +618,10 @@ def pagerduty_disconnect(_: Handler) -> dict[str, Any]:
 @route("GET", "/api/runs")
 def list_runs(h: Handler) -> dict[str, Any]:
     settled = min(int(h.query.get("settled", str(SETTLED_PAGE))), db.RUN_LIST_LIMIT)
+    open_runs = db.list_runs(settled=False)
     return {
-        "active": db.list_runs(settled=False),
+        "active": [r for r in open_runs if "snoozedUntil" not in r],
+        "snoozed": [r for r in open_runs if "snoozedUntil" in r],
         "settled": db.list_runs(settled=True, limit=settled),
         "settledTotal": db.settled_count(),
     }
@@ -687,6 +689,28 @@ def run_details(h: Handler, run_id: str) -> str:
     tools = {x for x in h.query.get("tools", "").split(",") if x}
     edits = {x for x in h.query.get("edits", "").split(",") if x}
     return _run(run_id).details(tools, edits)
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/pin")
+def pin(h: Handler, run_id: str) -> dict[str, bool]:
+    _run(run_id)
+    pinned = h.json().get("pinned")
+    if not isinstance(pinned, bool):
+        raise HttpError(400, "Give pinned as true or false.")
+    db.set_pinned(run_id, pinned)
+    status_feed.publish({"kind": "list"})
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/snooze")
+def snooze(h: Handler, run_id: str) -> dict[str, bool]:
+    _run(run_id)
+    until = h.json().get("until")
+    if until is not None and not isinstance(until, int):
+        raise HttpError(400, "Give until as a time in milliseconds, or null.")
+    db.set_snoozed(run_id, until)
+    status_feed.publish({"kind": "list"})
+    return {"ok": True}
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/settle")
@@ -833,6 +857,7 @@ def message(h: Handler, run_id: str) -> dict[str, bool]:
     files = _objects(data, "files")
     _run(run_id).follow_up(str(data.get("text", "")), files, data.get("mode", "steer") != "queue")
     db.set_settled(run_id, False)
+    db.set_snoozed(run_id, None)
     status_feed.publish({"kind": "list"})
     return {"ok": True}
 

@@ -1134,3 +1134,20 @@ def test_a_thread_is_searched_across_messages_changes_and_questions():
     assert state.search(s, "RULE") == [0, 1, 4]
     assert state.search(s, "instance") == [3]
     assert state.search(s, "nothing here") == []
+
+
+def test_pinned_and_snoozed_threads(agent_server):
+    db.create_run("rpin", "Pinned", "m", {"prompt": "x"})
+    db.create_run("rnap", "Napping", "m", {"prompt": "x"})
+    J = {"Content-Type": "application/json"}
+    assert httpx.post(f"{agent_server}/api/runs/rpin/pin", json={"pinned": True}, headers=J).status_code == 200
+    later = db.now_ms() + 3_600_000
+    assert httpx.post(f"{agent_server}/api/runs/rnap/snooze", json={"until": later}, headers=J).status_code == 200
+    assert httpx.post(f"{agent_server}/api/runs/rnap/snooze", json={"until": 5}, headers=J).status_code == 400
+
+    listed = httpx.get(f"{agent_server}/api/runs").json()
+    assert [r["id"] for r in listed["active"]] == ["rpin"] and listed["active"][0]["pinned"]
+    assert listed["snoozed"][0]["snoozedUntil"] == later
+
+    db._run("UPDATE snoozed SET until = ? WHERE run_id = 'rnap'", db.now_ms() - 1)
+    assert {r["id"] for r in httpx.get(f"{agent_server}/api/runs").json()["active"]} == {"rpin", "rnap"}
