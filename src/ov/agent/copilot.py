@@ -341,7 +341,10 @@ def complete(
         raise CopilotError(f"Copilot chat failed ({response.status_code}): {response.text[:ERROR_DETAIL_CHARS]}")
 
     body = response.json()
-    return body["choices"][0]["message"]["content"].strip(), usage_of(body)
+    content = body["choices"][0]["message"].get("content")
+    if not content:
+        raise CopilotError(f"Copilot returned an empty reply from {model}.")
+    return content.strip(), usage_of(body)
 
 
 def account() -> dict[str, Any]:

@@ -56,6 +56,7 @@ MAX_TITLE_WORDS = 10
 RUN_ID_SUFFIX_CHARS = 4
 IDLE_EVICT_MS = 5 * 60_000
 MAX_CACHED_RUNS = 6
+LOGIN_ATTEMPTS = 2
 EVICT_GRACE_MS = 60_000
 
 MINUTE_MS = 60_000
@@ -254,7 +255,7 @@ class Run:
         found = find_instance(self.instance) if self.instance else None
         if found is not None:
             with self._lock:
-                linked = links_for(message["text"], found["host"], seen_ids(self.state))
+                linked = links_for(message["text"], found["url"], seen_ids(self.state))
             if linked["mentions"] or linked["unverified"]:
                 event["links"] = linked
         self.emit(event)
@@ -289,9 +290,6 @@ class Run:
     def _saved_minutes(self) -> int:
         outcome = self.state.get("outcome")
         return int(outcome["timeSaved"]["minutes"]) if outcome else 0
-
-    def _save(self, key: str, value: Any) -> None:
-        db.save_conversation(key, value)
 
     def _set_status(self, status: str, error: str | None = None) -> None:
         with self._lock:
@@ -339,7 +337,7 @@ class Run:
             questions, self._questions = self._questions, {}
             logins, self._logins = self._logins, {}
 
-        self._held.clear()
+            self._held.clear()
         for message, _ in dropped:
             self.emit({"type": "unqueue", "id": message["id"]})
         for question_id, (event, answer) in questions.items():
@@ -349,6 +347,11 @@ class Run:
         for event, ok in logins.values():
             ok.append(False)
             event.set()
+
+    def set_feedback(self, rating: str, note: str) -> None:
+        db.save_feedback(self.id, rating, note)
+        with self._lock:
+            self.state["feedback"] = {"rating": rating, "note": note}
 
     def answer(self, question_id: str, answer: str) -> None:
         question = next((q for q in self.state["questions"] if q["id"] == question_id), None)
@@ -529,7 +532,7 @@ class Run:
         return f"Troubleshoot this case.\n\n{text}"
 
     def load_case(self, ref: str) -> str:
-        for attempt in range(2):
+        for attempt in range(LOGIN_ATTEMPTS):
             try:
                 bundle = cases.load_case(ref, self.work_dir, self.cancel)
                 break
@@ -713,7 +716,7 @@ class Run:
 
     def _push_turn(self, turn_id: str, content: Any) -> None:
         self._turns[turn_id] = {"index": len(self._messages), "content": content}
-        self._save(f"{self.id}#turns", self._turns)
+        db.save_conversation(f"{self.id}#turns", self._turns)
         self._messages.append({"role": "user", "content": content})
 
     def _deliver_queued(self, everything: bool = False) -> None:
@@ -736,7 +739,7 @@ class Run:
                 raise RunError(f"Upload not found: {item['name']}")
 
             target = unique_path(target_dir, str(item["name"]))
-            shutil.copyfile(source, target)
+            shutil.move(source, target)
             copied.append(describe(target, "upload"))
         return copied
 
@@ -800,8 +803,9 @@ class Run:
         if self._messages and self._messages[0]["role"] == "system":
             self._messages[0] = {"role": "system", "content": system_prompt(self.can_write(), self.instance)}
         self._compact()
-        if self._notes:
+        with self._lock:
             notes, self._notes = self._notes, []
+        if notes:
             self._messages.append({"role": "user", "content": f"[{' '.join(notes)}]"})
         if self._steering():
             self._deliver_queued()
@@ -832,7 +836,7 @@ class Run:
             self._cut_off.update(c["id"] for c in result.tool_calls if not _valid_arguments(c))
             reply["tool_calls"] = _repaired(result.tool_calls)
         self._messages.append(reply)
-        self._save(self.id, self._messages)
+        db.save_conversation(self.id, self._messages)
         return result.tool_calls
 
     def _run_tools(self, calls: list[dict[str, Any]]) -> None:
@@ -846,7 +850,7 @@ class Run:
             parts: list[dict[str, Any]] = [{"type": "text", "text": f"Attached: {', '.join(n for n, _ in images)}"}]
             parts += [{"type": "image_url", "image_url": {"url": url}} for _, url in images]
             self._messages.append({"role": "user", "content": parts})
-        self._save(self.id, self._messages)
+        db.save_conversation(self.id, self._messages)
 
     def _call_tool(self, call: dict[str, Any]) -> str:
         self._local.tool = call["id"]
@@ -888,14 +892,17 @@ class Run:
         self.emit({"type": "tool", "tool": tool})
 
     def _compact(self) -> None:
-        if _size(self._messages) < CONTEXT_BUDGET:
+        total = _size(self._messages)
+        if total < CONTEXT_BUDGET:
             return
 
         keep_from = max(2, len(self._messages) - KEEP_RECENT_MESSAGES)
         for message in self._messages[2:keep_from]:
-            if _size(self._messages) <= COMPACT_TARGET:
+            if total <= COMPACT_TARGET:
                 break
+            before = _size(message)
             _trim(message)
+            total -= before - _size(message)
 
 
 def _tool_args(tool: Tool, raw: str) -> dict[str, Any]:

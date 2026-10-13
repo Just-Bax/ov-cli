@@ -15,7 +15,7 @@ from urllib.parse import quote
 from ..errors import EXIT_READ_ONLY
 from . import components, datadog, graph, pagerduty, project, skills
 from .cancel import Cancel
-from .ovproc import OvResult, find_instance, host_of, run_ov
+from .ovproc import OvResult, find_instance, host_of, run_ov, url_for
 from .runfiles import IMAGE_EXTS, image_mime, within
 
 MAX_OUTPUT = 24_000
@@ -134,7 +134,7 @@ def entity_link(entity_type: str, entity_id: str | None, instance: str | None) -
     if not entity_id or not instance or not entity_id.strip().isdigit():
         return None
     form = next((path for pattern, path in EDIT_FORMS if pattern.search(entity_type)), None)
-    return f"https://{host_of(instance)}{form}{entity_id.strip()}" if form else None
+    return f"{url_for(instance)}{form}{entity_id.strip()}" if form else None
 
 
 _SECRET_JSON = re.compile(

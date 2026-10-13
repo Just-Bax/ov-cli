@@ -19,6 +19,7 @@ from .procs import kill_tree, spawn_options
 SKIPPED_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", ".idea", ".gradle"}
 MAX_LIST_ENTRIES = 400
 MAX_MATCHES = 200
+MAX_MATCHES_PER_FILE = 50
 MAX_FILE_BYTES = 2_000_000
 MAX_READ_LINES = 400
 MAX_LINE_CHARS = 400
@@ -259,7 +260,18 @@ def _wanted(path: Path, globs: list[str]) -> bool:
 
 
 def _git_grep(repo: Path, pattern: str, globs: list[str], ignore_case: bool) -> list[str]:
-    args = ["git", "-c", "core.quotepath=off", "grep", "-n", "-I", "-P", "--untracked", "--max-count", "50"]
+    args = [
+        "git",
+        "-c",
+        "core.quotepath=off",
+        "grep",
+        "-n",
+        "-I",
+        "-P",
+        "--untracked",
+        "--max-count",
+        str(MAX_MATCHES_PER_FILE),
+    ]
     args += ["-i"] if ignore_case else []
     args += ["-e", pattern, "--", *([f"*{g}" if "/" not in g else g for g in globs] or ["."])]
     result = subprocess.run(
@@ -294,7 +306,7 @@ def _matches(path: Path, regex: re.Pattern[str]) -> list[str]:
 
 
 def _ripgrep(pattern: str, folder: Path, globs: list[str], ignore_case: bool) -> str:
-    args = ["rg", "-n", "--no-heading", "--max-columns", str(MAX_LINE_CHARS), "-m", "50"]
+    args = ["rg", "-n", "--no-heading", "--max-columns", str(MAX_LINE_CHARS), "-m", str(MAX_MATCHES_PER_FILE)]
     args += ["-i"] if ignore_case else []
     args += [arg for glob in globs for arg in ("-g", glob)]
     result = subprocess.run(

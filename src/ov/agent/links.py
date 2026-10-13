@@ -43,18 +43,19 @@ def _form_for(word: str) -> str:
     return next(path for pattern, path in FORMS if re.fullmatch(pattern, normalized))
 
 
-def links_for(text: str, host: str, seen: set[str]) -> dict[str, Any]:
+def links_for(text: str, base_url: str, seen: set[str]) -> dict[str, Any]:
+    host = urlsplit(base_url).netloc.lower()
     prose = _CODE.sub(" ", text)
     mentions = []
     for match in _MENTION.finditer(prose):
         word, number = match.group(1), match.group(2)
         if number in seen:
-            mentions.append({"text": match.group(0), "url": f"https://{host}{_form_for(word)}{number}"})
+            mentions.append({"text": match.group(0), "url": f"{base_url}{_form_for(word)}{number}"})
 
     unverified = []
     for url in _LINK.findall(prose):
         parts = urlsplit(url)
         ids = parse_qs(parts.query).get("id") or []
-        if parts.hostname == host and ids and ids[0] not in seen:
+        if parts.netloc.lower() == host and ids and ids[0] not in seen:
             unverified.append(url)
     return {"mentions": mentions, "unverified": unverified}

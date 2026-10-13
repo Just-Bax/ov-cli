@@ -188,10 +188,11 @@ def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
 
 
 RUN_SELECT = (
-    "SELECT r.*, f.rating, s.ts settled_at, u.nano, u.requests, p.ts pinned_at, z.until snoozed_until FROM runs r "
+    "SELECT r.*, f.rating, s.ts settled_at, p.ts pinned_at, z.until snoozed_until, "
+    "(SELECT SUM(nano) FROM usage WHERE run_id = r.id) nano, "
+    "(SELECT COUNT(*) FROM usage WHERE run_id = r.id) requests FROM runs r "
     "LEFT JOIN feedback f ON f.run_id = r.id LEFT JOIN settled s ON s.run_id = r.id "
-    "LEFT JOIN pinned p ON p.run_id = r.id LEFT JOIN snoozed z ON z.run_id = r.id "
-    "LEFT JOIN (SELECT run_id, SUM(nano) nano, COUNT(*) requests FROM usage GROUP BY run_id) u ON u.run_id = r.id"
+    "LEFT JOIN pinned p ON p.run_id = r.id LEFT JOIN snoozed z ON z.run_id = r.id"
 )
 
 
@@ -381,59 +382,52 @@ def add_usage(run_id: str, model: str, kind: str, tokens: dict[str, int], nano: 
     return {"credits": row["nano"] / NANO_PER_CREDIT, "requests": row["requests"]}
 
 
-def _tally(rows: list[sqlite3.Row]) -> dict[str, Any]:
-    tokens: dict[str, int] = {}
-    models: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        for kind, count in json.loads(row["tokens"]).items():
-            tokens[kind] = tokens.get(kind, 0) + count
-        model = models.setdefault(row["model"], {"model": row["model"], "nano": 0, "requests": 0})
-        model["nano"] += row["nano"]
-        model["requests"] += 1
+def _summarize(where: str, *args: Any) -> dict[str, Any]:
+    totals = _one(f"SELECT COALESCE(SUM(nano), 0) nano, COUNT(*) requests FROM usage WHERE {where}", *args)
+    tokens = _all(
+        f"SELECT t.key kind, SUM(t.value) count FROM usage, json_each(usage.tokens) t WHERE {where} GROUP BY t.key",
+        *args,
+    )
+    models = _all(
+        f"SELECT model, SUM(nano) nano, COUNT(*) requests FROM usage WHERE {where} GROUP BY model ORDER BY nano DESC",
+        *args,
+    )
     return {
-        "credits": sum(r["nano"] for r in rows) / NANO_PER_CREDIT,
-        "requests": len(rows),
-        "tokens": tokens,
+        "credits": totals["nano"] / NANO_PER_CREDIT,
+        "requests": totals["requests"],
+        "tokens": {r["kind"]: r["count"] for r in tokens},
         "models": [
-            {"model": m["model"], "credits": m["nano"] / NANO_PER_CREDIT, "requests": m["requests"]}
-            for m in sorted(models.values(), key=lambda m: -m["nano"])
+            {"model": m["model"], "credits": m["nano"] / NANO_PER_CREDIT, "requests": m["requests"]} for m in models
         ],
     }
 
 
 def run_cost(run_id: str) -> dict[str, Any]:
-    return _tally(_all("SELECT model, tokens, nano FROM usage WHERE run_id = ?", run_id))
+    return _summarize("run_id = ?", run_id)
 
 
 def cost_report(since: int) -> dict[str, Any]:
-    rows = _all("SELECT run_id, ts, model, tokens, nano FROM usage WHERE ts >= ? ORDER BY ts", since)
     days: dict[str, int] = {}
     day = datetime.fromtimestamp(since / 1000).date()
     while day <= datetime.now().date():
         days[day.isoformat()] = 0
         day += timedelta(days=1)
-    threads: dict[str, int] = {}
-    for row in rows:
-        stamp = datetime.fromtimestamp(row["ts"] / 1000).date().isoformat()
-        days[stamp] = days.get(stamp, 0) + row["nano"]
-        threads[row["run_id"]] = threads.get(row["run_id"], 0) + row["nano"]
+    for row in _all(
+        "SELECT date(ts / 1000, 'unixepoch', 'localtime') day, SUM(nano) nano FROM usage WHERE ts >= ? GROUP BY day",
+        since,
+    ):
+        days[row["day"]] = row["nano"]
 
-    top = sorted(threads.items(), key=lambda item: -item[1])[:TOP_THREADS]
-    titles = (
-        {
-            r["id"]: r["title"]
-            for r in _all(f"SELECT id, title FROM runs WHERE id IN ({','.join('?' * len(top))})", *(t[0] for t in top))
-        }
-        if top
-        else {}
+    threads = _all(
+        "SELECT u.run_id, r.title, SUM(u.nano) nano FROM usage u JOIN runs r ON r.id = u.run_id "
+        "WHERE u.ts >= ? GROUP BY u.run_id ORDER BY nano DESC LIMIT ?",
+        since,
+        TOP_THREADS,
     )
     return {
-        **_tally(rows),
+        **_summarize("ts >= ?", since),
         "days": [{"day": d, "credits": nano / NANO_PER_CREDIT} for d, nano in days.items()],
-        "threads": [
-            {"id": run_id, "title": titles.get(run_id, run_id), "credits": nano / NANO_PER_CREDIT}
-            for run_id, nano in top
-        ],
+        "threads": [{"id": t["run_id"], "title": t["title"], "credits": t["nano"] / NANO_PER_CREDIT} for t in threads],
     }
 
 

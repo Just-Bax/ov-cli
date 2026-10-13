@@ -1186,7 +1186,7 @@ def test_object_mentions_link_only_ids_the_agent_saw():
         "See [PKG_KAFKA](https://dev-lumen.onevizion.com/admin/dbpackage/Form.do?id=12513) and "
         "[PKG_RULEATOR](https://dev-lumen.onevizion.com/admin/dbpackage/Form.do?id=4444). DB package 12513 too."
     )
-    linked = links_for(text, "dev-lumen.onevizion.com", seen_ids(s))
+    linked = links_for(text, "https://dev-lumen.onevizion.com", seen_ids(s))
     assert linked["mentions"] == [
         {"text": "Rule 100026539", "url": "https://dev-lumen.onevizion.com/admin/rules/Form.do?id=100026539"},
         {"text": "DB package 12513", "url": "https://dev-lumen.onevizion.com/admin/dbpackage/Form.do?id=12513"},

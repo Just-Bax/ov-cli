@@ -214,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
         return {f"http://{host}:{port}" for host in ("127.0.0.1", "localhost") for port in ports}
 
     def _dispatch(self, method: str) -> None:
-        self._unread = int(self.headers.get("Content-Length") or 0)
+        self._unread = max(int(self.headers.get("Content-Length") or 0), 0)
         try:
             self._handle(method, urlsplit(self.path).path)
         except HttpError as exc:
@@ -261,6 +261,11 @@ class Handler(BaseHTTPRequestHandler):
 class AgentServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = sys.platform != "win32"
+
+
+def _known(run_id: str) -> None:
+    if db.get_run(run_id) is None:
+        raise HttpError(404, "Run not found.")
 
 
 def _run(run_id: str) -> Any:
@@ -641,7 +646,7 @@ def pagerduty_disconnect(_: Handler) -> dict[str, Any]:
 
 @route("GET", "/api/runs")
 def list_runs(h: Handler) -> dict[str, Any]:
-    settled = min(int(h.query.get("settled", str(SETTLED_PAGE))), db.RUN_LIST_LIMIT)
+    settled = min(max(int(h.query.get("settled", str(SETTLED_PAGE))), 1), db.RUN_LIST_LIMIT)
     open_runs = db.list_runs(settled=False)
     return {
         "active": [r for r in open_runs if "snoozedUntil" not in r],
@@ -718,7 +723,10 @@ def run_details(h: Handler, run_id: str) -> str:
 @route("POST", "/api/runs/([a-z0-9]+)/watch")
 def watch(h: Handler, run_id: str) -> dict[str, Any]:
     data = h.json()
-    return _run(run_id).watch(str(data.get("prompt") or ""), int(data["every"]), float(data["hours"]))
+    every, hours = data.get("every"), data.get("hours")
+    if not isinstance(every, int) or not isinstance(hours, (int, float)):
+        raise HttpError(400, "Give every in minutes and hours as numbers.")
+    return _run(run_id).watch(str(data.get("prompt") or ""), every, float(hours))
 
 
 @route("DELETE", "/api/runs/([a-z0-9]+)/watch")
@@ -749,7 +757,7 @@ def draft_reply(h: Handler, run_id: str) -> dict[str, str]:
 
 @route("POST", "/api/runs/([a-z0-9]+)/pin")
 def pin(h: Handler, run_id: str) -> dict[str, bool]:
-    _run(run_id)
+    _known(run_id)
     pinned = h.json().get("pinned")
     if not isinstance(pinned, bool):
         raise HttpError(400, "Give pinned as true or false.")
@@ -760,7 +768,7 @@ def pin(h: Handler, run_id: str) -> dict[str, bool]:
 
 @route("POST", "/api/runs/([a-z0-9]+)/snooze")
 def snooze(h: Handler, run_id: str) -> dict[str, bool]:
-    _run(run_id)
+    _known(run_id)
     until = h.json().get("until")
     if until is not None and not isinstance(until, int):
         raise HttpError(400, "Give until as a time in milliseconds, or null.")
@@ -771,7 +779,7 @@ def snooze(h: Handler, run_id: str) -> dict[str, bool]:
 
 @route("POST", "/api/runs/([a-z0-9]+)/settle")
 def settle(h: Handler, run_id: str) -> dict[str, bool]:
-    _run(run_id)
+    _known(run_id)
     settled = h.json().get("settled")
     if not isinstance(settled, bool):
         raise HttpError(400, "Give settled as true or false.")
@@ -901,8 +909,6 @@ def run_login(h: Handler, run_id: str) -> dict[str, Any]:
     data = h.json()
     run = _run(run_id)
     login_id = _required(data, "loginId")
-    if not any(item["id"] == login_id for item in run.state["logins"]):
-        raise HttpError(404, "No such login prompt.")
     token = str(data.get("token") or "").strip()
     return run.login(login_id, bool(data.get("skip")), token, _screen_size(data))
 
@@ -951,7 +957,7 @@ def rate(h: Handler, run_id: str) -> dict[str, bool]:
 
 @route("GET", "/api/runs/([a-z0-9]+)/cost")
 def run_cost(_: Handler, run_id: str) -> dict[str, Any]:
-    _run(run_id)
+    _known(run_id)
     return db.run_cost(run_id)
 
 
@@ -969,7 +975,7 @@ def export_run(h: Handler, run_id: str) -> None:
 
 @route("GET", "/api/runs/([a-z0-9]+)/files/([^/]+)")
 def run_file(h: Handler, run_id: str, name: str) -> None:
-    _run(run_id)
+    _known(run_id)
     path = within(attachments_dir(run_id), Path(name).name)
     if not path.is_file():
         raise HttpError(404, "File not found.")
@@ -1004,9 +1010,7 @@ def feedback(h: Handler, run_id: str) -> dict[str, bool]:
     if rating not in ("good", "off", "wrong"):
         raise HttpError(400, "Unknown rating.")
 
-    run = _run(run_id)
-    db.save_feedback(run_id, rating, note)
-    run.state["feedback"] = {"rating": rating, "note": note}
+    _run(run_id).set_feedback(rating, note)
     return {"ok": True}
 
 
