@@ -3,46 +3,15 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { RunWatch } from '@shared/types.ts'
 import { reportError } from '@/components/Toasts'
-import { Button, Textarea } from '@/components/ui'
+import { Button, Segmented, Textarea } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useLayer } from '@/lib/layers'
-import { cn } from '@/lib/cn'
 
 const EVERY_MINUTES = [5, 15, 30, 60]
 const FOR_HOURS = [1, 4, 8, 24]
 
 function clock(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function Choice({
-  values,
-  value,
-  unit,
-  onChange,
-}: {
-  values: number[]
-  value: number
-  unit: string
-  onChange: (v: number) => void
-}) {
-  return (
-    <div className="bg-raised flex rounded-full p-1">
-      {values.map((v) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onChange(v)}
-          className={cn(
-            'h-7 flex-1 rounded-full px-2.5 text-[12px] font-medium transition-colors',
-            v === value ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
-          )}
-        >
-          {v} {unit}
-        </button>
-      ))}
-    </div>
-  )
 }
 
 export function WatchChip({ runId, watch }: { runId: string; watch: RunWatch }) {
@@ -108,9 +77,19 @@ export function WatchDialog({ runId, onClose }: { runId: string; onClose: () => 
           autoFocus
         />
         <div className="text-muted mt-4 mb-1.5 text-[11.5px] font-medium">Every</div>
-        <Choice values={EVERY_MINUTES} value={every} unit="min" onChange={setEvery} />
+        <Segmented
+          label="Every"
+          value={every}
+          options={EVERY_MINUTES.map((v) => ({ value: v, label: `${v} min` }))}
+          onChange={setEvery}
+        />
         <div className="text-muted mt-3 mb-1.5 text-[11.5px] font-medium">For</div>
-        <Choice values={FOR_HOURS} value={hours} unit="h" onChange={setHours} />
+        <Segmented
+          label="For"
+          value={hours}
+          options={FOR_HOURS.map((v) => ({ value: v, label: `${v} h` }))}
+          onChange={setHours}
+        />
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="ghost" size="lg" onClick={onClose}>
             Cancel

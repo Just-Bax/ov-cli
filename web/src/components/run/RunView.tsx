@@ -14,6 +14,7 @@ import type {
 import { StatusIcon } from '@/components/Sidebar'
 import { Dot, Markdown, Page, Skeleton, SkeletonText, Spinner, type Tone } from '@/components/ui'
 import { api } from '@/lib/api'
+import { reportError } from '@/components/Toasts'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
@@ -71,8 +72,32 @@ interface Turn {
   blocks: Block[]
 }
 
+function indexed<T extends { id: string }>(cache: WeakMap<T[], Map<string, T>>, list: T[]) {
+  const found = cache.get(list)
+  if (found) return found
+  const made = new Map(list.map((x) => [x.id, x]))
+  cache.set(list, made)
+  return made
+}
+
+const chatIndex = new WeakMap<ChatMessage[], Map<string, ChatMessage>>()
+const changeIndex = new WeakMap<RunState['changes'], Map<string, RunState['changes'][number]>>()
+const turnCache = new WeakMap<ThreadItem[], { chat: unknown; tools: unknown; turns: Turn[] }>()
+
+function chatById(state: RunState) {
+  return indexed(chatIndex, state.chat)
+}
+
 function toTurns(state: RunState): Turn[] {
-  const chat = new Map(state.chat.map((m) => [m.id, m]))
+  const cached = turnCache.get(state.items)
+  if (cached && cached.chat === state.chat && cached.tools === state.tools) return cached.turns
+  const turns = buildTurns(state)
+  turnCache.set(state.items, { chat: state.chat, tools: state.tools, turns })
+  return turns
+}
+
+function buildTurns(state: RunState): Turn[] {
+  const chat = chatById(state)
   const tools = new Map(state.tools.map((t) => [t.id, t]))
   const turns: Turn[] = [{ start: state.start, blocks: [] }]
   for (const [index, item] of state.items.entries()) {
@@ -102,13 +127,13 @@ function turnText(turn: Turn, state: RunState): string {
   for (const b of turn.blocks) {
     if (b.kind !== 'item') continue
     if (b.item.kind === 'text') {
-      const t = state.chat.find((m) => m.id === b.item.id)?.text.trim()
+      const t = chatById(state).get(b.item.id)?.text.trim()
       if (t) parts.push(t)
     } else if (b.item.kind === 'outcome' && b.item.id === state.outcomeId && state.outcome) {
       for (const i of state.outcome.issues) parts.push(`${i.title}: ${i.summary}`)
       if (state.outcome.reply) parts.push(state.outcome.reply)
     } else if (b.item.kind === 'change') {
-      const ch = state.changes.find((x) => x.id === b.item.id)
+      const ch = indexed(changeIndex, state.changes).get(b.item.id)
       if (ch) parts.push(`${ch.title}\n${ch.after}`)
     }
   }
@@ -119,8 +144,7 @@ function turnText(turn: Turn, state: RunState): string {
 function turnTime(turn: Turn, state: RunState): number | undefined {
   for (let i = turn.blocks.length - 1; i >= 0; i--) {
     const b = turn.blocks[i]
-    if (b.kind === 'item' && b.item.kind === 'text')
-      return state.chat.find((m) => m.id === b.item.id)?.ts
+    if (b.kind === 'item' && b.item.kind === 'text') return chatById(state).get(b.item.id)?.ts
   }
   return undefined
 }
@@ -132,7 +156,7 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
   const id = state.summary.id
   switch (item.kind) {
     case 'text': {
-      const msg = state.chat.find((m) => m.id === item.id)
+      const msg = chatById(state).get(item.id)
       if (!msg?.text.trim()) return null
       return (
         <div className="text-fg">
@@ -141,7 +165,7 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
       )
     }
     case 'change': {
-      const change = state.changes.find((c) => c.id === item.id)
+      const change = indexed(changeIndex, state.changes).get(item.id)
       return change ? <MemoChangeCard change={change} /> : null
     }
     case 'question': {
@@ -209,7 +233,7 @@ function Footer({
           busyHint={(alternate) => describe(alternate ? other : settings.followUp)}
           onSend={(text, files, alternate) => send(text, files, alternate)}
           draftKey={`run-${runId}`}
-          onStop={() => void api.cancel(runId)}
+          onStop={() => void api.cancel(runId).catch(reportError)}
           extras={<WriteSwitch value={write} onChange={(v) => api.setWriteAccess(runId, v)} />}
         />
       </div>

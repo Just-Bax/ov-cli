@@ -30,7 +30,7 @@ import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
 import { prefetchRun } from '@/lib/useRun'
-import { refreshRuns, showMoreSettled, useRuns } from '@/lib/runs'
+import { refreshRuns, showMoreSettled, sidebarOrder, useRuns } from '@/lib/runs'
 
 const RECENT_LIMIT = 40
 
@@ -395,7 +395,8 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
     setSettledOpen(open)
   }
 
-  const shown = showAll ? active : active.slice(0, RECENT_LIMIT)
+  const ordered = sidebarOrder(active)
+  const shown = showAll ? ordered : ordered.slice(0, RECENT_LIMIT)
   const onSettings = route.page === 'settings'
   const toggle = () => {
     toggleTip.hide()

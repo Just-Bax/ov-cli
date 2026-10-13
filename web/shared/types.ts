@@ -42,7 +42,7 @@ export interface Change {
 
 export type Verdict = 'fix' | 'fixed' | 'user_action' | 'expected' | 'info' | 'unknown'
 
-export interface IssueFinding {
+interface IssueFinding {
   title: string
   verdict: Verdict
   summary: string
@@ -50,7 +50,7 @@ export interface IssueFinding {
   evidence?: string[]
 }
 
-export interface ExistingMatch {
+interface ExistingMatch {
   key: string
   title: string
   covers: 'yes' | 'partly' | 'no'
@@ -109,7 +109,7 @@ export interface MessageLinks {
   unverified: string[]
 }
 
-export type RunEvent =
+type RunEvent =
   | { type: 'status'; status: RunStatus; error?: string }
   | { type: 'meta'; title?: string; caseKey?: string; caseUrl?: string; instance?: string }
   | { type: 'tool'; tool: ToolActivity }
@@ -142,7 +142,7 @@ export interface CostTotal {
   requests: number
 }
 
-export interface ModelCost extends CostTotal {
+interface ModelCost extends CostTotal {
   model: string
 }
 
@@ -424,7 +424,7 @@ export interface DatadogDiscovery {
   groups: Record<string, string>
 }
 
-export interface HealthServerMetric {
+interface HealthServerMetric {
   latest: number
   max: number
   points: HealthPoint[]
@@ -441,7 +441,7 @@ export interface HealthPoint {
   v: number
 }
 
-export interface HealthMonitor {
+interface HealthMonitor {
   id: number
   name: string
   state: string
@@ -460,7 +460,7 @@ export interface HealthMeta {
   links: { logs: string; monitors: string; apm: string; events: string; metrics: string }
 }
 
-export interface HealthEvent {
+interface HealthEvent {
   time: string
   title: string
   message: string
@@ -529,7 +529,7 @@ export interface PagerDutyIncident {
   url: string
 }
 
-export interface PagerDutyHealth {
+interface PagerDutyHealth {
   webUrl?: string
   errors: Record<string, string>
   open?: PagerDutyIncident[]

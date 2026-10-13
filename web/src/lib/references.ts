@@ -1,7 +1,7 @@
 import type { GraphNode, GraphNodeType } from '@shared/types.ts'
 import type { Index } from '@/components/map/meta'
 
-export type RefKind = 'objref' | 'name' | 'id' | 'call'
+type RefKind = 'objref' | 'name' | 'id' | 'call'
 export type Ref = { start: number; end: number; node: GraphNode; kind: RefKind; text: string }
 export type RefIndex = {
   objrefs: Map<string, GraphNode>

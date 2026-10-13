@@ -3,7 +3,7 @@ const MILLION = 1_000_000
 const SMALL_CREDITS = 10
 const MEDIUM_CREDITS = 1000
 
-export const TOKEN_LABELS: Record<string, string> = {
+const TOKEN_LABELS: Record<string, string> = {
   input: 'Input',
   cache_read: 'Cached input',
   cache_write: 'Cache write',

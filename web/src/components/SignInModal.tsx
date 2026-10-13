@@ -15,11 +15,11 @@ import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
 import { reportError } from '@/components/Toasts'
 
-export type SignInMethod = 'browser' | 'token'
+type SignInMethod = 'browser' | 'token'
 
 export type SignInTarget = { url: string; host: string; tenant?: string; mode?: SignInMethod }
 
-export type SignInSubmit = (
+type SignInSubmit = (
   target: SignInTarget,
   token?: string,
   screen?: { width: number; height: number },
@@ -134,7 +134,15 @@ export function SignInModal({
     return () => clearInterval(timer)
   }, [phase])
 
-  useLayer(onClose, Boolean(target))
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(closeTimer.current), [])
+
+  const streaming = phase === 'waiting' && method === 'browser' && !separate
+  const dismiss = () => {
+    if (streaming && target) void api.cancelSignIn(target.url, target.tenant).catch(reportError)
+    onClose()
+  }
+  useLayer(dismiss, Boolean(target))
 
   if (!target) return null
 
@@ -161,7 +169,7 @@ export function SignInModal({
 
     if (res.ok) {
       setPhase('done')
-      setTimeout(() => {
+      closeTimer.current = setTimeout(() => {
         if (stillShowing(t)) onClose()
       }, CLOSE_AFTER_SUCCESS_MS)
     } else {
@@ -193,10 +201,7 @@ export function SignInModal({
             url={target.url}
             host={host}
             tenant={tenant}
-            onCancel={() => {
-              void api.cancelSignIn(target.url, tenant).catch(reportError)
-              onClose()
-            }}
+            onCancel={dismiss}
             status={
               <span className="bg-brand-soft text-brand-strong hidden h-8 shrink-0 items-center gap-2 rounded-full px-3 text-[12px] font-medium sm:inline-flex">
                 <Spinner className="size-3" />

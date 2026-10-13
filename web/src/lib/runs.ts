@@ -1,12 +1,12 @@
 import { useSyncExternalStore } from 'react'
-import type { RunList } from '@shared/types.ts'
+import type { RunList, RunSummary } from '@shared/types.ts'
 import { reportError } from '@/components/Toasts'
 import { api } from '@/lib/api'
 import { remember } from '@/lib/undo'
 
 const FALLBACK_POLL_MS = 60_000
 const REFRESH_DEBOUNCE_MS = 150
-export const SETTLED_PAGE = 50
+const SETTLED_PAGE = 50
 
 let list: RunList | undefined
 let raw = ''
@@ -21,10 +21,27 @@ function publish(next: RunList) {
   for (const listen of listeners) listen()
 }
 
+export const WORKING = new Set(['queued', 'running', 'waiting'])
+
+export function sidebarOrder(runs: RunSummary[]): RunSummary[] {
+  const rest = runs.filter((r) => !r.pinned)
+  return [
+    ...runs.filter((r) => r.pinned),
+    ...rest.filter((r) => WORKING.has(r.status)),
+    ...rest.filter((r) => !WORKING.has(r.status)),
+  ]
+}
+
+let requested = 0
+let applied = 0
+
 export function refreshRuns(): Promise<void> {
+  const ticket = ++requested
   return api
     .runs(settledLimit)
     .then((next) => {
+      if (ticket < applied) return
+      applied = ticket
       const text = JSON.stringify(next)
       if (text === raw) return
       raw = text

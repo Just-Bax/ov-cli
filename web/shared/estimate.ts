@@ -1,10 +1,3 @@
-import type { RunState } from './types.ts'
-
-export function savedMinutes(state: RunState): number {
-  if (state.feedback?.rating === 'wrong') return 0
-  return Math.max(0, Math.round(state.outcome?.timeSaved?.minutes ?? 0))
-}
-
 export function formatMinutes(min: number): string {
   if (min < 60) return `${min}m`
   const h = Math.floor(min / 60)

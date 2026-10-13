@@ -23,14 +23,21 @@ export function ReplyDraft({
   const [loading, setLoading] = useState(true)
   const edited = useRef(false)
 
+  const latest = useRef(0)
+
   const draft = () => {
+    const ticket = ++latest.current
     setLoading(true)
     setError(undefined)
     api
       .draftReply(runId, messageId)
-      .then((r) => setText(r.text))
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false))
+      .then((r) => {
+        if (ticket !== latest.current) return
+        edited.current = false
+        setText(r.text)
+      })
+      .catch((e: Error) => ticket === latest.current && setError(e.message))
+      .finally(() => ticket === latest.current && setLoading(false))
   }
 
   useEffect(draft, [runId, messageId])

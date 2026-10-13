@@ -1,3 +1,4 @@
+import { reportError } from '@/components/Toasts'
 const TEXT_PREFIX = 'ov-agent.draft.'
 const DB_NAME = 'ov-agent'
 const STORE = 'draft-files'
@@ -63,5 +64,5 @@ export async function saveFiles(key: string, files: File[]): Promise<void> {
 
 export function forgetDraft(key: string): void {
   saveText(key, '')
-  void saveFiles(key, [])
+  void saveFiles(key, []).catch(reportError)
 }

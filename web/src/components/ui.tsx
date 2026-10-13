@@ -162,6 +162,47 @@ export function SkeletonText({ lines = 3 }: { lines?: number }) {
   )
 }
 
+export type SegmentOption<T> = { value: T; label: ReactNode; title?: string }
+
+export function Segmented<T extends string | number>({
+  value,
+  options,
+  onChange,
+  label,
+  className,
+}: {
+  value: T
+  options: SegmentOption<T>[]
+  onChange: (value: T) => void
+  label: string
+  className?: string
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={cn('bg-raised flex rounded-full p-1', className)}
+    >
+      {options.map((o) => (
+        <button
+          key={String(o.value)}
+          type="button"
+          role="radio"
+          aria-checked={o.value === value}
+          title={o.title}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            'h-7 min-w-11 flex-1 rounded-full px-3 text-[12.5px] font-medium whitespace-nowrap transition-colors',
+            o.value === value ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (
     <div className={cn('border-line-strong/70 bg-panel rounded-2xl border', className)}>
@@ -262,20 +303,28 @@ function escaped(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+const mentionPatterns = new WeakMap<MessageLinks, { pattern: RegExp; urls: Map<string, string> }>()
+
+function mentionPattern(links: MessageLinks) {
+  const found = mentionPatterns.get(links)
+  if (found) return found
+  const alternatives = links.mentions.map((m) => escaped(m.text)).join('|')
+  const made = {
+    pattern: new RegExp(`(?<![\\[\\w/=])(${alternatives})(?![\\w\\]])`, 'g'),
+    urls: new Map(links.mentions.map((m) => [m.text, m.url])),
+  }
+  mentionPatterns.set(links, made)
+  return made
+}
+
 function withMentions(text: string, links?: MessageLinks): string {
   if (!links?.mentions.length) return text
+  const { pattern, urls } = mentionPattern(links)
   return text
     .split(CODE_SPANS)
-    .map((part, i) => {
-      if (i % 2) return part
-      let out = part
-      for (const m of links.mentions)
-        out = out.replace(
-          new RegExp(`(?<![\\[\\w/=])${escaped(m.text)}(?![\\w\\]])`, 'g'),
-          `[${m.text}](${m.url})`,
-        )
-      return out
-    })
+    .map((part, i) =>
+      i % 2 ? part : part.replace(pattern, (m: string) => `[${m}](${urls.get(m)})`),
+    )
     .join('')
 }
 

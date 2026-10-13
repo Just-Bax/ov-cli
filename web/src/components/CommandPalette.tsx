@@ -14,14 +14,13 @@ import {
 } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { RunSummary } from '@shared/types.ts'
 import { runActions } from '@/components/RunMenu'
 import { reportError } from '@/components/Toasts'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
 import { go, type Route } from '@/lib/route'
-import { useRuns } from '@/lib/runs'
+import { sidebarOrder, useRuns, WORKING } from '@/lib/runs'
 import { layerOpen, useLayer } from '@/lib/layers'
 import { canUndo, runUndo } from '@/lib/undo'
 
@@ -40,7 +39,7 @@ type Command = {
   run: () => void
 }
 
-export const SHORTCUTS: [string, string][] = [
+const SHORTCUTS: [string, string][] = [
   ['Ctrl+K', 'Command palette'],
   ['Alt+N', 'New run'],
   ['Alt+1 to Alt+9', 'Open a thread from the sidebar'],
@@ -57,17 +56,6 @@ function editable(target: EventTarget | null): boolean {
   return Boolean(
     el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable),
   )
-}
-
-const WORKING = new Set(['queued', 'running', 'waiting'])
-
-function sidebarOrder(runs: RunSummary[]): RunSummary[] {
-  const rest = runs.filter((r) => !r.pinned)
-  return [
-    ...runs.filter((r) => r.pinned),
-    ...rest.filter((r) => WORKING.has(r.status)),
-    ...rest.filter((r) => !WORKING.has(r.status)),
-  ]
 }
 
 function matches(command: Command, words: string[]): boolean {
@@ -301,7 +289,7 @@ export function CommandPalette({ route }: { route: Route }) {
                 setActive((i) => Math.max(0, i - 1))
               } else if (e.key === 'Enter') {
                 e.preventDefault()
-                choose(visible[active])
+                choose(visible[Math.min(active, visible.length - 1)])
               }
             }}
             placeholder="Search threads and actions, or type a new question"

@@ -33,7 +33,7 @@ function PagerDutyMark({ className }: { className?: string }) {
   return <img src={pagerdutyMark} alt="PagerDuty" className={cn('size-5', className)} />
 }
 
-export function PagerDutyBadge({ size = 'md' }: { size?: 'md' | 'lg' }) {
+function PagerDutyBadge({ size = 'md' }: { size?: 'md' | 'lg' }) {
   return (
     <IconBadge size={size} color={PAGERDUTY_GREEN}>
       <PagerDutyMark className={size === 'lg' ? 'size-6' : 'size-5'} />

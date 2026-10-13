@@ -36,6 +36,7 @@ import {
   Input,
   Label,
   Page,
+  Segmented,
   Select,
   Skeleton,
   SkeletonText,
@@ -108,34 +109,6 @@ function Row({
   )
 }
 
-function Segmented({
-  value,
-  options,
-  onChange,
-}: {
-  value: number
-  options: number[]
-  onChange: (v: number) => void
-}) {
-  return (
-    <div className="bg-raised flex rounded-full p-1">
-      {options.map((o) => (
-        <button
-          key={o}
-          type="button"
-          onClick={() => onChange(o)}
-          className={cn(
-            'h-7 min-w-11 rounded-full px-3 text-[12.5px] font-medium transition-colors',
-            o === value ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
-          )}
-        >
-          {o}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 function Preferences() {
   const { settings, update } = useSettings()
   const models = useModels()
@@ -161,23 +134,12 @@ function Preferences() {
           settings.reasoning,
         )}
       >
-        <div className="bg-raised flex rounded-full p-1">
-          {REASONING.map((r) => (
-            <button
-              key={r.value || 'auto'}
-              type="button"
-              onClick={() => void update({ reasoning: r.value })}
-              className={cn(
-                'h-7 min-w-11 rounded-full px-3 text-[12.5px] font-medium transition-colors',
-                r.value === settings.reasoning
-                  ? 'text-fg bg-white shadow-sm'
-                  : 'text-muted hover:text-fg',
-              )}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Reasoning"
+          value={settings.reasoning}
+          options={REASONING}
+          onChange={(v) => void update({ reasoning: v })}
+        />
       </Row>
       <Row
         title="Fast model"
@@ -202,40 +164,31 @@ function Preferences() {
         title="Messages while working"
         hint="What a message sent while the agent works does. Ctrl+Enter does the other one."
       >
-        <div className="bg-raised flex rounded-full p-1">
-          {(['steer', 'queue'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => void update({ followUp: mode })}
-              title={
-                mode === 'steer'
-                  ? 'Picked up at the next step of the current turn'
-                  : 'Waits until the current turn is finished'
-              }
-              className={cn(
-                'h-7 rounded-full px-3 text-[12.5px] font-medium transition-colors',
-                mode === settings.followUp
-                  ? 'text-fg bg-white shadow-sm'
-                  : 'text-muted hover:text-fg',
-              )}
-            >
-              {mode === 'steer' ? 'Steer' : 'Queue'}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Messages while working"
+          value={settings.followUp}
+          options={[
+            {
+              value: 'steer',
+              label: 'Steer',
+              title: 'Picked up at the next step of the current turn',
+            },
+            { value: 'queue', label: 'Queue', title: 'Waits until the current turn is finished' },
+          ]}
+          onChange={(v) => void update({ followUp: v })}
+        />
       </Row>
       <Row
         title="Step limit"
         hint="How many tool steps a run may take before it stops. Big investigations need more."
       >
         <Segmented
+          label="Step limit"
           value={settings.maxSteps}
-          options={
-            STEP_LIMITS.includes(settings.maxSteps)
-              ? STEP_LIMITS
-              : [...STEP_LIMITS, settings.maxSteps].sort((a, b) => a - b)
-          }
+          options={(STEP_LIMITS.includes(settings.maxSteps)
+            ? STEP_LIMITS
+            : [...STEP_LIMITS, settings.maxSteps].sort((a, b) => a - b)
+          ).map((n) => ({ value: n, label: n }))}
           onChange={(v) => void update({ maxSteps: v })}
         />
       </Row>

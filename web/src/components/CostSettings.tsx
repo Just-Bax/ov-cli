@@ -5,7 +5,7 @@ import { AccountRow } from '@/components/datadog/Datadog'
 import { useModels } from '@/components/ModelPicker'
 import { useSkeleton } from '@/components/skeletons'
 import { reportError } from '@/components/Toasts'
-import { Card, GithubMark, IconBadge, IconButton, Skeleton } from '@/components/ui'
+import { Card, GithubMark, IconBadge, IconButton, Segmented, Skeleton } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatCredits, formatTokens, orderedTokens, tokenLabel } from '@/lib/cost'
@@ -198,21 +198,12 @@ function AgentUsage() {
             Credits Copilot charged for this app's requests.
           </div>
         </div>
-        <div className="bg-raised flex rounded-full p-1">
-          {RANGES.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => setRange(r.id)}
-              className={cn(
-                'h-7 rounded-full px-3 text-[12.5px] font-medium transition-colors',
-                r.id === range ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
-              )}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Range"
+          value={range}
+          options={RANGES.map((r) => ({ value: r.id, label: r.label }))}
+          onChange={setRange}
+        />
       </div>
 
       {skeleton || !report ? (

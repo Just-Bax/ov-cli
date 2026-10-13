@@ -7,7 +7,7 @@ import { prefetch, take } from './prefetch'
 
 const RECONNECT_DELAY_MS = 2000
 const PREFETCH_SLOT = 'run'
-export const TURNS_PAGE = 10
+const TURNS_PAGE = 10
 
 function loadRun(id: string) {
   return api.run(id, TURNS_PAGE)

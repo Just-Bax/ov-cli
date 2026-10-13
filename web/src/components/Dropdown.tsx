@@ -95,13 +95,15 @@ export function Dropdown({
     const onScroll = (e: Event) => {
       if (!menuRef.current?.contains(e.target as Node)) setOpen(false)
     }
+    const onResize = () => setOpen(false)
     document.addEventListener('mousedown', close)
     window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', () => setOpen(false), { once: true })
+    window.addEventListener('resize', onResize)
 
     return () => {
       document.removeEventListener('mousedown', close)
       window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onResize)
     }
   }, [open])
 

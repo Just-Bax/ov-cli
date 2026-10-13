@@ -64,7 +64,7 @@ function snoozePresets(): { label: string; until: number }[] {
   ]
 }
 
-export type RunAction = { label: string; icon: ReactNode; run: () => Promise<void> | void }
+type RunAction = { label: string; icon: ReactNode; run: () => Promise<void> | void }
 
 export function runActions(run: RunSummary, settled: boolean): RunAction[] {
   const actions: RunAction[] = [
@@ -81,11 +81,11 @@ export function runActions(run: RunSummary, settled: boolean): RunAction[] {
         icon: <SunHorizon className="size-4" />,
         run: () => setSnoozed(run.id, null),
       })
-    for (const preset of snoozePresets())
+    for (const [index, preset] of snoozePresets().entries())
       actions.push({
         label: `Snooze: ${preset.label.toLowerCase()}`,
         icon: <BellZ className="size-4" />,
-        run: () => setSnoozed(run.id, preset.until),
+        run: () => setSnoozed(run.id, snoozePresets()[index].until),
       })
   }
   actions.push({

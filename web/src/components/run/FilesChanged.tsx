@@ -40,7 +40,7 @@ export function summarize(edits: FileEdit[]): FileSummary[] {
   return [...byPath.values()]
 }
 
-export function LineCounts({ added, removed }: { added: number; removed: number }) {
+function LineCounts({ added, removed }: { added: number; removed: number }) {
   return (
     <span className="shrink-0 font-mono text-[11.5px] tabular-nums">
       <span className="text-ok">+{added}</span> <span className="text-danger">-{removed}</span>

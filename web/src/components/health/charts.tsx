@@ -16,7 +16,7 @@ const GRID_LINES = [0.25, 0.5, 0.75]
 const SPARK_WIDTH = 120
 const SPARK_HEIGHT = 28
 
-export type Series = {
+type Series = {
   label: string
   color: string
   points: HealthPoint[]

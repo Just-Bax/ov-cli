@@ -82,28 +82,32 @@ export function FindBar({
   useEffect(() => {
     const wanted = query.trim()
     setNone(false)
+    setSearching(false)
     if (!wanted) {
       setRanges([])
       clear()
       return
     }
 
-    let alive = true
+    const abort = new AbortController()
     const timer = setTimeout(() => {
       setSearching(true)
       api
-        .searchRun(runId, wanted)
+        .searchRun(runId, wanted, abort.signal)
         .then(async ({ items }) => {
-          if (!alive) return
           setNone(!items.length)
           const first = items[0]
           if (first !== undefined && first < startRef.current) await onLoadUntil(first)
         })
-        .catch(reportError)
-        .finally(() => alive && setSearching(false))
+        .catch((e: unknown) => {
+          if (!abort.signal.aborted) reportError(e)
+        })
+        .finally(() => {
+          if (!abort.signal.aborted) setSearching(false)
+        })
     }, SEARCH_DELAY_MS)
     return () => {
-      alive = false
+      abort.abort()
       clearTimeout(timer)
     }
   }, [query, runId, onLoadUntil])

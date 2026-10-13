@@ -4,7 +4,7 @@ import {
   Stop as StopIcon,
   X as XMarkIcon,
 } from '@phosphor-icons/react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { reportError } from '@/components/Toasts'
 import { cn } from '@/lib/cn'
 import { forgetDraft, loadFiles, loadText, saveFiles, saveText } from '@/lib/drafts'
@@ -155,11 +155,14 @@ export function Composer({
     return () => document.removeEventListener('paste', onPagePaste)
   }, [allowFiles])
 
-  const previews = useMemo(
-    () => files.map((f) => (f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined)),
-    [files],
-  )
-  useEffect(() => () => previews.forEach((u) => u && URL.revokeObjectURL(u)), [previews])
+  const [previews, setPreviews] = useState<(string | undefined)[]>([])
+  useEffect(() => {
+    const urls = files.map((f) =>
+      f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
+    )
+    setPreviews(urls)
+    return () => urls.forEach((u) => u && URL.revokeObjectURL(u))
+  }, [files])
 
   return (
     <div

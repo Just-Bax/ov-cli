@@ -49,7 +49,7 @@ const put = <T>(path: string, body: unknown) =>
 const del = <T>(path: string) => request<T>(path, { method: 'DELETE' })
 const seg = encodeURIComponent
 
-export interface SkillDraft {
+interface SkillDraft {
   title: string
   description: string
   content: string
@@ -76,8 +76,8 @@ export const api = {
   unwatch: (id: string) => del(`/runs/${id}/watch`),
   pinRun: (id: string, pinned: boolean) => post(`/runs/${id}/pin`, { pinned }),
   snoozeRun: (id: string, until: number | null) => post(`/runs/${id}/snooze`, { until }),
-  searchRun: (id: string, q: string) =>
-    request<{ items: number[] }>(`/runs/${id}/search?q=${seg(q)}`),
+  searchRun: (id: string, q: string, signal?: AbortSignal) =>
+    request<{ items: number[] }>(`/runs/${id}/search?q=${seg(q)}`, { signal }),
   runCost: (id: string) => request<RunCost>(`/runs/${id}/cost`),
   exportUrl: (id: string) => `/api/runs/${id}/export`,
   models: () => request<ModelInfo[]>('/models'),

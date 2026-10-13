@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Card, Skeleton } from '@/components/ui'
 import { cn } from '@/lib/cn'
 
-export const SKELETON_DELAY_MS = 300
+const SKELETON_DELAY_MS = 300
 const SKELETON_MIN_MS = 500
 const CODE_WIDTHS = ['w-1/3', 'w-2/3', 'w-1/2', 'w-5/6', 'w-3/5', 'w-1/4', 'w-3/4', 'w-2/5']
 const TREE_WIDTHS = ['w-32', 'w-40', 'w-28', 'w-44', 'w-36', 'w-24']
