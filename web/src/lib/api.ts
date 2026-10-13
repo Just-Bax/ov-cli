@@ -69,6 +69,7 @@ export const api = {
   copilotLogout: () => post('/copilot/logout'),
   copilotAccount: () => request<CopilotAccount>('/copilot/account'),
   cost: (range: CostRange) => request<CostReport>(`/cost?range=${range}`),
+  retitleRun: (id: string) => post<{ title: string }>(`/runs/${id}/retitle`),
   draftReply: (id: string, messageId: string) =>
     post<{ text: string }>(`/runs/${id}/reply`, { messageId }),
   watch: (id: string, prompt: string, every: number, hours: number) =>

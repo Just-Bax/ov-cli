@@ -6,6 +6,7 @@ import itertools
 import json
 import queue
 import random
+import re
 import shutil
 import string
 import threading
@@ -43,8 +44,8 @@ TOOL_OUTPUT_CHARS = 12000
 TOOL_ERROR_CHARS = 4000
 BAD_ARGS_CHARS = 200
 LOGIN_MESSAGE_CHARS = 300
-TITLE_CHARS = 120
-PROMPT_TITLE_CHARS = 90
+TITLE_CHARS = 72
+PROMPT_TITLE_CHARS = 60
 NAMING_INPUT_CHARS = 2000
 NAMING_PROMPT = (
     "You write titles for a list of conversations. You never answer or act on the request. "
@@ -52,7 +53,10 @@ NAMING_PROMPT = (
     "naming its topic, like a ticket title. Reply with the title only: one line, no quotes, no "
     "markdown, no trailing period."
 )
-MAX_TITLE_WORDS = 10
+MAX_TITLE_WORDS = 8
+RETITLE_CHARS = 1500
+_TITLE_PREFIX = re.compile(r"^(title|subject|topic)\s*[:\-]\s*", re.IGNORECASE)
+_TITLE_NOISE = "\"'#*`_.:;,- "
 RUN_ID_SUFFIX_CHARS = 4
 IDLE_EVICT_MS = 5 * 60_000
 MAX_CACHED_RUNS = 6
@@ -544,7 +548,7 @@ class Run:
         self.emit(
             {
                 "type": "meta",
-                "title": f"{bundle['key']}: {title}"[:TITLE_CHARS],
+                "title": short_title(f"{bundle['key']}: {title}", TITLE_CHARS),
                 "caseKey": bundle["key"],
                 "caseUrl": bundle["url"],
                 "instance": bundle["website"],
@@ -593,26 +597,42 @@ class Run:
     def rate(self, turn_id: str, rating: str | None, note: str | None) -> None:
         self.emit({"type": "rate", "turnId": turn_id, "rating": rating, "note": note})
 
-    def _name_later(self, text: str) -> None:
-        fast = db.get_settings()["fastModel"]
-        if fast:
-            self._spawn(self._name, fast, self.state["summary"]["title"], text)
+    def _helper_model(self) -> str:
+        return db.get_settings()["fastModel"] or self.state["summary"]["model"]
 
-    def _name(self, model: str, placeholder: str, text: str) -> None:
-        reply, usage = copilot.complete(model, NAMING_PROMPT, f"<message>\n{text[:NAMING_INPUT_CHARS]}\n</message>")
-        self._record_usage(model, "naming", usage)
-        title = reply.strip().splitlines()[0].strip("\"'#*` .") if reply.strip() else ""
-        if not title or len(title.split()) > MAX_TITLE_WORDS:
-            return
+    def _name_later(self, text: str) -> None:
+        self._spawn(self._name, self.state["summary"]["title"], text)
+
+    def _name(self, placeholder: str, text: str) -> None:
+        title = self._ask_title(f"<message>\n{text[:NAMING_INPUT_CHARS]}\n</message>")
         if self.state["summary"]["title"] == placeholder:
             self.rename(title)
+
+    def _ask_title(self, body: str) -> str:
+        model = self._helper_model()
+        reply, usage = copilot.complete(model, NAMING_PROMPT, body)
+        self._record_usage(model, "naming", usage)
+        title = clean_title(reply)
+        if not title:
+            raise RunError(f"{model} did not suggest a title.")
+        return title
+
+    def retitle(self) -> str:
+        with self._lock:
+            chat = list(self.state["chat"])
+        asked = next((m["text"] for m in chat if m["role"] == "user"), "")
+        answered = next((m["text"] for m in reversed(chat) if m["role"] == "assistant" and m["text"].strip()), "")
+        body = f"<message>\n{asked[:NAMING_INPUT_CHARS]}\n</message>\n\n<answer>\n{answered[:RETITLE_CHARS]}\n</answer>"
+        title = self._ask_title(body)
+        self.rename(title)
+        return title
 
     def draft_reply(self, message_id: str) -> str:
         answer = next((m for m in self.state["chat"] if m["id"] == message_id and m["role"] == "assistant"), None)
         if answer is None:
             raise RunError("No such agent message.")
         asked = next((m["text"] for m in self.state["chat"] if m["role"] == "user"), "")
-        model = self.state["summary"]["model"]
+        model = self._helper_model()
         prompt = f"{REPLY_PROMPT}\n\n{reply_style()}"
         case = f"{self.state['summary']['title']}\n{asked[:REPLY_CONTEXT_CHARS]}"
         body = f"<case>\n{case}\n</case>\n\n<findings>\n{answer['text']}\n</findings>"
@@ -621,7 +641,7 @@ class Run:
         return text
 
     def rename(self, title: str) -> None:
-        cleaned = " ".join(title.split())[:TITLE_CHARS]
+        cleaned = short_title(title, TITLE_CHARS)
         if not cleaned:
             raise RunError("A run needs a name.")
         self.emit({"type": "meta", "title": cleaned})
@@ -986,7 +1006,7 @@ class RunManager:
         suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=RUN_ID_SUFFIX_CHARS))
         run_id = f"r{_base36(db.now_ms())}{suffix}"
         prompt = (data.get("prompt") or "").strip()
-        title = (prompt.split("\n", 1)[0] or "Attached files")[:PROMPT_TITLE_CHARS]
+        title = short_title(prompt.split("\n", 1)[0], PROMPT_TITLE_CHARS) or "Attached files"
         db.create_run(run_id, title, model, data)
         stored = db.get_run(run_id)
         if stored is None:
@@ -1033,6 +1053,20 @@ class RunManager:
         for run in idle:
             if now - run.touched > IDLE_EVICT_MS or len(self._runs) > MAX_CACHED_RUNS:
                 del self._runs[run.id]
+
+
+def short_title(text: str, limit: int) -> str:
+    words = " ".join(text.split())
+    if len(words) <= limit:
+        return words
+    cut = words[:limit].rsplit(" ", 1)[0] if " " in words[:limit] else words[:limit]
+    return cut.rstrip(_TITLE_NOISE)
+
+
+def clean_title(reply: str) -> str:
+    line = next((x for x in reply.splitlines() if x.strip()), "")
+    title = _TITLE_PREFIX.sub("", line.strip().strip(_TITLE_NOISE)).strip(_TITLE_NOISE)
+    return short_title(" ".join(title.split()[:MAX_TITLE_WORDS]), TITLE_CHARS)
 
 
 def _base36(value: int) -> str:

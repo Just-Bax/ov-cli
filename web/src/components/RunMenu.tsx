@@ -8,6 +8,7 @@ import {
   Eye,
   PushPin,
   PushPinSlash,
+  Sparkle,
   SunHorizon,
 } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -18,7 +19,7 @@ import { Button } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
-import { setPinned, setSettled, setSnoozed } from '@/lib/runs'
+import { refreshRuns, setPinned, setSettled, setSnoozed } from '@/lib/runs'
 
 const HOUR_MS = 3_600_000
 const MORNING_HOUR = 9
@@ -306,6 +307,17 @@ export function RunMenu({
                   onClick={() => act(() => setSnoozed(run.id, null))}
                 />
               ) : null}
+              <Item
+                icon={<Sparkle className="size-4" />}
+                label="Regenerate title"
+                onHover={() => setSnoozing(false)}
+                onClick={() =>
+                  act(async () => {
+                    await api.retitleRun(run.id)
+                    await refreshRuns()
+                  })
+                }
+              />
               {onWatch ? (
                 <>
                   <div className="bg-line mx-2 my-1 h-px" />

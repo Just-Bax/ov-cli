@@ -45,6 +45,15 @@
     background: #bbdefb;
   }
 
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  *:hover {
+    scrollbar-color: #bfcbd1 transparent;
+  }
+
   button,
   [role='button'] {
     cursor: pointer;
@@ -61,8 +70,7 @@
 }
 
 @utility scrollbar-thin {
-  scrollbar-width: thin;
-  scrollbar-color: #cfd8dc transparent;
+  scrollbar-gutter: stable;
 }
 
 @layer components {

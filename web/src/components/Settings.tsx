@@ -143,15 +143,15 @@ function Preferences() {
       </Row>
       <Row
         title="Fast model"
-        hint="Used for small chores such as naming runs. A quick, cheap model fits, such as Haiku."
+        hint="Writes thread titles and case replies. A quick, cheap model fits, such as Haiku. Without one, the thread's own model does it."
       >
         <Select
           className="w-[260px]"
           value={settings.fastModel}
           onChange={(v) => void update({ fastModel: v })}
-          placeholder={models.length ? 'Off' : 'Loading models...'}
+          placeholder={models.length ? 'Main model' : 'Loading models...'}
           options={[
-            { value: '', label: 'Off', hint: 'runs keep their first line' },
+            { value: '', label: 'Main model', hint: 'same as the thread' },
             ...models.map((m) => ({
               value: m.id,
               label: m.name,

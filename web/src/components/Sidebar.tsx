@@ -140,6 +140,7 @@ function RunItem({
           : settled
             ? 'text-muted hover:bg-canvas hover:text-brand-strong focus-visible:bg-canvas'
             : 'text-text hover:bg-canvas hover:text-brand-strong focus-visible:bg-canvas',
+        !active && BUSY.has(run.status) && 'opacity-55 hover:opacity-100 focus-visible:opacity-100',
       )}
     >
       <span className="flex size-3 shrink-0 items-center justify-center">
@@ -230,7 +231,10 @@ function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
         tip.hide()
         hover.stop()
       }}
-      className="group/rail animate-fade-in relative mx-auto flex size-9 items-center justify-center"
+      className={cn(
+        'group/rail animate-fade-in relative mx-auto flex size-9 items-center justify-center transition-opacity',
+        !active && BUSY.has(run.status) && 'opacity-55 hover:opacity-100',
+      )}
     >
       <span
         className={cn(

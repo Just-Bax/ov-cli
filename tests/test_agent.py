@@ -16,7 +16,8 @@ from ov.agent.tools import ToolError, entity_link, run_ov_tool
 
 
 @pytest.fixture(autouse=True)
-def fresh_db(ov_home):
+def fresh_db(ov_home, monkeypatch):
+    monkeypatch.setattr("ov.agent.copilot.complete", lambda *a, **k: ("Test thread", None))
     db.close()
     yield
     db.close()
@@ -1331,3 +1332,41 @@ def test_two_open_questions_keep_the_run_waiting(logged_in):
     for t in threads:
         t.join(2)
     assert sorted(answers) == ["a", "b"] and run.state["summary"]["status"] == "running"
+
+
+def test_titles_are_cleaned_and_kept_short():
+    from ov.agent.run import TITLE_CHARS, clean_title, short_title
+
+    assert clean_title('Title: "Kafka staging backlog on dev-lumen."\nmore') == "Kafka staging backlog on dev-lumen"
+    assert clean_title("**Rule queue**") == "Rule queue"
+    long = clean_title(" ".join(f"word{i}" for i in range(40)))
+    assert len(long.split()) == 8
+    sentence = "x" * 10 + " " + "y" * 200
+    assert len(short_title(sentence, TITLE_CHARS)) <= TITLE_CHARS
+    assert (
+        short_title("Investigate why the import keeps failing on production every night", 30)
+        == "Investigate why the import"
+    )
+
+
+def test_a_thread_is_named_with_the_main_model_without_a_fast_model(logged_in, monkeypatch):
+    seen: list[str] = []
+
+    def fake_complete(model, system, user_text, max_tokens=200):
+        seen.append(model)
+        return "Rule queue backlog", None
+
+    monkeypatch.setattr("ov.agent.copilot.complete", fake_complete)
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text, **_: StreamResult(text="ok"))
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+
+    from ov.agent.run import runs
+
+    run = runs.create({"prompt": "why is the rule queue so long today on acme?", "instance": "acme"}, "main-model")
+    for _ in range(100):
+        if run.state["summary"]["title"] == "Rule queue backlog":
+            break
+        time.sleep(0.05)
+    assert run.state["summary"]["title"] == "Rule queue backlog"
+    assert seen == ["main-model"]
+    assert run.retitle() == "Rule queue backlog" and seen == ["main-model", "main-model"]

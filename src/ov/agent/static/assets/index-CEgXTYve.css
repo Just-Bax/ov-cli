@@ -1115,15 +1115,12 @@
   .resize-y {
     resize: vertical;
   }
-  .scrollbar-thin {
-    scrollbar-width: thin;
-    scrollbar-color: #cfd8dc transparent;
-  }
   .\[scrollbar-width\:none\] {
     scrollbar-width: none;
   }
   .scrollbar-thin {
     scrollbar-width: thin;
+    scrollbar-gutter: stable;
   }
   .list-disc {
     list-style-type: disc;
@@ -2316,6 +2313,9 @@
     .hover\:opacity-90:hover {
       opacity: 90%;
     }
+    .hover\:opacity-100:hover {
+      opacity: 100%;
+    }
     .hover\:brightness-95:hover {
       --tw-brightness: brightness(95%);
       filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
@@ -2326,6 +2326,9 @@
   }
   .focus-visible\:bg-canvas:focus-visible {
     background-color: #eceff1;
+  }
+  .focus-visible\:opacity-100:focus-visible {
+    opacity: 100%;
   }
   .disabled\:pointer-events-none:disabled {
     pointer-events: none;
@@ -2433,6 +2436,13 @@
   ::selection {
     background: #bbdefb;
   }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover {
+    scrollbar-color: #bfcbd1 transparent;
+  }
   button, [role='button'] {
     cursor: pointer;
   }
@@ -2503,8 +2513,8 @@
   }
   .md pre {
     margin-block: calc(var(--spacing) * 2);
-    scrollbar-color: #cfd8dc transparent;
     scrollbar-width: thin;
+    scrollbar-gutter: stable;
     overflow-x: auto;
     border-radius: var(--radius-lg);
     background-color: #f4f6f7;

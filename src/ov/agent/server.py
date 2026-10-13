@@ -750,6 +750,11 @@ def _watcher(stop: threading.Event) -> None:
                 run.emit({"type": "status", "status": "error", "error": f"Watch stopped: {exc}"})
 
 
+@route("POST", "/api/runs/([a-z0-9]+)/retitle")
+def retitle(_: Handler, run_id: str) -> dict[str, str]:
+    return {"title": _run(run_id).retitle()}
+
+
 @route("POST", "/api/runs/([a-z0-9]+)/reply")
 def draft_reply(h: Handler, run_id: str) -> dict[str, str]:
     return {"text": _run(run_id).draft_reply(_required(h.json(), "messageId"))}
