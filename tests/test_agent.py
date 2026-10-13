@@ -65,7 +65,7 @@ class FakeContext:
         return self.write
 
 
-def test_builtin_skills_ship_and_can_be_customized_and_reset():
+def test_bundled_skills_are_read_only_and_clone_into_custom_ones():
     names = [s["name"] for s in skills.list_skills()]
     assert names[:7] == [
         "onevizion",
@@ -77,14 +77,22 @@ def test_builtin_skills_ship_and_can_be_customized_and_reset():
         "tce-best-practices",
     ]
 
-    skills.update("ov-cli", {"content": "mine", "enabled": False})
-    custom = next(s for s in skills.list_skills() if s["name"] == "ov-cli")
-    assert custom["customized"] and not custom["enabled"] and custom["content"] == "mine"
-    assert "ov-cli" not in [s["name"] for s in skills.enabled_skills()]
+    with pytest.raises(skills.SkillError, match="Clone it"):
+        skills.update("ov-cli", {"content": "mine"})
+    with pytest.raises(skills.SkillError, match="Turn it off"):
+        skills.delete("ov-cli")
 
-    skills.delete("ov-cli")
-    reset = next(s for s in skills.list_skills() if s["name"] == "ov-cli")
-    assert not reset["customized"] and reset["enabled"]
+    copy = skills.clone("ov-cli")
+    listed = {s["name"]: s for s in skills.list_skills()}
+    assert listed[copy]["source"] == "custom" and listed[copy]["content"] == listed["ov-cli"]["content"]
+    assert not listed["ov-cli"]["enabled"]
+
+    skills.update(copy, {"content": "mine"})
+    enabled = {s["name"]: s for s in skills.enabled_skills()}
+    assert "ov-cli" not in enabled and enabled[copy]["content"] == "mine"
+
+    skills.update("ov-cli", {"enabled": True})
+    assert next(s for s in skills.list_skills() if s["name"] == "ov-cli")["enabled"]
 
 
 def test_user_skills_get_unique_names():
@@ -101,9 +109,9 @@ def workspace(tmp_path):
     (folder / "module" / "node_modules").mkdir(parents=True)
     (folder / "module" / "main.py").write_text("alpha\nRULE_ID = 1\n", encoding="utf-8")
     (folder / "module" / "node_modules" / "skip.js").write_text("RULE_ID", encoding="utf-8")
-    db.save_settings({"workspace": str(folder)})
+    db.save_preferences({"workspace": str(folder)})
     yield folder
-    db.save_settings({"workspace": ""})
+    db.save_preferences({"workspace": ""})
 
 
 def test_the_workspace_reads_searches_and_edits_inside_its_folder(workspace, tmp_path):
@@ -160,11 +168,11 @@ def test_workspace_tools_are_offered_only_with_a_folder(tmp_path):
     from ov.agent.tools import tool_specs
 
     assert "ws_run" not in {s["function"]["name"] for s in tool_specs()}
-    db.save_settings({"workspace": str(tmp_path)})
+    db.save_preferences({"workspace": str(tmp_path)})
     assert "ws_run" in {s["function"]["name"] for s in tool_specs()}
     with pytest.raises(ValueError):
-        db.save_settings({"workspace": str(tmp_path / "missing")})
-    db.save_settings({"workspace": ""})
+        db.save_preferences({"workspace": str(tmp_path / "missing")})
+    db.save_preferences({"workspace": ""})
 
 
 def test_reducer_rewind_drops_later_items():
@@ -253,7 +261,7 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
     assert run.state["summary"]["status"] == "done", run.state.get("error")
     assert [t["status"] for t in run.state["tools"]] == ["ok"]
     assert run.state["chat"][-1]["text"] == "All good."
-    assert db.list_runs()[0]["status"] == "done"
+    assert db.list_threads()[0]["status"] == "done"
 
 
 @pytest.fixture
@@ -291,10 +299,11 @@ def test_uploads_round_trip(agent_server):
     assert (uploads_dir() / saved["id"]).read_bytes() == b"hello"
 
 
-def test_settings_ignore_unknown_keys(agent_server):
-    saved = httpx.put(f"{agent_server}/api/settings", json={"defaultModel": "m", "secret": "x"}).json()
-    assert saved["defaultModel"] == "m" and "secret" not in saved
-    assert json.loads(json.dumps(saved))
+def test_settings_reject_unknown_keys(agent_server):
+    refused = httpx.put(f"{agent_server}/api/settings", json={"defaultModel": "m", "secret": "x"})
+    assert refused.status_code == 400 and "secret" in refused.json()["error"]
+    saved = httpx.put(f"{agent_server}/api/settings", json={"defaultModel": "m"}).json()
+    assert saved["defaultModel"] == "m"
 
 
 def test_ov_tool_keeps_files_in_the_workspace(logged_in, tmp_path, monkeypatch):
@@ -332,12 +341,12 @@ def test_dangling_tool_calls_get_stub_results():
 
 
 def test_a_restart_marks_running_runs_interrupted(ov_home):
-    db.create_run("rabc", "t", "m", {"prompt": "x"})
-    db.update_run("rabc", status="running")
+    db.create_thread("rabc", "t", "m", prompt="x", instance=None, allow_write=False)
+    db.update_thread("rabc", status="running")
     db.append_event("rabc", 0, {"type": "status", "status": "running"})
     db.close()
 
-    assert db.list_runs()[0]["status"] == "error"
+    assert db.list_threads()[0]["status"] == "error"
     assert db.load_events("rabc")[-1]["event"]["status"] == "error"
 
 
@@ -400,15 +409,15 @@ def test_a_run_can_be_renamed(agent_server, monkeypatch):
     run = runs.create({"prompt": "x"}, "m")
     ok = httpx.post(f"{agent_server}/api/runs/{run.id}/title", json={"title": "  NORAD   report "})
     assert ok.status_code == 200
-    assert db.list_runs()[0]["title"] == "NORAD report"
+    assert db.list_threads()[0]["title"] == "NORAD report"
     blank = httpx.post(f"{agent_server}/api/runs/{run.id}/title", json={"title": " "})
     assert blank.status_code == 400
 
 
 def test_boolean_settings_are_stored_as_booleans():
-    saved = db.save_settings({"expandTools": 1, "showTimeSaved": ""})
-    assert saved["expandTools"] is True and saved["showTimeSaved"] is False
-    assert db.get_settings()["maxSteps"] == 80
+    saved = db.save_preferences({"expandTools": 1, "fastModel": "  "})
+    assert saved["expandTools"] is True and saved["fastModel"] == ""
+    assert db.get_preferences()["maxSteps"] == 80
 
 
 def test_instance_sign_in_keeps_the_url_and_tenant(agent_server, monkeypatch):
@@ -494,8 +503,8 @@ def test_forgetting_an_instance_removes_its_local_data_but_keeps_runs(logged_in)
 
     for alias in ("acme", "gone"):
         graph.graph_file(alias).write_text("{}", encoding="utf-8")
-        db.create_run(f"r{alias}", "t", "m", {"prompt": "x", "instance": alias})
-    db.create_run("rcase", "t", "m", {"prompt": "x", "instance": "acme.onevizion.test"})
+        db.create_thread(f"r{alias}", "t", "m", prompt="x", instance=alias, allow_write=False)
+    db.create_thread("rcase", "t", "m", prompt="x", instance="acme.onevizion.test", allow_write=False)
     datadog.save_matches({"acme": "host:a", "gone": "host:b"})
 
     prune()
@@ -506,11 +515,11 @@ def test_forgetting_an_instance_removes_its_local_data_but_keeps_runs(logged_in)
     forget("acme", BASE_URL)
     assert not graph.graph_file("acme").exists()
     assert datadog.load_state()["matches"] == {}
-    assert {r["id"] for r in db.list_runs()} == {"racme", "rgone", "rcase"}
+    assert {r["id"] for r in db.list_threads()} == {"racme", "rgone", "rcase"}
 
 
 def test_a_fast_model_names_the_run(logged_in, monkeypatch):
-    db.save_settings({"fastModel": "fast-model"})
+    db.save_preferences({"fastModel": "fast-model"})
     seen: list[str] = []
 
     def fake_chat(*args, cancel, on_text, **_):
@@ -534,7 +543,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
 
     assert run.state["summary"]["title"] == "Tag listing question"
     assert seen == ["fast-model"]
-    assert db.run_cost(run.id)["models"][0] == {"model": "fast-model", "credits": 0.03, "requests": 1}
+    assert db.thread_cost(run.id)["models"][0] == {"model": "fast-model", "credits": 0.03, "requests": 1}
 
 
 def test_components_are_exported_to_workspace_files(logged_in, tmp_path, monkeypatch):
@@ -661,7 +670,7 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
 def test_status_changes_reach_the_status_feed(logged_in):
     from ov.agent.run import runs, status_feed
 
-    db.create_run("rfeed", "Feed run", "m", {"prompt": "x"})
+    db.create_thread("rfeed", "Feed run", "m", prompt="x", instance=None, allow_write=False)
     run = runs.get("rfeed")
     channel, unsubscribe = status_feed.subscribe()
     try:
@@ -679,11 +688,11 @@ def test_status_changes_reach_the_status_feed(logged_in):
 
 
 def test_runs_can_be_settled_and_a_follow_up_unsettles_them(logged_in):
-    db.create_run("rsettle", "t", "m", {"prompt": "x"})
+    db.create_thread("rsettle", "t", "m", prompt="x", instance=None, allow_write=False)
     db.set_settled("rsettle", True)
-    assert db.list_runs()[0]["settled"] is True
+    assert db.list_threads()[0]["settled"] is True
     db.set_settled("rsettle", False)
-    assert "settled" not in db.list_runs()[0]
+    assert "settled" not in db.list_threads()[0]
 
 
 def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypatch):
@@ -753,7 +762,7 @@ def test_snapshot_keeps_recent_turns_and_outlines_the_rest():
 def test_resuming_a_stream_sends_the_partial_message(logged_in):
     from ov.agent.run import runs
 
-    db.create_run("rlive", "t", "m", {"prompt": "x"})
+    db.create_thread("rlive", "t", "m", prompt="x", instance=None, allow_write=False)
     run = runs.get("rlive")
     run._stream_text("a1", "Hel")
     channel, unsubscribe, backlog = run.resume(run.seq)
@@ -776,7 +785,7 @@ def test_idle_runs_are_dropped_from_memory_but_never_while_in_use(logged_in):
     runs._runs.clear()
     held = []
     for n in range(MAX_CACHED_RUNS + 3):
-        db.create_run(f"revict{n}", "t", "m", {"prompt": "x"})
+        db.create_thread(f"revict{n}", "t", "m", prompt="x", instance=None, allow_write=False)
         held.append(runs.get(f"revict{n}"))
     assert all(runs.get(f"revict{n}") is held[n] for n in range(MAX_CACHED_RUNS + 3))
 
@@ -789,10 +798,10 @@ def test_idle_runs_are_dropped_from_memory_but_never_while_in_use(logged_in):
 
 def test_run_list_splits_active_and_settled(logged_in):
     for n in range(3):
-        db.create_run(f"rlist{n}", "t", "m", {"prompt": "x"})
+        db.create_thread(f"rlist{n}", "t", "m", prompt="x", instance=None, allow_write=False)
     db.set_settled("rlist0", True)
-    assert {r["id"] for r in db.list_runs(settled=False)} >= {"rlist1", "rlist2"}
-    assert [r["id"] for r in db.list_runs(settled=True)] == ["rlist0"]
+    assert {r["id"] for r in db.list_threads(settled=False)} >= {"rlist1", "rlist2"}
+    assert [r["id"] for r in db.list_threads(settled=True)] == ["rlist0"]
     assert db.settled_count() == 1
 
 
@@ -855,25 +864,25 @@ def test_a_run_records_what_each_request_cost(logged_in, monkeypatch):
     _wait_done(run)
 
     assert run.state["summary"]["cost"] == {"credits": 3.0, "requests": 2}
-    assert db.list_runs()[0]["cost"] == {"credits": 3.0, "requests": 2}
-    cost = db.run_cost(run.id)
+    assert db.list_threads()[0]["cost"] == {"credits": 3.0, "requests": 2}
+    cost = db.thread_cost(run.id)
     assert cost["tokens"] == {"input": 2000, "output": 20}
     with db._begin() as conn:
         kinds = list(
-            conn.scalars(select(models.Usage.kind).where(models.Usage.run_id == run.id).order_by(models.Usage.id))
+            conn.scalars(select(models.Usage.kind).where(models.Usage.thread_id == run.id).order_by(models.Usage.id))
         )
     assert kinds == ["turn", "step"]
 
 
 def test_a_thread_without_usage_has_no_cost():
-    db.create_run("rold", "Old", "m", {"prompt": "x"})
-    assert "cost" not in db.list_runs()[0]
-    assert db.run_cost("rold") == {"credits": 0.0, "requests": 0, "tokens": {}, "models": []}
+    db.create_thread("rold", "Old", "m", prompt="x", instance=None, allow_write=False)
+    assert "cost" not in db.list_threads()[0]
+    assert db.thread_cost("rold") == {"credits": 0.0, "requests": 0, "tokens": {}, "models": []}
 
 
 def test_the_cost_report_adds_up_by_day_model_and_thread():
-    db.create_run("ra", "Alpha", "m", {"prompt": "x"})
-    db.create_run("rb", "Beta", "m", {"prompt": "x"})
+    db.create_thread("ra", "Alpha", "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rb", "Beta", "m", prompt="x", instance=None, allow_write=False)
     db.add_usage("ra", "opus", "turn", {"input": 100}, 2_000_000_000)
     db.add_usage("ra", "haiku", "step", {"input": 50, "output": 5}, 500_000_000)
     db.add_usage("rb", "opus", "turn", {"output": 10}, 4_000_000_000)
@@ -1080,8 +1089,8 @@ def test_reasoning_picks_the_nearest_level_the_model_accepts(monkeypatch):
     assert copilot.reasoning_for("old", "high") is None
     assert copilot.reasoning_for("big", "") is None
     with pytest.raises(ValueError):
-        db.save_settings({"reasoning": "huge"})
-    assert db.save_settings({"reasoning": "xhigh"})["reasoning"] == "xhigh"
+        db.save_preferences({"reasoning": "huge"})
+    assert db.save_preferences({"reasoning": "xhigh"})["reasoning"] == "xhigh"
 
 
 def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_in, monkeypatch):
@@ -1149,8 +1158,8 @@ def test_a_thread_is_searched_across_messages_changes_and_questions():
 
 
 def test_pinned_and_snoozed_threads(agent_server):
-    db.create_run("rpin", "Pinned", "m", {"prompt": "x"})
-    db.create_run("rnap", "Napping", "m", {"prompt": "x"})
+    db.create_thread("rpin", "Pinned", "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rnap", "Napping", "m", prompt="x", instance=None, allow_write=False)
     J = {"Content-Type": "application/json"}
     assert httpx.post(f"{agent_server}/api/runs/rpin/pin", json={"pinned": True}, headers=J).status_code == 200
     later = db.now_ms() + 3_600_000
@@ -1162,7 +1171,7 @@ def test_pinned_and_snoozed_threads(agent_server):
     assert listed["snoozed"][0]["snoozedUntil"] == later
 
     with db._begin() as conn:
-        conn.execute(update(models.Snoozed).where(models.Snoozed.run_id == "rnap").values(until=db.now_ms() - 1))
+        conn.execute(update(models.Thread).where(models.Thread.id == "rnap").values(snoozed_until=db.now_ms() - 1))
     assert {r["id"] for r in httpx.get(f"{agent_server}/api/runs").json()["active"]} == {"rpin", "rnap"}
 
 
@@ -1282,7 +1291,7 @@ def test_secrets_are_masked_in_any_tool_output(tmp_path):
 def test_two_open_questions_keep_the_run_waiting(logged_in):
     from ov.agent.run import runs
 
-    db.create_run("rwait", "t", "m", {"prompt": "x"})
+    db.create_thread("rwait", "t", "m", prompt="x", instance=None, allow_write=False)
     run = runs.get("rwait")
     answers: list[str] = []
     threads = [
@@ -1343,7 +1352,7 @@ def test_a_thread_is_named_with_the_main_model_without_a_fast_model(logged_in, m
 
 
 def test_restart_closes_tools_left_running():
-    db.create_run("r1", "t", "m", {})
+    db.create_thread("r1", "t", "m", prompt="", instance=None, allow_write=False)
     db.append_event("r1", 0, {"type": "tool", "tool": {"id": "a", "status": "running"}})
     db.append_event("r1", 1, {"type": "tool", "tool": {"id": "b", "status": "running"}})
     db.append_event("r1", 2, {"type": "tool", "tool": {"id": "b", "status": "ok"}})
@@ -1389,38 +1398,95 @@ def test_chat_does_not_retry_after_text_streamed(monkeypatch):
         copilot.stream_chat("m", [], [], "agent", cancel=Cancel(), on_text=lambda _: None)
 
 
-def test_a_legacy_database_is_backed_up_and_migrated_to_singular_tables(ov_home, monkeypatch):
+LEGACY_ROWS = (
+    "INSERT INTO runs VALUES ('r1', 'Old', 'acme', 'done', 'm', "
+    '\'{"prompt": "hi", "allowWrite": false, "attachments": [{"id": "x", "name": "a.png"}]}\', '
+    "5, 1, 1)",
+    'INSERT INTO events VALUES (\'r1\', 0, 1, \'{"type": "user", "message": {"id": "u_start", '
+    '"role": "user", "text": "hi", "ts": 1}}\')',
+    'INSERT INTO events VALUES (\'r1\', 1, 2, \'{"type": "text", "messageId": "a1", "delta": "Hel"}\')',
+    'INSERT INTO events VALUES (\'r1\', 2, 3, \'{"type": "text", "messageId": "a1", "delta": "lo"}\')',
+    'INSERT INTO events VALUES (\'r1\', 3, 4, \'{"type": "access", "write": true}\')',
+    'INSERT INTO events VALUES (\'r1\', 4, 5, \'{"type": "rate", "turnId": "u_start", "rating": "good"}\')',
+    'INSERT INTO conversation VALUES (\'r1\', \'[{"role": "system", "content": "s"}, '
+    '{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Hello"}]\')',
+    'INSERT INTO conversation VALUES (\'r1#turns\', \'{"u_start": {"index": 1, "content": "hi"}}\')',
+    "INSERT INTO settled VALUES ('r1', 7)",
+    "INSERT INTO pinned VALUES ('r1', 8)",
+    "INSERT INTO feedback VALUES ('r1', 'good', '', 9)",
+    "INSERT INTO usage VALUES ('r1', 5, 'm', 'turn', '{\"input\": 3, \"cache_read\": 4}', 2000000000)",
+    "INSERT INTO usage VALUES ('gone', 5, 'm', 'turn', '{\"input\": 3}', 1)",
+    "INSERT INTO settings VALUES ('maxSteps', '40')",
+    "INSERT INTO settings VALUES ('showTimeSaved', 'true')",
+    "INSERT INTO skills VALUES ('ov-cli', NULL, NULL, 'mine', 1)",
+    "CREATE TABLE watches (run_id TEXT)",
+)
+
+
+def _legacy_database(home: Path, monkeypatch) -> Path:
     import sqlite3
 
     from ov.agent.migrations.versions import v0001_baseline as baseline
 
-    ov_home = ov_home / "legacy"
-    monkeypatch.setenv("OV_HOME", str(ov_home))
-    path = ov_home / "agent" / "agent.db"
+    monkeypatch.setenv("OV_HOME", str(home))
+    path = home / "agent" / "agent.db"
     path.parent.mkdir(parents=True)
     with sqlite3.connect(path) as legacy:
-        for statement in baseline.LEGACY_SCHEMA:
+        for statement in (*baseline.LEGACY_SCHEMA, *LEGACY_ROWS):
             legacy.execute(statement)
-        legacy.execute("INSERT INTO runs VALUES ('r1', 'Old', NULL, 'done', 'm', '{\"prompt\": \"hi\"}', 0, 1, 1)")
-        legacy.execute("INSERT INTO usage VALUES ('r1', 5, 'm', 'turn', '{\"input\": 3}', 2000000000)")
-        legacy.execute("CREATE TABLE watches (run_id TEXT)")
     legacy.close()
+    return path
 
-    assert [r["title"] for r in db.list_runs()] == ["Old"]
-    assert db.run_cost("r1")["credits"] == 2
+
+def test_a_legacy_database_is_backed_up_and_migrated_to_the_thread_schema(ov_home, monkeypatch):
+    import sqlite3
+
+    ov_home = ov_home / "legacy"
+    path = _legacy_database(ov_home, monkeypatch)
+
+    (thread,) = db.list_threads()
+    assert (thread["title"], thread["settled"], thread["pinned"]) == ("Old", True, True)
+    assert db.thread_writes("r1") is True
+    assert db.thread_cost("r1")["tokens"] == {"input": 3, "cache_read": 4}
+    assert [e["event"]["type"] for e in db.load_events("r1")] == ["user", "message", "access"]
+    assert db.load_events("r1")[1]["event"]["text"] == "Hello"
+    messages, turns = db.load_messages("r1")
+    assert [m["role"] for m in messages] == ["system", "user", "assistant"] and turns == {"u_start": 1}
+    assert db.get_preferences()["maxSteps"] == 40
+    listed = {s["name"]: s for s in skills.list_skills()}
+    assert not listed["ov-cli"]["enabled"] and listed["ov-cli-edited"]["content"] == "mine"
     assert (ov_home / "agent" / "agent.legacy.bak.db").exists()
+
     with sqlite3.connect(path) as migrated:
         tables = {r[0] for r in migrated.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        attachments = migrated.execute("SELECT thread_id, turn_id, name FROM attachment").fetchall()
     migrated.close()
-    assert {"run", "event", "setting", "skill", "usage", "alembic_version"} <= tables
-    assert not tables & {"runs", "events", "settings", "skills", "watches"}
+    assert attachments == [("r1", "u_start", "a.png")]
+    assert {"thread", "attachment", "event", "message", "usage", "preference", "skill"} <= tables
+    assert not tables & {"run", "runs", "conversation", "settled", "pinned", "snoozed", "feedback", "setting"}
+
+
+def test_deleting_a_thread_removes_everything_it_owns(agent_server):
+    db.create_thread("rdel", "Gone", "m", prompt="x", instance=None, allow_write=False)
+    db.append_event("rdel", 0, {"type": "status", "status": "done"})
+    db.save_messages("rdel", 0, [{"role": "user", "content": "x"}], {0: "u_start"})
+    db.add_usage("rdel", "m", "turn", {"input": 1}, 5)
+    db.add_attachments("rdel", "u_start", ["a.txt"])
+    from ov.agent.runfiles import run_dir
+
+    (run_dir("rdel") / "note.txt").write_text("x", encoding="utf-8")
+
+    assert httpx.delete(f"{agent_server}/api/runs/rdel").status_code == 200
+    assert db.get_thread("rdel") is None and db.load_events("rdel") == []
+    assert db.load_messages("rdel") == ([], {}) and db.thread_cost("rdel")["requests"] == 0
+    assert not run_dir("rdel").exists() or not any(run_dir("rdel").iterdir())
 
 
 def test_models_match_the_migrations():
     from alembic.autogenerate import compare_metadata
     from alembic.runtime.migration import MigrationContext
 
-    db.list_runs()
+    db.list_threads()
     with db._begin() as conn:
         diffs = compare_metadata(MigrationContext.configure(conn), models.Base.metadata)
     assert diffs == []

@@ -3,14 +3,7 @@ import { Composer } from '@/components/Composer'
 import { EditableTitle } from '@/components/EditableTitle'
 import { WriteSwitch } from '@/components/WriteSwitch'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type {
-  ChatMessage,
-  FollowUp,
-  Rating,
-  RunState,
-  ThreadItem,
-  ToolActivity,
-} from '@shared/types.ts'
+import type { ChatMessage, FollowUp, RunState, ThreadItem, ToolActivity } from '@shared/types.ts'
 import { StatusIcon } from '@/components/Sidebar'
 import { Dot, Markdown, Page, Skeleton, SkeletonText, Spinner, type Tone } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -290,10 +283,8 @@ function OlderTurns({
 }
 
 export function RunView({ id }: { id: string }) {
-  const { state: loaded, error, loadOlder, loadingOlder } = useRun(id)
+  const { state, error, loadOlder, loadingOlder } = useRun(id)
   const list = useRuns()
-  const [feedback, setFeedback] = useState<{ rating: Rating; note: string }>()
-  const state = loaded && feedback ? { ...loaded, feedback } : loaded
   const scrollRef = useRef<HTMLDivElement>(null)
   const followBottom = useRef(true)
   const ready = Boolean(state)
@@ -524,9 +515,6 @@ export function RunView({ id }: { id: string }) {
           )
           const edits = state.edits.filter((e) => toolIds.has(e.toolId))
           const turnId = turn.user?.id
-          const hasOutcome = turn.blocks.some(
-            (b) => b.kind === 'item' && b.item.kind === 'outcome' && b.item.id === state.outcomeId,
-          )
 
           return (
             <div key={turnId ?? `t${i}`} className="space-y-4">
@@ -567,15 +555,7 @@ export function RunView({ id }: { id: string }) {
                   }
                   text={text}
                   ts={turnTime(turn, state)}
-                  rating={state.ratings[turnId]}
                   canRetry={!busy}
-                  onRated={(rating, note) => {
-                    if (!hasOutcome) return
-                    if (rating) {
-                      setFeedback({ rating, note: note ?? '' })
-                      void api.feedback(id, rating, note ?? '')
-                    }
-                  }}
                 />
               ) : null}
             </div>

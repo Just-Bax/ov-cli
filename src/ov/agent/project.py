@@ -90,11 +90,11 @@ class ProjectError(Exception):
 
 
 def configured() -> bool:
-    return bool(db.get_settings()["workspace"])
+    return bool(db.get_preferences()["workspace"])
 
 
 def root() -> Path:
-    value = db.get_settings()["workspace"]
+    value = db.get_preferences()["workspace"]
     if not value:
         raise ProjectError("No workspace folder is set. Ask the user to pick one in Settings > Workspace.")
 

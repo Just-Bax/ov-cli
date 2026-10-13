@@ -52,7 +52,6 @@ LOGOUT_MESSAGE_CHARS = 300
 LOGIN_MESSAGE_CHARS = 400
 HEALTH_CHECK_TIMEOUT_SECONDS = 2
 DEFAULT_RANGE = "24h"
-DAY_MS = 86_400_000
 SECONDS_PER_DAY = 86_400
 FAILED_PROCESS_STATUSES = "3, 14, 21"
 FAILED_PROCESS_TYPES_SHOWN = 20
@@ -263,7 +262,7 @@ class AgentServer(ThreadingHTTPServer):
 
 
 def _known(run_id: str) -> None:
-    if db.get_run(run_id) is None:
+    if db.get_thread(run_id) is None:
         raise HttpError(404, "Run not found.")
 
 
@@ -302,7 +301,7 @@ def health(_: Handler) -> dict[str, Any]:
 def status(_: Handler) -> dict[str, Any]:
     user = copilot.user()
     rows = instances()
-    settings = db.get_settings()
+    settings = db.get_preferences()
     return {
         "copilot": {"signedIn": bool(user), "user": user},
         "ov": {"version": version()},
@@ -406,12 +405,12 @@ def logout_instance(h: Handler) -> list[dict[str, Any]]:
 
 @route("GET", "/api/settings")
 def get_settings(_: Handler) -> dict[str, Any]:
-    return db.get_settings()
+    return db.get_preferences()
 
 
 @route("PUT", "/api/settings")
 def put_settings(h: Handler) -> dict[str, Any]:
-    return db.save_settings(h.json())
+    return db.save_preferences(h.json())
 
 
 @route("GET", "/api/skills")
@@ -430,6 +429,12 @@ def create_skill(h: Handler) -> dict[str, Any]:
 def update_skill(h: Handler, name: str) -> list[dict[str, Any]]:
     skills.update(name, h.json())
     return skills.list_skills()
+
+
+@route("POST", "/api/skills/([^/]+)/clone")
+def clone_skill(_: Handler, name: str) -> dict[str, Any]:
+    copy = skills.clone(name)
+    return {"name": copy, "skills": skills.list_skills()}
 
 
 @route("DELETE", "/api/skills/([^/]+)")
@@ -646,29 +651,19 @@ def pagerduty_disconnect(_: Handler) -> dict[str, Any]:
 @route("GET", "/api/runs")
 def list_runs(h: Handler) -> dict[str, Any]:
     settled = min(max(int(h.query.get("settled", str(SETTLED_PAGE))), 1), db.RUN_LIST_LIMIT)
-    open_runs = db.list_runs(settled=False)
+    open_runs = db.list_threads(settled=False)
     return {
         "active": [r for r in open_runs if "snoozedUntil" not in r],
         "snoozed": [r for r in open_runs if "snoozedUntil" in r],
-        "settled": db.list_runs(settled=True, limit=settled),
+        "settled": db.list_threads(settled=True, limit=settled),
         "settledTotal": db.settled_count(),
-    }
-
-
-@route("GET", "/api/stats")
-def stats(_: Handler) -> dict[str, Any]:
-    now = db.now_ms()
-    return {
-        "week": db.saved_totals(now - 7 * DAY_MS),
-        "month": db.saved_totals(now - 30 * DAY_MS),
-        "all": db.saved_totals(0),
     }
 
 
 @route("POST", "/api/runs")
 def start_run(h: Handler) -> dict[str, str]:
     data = h.json()
-    settings = db.get_settings()
+    settings = db.get_preferences()
     prompt = str(data.get("prompt") or "").strip()
     attachments = _objects(data, "attachments")
     if not prompt and not attachments:
@@ -688,6 +683,12 @@ def start_run(h: Handler) -> dict[str, str]:
         model,
     )
     return {"id": run.id}
+
+
+@route("DELETE", "/api/runs/([a-z0-9]+)")
+def delete_run(_: Handler, run_id: str) -> dict[str, bool]:
+    runs.delete(run_id)
+    return {"ok": True}
 
 
 @route("GET", "/api/runs/([a-z0-9]+)")
@@ -922,17 +923,10 @@ def remove_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/rate")
-def rate(h: Handler, run_id: str) -> dict[str, bool]:
-    data = h.json()
-    _run(run_id).rate(_required(data, "turnId"), data.get("rating"), data.get("note"))
-    return {"ok": True}
-
-
 @route("GET", "/api/runs/([a-z0-9]+)/cost")
 def run_cost(_: Handler, run_id: str) -> dict[str, Any]:
     _known(run_id)
-    return db.run_cost(run_id)
+    return db.thread_cost(run_id)
 
 
 @route("GET", "/api/runs/([a-z0-9]+)/export")
@@ -974,17 +968,6 @@ def access(h: Handler, run_id: str) -> dict[str, bool]:
 @route("POST", "/api/runs/([a-z0-9]+)/cancel")
 def cancel(_: Handler, run_id: str) -> dict[str, bool]:
     _run(run_id).stop()
-    return {"ok": True}
-
-
-@route("POST", "/api/runs/([a-z0-9]+)/feedback")
-def feedback(h: Handler, run_id: str) -> dict[str, bool]:
-    data = h.json()
-    rating, note = str(data.get("rating", "")), str(data.get("note") or "")
-    if rating not in ("good", "off", "wrong"):
-        raise HttpError(400, "Unknown rating.")
-
-    _run(run_id).set_feedback(rating, note)
     return {"ok": True}
 
 

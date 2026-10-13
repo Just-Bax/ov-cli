@@ -33,7 +33,7 @@ def _header(state: dict[str, Any]) -> list[str]:
     facts.append(f"Started: {_when(summary['createdAt'])}")
     facts.append(f"Updated: {_when(summary['updatedAt'])}")
     facts.append(f"Status: {summary['status']}")
-    cost = db.run_cost(summary["id"])
+    cost = db.thread_cost(summary["id"])
     facts.append(f"Cost: {_credits(cost['credits'])}" if cost["requests"] else "Cost: not tracked")
     return [f"# {summary['title']}", "", " | ".join(facts)]
 

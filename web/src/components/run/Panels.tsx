@@ -1,15 +1,9 @@
-import {
-  Clock as ClockIcon,
-  Key as KeyIcon,
-  PaperPlaneTilt as PaperAirplaneIcon,
-} from '@phosphor-icons/react'
-import { formatMinutes } from '@shared/estimate.ts'
+import { Key as KeyIcon, PaperPlaneTilt as PaperAirplaneIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import type { LoginPrompt, Outcome, Question, Verdict } from '@shared/types.ts'
 import { Button, Chip, CopyButton, Input, Markdown, Spinner, type Tone } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { useSettings } from '@/lib/settings'
 import { reportError } from '@/components/Toasts'
 import { SignInModal, type SignInTarget } from '@/components/SignInModal'
 
@@ -29,8 +23,6 @@ const COVERS: Record<string, { label: string; tone: Tone }> = {
 }
 
 export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: string }) {
-  const { settings } = useSettings()
-
   return (
     <div className="space-y-3">
       <div className="border-line-strong/70 divide-line divide-y overflow-hidden rounded-2xl border">
@@ -128,17 +120,6 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
           <div className="text-fg px-4 pt-1.5 pb-3 text-[13.5px] leading-relaxed">
             <Markdown text={outcome.reply} />
           </div>
-        </div>
-      ) : null}
-      {settings.showTimeSaved && outcome.timeSaved?.minutes ? (
-        <div className="text-muted flex items-start gap-1.5 px-1 text-[12px]">
-          <ClockIcon className="text-ok mt-0.5 size-3.5 shrink-0" />
-          <span>
-            <span className="text-ok font-medium">
-              ~{formatMinutes(outcome.timeSaved.minutes)} saved.
-            </span>{' '}
-            {outcome.timeSaved.basis}
-          </span>
         </div>
       ) : null}
     </div>

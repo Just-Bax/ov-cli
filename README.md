@@ -1,6 +1,6 @@
 ![OV CLI](assets/banner.jpg)
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#install)
 
@@ -418,8 +418,9 @@ In **Settings**:
   (where rules, automations, notifications, imports, reports, modules and workflows live,
   and how their runs and errors are logged), Working Style, one skill per tool group (OV
   CLI, Workspace, Datadog, PagerDuty; the last three only while set up), and TCE Best
-  Practices (trackor cases, the troubleshooting workflow, the case reply style). Edit them,
-  switch any off, or write your own.
+  Practices (trackor cases, the troubleshooting workflow, the case reply style). These
+  bundled skills are read-only and update with `ov`; switch any off, or **Clone to edit**
+  one (the copy is yours to change and the original turns off), or write your own.
 - **Workspace** is one folder with your code (for example the platform repo and your
   Vizion Hub modules side by side). The agent searches, reads, edits and creates files and
   runs commands (git, builds, tests) only inside it. Add notes so it knows where things
@@ -439,7 +440,7 @@ next step) or queue (sent after the turn). Ctrl+Enter sends the other way.
 In a thread:
 
 - The header shows its credits (hover for tokens and models) and a **...** menu: pin, snooze,
-  export as Markdown and settle. Click the instance in the subtitle for its sign-in
+  export as Markdown, settle, and delete (removes its messages and files for good). Click the instance in the subtitle for its sign-in
   state and to check its platform version and response time.
 - Mentions like "rule 123" link to their page on the instance when that ID appeared in the
   agent's tool results; links to IDs it never looked up get a warning.
@@ -695,8 +696,12 @@ The wordmark, mark, app icon, colors and artwork are in `brand/`; open `brand/in
 
 ## License
 
-[MIT](LICENSE) - Copyright (c) 2026 Isfandiyor Baxtiyorov.
+[Apache-2.0](LICENSE) - Copyright 2026 Isfandiyor Baxtiyorov. See [NOTICE](NOTICE).
 
 This is an unofficial client. It is not affiliated with, endorsed by, or supported by
 OneVizion, Inc. It reads only what your own account can already see, using your own
 session.
+
+The license covers this code only. It grants no rights in the OneVizion name or marks,
+the OneVizion platform, its API, or any instance; access to an instance is governed by
+your own agreement with its operator.

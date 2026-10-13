@@ -58,13 +58,7 @@ interface ExistingMatch {
   link?: string
 }
 
-export interface TimeSaved {
-  minutes: number
-  basis: string
-}
-
 export interface Outcome {
-  timeSaved?: TimeSaved
   issues: IssueFinding[]
   existing?: ExistingMatch[]
   unrelated: string[]
@@ -125,7 +119,6 @@ type RunEvent =
   | { type: 'queued'; message: ChatMessage }
   | { type: 'unqueue'; id: string }
   | { type: 'rewind'; itemId: string }
-  | { type: 'rate'; turnId: string; rating: Rating | null; note?: string }
   | { type: 'cost'; cost: CostTotal }
 
 export interface CostTotal {
@@ -219,14 +212,11 @@ export interface RunSummary {
   model: string
   createdAt: number
   updatedAt: number
-  rating?: Rating
   settled?: boolean
   pinned?: boolean
   snoozedUntil?: number
   cost?: CostTotal
 }
-
-export type Rating = 'good' | 'off' | 'wrong'
 
 export interface RunList {
   active: RunSummary[]
@@ -243,10 +233,8 @@ export interface RunState extends RunWindow {
   outcome?: Outcome
   outcomeId?: string
   error?: string
-  feedback?: { rating: Rating; note: string }
   writeAccess: boolean
   queued: ChatMessage[]
-  ratings: Record<string, { rating: Rating; note?: string }>
 }
 
 export type RunSnapshot = RunState & { seq: number }
@@ -259,24 +247,16 @@ export interface Settings {
   maxSteps: number
   reasoning: ReasoningLevel | ''
   followUp: FollowUp
-  showTimeSaved: boolean
   expandTools: boolean
-}
-
-export interface SavedTotals {
-  week: { minutes: number; runs: number }
-  month: { minutes: number; runs: number }
-  all: { minutes: number; runs: number }
 }
 
 export interface SkillInfo {
   name: string
+  source: 'bundled' | 'custom'
   title: string
   description: string
   content: string
   core: boolean
-  builtin: boolean
-  customized: boolean
   enabled: boolean
 }
 

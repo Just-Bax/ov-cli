@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from . import db
+from .models import SkillSource
 
 BUILTIN_DIR = Path(__file__).parent / "skills"
 
@@ -48,42 +49,32 @@ def _parse(name: str, raw: str) -> dict[str, Any]:
     }
 
 
-def builtins() -> list[dict[str, Any]]:
+def bundled() -> list[dict[str, Any]]:
     found = [_parse(p.stem, p.read_text(encoding="utf-8")) for p in BUILTIN_DIR.glob("*.md")]
     return sorted(found, key=lambda skill: ORDER.index(skill["name"]))
 
 
-def _builtin_entry(builtin: dict[str, Any], row: dict[str, Any] | None) -> dict[str, Any]:
-    if row is None:
-        return {**builtin, "builtin": True, "customized": False, "enabled": True}
-
-    customized = row["content"] is not None
-    return {
-        **builtin,
-        "content": row["content"] if customized else builtin["content"],
-        "builtin": True,
-        "customized": customized,
-        "enabled": bool(row["enabled"]),
-    }
-
-
 def list_skills() -> list[dict[str, Any]]:
-    rows = db.skill_rows()
-    skills = [_builtin_entry(builtin, rows.pop(builtin["name"], None)) for builtin in builtins()]
-    skills += [
+    shipped = bundled()
+    db.sync_bundled(shipped)
+    core = {skill["name"] for skill in shipped if skill["core"]}
+    order = {skill["name"]: index for index, skill in enumerate(shipped)}
+    rows = sorted(
+        db.skill_rows().values(),
+        key=lambda row: (row["source"] != SkillSource.BUNDLED, order.get(row["name"], 0), row["name"]),
+    )
+    return [
         {
-            "name": name,
+            "name": row["name"],
+            "source": row["source"],
             "title": row["title"],
             "description": row["description"],
             "content": row["content"],
-            "core": False,
-            "builtin": False,
-            "customized": False,
-            "enabled": bool(row["enabled"]),
+            "core": row["name"] in core,
+            "enabled": row["enabled"],
         }
-        for name, row in sorted(rows.items())
+        for row in rows
     ]
-    return skills
 
 
 REPLY_SKILL = "tce-best-practices"
@@ -91,13 +82,15 @@ REPLY_HEADING = "## Reply style"
 
 
 def reply_style() -> str:
-    skill = next((s for s in list_skills() if s["name"] == REPLY_SKILL), None)
+    enabled = [s for s in list_skills() if s["enabled"]]
+    preferred = [s for s in enabled if s["source"] == SkillSource.CUSTOM] + [
+        s for s in enabled if s["source"] != SkillSource.CUSTOM
+    ]
+    skill = next((s for s in preferred if REPLY_HEADING in s["content"]), None)
     if skill is None:
-        raise SkillError(f"The {REPLY_SKILL} skill is missing, and it holds the reply style.")
+        raise SkillError(f'No enabled skill has a "{REPLY_HEADING[3:]}" section; turn on {REPLY_SKILL}.')
     content = skill["content"]
     start = content.find(REPLY_HEADING)
-    if start < 0:
-        raise SkillError(f'The {skill["title"]} skill has no "{REPLY_HEADING[3:]}" section.')
     end = content.find("\n## ", start + len(REPLY_HEADING))
     return content[start : end if end > 0 else len(content)].strip()
 
@@ -106,34 +99,57 @@ def enabled_skills() -> list[dict[str, Any]]:
     return [s for s in list_skills() if s["enabled"] and s["content"].strip()]
 
 
-def create(title: str, description: str, content: str) -> str:
-    title = title.strip()
-    if not title:
-        raise SkillError("A skill needs a title.")
-
+def _free_name(title: str) -> str:
     taken = {s["name"] for s in list_skills()}
     base = _SLUG.sub("-", title.lower()).strip("-") or "skill"
     name, index = base, 2
     while name in taken:
         name, index = f"{base}-{index}", index + 1
-    db.put_skill(name, title=title, description=description.strip(), content=content.strip(), enabled=1)
     return name
 
 
-def update(name: str, patch: dict[str, Any]) -> None:
+def create(title: str, description: str, content: str) -> str:
+    title = title.strip()
+    if not title:
+        raise SkillError("A skill needs a title.")
+
+    name = _free_name(title)
+    db.add_skill(name, title, description.strip(), content.strip())
+    return name
+
+
+def _find(name: str) -> dict[str, Any]:
     skill = next((s for s in list_skills() if s["name"] == name), None)
     if skill is None:
         raise SkillError(f"Unknown skill: {name}")
+    return skill
 
+
+def clone(name: str) -> str:
+    source = _find(name)
+    title = f"{source['title']} (copy)"
+    copy = _free_name(title)
+    db.add_skill(copy, title, source["description"], source["content"])
+    if source["source"] == SkillSource.BUNDLED:
+        db.update_skill(name, enabled=False)
+    return copy
+
+
+def update(name: str, patch: dict[str, Any]) -> None:
+    skill = _find(name)
     fields: dict[str, Any] = {}
-    if "content" in patch:
-        fields["content"] = str(patch["content"]).strip()
     if "enabled" in patch:
-        fields["enabled"] = 1 if patch["enabled"] else 0
-    if not skill["builtin"]:
-        fields.update({key: str(patch[key]).strip() for key in ("title", "description") if key in patch})
-    db.put_skill(name, **fields)
+        fields["enabled"] = bool(patch["enabled"])
+    editable = {key: str(patch[key]).strip() for key in ("title", "description", "content") if key in patch}
+    if editable and skill["source"] == SkillSource.BUNDLED:
+        raise SkillError(f"{skill['title']} ships with ov and cannot be edited. Clone it and edit the copy.")
+    if "title" in editable and not editable["title"]:
+        raise SkillError("A skill needs a title.")
+    db.update_skill(name, **fields, **editable)
 
 
 def delete(name: str) -> None:
+    skill = _find(name)
+    if skill["source"] == SkillSource.BUNDLED:
+        raise SkillError(f"{skill['title']} ships with ov and cannot be deleted. Turn it off instead.")
     db.delete_skill(name)

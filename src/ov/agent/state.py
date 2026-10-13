@@ -12,10 +12,9 @@ TOOL_DETAIL = ("input", "output")
 EDIT_DETAIL = ("before", "after")
 
 
-def empty_state(summary: dict[str, Any], data: dict[str, Any]) -> State:
+def empty_state(summary: dict[str, Any], write: bool) -> State:
     return {
         "summary": summary,
-        "input": data,
         "items": [],
         "tools": [],
         "changes": [],
@@ -23,9 +22,8 @@ def empty_state(summary: dict[str, Any], data: dict[str, Any]) -> State:
         "questions": [],
         "logins": [],
         "chat": [],
-        "writeAccess": bool(data.get("allowWrite")),
+        "writeAccess": write,
         "queued": [],
-        "ratings": {},
     }
 
 
@@ -148,14 +146,6 @@ def _on_rewind(state: State, stored: Stored) -> None:
         state.pop("outcomeId", None)
 
 
-def _on_rate(state: State, stored: Stored) -> None:
-    event = stored["event"]
-    if event["rating"]:
-        state["ratings"][event["turnId"]] = {"rating": event["rating"], "note": event["note"]}
-    else:
-        state["ratings"].pop(event["turnId"], None)
-
-
 def _on_access(state: State, stored: Stored) -> None:
     state["writeAccess"] = stored["event"]["write"]
 
@@ -175,7 +165,6 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "queued": _on_queued,
     "unqueue": _on_unqueue,
     "rewind": _on_rewind,
-    "rate": _on_rate,
     "access": _on_access,
 }
 

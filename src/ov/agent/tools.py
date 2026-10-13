@@ -22,7 +22,6 @@ MAX_OUTPUT = 24_000
 OV_TIMEOUT_SECONDS = 180
 MAX_SQL_TIMEOUT_SECONDS = 600
 SECRET_MASK = "***"
-MAX_TIME_SAVED_MINUTES = 8 * 60
 DEFAULT_SQL_ROWS = 100
 MAX_SQL_ROWS = 1000
 DEFAULT_SEARCH_LIMIT = 50
@@ -681,7 +680,6 @@ def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
     if unread:
         raise ToolError(f"Not finished: open every attachment first. Unread: {', '.join(unread)}")
 
-    minutes = round(float(args["time_saved_minutes"]))
     outcome = {
         "issues": [
             {
@@ -696,10 +694,6 @@ def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
         "existing": _existing(args.get("existing") or []),
         "unrelated": [str(u) for u in args.get("unrelated") or []],
         "reply": str(args.get("reply") or ""),
-        "timeSaved": {
-            "minutes": min(MAX_TIME_SAVED_MINUTES, max(0, minutes)),
-            "basis": str(args["time_saved_basis"]),
-        },
     }
 
     ctx.finish(outcome)
@@ -1175,19 +1169,8 @@ TOOLS = [
                 "separated by blank lines: update, what the problem was, what I did, current status and "
                 "next step. Or when the user asks for a message to send. Otherwise leave it out."
             ),
-            "time_saved_minutes": _int(
-                "Realistic minutes an experienced TCE would have spent doing this exact "
-                "investigation and write-up by hand (opening each system, writing the queries, "
-                "reading the code, dead ends, writing the fix and reply), minus about 10 minutes "
-                "to review your result. Base it on what the work actually needed, not on how "
-                "many tool calls you made. Do not inflate."
-            ),
-            "time_saved_basis": _str(
-                'One short sentence: what made it take that long by hand, e.g. "Tracing the '
-                'rule through 3 packages and comparing 2 weeks of run logs."'
-            ),
         },
-        ["findings", "time_saved_minutes", "time_saved_basis"],
+        ["findings"],
         lambda _: "report",
         _finish,
         silent=True,

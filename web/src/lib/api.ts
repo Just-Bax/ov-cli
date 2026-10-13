@@ -17,13 +17,11 @@ import type {
   ModelInfo,
   ObjectActivity,
   PagerDutyStatus,
-  Rating,
   RunInput,
   RunDetails,
   RunSnapshot,
   RunWindow,
   RunList,
-  SavedTotals,
   Settings,
   SkillInfo,
   WorkspaceEntries,
@@ -132,6 +130,8 @@ export const api = {
   updateSkill: (name: string, patch: Partial<SkillDraft & { enabled: boolean }>) =>
     put<SkillInfo[]>(`/skills/${seg(name)}`, patch),
   deleteSkill: (name: string) => del<SkillInfo[]>(`/skills/${seg(name)}`),
+  cloneSkill: (name: string) =>
+    post<{ name: string; skills: SkillInfo[] }>(`/skills/${seg(name)}/clone`),
   upload: async (files: File[]) => {
     const saved: Upload[] = []
     for (const file of files) {
@@ -159,7 +159,6 @@ export const api = {
   activity: (instance: string, id: string) =>
     request<ObjectActivity[]>(`/explorer/activity?instance=${seg(instance)}&id=${seg(id)}`),
   runs: (settled: number) => request<RunList>(`/runs?settled=${settled}`),
-  stats: () => request<SavedTotals>('/stats'),
   run: (id: string, turns: number) => request<RunSnapshot>(`/runs/${id}?turns=${turns}`),
   runHistory: (id: string, end: number, turns: number) =>
     request<RunWindow>(`/runs/${id}/history?end=${end}&turns=${turns}`),
@@ -181,12 +180,9 @@ export const api = {
   retry: (id: string, itemId: string) => post(`/runs/${id}/retry`, { itemId }),
   renameRun: (id: string, title: string) => post(`/runs/${id}/title`, { title }),
   removeQueued: (id: string, mid: string) => del(`/runs/${id}/queued/${seg(mid)}`),
-  rate: (id: string, turnId: string, rating: Rating | null, note?: string) =>
-    post(`/runs/${id}/rate`, { turnId, rating, note }),
   fileUrl: (id: string, name: string) => `/api/runs/${id}/files/${seg(name)}`,
   setWriteAccess: (id: string, write: boolean) => post(`/runs/${id}/access`, { write }),
   cancel: (id: string) => post(`/runs/${id}/cancel`),
-  feedback: (id: string, rating: Rating, note: string) =>
-    post(`/runs/${id}/feedback`, { rating, note }),
   settleRun: (id: string, settled: boolean) => post(`/runs/${id}/settle`, { settled }),
+  deleteRun: (id: string) => del<{ ok: boolean }>(`/runs/${id}`),
 }

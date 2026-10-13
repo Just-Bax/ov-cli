@@ -62,6 +62,7 @@ IDLE_EVICT_MS = 5 * 60_000
 MAX_CACHED_RUNS = 6
 LOGIN_ATTEMPTS = 2
 EVICT_GRACE_MS = 60_000
+START_TURN = "u_start"
 
 REPLY_PROMPT = (
     "Rewrite the engineer's findings below as the comment they will post to the customer on the support "
@@ -123,6 +124,9 @@ status_feed = StatusFeed()
 
 
 class Run:
+    _turns: dict[str, int]
+    _saved: list[str]
+
     def __init__(self, run_id: str, state: dict[str, Any], seq: int) -> None:
         self.id = run_id
         self.state = state
@@ -134,7 +138,7 @@ class Run:
         self._lock = threading.RLock()
         self._listeners: list[queue.Queue[dict[str, Any]]] = []
         self._loaded_messages: list[dict[str, Any]] | None = None
-        self._loaded_turns: dict[str, dict[str, Any]] | None = None
+        self._turns, self._saved = {}, []
         self._cut_off: set[str] = set()
         self._local = threading.local()
         self._pending_images: list[tuple[str, str]] = []
@@ -153,22 +157,26 @@ class Run:
     @property
     def _messages(self) -> list[dict[str, Any]]:
         if self._loaded_messages is None:
-            self._loaded_messages = _answered(db.load_conversation(self.id) or [])
+            messages, self._turns = db.load_messages(self.id)
+            self._saved = [json.dumps(m) for m in messages]
+            self._loaded_messages = _answered(messages)
         return self._loaded_messages
 
     @_messages.setter
     def _messages(self, messages: list[dict[str, Any]]) -> None:
         self._loaded_messages = messages
 
-    @property
-    def _turns(self) -> dict[str, dict[str, Any]]:
-        if self._loaded_turns is None:
-            self._loaded_turns = db.load_conversation(f"{self.id}#turns") or {}
-        return self._loaded_turns
-
-    @_turns.setter
-    def _turns(self, turns: dict[str, dict[str, Any]]) -> None:
-        self._loaded_turns = turns
+    def _persist(self) -> None:
+        current = [json.dumps(m) for m in self._messages]
+        start = next(
+            (i for i, (old, new) in enumerate(zip(self._saved, current, strict=False)) if old != new),
+            min(len(self._saved), len(current)),
+        )
+        if start == len(current) == len(self._saved):
+            return
+        turns = {index: turn_id for turn_id, index in self._turns.items()}
+        db.save_messages(self.id, start, self._messages[start:], turns)
+        self._saved = current
 
     @property
     def instance(self) -> str:
@@ -271,18 +279,14 @@ class Run:
             reduce(self.state, stored)
             kind = event["type"]
             if kind == "status":
-                db.update_run(self.id, status=event["status"])
+                db.update_thread(self.id, status=event["status"])
             elif kind == "meta":
-                db.update_run(self.id, title=event.get("title"), instance=event.get("instance"))
+                db.update_thread(self.id, title=event.get("title"), instance=event.get("instance"))
                 status_feed.publish({"kind": "meta", "id": self.id})
-            elif kind in ("outcome", "rewind"):
-                db.update_run(self.id, saved_minutes=self._saved_minutes())
+            elif kind == "access":
+                db.update_thread(self.id, allow_write=event["write"])
             for channel in self._listeners:
                 channel.put(stored)
-
-    def _saved_minutes(self) -> int:
-        outcome = self.state.get("outcome")
-        return int(outcome["timeSaved"]["minutes"]) if outcome else 0
 
     def _set_status(self, status: str, error: str | None = None) -> None:
         with self._lock:
@@ -340,11 +344,6 @@ class Run:
         for event, ok in logins.values():
             ok.append(False)
             event.set()
-
-    def set_feedback(self, rating: str, note: str) -> None:
-        db.save_feedback(self.id, rating, note)
-        with self._lock:
-            self.state["feedback"] = {"rating": rating, "note": note}
 
     def answer(self, question_id: str, answer: str) -> None:
         question = next((q for q in self.state["questions"] if q["id"] == question_id), None)
@@ -494,9 +493,9 @@ class Run:
     def _start(self, data: dict[str, Any]) -> None:
         try:
             self._set_status("running")
-            uploaded = self._copy_uploads(data.get("attachments") or [])
+            uploaded = self._copy_uploads(data.get("attachments") or [], START_TURN)
             text = (data.get("prompt") or "").strip()
-            self.emit({"type": "user", "message": self._message("u_start", text, uploaded)})
+            self.emit({"type": "user", "message": self._message(START_TURN, text, uploaded)})
             self.vision = copilot.supports_vision(self.state["summary"]["model"])
 
             ref = None if uploaded else cases.case_ref(text)
@@ -504,7 +503,7 @@ class Run:
                 self._name_later(text)
             content = self._preload_case(ref) if ref else self._user_content(text, uploaded)
             self._messages = [{"role": "system", "content": system_prompt(self.can_write(), self.instance)}]
-            self._push_turn("u_start", content)
+            self._push_turn(START_TURN, content)
             self._loop("user")
         except Exception as exc:
             self._fail(exc)
@@ -556,8 +555,9 @@ class Run:
             raise RunError("This run has no conversation to continue.")
 
         try:
-            uploaded = self._copy_uploads(files)
-            message = self._message(_uid("u"), text, uploaded)
+            message_id = _uid("u")
+            uploaded = self._copy_uploads(files, message_id)
+            message = self._message(message_id, text, uploaded)
             content = self._user_content(text, uploaded)
         except Exception:
             if claimed:
@@ -583,11 +583,8 @@ class Run:
         if waiting and self._claim():
             self._spawn(self._run_turn)
 
-    def rate(self, turn_id: str, rating: str | None, note: str | None) -> None:
-        self.emit({"type": "rate", "turnId": turn_id, "rating": rating, "note": note})
-
     def _helper_model(self) -> str:
-        return db.get_settings()["fastModel"] or self.state["summary"]["model"]
+        return db.get_preferences()["fastModel"] or self.state["summary"]["model"]
 
     def _name_later(self, text: str) -> None:
         self._spawn(self._name, self.state["summary"]["title"], text)
@@ -654,18 +651,19 @@ class Run:
             return any(q[0]["id"] not in self._held for q in self._queue)
 
     def retry(self, item_id: str) -> None:
-        turn = self._turns.get(item_id)
+        index = self._turns.get(item_id) if self._messages else None
         message = next((m for m in self.state["chat"] if m["id"] == item_id and m["role"] == "user"), None)
-        if turn is None or message is None:
+        if index is None or message is None:
             raise RunError("This message cannot be retried.")
         if not self._claim():
             raise RunError("Wait for the agent to finish, or stop it, before retrying.")
 
-        self._messages = self._messages[: turn["index"]]
-        self._turns = {k: t for k, t in self._turns.items() if t["index"] <= turn["index"]}
+        content = self._messages[index]["content"]
+        self._messages = self._messages[:index]
+        self._turns = {k: i for k, i in self._turns.items() if i < index}
         self.emit({"type": "rewind", "itemId": item_id})
         self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
-        self._push_turn(item_id, turn["content"])
+        self._push_turn(item_id, content)
         self._spawn(self._run_turn)
 
     def _run_turn(self) -> None:
@@ -689,9 +687,9 @@ class Run:
         }
 
     def _push_turn(self, turn_id: str, content: Any) -> None:
-        self._turns[turn_id] = {"index": len(self._messages), "content": content}
-        db.save_conversation(f"{self.id}#turns", self._turns)
+        self._turns[turn_id] = len(self._messages)
         self._messages.append({"role": "user", "content": content})
+        self._persist()
 
     def _deliver_queued(self, everything: bool = False) -> None:
         with self._lock:
@@ -702,7 +700,7 @@ class Run:
             self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
             self._push_turn(message["id"], content)
 
-    def _copy_uploads(self, files: list[dict[str, str]]) -> list[dict[str, Any]]:
+    def _copy_uploads(self, files: list[dict[str, str]], turn_id: str) -> list[dict[str, Any]]:
         target_dir = attachments_dir(self.id)
         copied = []
         for item in files:
@@ -715,6 +713,7 @@ class Run:
             target = unique_path(target_dir, str(item["name"]))
             shutil.move(source, target)
             copied.append(describe(target, "upload"))
+        db.add_attachments(self.id, turn_id, [item["name"] for item in copied])
         return copied
 
     def _user_content(self, text: str, uploaded: list[dict[str, Any]]) -> Any:
@@ -752,7 +751,7 @@ class Run:
 
     def _loop(self, initiator: str) -> None:
         model = self.state["summary"]["model"]
-        max_steps = int(db.get_settings()["maxSteps"])
+        max_steps = int(db.get_preferences()["maxSteps"])
         self.vision = copilot.supports_vision(model)
         self._finished = False
         nudged = False
@@ -799,7 +798,7 @@ class Run:
                 initiator,
                 cancel=self.cancel,
                 on_text=lambda delta: self._stream_text(message_id, delta),
-                reasoning=copilot.reasoning_for(model, db.get_settings()["reasoning"]),
+                reasoning=copilot.reasoning_for(model, db.get_preferences()["reasoning"]),
             )
         finally:
             self._commit_text(message_id)
@@ -810,7 +809,7 @@ class Run:
             self._cut_off.update(c["id"] for c in result.tool_calls if not _valid_arguments(c))
             reply["tool_calls"] = _repaired(result.tool_calls)
         self._messages.append(reply)
-        db.save_conversation(self.id, self._messages)
+        self._persist()
         return result.tool_calls
 
     def _run_tools(self, calls: list[dict[str, Any]]) -> None:
@@ -824,7 +823,7 @@ class Run:
             parts: list[dict[str, Any]] = [{"type": "text", "text": f"Attached: {', '.join(n for n, _ in images)}"}]
             parts += [{"type": "image_url", "image_url": {"url": url}} for _, url in images]
             self._messages.append({"role": "user", "content": parts})
-        db.save_conversation(self.id, self._messages)
+        self._persist()
 
     def _call_tool(self, call: dict[str, Any]) -> str:
         self._local.tool = call["id"]
@@ -961,16 +960,16 @@ class RunManager:
         run_id = f"r{_base36(db.now_ms())}{suffix}"
         prompt = (data.get("prompt") or "").strip()
         title = short_title(prompt.split("\n", 1)[0], PROMPT_TITLE_CHARS) or "Attached files"
-        db.create_run(run_id, title, model, data)
-        stored = db.get_run(run_id)
-        if stored is None:
-            raise RunError(f"Run {run_id} was not saved.")
+        write = bool(data.get("allowWrite"))
+        summary = db.create_thread(
+            run_id, title, model, prompt=prompt, instance=data.get("instance"), allow_write=write
+        )
 
-        run = Run(run_id, empty_state(*stored), -1)
+        run = Run(run_id, empty_state(summary, write), -1)
         with self._lock:
             self._runs[run_id] = run
         status_feed.publish({"kind": "list"})
-        run.begin(stored[1])
+        run.begin(data)
         return run
 
     def get(self, run_id: str) -> Run | None:
@@ -981,22 +980,33 @@ class RunManager:
                 self._evict()
                 return live
 
-            stored = db.get_run(run_id)
-            if stored is None:
+            summary = db.get_thread(run_id)
+            if summary is None:
                 return None
 
-            state = empty_state(*stored)
+            state = empty_state(summary, db.thread_writes(run_id))
             events = db.load_events(run_id)
             for event in events:
                 reduce(state, event)
-            state["summary"] = {**state["summary"], **stored[0]}
-            feedback = db.get_feedback(run_id)
-            if feedback:
-                state["feedback"] = feedback
+            state["summary"] = {**state["summary"], **summary}
             run = Run(run_id, state, events[-1]["seq"] if events else -1)
             self._evict()
             self._runs[run_id] = run
             return run
+
+    def delete(self, run_id: str) -> None:
+        with self._lock:
+            live = self._runs.get(run_id)
+            if live is not None and not live.idle():
+                raise RunError("Stop this thread before deleting it.")
+            if db.get_thread(run_id) is None:
+                raise RunError("No such thread.")
+            self._runs.pop(run_id, None)
+            db.delete_thread(run_id)
+        folder = run_dir(run_id)
+        if folder.exists():
+            shutil.rmtree(folder)
+        status_feed.publish({"kind": "list"})
 
     def _evict(self) -> None:
         now = db.now_ms()

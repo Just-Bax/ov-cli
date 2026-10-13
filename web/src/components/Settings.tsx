@@ -1,7 +1,7 @@
 import {
   SignOut as ArrowRightStartOnRectangleIcon,
-  ArrowUUpLeft as ArrowUturnLeftIcon,
   Check as CheckIcon,
+  CopySimple as CopyIcon,
   Folder as FolderIcon,
   Key as KeyIcon,
   MagnifyingGlass as MagnifyingGlassIcon,
@@ -190,16 +190,6 @@ function Preferences() {
             : [...STEP_LIMITS, settings.maxSteps].sort((a, b) => a - b)
           ).map((n) => ({ value: n, label: n }))}
           onChange={(v) => void update({ maxSteps: v })}
-        />
-      </Row>
-      <Row
-        title="Show time saved"
-        hint="The agent's estimate of how long the work would take by hand."
-      >
-        <Switch
-          on={settings.showTimeSaved}
-          onChange={() => void update({ showTimeSaved: !settings.showTimeSaved })}
-          label="Show time saved"
         />
       </Row>
       <Row
@@ -413,12 +403,14 @@ function Skills() {
 
   const current = skills.find((s) => s.name === selected)
   const creating = selected === NEW
+  const bundled = current?.source === 'bundled'
+  const editable = creating || (current !== undefined && !bundled)
   const dirty = creating
     ? Boolean(draft.title.trim())
-    : current
+    : current && !bundled
       ? draft.content !== current.content ||
-        (!current.builtin &&
-          (draft.title !== current.title || draft.description !== current.description))
+        draft.title !== current.title ||
+        draft.description !== current.description
       : false
 
   const save = async () => {
@@ -430,8 +422,7 @@ function Skills() {
         setSkills(res.skills)
         select(res.name, res.skills)
       } else if (current) {
-        const patch = current.builtin ? { content: draft.content } : draft
-        const next = await api.updateSkill(current.name, patch)
+        const next = await api.updateSkill(current.name, draft)
         setSkills(next)
         select(current.name, next)
       }
@@ -442,28 +433,37 @@ function Skills() {
     }
   }
 
-  const remove = async () => {
-    if (!current) return
-    if (!current.builtin) {
-      const ok = await dialog.confirm({
-        title: `Delete "${current.title}"?`,
-        body: 'The skill is removed for new runs. This cannot be undone.',
-        confirmLabel: 'Delete',
-        tone: 'danger',
-      })
-      if (!ok) return
+  const clone = async (skill: SkillInfo) => {
+    setSaving(true)
+    setError(undefined)
+    try {
+      const res = await api.cloneSkill(skill.name)
+      setSkills(res.skills)
+      select(res.name, res.skills)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
     }
+  }
 
-    const next = await api.deleteSkill(current.name)
+  const remove = async (skill: SkillInfo) => {
+    const ok = await dialog.confirm({
+      title: `Delete "${skill.title}"?`,
+      body: 'The skill is removed for new runs. This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
+
+    const next = await api.deleteSkill(skill.name)
     setSkills(next)
-    select(next.find((s) => s.name === current.name)?.name ?? next[0]?.name ?? NEW, next)
+    select(next[0]?.name ?? NEW, next)
   }
 
   const toggle = async (skill: SkillInfo) => {
     setSkills(await api.updateSkill(skill.name, { enabled: !skill.enabled }))
   }
-
-  const editable = creating || (current && !current.builtin)
 
   return (
     <Card className="grid overflow-hidden md:grid-cols-[230px_1fr]">
@@ -492,13 +492,9 @@ function Skills() {
                   )}
                 />
                 <span className="min-w-0 flex-1 truncate">{s.title}</span>
-                {s.core ? (
-                  <span className="text-faint shrink-0 text-[11px] font-normal">always</span>
-                ) : !s.builtin ? (
-                  <span className="text-faint shrink-0 text-[11px] font-normal">yours</span>
-                ) : s.customized ? (
-                  <span className="text-faint shrink-0 text-[11px] font-normal">edited</span>
-                ) : null}
+                <span className="text-faint shrink-0 text-[11px] font-normal">
+                  {s.core ? 'always' : s.source}
+                </span>
               </button>
             )
           })}
@@ -521,9 +517,10 @@ function Skills() {
             <div className="min-w-0 flex-1">
               <div className="text-fg flex flex-wrap items-center gap-2 text-[14px] font-semibold">
                 <span className="truncate">{creating ? 'New skill' : current?.title}</span>
-                {current?.builtin ? <Chip>Built-in</Chip> : null}
+                {current ? (
+                  <Chip tone={bundled ? 'neutral' : 'brand'}>{bundled ? 'Bundled' : 'Custom'}</Chip>
+                ) : null}
                 {current?.core ? <Chip tone="ok">Always loaded</Chip> : null}
-                {current?.customized ? <Chip tone="brand">Edited</Chip> : null}
               </div>
             </div>
             {current ? (
@@ -565,32 +562,42 @@ function Skills() {
           <Textarea
             value={draft.content}
             onChange={(e) => setDraft({ ...draft, content: e.target.value })}
+            readOnly={!editable}
             placeholder="Instructions in Markdown. They are added to the agent's system prompt."
             fill
             className="flex-1 font-mono text-[12.5px] leading-relaxed"
           />
           {error ? <div className="text-danger text-[12px]">{error}</div> : null}
           <div className="flex items-center gap-2">
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={!dirty || saving}
-              onClick={() => void save()}
-            >
-              {saving ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />}
-              {creating ? 'Create' : 'Save'}
-            </Button>
-            {current?.builtin && current.customized ? (
-              <Button size="sm" variant="ghost" onClick={() => void remove()}>
-                <ArrowUturnLeftIcon className="size-3.5" /> Reset to default
+            {current && bundled ? (
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={saving}
+                onClick={() => void clone(current)}
+              >
+                {saving ? <Spinner className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+                Clone to edit
               </Button>
-            ) : null}
-            {current && !current.builtin ? (
-              <Button size="sm" variant="ghost" onClick={() => void remove()}>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!dirty || saving}
+                onClick={() => void save()}
+              >
+                {saving ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />}
+                {creating ? 'Create' : 'Save'}
+              </Button>
+            )}
+            {current && !bundled ? (
+              <Button size="sm" variant="ghost" onClick={() => void remove(current)}>
                 <TrashIcon className="size-3.5" /> Delete
               </Button>
             ) : null}
-            <span className="text-faint ml-auto text-[12px]">Applies to new runs</span>
+            <span className="text-faint ml-auto text-[12px]">
+              {bundled ? 'Bundled skills are read-only' : 'Applies to new runs'}
+            </span>
           </div>
         </div>
       ) : null}
@@ -704,7 +711,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
         </Section>
         <Section
           title="Skills"
-          hint="Instructions added to every run. Edit the built-in ones, switch any off, or write your own."
+          hint="Instructions added to every run. Bundled ones are read-only: switch them off or clone one to edit it. Or write your own."
         >
           <Skills />
         </Section>

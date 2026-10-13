@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import type { Settings, Status } from '@shared/types.ts'
 import { CommandPalette } from '@/components/CommandPalette'
-import { DialogHost, dialog } from '@/components/Dialog'
+import { DialogHost } from '@/components/Dialog'
 import { Home } from '@/components/Home'
 import { RunView } from '@/components/run/RunView'
 import mark from '@/assets/ov-mark.svg'
@@ -59,14 +59,6 @@ export function App() {
   const update = useCallback(async (patch: Partial<Settings>) => {
     const settings = await api.saveSettings(patch)
     setStatus((s) => (s ? { ...s, settings } : s))
-
-    const serverIsOlderThanPage = Object.keys(patch).some((key) => !(key in settings))
-    if (serverIsOlderThanPage)
-      await dialog.alert(
-        'Restart ov agent',
-        'The running server is older than this page and could not save that setting. Stop it with Ctrl+C, start ov agent again, then reload this tab.',
-        'warn',
-      )
   }, [])
 
   if (error && !status) {

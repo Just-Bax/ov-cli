@@ -28,7 +28,7 @@ def _workspace_text() -> str:
     if not project.configured():
         return "none set, so there are no ws_ tools. Code work needs the user to pick a folder in Settings > Workspace."
 
-    notes = db.get_settings()["workspaceNotes"].strip()
+    notes = db.get_preferences()["workspaceNotes"].strip()
     return f"{project.root()}" + (f"\nNotes from the user:\n{notes}" if notes else "")
 
 

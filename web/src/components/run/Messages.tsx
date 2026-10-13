@@ -3,13 +3,11 @@ import {
   Check as CheckIcon,
   FileText as DocumentTextIcon,
   EnvelopeSimple as EnvelopeIcon,
-  ThumbsDown as HandThumbDownIcon,
-  ThumbsUp as HandThumbUpIcon,
   Copy as Square2StackIcon,
   X as XMarkIcon,
 } from '@phosphor-icons/react'
 import { type ReactNode, useState } from 'react'
-import type { ChatMessage, MessageFile, Rating } from '@shared/types.ts'
+import type { ChatMessage, MessageFile } from '@shared/types.ts'
 import { FilePreview } from '@/components/run/FilePreview'
 import { ReplyDraft } from '@/components/run/ReplyDraft'
 import { Spinner, Markdown } from '@/components/ui'
@@ -29,12 +27,10 @@ function formatTime(ts: number): string {
 function ActionButton({
   label,
   onClick,
-  active,
   children,
 }: {
   label: string
   onClick: () => void
-  active?: boolean
   children: ReactNode
 }) {
   return (
@@ -43,10 +39,7 @@ function ActionButton({
       title={label}
       aria-label={label}
       onClick={onClick}
-      className={cn(
-        'flex size-7 items-center justify-center rounded-full transition-colors',
-        active ? 'text-brand-strong bg-brand-soft' : 'text-faint hover:bg-raised hover:text-fg',
-      )}
+      className="text-faint hover:bg-raised hover:text-fg flex size-7 items-center justify-center rounded-full transition-colors"
     >
       {children}
     </button>
@@ -223,9 +216,7 @@ export function AssistantActions({
   turnId,
   text,
   ts,
-  rating,
   canRetry,
-  onRated,
   replyFrom,
 }: {
   runId: string
@@ -233,32 +224,14 @@ export function AssistantActions({
   replyFrom?: string
   text: string
   ts?: number
-  rating?: { rating: Rating; note?: string }
   canRetry: boolean
-  onRated?: (rating: Rating | null, note?: string) => void
 }) {
-  const [current, setCurrent] = useState<Rating | undefined>(rating?.rating)
-  const [note, setNote] = useState(rating?.note ?? '')
-  const [sentNote, setSentNote] = useState(rating?.note ?? '')
   const [retrying, setRetrying] = useState(false)
   const [drafting, setDrafting] = useState(false)
-
-  const rate = (r: Rating) => {
-    const next = current === r ? null : r
-    setCurrent(next ?? undefined)
-    onRated?.(next, note)
-    void api.rate(runId, turnId, next, note)
-  }
 
   return (
     <div className="flex flex-wrap items-center gap-0.5">
       <CopyAction text={text} />
-      <ActionButton label="Good response" active={current === 'good'} onClick={() => rate('good')}>
-        <HandThumbUpIcon className="size-3.5" />
-      </ActionButton>
-      <ActionButton label="Bad response" active={current === 'wrong'} onClick={() => rate('wrong')}>
-        <HandThumbDownIcon className="size-3.5" />
-      </ActionButton>
       {replyFrom ? (
         <ActionButton label="Write as a case reply" onClick={() => setDrafting(true)}>
           <EnvelopeIcon className="size-3.5" />
@@ -283,36 +256,6 @@ export function AssistantActions({
         </ActionButton>
       ) : null}
       {ts ? <span className="text-faint ml-1.5 text-[11.5px]">{formatTime(ts)}</span> : null}
-      {current === 'wrong' ? (
-        <form
-          className="border-line-strong focus-within:border-brand ml-2 flex h-7 w-[300px] max-w-full items-center rounded-full border bg-white pr-1 pl-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const value = note.trim()
-            if (!value || value === sentNote) return
-            onRated?.('wrong', value)
-            void api.rate(runId, turnId, 'wrong', value).then(() => setSentNote(value))
-          }}
-        >
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="What was wrong? (optional)"
-            className="placeholder:text-faint text-fg min-w-0 flex-1 bg-transparent text-[12px] outline-none"
-          />
-          {note.trim() && note.trim() === sentNote ? (
-            <CheckIcon className="text-ok mr-1.5 size-3.5" />
-          ) : (
-            <button
-              type="submit"
-              disabled={!note.trim()}
-              className="text-brand disabled:text-faint px-1.5 text-[11.5px] font-medium"
-            >
-              Send
-            </button>
-          )}
-        </form>
-      ) : null}
     </div>
   )
 }

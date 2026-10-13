@@ -9,14 +9,17 @@ import {
   PushPinSlash,
   Sparkle,
   SunHorizon,
+  Trash,
 } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { RunSummary } from '@shared/types.ts'
+import { dialog } from '@/components/Dialog'
 import { reportError } from '@/components/Toasts'
 import { Button } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useLayer } from '@/lib/layers'
+import { go, href } from '@/lib/route'
 import { shortSpan } from '@/lib/span'
 import { cn } from '@/lib/cn'
 import { refreshRuns, setPinned, setSettled, setSnoozed } from '@/lib/runs'
@@ -104,6 +107,7 @@ function Item({
   onClick,
   onHover,
   active,
+  danger,
   trailing,
 }: {
   icon: ReactNode
@@ -112,6 +116,7 @@ function Item({
   onClick?: () => void
   onHover?: () => void
   active?: boolean
+  danger?: boolean
   trailing?: ReactNode
 }) {
   return (
@@ -122,15 +127,35 @@ function Item({
       onMouseEnter={onHover}
       className={cn(
         'flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[12.5px] transition-colors',
-        active ? 'bg-brand-soft text-brand-strong' : 'text-fg hover:bg-raised',
+        active
+          ? 'bg-brand-soft text-brand-strong'
+          : danger
+            ? 'text-danger hover:bg-danger-soft'
+            : 'text-fg hover:bg-raised',
       )}
     >
-      <span className={active ? 'text-brand-strong' : 'text-muted'}>{icon}</span>
+      <span className={active ? 'text-brand-strong' : danger ? 'text-danger' : 'text-muted'}>
+        {icon}
+      </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {hint ? <span className="text-faint shrink-0 text-[11px]">{hint}</span> : null}
       {trailing}
     </button>
   )
+}
+
+async function deleteThread(id: string): Promise<void> {
+  const ok = await dialog.confirm({
+    title: 'Delete this thread?',
+    body: 'Its messages and files are removed for good.',
+    confirmLabel: 'Delete',
+    tone: 'danger',
+  })
+  if (!ok) return
+
+  await api.deleteRun(id)
+  await refreshRuns()
+  if (window.location.hash === href({ page: 'run', id })) go({ page: 'home' })
 }
 
 function SnoozePanel({ onPick }: { onPick: (until: number) => void }) {
@@ -339,6 +364,14 @@ export function RunMenu({
                 label={settled ? 'Move back to active' : 'Settle'}
                 onHover={() => setSnoozing(false)}
                 onClick={() => act(() => setSettled(run.id, !settled))}
+              />
+              <div className="bg-line mx-2 my-1 h-px" />
+              <Item
+                icon={<Trash className="size-4" />}
+                label="Delete thread"
+                danger
+                onHover={() => setSnoozing(false)}
+                onClick={() => act(() => deleteThread(run.id))}
               />
             </div>,
             document.body,

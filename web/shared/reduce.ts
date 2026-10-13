@@ -15,7 +15,6 @@ export function emptyState(summary: RunSummary, input: RunInput): RunState {
     chat: [],
     writeAccess: Boolean(input.allowWrite),
     queued: [],
-    ratings: {},
   }
 }
 
@@ -144,12 +143,6 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
         outcome: outcomeKept ? state.outcome : undefined,
         outcomeId: outcomeKept ? state.outcomeId : undefined,
       }
-    }
-    case 'rate': {
-      const ratings = { ...state.ratings }
-      if (event.rating) ratings[event.turnId] = { rating: event.rating, note: event.note }
-      else delete ratings[event.turnId]
-      return { ...state, ratings }
     }
     case 'access':
       return { ...state, writeAccess: event.write }

@@ -1,7 +1,5 @@
-import { Clock as ClockIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
-import { formatMinutes } from '@shared/estimate.ts'
-import type { SavedTotals, Settings } from '@shared/types.ts'
+import type { Settings } from '@shared/types.ts'
 import { Composer } from '@/components/Composer'
 import { InstancePicker, useInstances } from '@/components/InstancePicker'
 import { ModelPicker } from '@/components/ModelPicker'
@@ -12,7 +10,6 @@ import { takeDraft } from '@/lib/draft'
 import { cn } from '@/lib/cn'
 import { go } from '@/lib/route'
 import { refreshRuns } from '@/lib/runs'
-import { reportError } from '@/components/Toasts'
 
 const WORDS = ['troubleshooting', 'investigating', 'configuring', 'automating', 'fixing']
 const WORD_MS = 4500
@@ -71,7 +68,6 @@ export function Home({ settings }: { settings: Settings }) {
   }, [model, instance, allowWrite])
   const [error, setError] = useState<string>()
   const [starting, setStarting] = useState(false)
-  const [totals, setTotals] = useState<SavedTotals>()
   const [draft, setDraft] = useState<{ text: string; at: number }>()
 
   useEffect(() => {
@@ -85,10 +81,6 @@ export function Home({ settings }: { settings: Settings }) {
     load()
     window.addEventListener('ov-agent:draft', load)
     return () => window.removeEventListener('ov-agent:draft', load)
-  }, [])
-
-  useEffect(() => {
-    api.stats().then(setTotals).catch(reportError)
   }, [])
 
   const submit = async (text: string, files: File[]) => {
@@ -144,20 +136,6 @@ export function Home({ settings }: { settings: Settings }) {
               : 'Read-only on every instance. Changes come back as diffs for you to apply.'}
           </div>
           {error ? <div className="text-danger mt-2 text-center text-[12.5px]">{error}</div> : null}
-
-          {settings.showTimeSaved && totals?.all.minutes ? (
-            <div className="text-muted mt-8 flex items-center justify-center gap-2 text-[12.5px]">
-              <ClockIcon className="text-ok size-3.5" />
-              <span>
-                <span className="text-ok font-semibold">~{formatMinutes(totals.week.minutes)}</span>{' '}
-                saved this week across {totals.week.runs} run{totals.week.runs === 1 ? '' : 's'}
-              </span>
-              <span className="text-faint">-</span>
-              <span>{formatMinutes(totals.month.minutes)} in 30 days</span>
-              <span className="text-faint">-</span>
-              <span>{formatMinutes(totals.all.minutes)} total</span>
-            </div>
-          ) : null}
         </div>
       </div>
     </Page>

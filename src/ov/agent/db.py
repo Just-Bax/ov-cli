@@ -13,48 +13,65 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Connection, Engine, create_engine, desc, event, exists, func, inspect, select, true, update
+from sqlalchemy import Connection, Engine, create_engine, delete, desc, event, exists, func, inspect, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import aliased
 
 from ..errors import EXIT_IN_USE, OvError
 from ..paths import agent_dir
-from .models import Conversation, Event, Feedback, Pinned, Run, Setting, Settled, Skill, Snoozed, Usage
+from .models import (
+    Attachment,
+    Event,
+    EventType,
+    FollowUp,
+    Message,
+    Preference,
+    Reasoning,
+    Skill,
+    SkillSource,
+    Thread,
+    ThreadStatus,
+    Usage,
+)
 
 DB_FILE = "agent.db"
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 BUSY_TIMEOUT_MS = 10_000
 
-DEFAULT_SETTINGS: dict[str, Any] = {
-    "defaultModel": "",
-    "fastModel": "",
-    "workspace": "",
-    "workspaceNotes": "",
-    "maxSteps": 80,
-    "reasoning": "",
-    "followUp": "steer",
-    "showTimeSaved": True,
-    "expandTools": False,
-}
-
+PREFERENCE_ROW = 1
+DEFAULT_MAX_STEPS = 80
 MAX_STEPS_LIMIT = 500
-FOLLOW_UPS = ("steer", "queue")
-REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
+PREFERENCE_COLUMNS = {
+    "defaultModel": "default_model",
+    "fastModel": "fast_model",
+    "reasoning": "reasoning",
+    "maxSteps": "max_steps",
+    "followUp": "follow_up",
+    "workspace": "workspace",
+    "workspaceNotes": "workspace_notes",
+    "expandTools": "expand_tools",
+}
+TEXT_PREFERENCES = ("defaultModel", "fastModel", "workspace", "workspaceNotes")
+REASONING_LEVELS = tuple(level.value for level in Reasoning)
+FOLLOW_UPS = tuple(mode.value for mode in FollowUp)
 NANO_PER_CREDIT = 1_000_000_000
 TOP_THREADS = 5
 INTERRUPTED_RUN = "Interrupted by a restart."
 INTERRUPTED_TOOL = "Interrupted by a restart."
 RUN_LIST_LIMIT = 500
-ACTIVE = ("queued", "running", "waiting")
-RUN_COLUMNS = ("title", "instance", "status", "saved_minutes")
+ACTIVE = (ThreadStatus.QUEUED, ThreadStatus.RUNNING, ThreadStatus.WAITING)
+THREAD_COLUMNS = ("title", "instance", "status", "allow_write")
+TOKEN_COLUMNS = {
+    "input": "input_tokens",
+    "cache_read": "cached_tokens",
+    "cache_write": "cache_write_tokens",
+    "output": "output_tokens",
+}
+SKILL_FIELDS = ("title", "description", "content", "enabled")
 
 _lock = threading.RLock()
 _engine: Engine | None = None
 _engine_path = ""
-
-
-def now_ms() -> int:
-    return int(time.time() * 1000)
 
 
 class DatabaseInUse(OvError):
@@ -67,13 +84,22 @@ class DatabaseInUse(OvError):
         )
 
 
+def now_ms() -> int:
+    return int(time.time() * 1000)
+
+
 def _pragmas(dbapi_connection: sqlite3.Connection, _: Any) -> None:
     dbapi_connection.isolation_level = None
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode = WAL")
     cursor.execute("PRAGMA synchronous = NORMAL")
+    cursor.execute("PRAGMA foreign_keys = ON")
     cursor.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     cursor.close()
+
+
+def _begin_transaction(conn: Any) -> None:
+    conn.exec_driver_sql("BEGIN")
 
 
 def _alembic_config() -> Config:
@@ -86,10 +112,6 @@ def _backup(path: Path, revision: str | None) -> None:
     target = path.with_name(f"agent.{revision or 'legacy'}.bak.db")
     with sqlite3.connect(path) as source, sqlite3.connect(target) as copy:
         source.backup(copy)
-
-
-def _begin_transaction(conn: Any) -> None:
-    conn.exec_driver_sql("BEGIN")
 
 
 def _ensure_alone(path: Path) -> None:
@@ -118,6 +140,7 @@ def _migrate(engine: Engine, path: Path) -> bool:
         _ensure_alone(path)
         _backup(path, current)
     with engine.begin() as conn:
+        conn.exec_driver_sql("PRAGMA defer_foreign_keys = ON")
         config.attributes["connection"] = conn
         command.upgrade(config, "head")
     return True
@@ -141,6 +164,7 @@ def _engine_now() -> Engine:
     _migrate(engine, path)
     with engine.begin() as conn:
         _close_orphans(conn)
+        _ensure_preferences(conn)
     _engine, _engine_path = engine, str(path)
     return engine
 
@@ -170,44 +194,57 @@ def close() -> None:
         _engine, _engine_path = None, ""
 
 
-def _append_next(conn: Connection, run_id: str, data: dict[str, Any]) -> None:
-    seq = conn.scalar(select(func.coalesce(func.max(Event.seq), -1) + 1).where(Event.run_id == run_id))
-    conn.execute(insert(Event).values(run_id=run_id, seq=seq, ts=now_ms(), data=data))
+def _append_next(conn: Connection, thread_id: str, kind: EventType, data: dict[str, Any]) -> None:
+    position = conn.scalar(select(func.coalesce(func.max(Event.position), -1) + 1).where(Event.thread_id == thread_id))
+    conn.execute(
+        insert(Event).values(thread_id=thread_id, position=position, type=kind, data=data, created_at=now_ms())
+    )
 
 
 def _close_orphans(conn: Connection) -> None:
-    for run_id in conn.scalars(select(Run.id).where(Run.status.in_(ACTIVE))).all():
-        _append_next(conn, run_id, {"type": "status", "status": "error", "error": INTERRUPTED_RUN})
+    for thread_id in conn.scalars(select(Thread.id).where(Thread.status.in_(ACTIVE))).all():
+        _append_next(conn, thread_id, EventType.STATUS, {"status": ThreadStatus.ERROR, "error": INTERRUPTED_RUN})
 
-    conn.execute(update(Run).where(Run.status.in_(ACTIVE)).values(status="error"))
+    conn.execute(update(Thread).where(Thread.status.in_(ACTIVE)).values(status=ThreadStatus.ERROR))
     _close_open_tools(conn)
 
 
-def _field(entity: Any, path: str) -> Any:
-    return func.json_extract(entity.data, path)
+def _tool(entity: Any, path: str) -> Any:
+    return func.json_extract(entity.data, f"$.tool.{path}")
 
 
 def _close_open_tools(conn: Connection) -> None:
     later = aliased(Event)
     finished = exists().where(
-        later.run_id == Event.run_id,
-        later.seq > Event.seq,
-        _field(later, "$.type") == "tool",
-        _field(later, "$.tool.id") == _field(Event, "$.tool.id"),
-        _field(later, "$.tool.status") != "running",
+        later.thread_id == Event.thread_id,
+        later.position > Event.position,
+        later.type == EventType.TOOL,
+        _tool(later, "id") == _tool(Event, "id"),
+        _tool(later, "status") != "running",
     )
-    query = select(Event.run_id, Event.data).where(
-        _field(Event, "$.type") == "tool", _field(Event, "$.tool.status") == "running", ~finished
+    query = select(Event.thread_id, Event.data).where(
+        Event.type == EventType.TOOL, _tool(Event, "status") == "running", ~finished
     )
-    for run_id, data in conn.execute(query).all():
+    for thread_id, data in conn.execute(query).all():
         tool = {**data["tool"], "status": "error", "output": INTERRUPTED_TOOL}
-        _append_next(conn, run_id, {"type": "tool", "tool": tool})
+        _append_next(conn, thread_id, EventType.TOOL, {"tool": tool})
 
 
-def get_settings() -> dict[str, Any]:
+def _ensure_preferences(conn: Connection) -> None:
+    values = {"max_steps": DEFAULT_MAX_STEPS, "follow_up": FollowUp.STEER, "expand_tools": False}
+    statement = insert(Preference).values(id=PREFERENCE_ROW, updated_at=now_ms(), **values)
+    conn.execute(statement.on_conflict_do_nothing(index_elements=[Preference.id]))
+
+
+def get_preferences() -> dict[str, Any]:
     with _begin() as conn:
-        stored = dict(conn.execute(select(Setting.key, Setting.value)).all())
-    return {**DEFAULT_SETTINGS, **{k: v for k, v in stored.items() if k in DEFAULT_SETTINGS}}
+        row = conn.execute(select(Preference).where(Preference.id == PREFERENCE_ROW)).one()
+    values = {key: getattr(row, column) for key, column in PREFERENCE_COLUMNS.items()}
+    return {
+        **values,
+        **{key: values[key] or "" for key in (*TEXT_PREFERENCES, "reasoning")},
+        "expandTools": bool(values["expandTools"]),
+    }
 
 
 def _max_steps(value: Any) -> int:
@@ -218,240 +255,307 @@ def _max_steps(value: Any) -> int:
     return min(max(steps, 1), MAX_STEPS_LIMIT)
 
 
-def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
-    if "maxSteps" in patch:
-        patch = {**patch, "maxSteps": _max_steps(patch["maxSteps"])}
+def _check_preferences(patch: dict[str, Any]) -> None:
+    unknown = set(patch) - set(PREFERENCE_COLUMNS)
+    if unknown:
+        raise ValueError(f"Unknown settings: {', '.join(sorted(unknown))}.")
     if patch.get("reasoning") and patch["reasoning"] not in REASONING_LEVELS:
         raise ValueError(f"Unknown reasoning level: {patch['reasoning']}")
     if "followUp" in patch and patch["followUp"] not in FOLLOW_UPS:
         raise ValueError(f"followUp must be one of {', '.join(FOLLOW_UPS)}.")
+
+
+def _preference_values(patch: dict[str, Any]) -> dict[str, Any]:
+    _check_preferences(patch)
+    values = {PREFERENCE_COLUMNS[key]: value for key, value in patch.items()}
+    if "maxSteps" in patch:
+        values["max_steps"] = _max_steps(patch["maxSteps"])
+    if "expandTools" in patch:
+        values["expand_tools"] = bool(patch["expandTools"])
     if "workspace" in patch:
         from .project import validate_folder
 
-        patch = {**patch, "workspace": validate_folder(str(patch["workspace"]))}
+        values["workspace"] = validate_folder(str(patch["workspace"]))
+    for key in (*TEXT_PREFERENCES, "reasoning"):
+        if key in patch:
+            values[PREFERENCE_COLUMNS[key]] = str(values[PREFERENCE_COLUMNS[key]] or "").strip() or None
+    return values
 
+
+def save_preferences(patch: dict[str, Any]) -> dict[str, Any]:
+    values = _preference_values(patch)
     with _begin() as conn:
-        for key, value in patch.items():
-            if key not in DEFAULT_SETTINGS:
-                continue
-            stored = bool(value) if isinstance(DEFAULT_SETTINGS[key], bool) else value
-            statement = insert(Setting).values(key=key, value=stored)
-            conn.execute(statement.on_conflict_do_update(index_elements=[Setting.key], set_={"value": stored}))
-    return get_settings()
+        conn.execute(update(Preference).where(Preference.id == PREFERENCE_ROW).values(updated_at=now_ms(), **values))
+    return get_preferences()
 
 
-def _run_query() -> Any:
-    usage_of_run = Usage.run_id == Run.id
-    return (
-        select(
-            *Run.__table__.columns,
-            Feedback.rating,
-            Settled.ts.label("settled_at"),
-            Pinned.ts.label("pinned_at"),
-            Snoozed.until.label("snoozed_until"),
-            select(func.sum(Usage.nano)).where(usage_of_run).scalar_subquery().label("nano"),
-            select(func.count()).where(usage_of_run).scalar_subquery().label("requests"),
-        )
-        .outerjoin(Feedback, Feedback.run_id == Run.id)
-        .outerjoin(Settled, Settled.run_id == Run.id)
-        .outerjoin(Pinned, Pinned.run_id == Run.id)
-        .outerjoin(Snoozed, Snoozed.run_id == Run.id)
+def _thread_query() -> Any:
+    usage_of_thread = Usage.thread_id == Thread.id
+    return select(
+        Thread,
+        select(func.sum(Usage.cost_nano)).where(usage_of_thread).scalar_subquery().label("nano"),
+        select(func.count()).where(usage_of_thread).scalar_subquery().label("requests"),
     )
 
 
-def _summary(row: Any) -> dict[str, Any]:
-    summary = {
-        "id": row.id,
-        "title": row.title,
-        "status": row.status,
-        "model": row.model,
-        "createdAt": row.created_at,
-        "updatedAt": row.updated_at,
+def _summary(thread: Thread, nano: int | None, requests: int) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "id": thread.id,
+        "title": thread.title,
+        "status": thread.status,
+        "model": thread.model,
+        "createdAt": thread.created_at,
+        "updatedAt": thread.updated_at,
     }
-    if row.instance:
-        summary["instance"] = row.instance
-    if row.rating:
-        summary["rating"] = row.rating
-    if row.settled_at:
+    if thread.instance:
+        summary["instance"] = thread.instance
+    if thread.settled_at:
         summary["settled"] = True
-    if row.pinned_at:
+    if thread.pinned_at:
         summary["pinned"] = True
-    if row.snoozed_until and row.snoozed_until > now_ms():
-        summary["snoozedUntil"] = row.snoozed_until
-    if row.requests:
-        summary["cost"] = {"credits": row.nano / NANO_PER_CREDIT, "requests": row.requests}
+    if thread.snoozed_until and thread.snoozed_until > now_ms():
+        summary["snoozedUntil"] = thread.snoozed_until
+    if requests:
+        summary["cost"] = _credits(nano, requests)
     return summary
 
 
-def create_run(run_id: str, title: str, model: str, data: dict[str, Any]) -> None:
+def _rows(query: Any) -> list[dict[str, Any]]:
+    from sqlalchemy.orm import Session
+
+    with _begin() as conn, Session(bind=conn) as session:
+        return [_summary(thread, nano, requests) for thread, nano, requests in session.execute(query).all()]
+
+
+def create_thread(
+    thread_id: str, title: str, model: str, *, prompt: str, instance: str | None, allow_write: bool
+) -> dict[str, Any]:
     now = now_ms()
-    values = {"title": title, "instance": data.get("instance"), "status": "queued", "model": model}
+    values = {"title": title, "model": model, "prompt": prompt, "instance": instance, "allow_write": allow_write}
     with _begin() as conn:
-        conn.execute(insert(Run).values(id=run_id, input=data, created_at=now, updated_at=now, **values))
+        conn.execute(
+            insert(Thread).values(id=thread_id, status=ThreadStatus.QUEUED, created_at=now, updated_at=now, **values)
+        )
+    summary = get_thread(thread_id)
+    if summary is None:
+        raise ValueError(f"Thread {thread_id} was not saved.")
+    return summary
 
 
-def update_run(run_id: str, **patch: Any) -> None:
-    values = {k: v for k, v in patch.items() if k in RUN_COLUMNS and v is not None}
+def update_thread(thread_id: str, **patch: Any) -> None:
+    unknown = set(patch) - set(THREAD_COLUMNS)
+    if unknown:
+        raise ValueError(f"Threads have no {', '.join(sorted(unknown))}.")
+    values = {k: v for k, v in patch.items() if v is not None}
     with _begin() as conn:
-        conn.execute(update(Run).where(Run.id == run_id).values(updated_at=now_ms(), **values))
+        conn.execute(update(Thread).where(Thread.id == thread_id).values(updated_at=now_ms(), **values))
 
 
-def list_runs(settled: bool | None = None, limit: int = RUN_LIST_LIMIT) -> list[dict[str, Any]]:
-    query = _run_query()
+def list_threads(settled: bool | None = None, limit: int = RUN_LIST_LIMIT) -> list[dict[str, Any]]:
+    query = _thread_query()
     if settled is not None:
-        query = query.where(Settled.run_id.is_not(None) if settled else Settled.run_id.is_(None))
+        query = query.where(Thread.settled_at.is_not(None) if settled else Thread.settled_at.is_(None))
+    return _rows(query.order_by(Thread.created_at.desc()).limit(limit))
+
+
+def get_thread(thread_id: str) -> dict[str, Any] | None:
+    found = _rows(_thread_query().where(Thread.id == thread_id))
+    return found[0] if found else None
+
+
+def thread_writes(thread_id: str) -> bool:
     with _begin() as conn:
-        rows = conn.execute(query.order_by(Run.created_at.desc()).limit(limit)).all()
-    return [_summary(r) for r in rows]
+        return bool(conn.scalar(select(Thread.allow_write).where(Thread.id == thread_id)))
 
 
-def _set_flag(table: Any, run_id: str, on: bool, **values: Any) -> None:
+def delete_thread(thread_id: str) -> None:
     with _begin() as conn:
-        if not on:
-            conn.execute(table.__table__.delete().where(table.run_id == run_id))
-            return
-        statement = insert(table).values(run_id=run_id, **values)
-        conn.execute(statement.on_conflict_do_update(index_elements=[table.run_id], set_=values))
+        conn.execute(delete(Thread).where(Thread.id == thread_id))
 
 
-def set_pinned(run_id: str, pinned: bool) -> None:
-    _set_flag(Pinned, run_id, pinned, ts=now_ms())
+def set_pinned(thread_id: str, pinned: bool) -> None:
+    _set_thread(thread_id, pinned_at=now_ms() if pinned else None)
 
 
-def set_snoozed(run_id: str, until: int | None) -> None:
+def set_snoozed(thread_id: str, until: int | None) -> None:
     if until is not None and until <= now_ms():
         raise ValueError("Snooze until a time in the future.")
-    _set_flag(Snoozed, run_id, until is not None, until=until)
+    _set_thread(thread_id, snoozed_until=until)
 
 
-def set_settled(run_id: str, settled: bool) -> None:
-    _set_flag(Settled, run_id, settled, ts=now_ms())
+def set_settled(thread_id: str, settled: bool) -> None:
+    _set_thread(thread_id, settled_at=now_ms() if settled else None)
+
+
+def _set_thread(thread_id: str, **values: Any) -> None:
+    with _begin() as conn:
+        conn.execute(update(Thread).where(Thread.id == thread_id).values(**values))
 
 
 def settled_count() -> int:
     with _begin() as conn:
-        return int(conn.scalar(select(func.count()).select_from(Settled)) or 0)
+        return int(conn.scalar(select(func.count()).where(Thread.settled_at.is_not(None))) or 0)
 
 
-def get_run(run_id: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+def append_event(thread_id: str, position: int, data: dict[str, Any]) -> dict[str, Any]:
+    created = now_ms()
+    kind = EventType(data["type"])
+    body = {k: v for k, v in data.items() if k != "type"}
     with _begin() as conn:
-        row = conn.execute(_run_query().where(Run.id == run_id)).first()
-    if row is None:
-        return None
-    return _summary(row), row.input
+        conn.execute(
+            insert(Event).values(thread_id=thread_id, position=position, type=kind, data=body, created_at=created)
+        )
+    return {"seq": position, "ts": created, "event": data}
 
 
-def saved_totals(since: int) -> dict[str, int]:
-    query = (
-        select(func.coalesce(func.sum(Run.saved_minutes), 0), func.count())
-        .outerjoin(Feedback, Feedback.run_id == Run.id)
-        .where(Run.saved_minutes > 0, Run.created_at >= since, func.coalesce(Feedback.rating, "") != "wrong")
+def load_events(thread_id: str, after: int = -1) -> list[dict[str, Any]]:
+    query = select(Event.position, Event.type, Event.data, Event.created_at).where(
+        Event.thread_id == thread_id, Event.position > after
     )
     with _begin() as conn:
-        minutes, runs = conn.execute(query).one()
-    return {"minutes": minutes, "runs": runs}
+        rows = conn.execute(query.order_by(Event.position)).all()
+    return [{"seq": r.position, "ts": r.created_at, "event": {"type": r.type, **r.data}} for r in rows]
 
 
-def append_event(run_id: str, seq: int, data: dict[str, Any]) -> dict[str, Any]:
-    ts = now_ms()
+def load_messages(thread_id: str) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    query = select(Message).where(Message.thread_id == thread_id).order_by(Message.position)
+    from sqlalchemy.orm import Session
+
+    with _begin() as conn, Session(bind=conn) as session:
+        rows = session.scalars(query).all()
+    messages = [_message_dict(row) for row in rows]
+    turns = {row.turn_id: row.position for row in rows if row.turn_id}
+    return messages, turns
+
+
+def _message_dict(row: Message) -> dict[str, Any]:
+    message: dict[str, Any] = {"role": row.role, "content": row.content}
+    if row.tool_calls is not None:
+        message["tool_calls"] = row.tool_calls
+    if row.tool_call_id is not None:
+        message["tool_call_id"] = row.tool_call_id
+    return message
+
+
+def save_messages(thread_id: str, start: int, messages: list[dict[str, Any]], turns: dict[int, str]) -> None:
+    created = now_ms()
+    rows = [
+        {
+            "thread_id": thread_id,
+            "position": start + offset,
+            "role": message["role"],
+            "content": message.get("content"),
+            "tool_calls": message.get("tool_calls") or None,
+            "tool_call_id": message.get("tool_call_id"),
+            "turn_id": turns.get(start + offset),
+            "created_at": created,
+        }
+        for offset, message in enumerate(messages)
+    ]
     with _begin() as conn:
-        conn.execute(insert(Event).values(run_id=run_id, seq=seq, ts=ts, data=data))
-    return {"seq": seq, "ts": ts, "event": data}
+        conn.execute(delete(Message).where(Message.thread_id == thread_id, Message.position >= start))
+        if rows:
+            conn.execute(insert(Message), rows)
 
 
-def load_events(run_id: str, after: int = -1) -> list[dict[str, Any]]:
-    query = select(Event.seq, Event.ts, Event.data).where(Event.run_id == run_id, Event.seq > after)
+def add_attachments(thread_id: str, turn_id: str, names: list[str]) -> None:
+    if not names:
+        return
+    created = now_ms()
+    rows = [{"thread_id": thread_id, "turn_id": turn_id, "name": name, "created_at": created} for name in names]
     with _begin() as conn:
-        rows = conn.execute(query.order_by(Event.seq)).all()
-    return [{"seq": r.seq, "ts": r.ts, "event": r.data} for r in rows]
-
-
-def save_conversation(key: str, messages: Any) -> None:
-    statement = insert(Conversation).values(run_id=key, messages=messages)
-    with _begin() as conn:
-        conn.execute(statement.on_conflict_do_update(index_elements=[Conversation.run_id], set_={"messages": messages}))
-
-
-def load_conversation(key: str) -> Any:
-    with _begin() as conn:
-        return conn.scalar(select(Conversation.messages).where(Conversation.run_id == key))
-
-
-def save_feedback(run_id: str, rating: str, note: str) -> None:
-    values = {"rating": rating, "note": note, "ts": now_ms()}
-    statement = insert(Feedback).values(run_id=run_id, **values)
-    with _begin() as conn:
-        conn.execute(statement.on_conflict_do_update(index_elements=[Feedback.run_id], set_=values))
-
-
-def get_feedback(run_id: str) -> dict[str, str] | None:
-    with _begin() as conn:
-        row = conn.execute(select(Feedback.rating, Feedback.note).where(Feedback.run_id == run_id)).first()
-    return {"rating": row.rating, "note": row.note} if row else None
+        conn.execute(insert(Attachment), rows)
 
 
 def skill_rows() -> dict[str, dict[str, Any]]:
     with _begin() as conn:
-        rows = conn.execute(select(*Skill.__table__.columns)).mappings().all()
-    return {row["name"]: dict(row) for row in rows}
+        rows = conn.execute(select(*Skill.__table__.columns).order_by(Skill.name)).mappings().all()
+    return {row["name"]: {**row, "enabled": bool(row["enabled"])} for row in rows}
 
 
-def put_skill(name: str, **fields: Any) -> None:
-    current = skill_rows().get(name, {"enabled": 1})
-    merged = {**current, **{k: v for k, v in fields.items() if k != "name"}}
-    values = {
-        "title": merged.get("title"),
-        "description": merged.get("description"),
-        "content": merged.get("content"),
-        "enabled": 1 if merged["enabled"] else 0,
-    }
-    statement = insert(Skill).values(name=name, **values)
+def sync_bundled(skills: list[dict[str, str]]) -> None:
+    now = now_ms()
+    names = [skill["name"] for skill in skills]
     with _begin() as conn:
-        conn.execute(statement.on_conflict_do_update(index_elements=[Skill.name], set_=values))
+        conn.execute(delete(Skill).where(Skill.source == SkillSource.BUNDLED, Skill.name.not_in(names)))
+        for skill in skills:
+            text = {k: skill[k] for k in ("title", "description", "content")}
+            statement = insert(Skill).values(
+                name=skill["name"], source=SkillSource.BUNDLED, enabled=True, created_at=now, updated_at=now, **text
+            )
+            conn.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[Skill.name], set_=text, where=Skill.source == SkillSource.BUNDLED
+                )
+            )
+
+
+def add_skill(name: str, title: str, description: str, content: str) -> None:
+    now = now_ms()
+    values = {"title": title, "description": description, "content": content}
+    with _begin() as conn:
+        conn.execute(
+            insert(Skill).values(
+                name=name, source=SkillSource.CUSTOM, enabled=True, created_at=now, updated_at=now, **values
+            )
+        )
+
+
+def update_skill(name: str, **fields: Any) -> None:
+    unknown = set(fields) - set(SKILL_FIELDS)
+    if unknown:
+        raise ValueError(f"Skills have no {', '.join(sorted(unknown))}.")
+    with _begin() as conn:
+        conn.execute(update(Skill).where(Skill.name == name).values(updated_at=now_ms(), **fields))
 
 
 def delete_skill(name: str) -> None:
     with _begin() as conn:
-        conn.execute(Skill.__table__.delete().where(Skill.name == name))
+        conn.execute(delete(Skill).where(Skill.name == name, Skill.source == SkillSource.CUSTOM))
 
 
 def _credits(nano: int | None, requests: int) -> dict[str, Any]:
     return {"credits": (nano or 0) / NANO_PER_CREDIT, "requests": requests}
 
 
-def add_usage(run_id: str, model: str, kind: str, tokens: dict[str, int], nano: int) -> dict[str, Any]:
+def add_usage(thread_id: str, model: str, kind: str, tokens: dict[str, int], nano: int) -> dict[str, Any]:
+    unknown = set(tokens) - set(TOKEN_COLUMNS)
+    if unknown:
+        raise ValueError(f"Copilot reported token types this version cannot store: {', '.join(sorted(unknown))}.")
+    counts = {column: int(tokens.get(key, 0)) for key, column in TOKEN_COLUMNS.items()}
     with _begin() as conn:
-        conn.execute(insert(Usage).values(run_id=run_id, ts=now_ms(), model=model, kind=kind, tokens=tokens, nano=nano))
-        total, requests = conn.execute(select(func.sum(Usage.nano), func.count()).where(Usage.run_id == run_id)).one()
+        conn.execute(
+            insert(Usage).values(
+                thread_id=thread_id, model=model, kind=kind, cost_nano=nano, created_at=now_ms(), **counts
+            )
+        )
+        total, requests = conn.execute(
+            select(func.sum(Usage.cost_nano), func.count()).where(Usage.thread_id == thread_id)
+        ).one()
     return _credits(total, requests)
 
 
 def _summarize(where: Any) -> dict[str, Any]:
-    each = func.json_each(Usage.tokens).table_valued("key", "value")
+    token_sums = [func.coalesce(func.sum(getattr(Usage, column)), 0) for column in TOKEN_COLUMNS.values()]
     with _begin() as conn:
-        total, requests = conn.execute(select(func.sum(Usage.nano), func.count()).where(where)).one()
-        tokens = conn.execute(
-            select(each.c.key, func.sum(each.c.value))
-            .select_from(Usage)
-            .join(each, true())
-            .where(where)
-            .group_by(each.c.key)
-        ).all()
+        total, requests, *tokens = conn.execute(
+            select(func.sum(Usage.cost_nano), func.count(), *token_sums).where(where)
+        ).one()
         models = conn.execute(
-            select(Usage.model, func.sum(Usage.nano).label("nano"), func.count().label("requests"))
+            select(Usage.model, func.sum(Usage.cost_nano).label("nano"), func.count().label("requests"))
             .where(where)
             .group_by(Usage.model)
             .order_by(desc("nano"))
         ).all()
     return {
         **_credits(total, requests),
-        "tokens": {kind: count for kind, count in tokens},
+        "tokens": {kind: count for kind, count in zip(TOKEN_COLUMNS, tokens, strict=True) if count},
         "models": [{"model": m.model, **_credits(m.nano, m.requests)} for m in models],
     }
 
 
-def run_cost(run_id: str) -> dict[str, Any]:
-    return _summarize(Usage.run_id == run_id)
+def thread_cost(thread_id: str) -> dict[str, Any]:
+    return _summarize(Usage.thread_id == thread_id)
 
 
 def _daily_nano(since: int) -> dict[str, int]:
@@ -461,25 +565,27 @@ def _daily_nano(since: int) -> dict[str, int]:
         days[day.isoformat()] = 0
         day += timedelta(days=1)
 
-    label = func.date(Usage.ts // 1000, "unixepoch", "localtime").label("day")
+    label = func.date(Usage.created_at // 1000, "unixepoch", "localtime").label("day")
     with _begin() as conn:
-        rows = conn.execute(select(label, func.sum(Usage.nano)).where(Usage.ts >= since).group_by(label)).all()
+        rows = conn.execute(
+            select(label, func.sum(Usage.cost_nano)).where(Usage.created_at >= since).group_by(label)
+        ).all()
     return {**days, **dict(rows)}
 
 
 def cost_report(since: int) -> dict[str, Any]:
     threads = (
-        select(Usage.run_id, Run.title, func.sum(Usage.nano).label("nano"))
-        .join(Run, Run.id == Usage.run_id)
-        .where(Usage.ts >= since)
-        .group_by(Usage.run_id)
+        select(Usage.thread_id, Thread.title, func.sum(Usage.cost_nano).label("nano"))
+        .join(Thread, Thread.id == Usage.thread_id)
+        .where(Usage.created_at >= since)
+        .group_by(Usage.thread_id)
         .order_by(desc("nano"))
         .limit(TOP_THREADS)
     )
     with _begin() as conn:
         top = conn.execute(threads).all()
     return {
-        **_summarize(Usage.ts >= since),
+        **_summarize(Usage.created_at >= since),
         "days": [{"day": d, "credits": nano / NANO_PER_CREDIT} for d, nano in _daily_nano(since).items()],
-        "threads": [{"id": t.run_id, "title": t.title, "credits": t.nano / NANO_PER_CREDIT} for t in top],
+        "threads": [{"id": t.thread_id, "title": t.title, "credits": t.nano / NANO_PER_CREDIT} for t in top],
     }
