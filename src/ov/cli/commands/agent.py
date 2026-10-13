@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 
+from ... import update
 from ..context import Context
+from ..output import emit
 
 DEFAULT_PORT = 5180
 
@@ -17,12 +19,20 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     )
     agent.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"default {DEFAULT_PORT}")
     agent.add_argument("--no-open", action="store_true", help="do not open a browser window")
+    agent.add_argument("--migrate", action="store_true", help="upgrade the agent database and exit")
     agent.set_defaults(func=cmd_agent)
 
 
 def cmd_agent(ctx: Context) -> int:
+    update.require_dependencies()
+    from ...agent import db
     from ...agent.forget import prune
     from ...agent.server import serve
+
+    if ctx.args.migrate:
+        upgraded = db.migrate()
+        emit(ctx, {"upgraded": upgraded}, text="Agent database upgraded." if upgraded else "Agent database is current.")
+        return 0
 
     prune()
     return serve(ctx.args.port, open_browser=not ctx.args.no_open)

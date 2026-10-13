@@ -1,64 +1,29 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
-from ..paths import agent_dir
+from alembic import command
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from sqlalchemy import Connection, Engine, create_engine, desc, event, exists, func, inspect, select, true, update
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.orm import aliased
 
-SCHEMA = """
-PRAGMA journal_mode = WAL;
-CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS runs (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  instance TEXT,
-  status TEXT NOT NULL,
-  model TEXT NOT NULL,
-  input TEXT NOT NULL,
-  saved_minutes INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS events (
-  run_id TEXT NOT NULL,
-  seq INTEGER NOT NULL,
-  ts INTEGER NOT NULL,
-  data TEXT NOT NULL,
-  PRIMARY KEY (run_id, seq)
-);
-CREATE TABLE IF NOT EXISTS conversation (run_id TEXT PRIMARY KEY, messages TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS settled (run_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
-DROP TABLE IF EXISTS watches;
-CREATE TABLE IF NOT EXISTS pinned (run_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS snoozed (run_id TEXT PRIMARY KEY, until INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS feedback (
-  run_id TEXT PRIMARY KEY,
-  rating TEXT NOT NULL,
-  note TEXT NOT NULL,
-  ts INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS usage (
-  run_id TEXT NOT NULL,
-  ts INTEGER NOT NULL,
-  model TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  tokens TEXT NOT NULL,
-  nano INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS usage_by_run ON usage (run_id);
-CREATE INDEX IF NOT EXISTS usage_by_time ON usage (ts);
-CREATE TABLE IF NOT EXISTS skills (
-  name TEXT PRIMARY KEY,
-  title TEXT,
-  description TEXT,
-  content TEXT,
-  enabled INTEGER NOT NULL DEFAULT 1
-);
-"""
+from ..errors import EXIT_IN_USE, OvError
+from ..paths import agent_dir
+from .models import Conversation, Event, Feedback, Pinned, Run, Setting, Settled, Skill, Snoozed, Usage
+
+DB_FILE = "agent.db"
+MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+BUSY_TIMEOUT_MS = 10_000
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "defaultModel": "",
@@ -77,95 +42,171 @@ FOLLOW_UPS = ("steer", "queue")
 REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
 NANO_PER_CREDIT = 1_000_000_000
 TOP_THREADS = 5
+INTERRUPTED_RUN = "Interrupted by a restart."
 INTERRUPTED_TOOL = "Interrupted by a restart."
 RUN_LIST_LIMIT = 500
 ACTIVE = ("queued", "running", "waiting")
+RUN_COLUMNS = ("title", "instance", "status", "saved_minutes")
 
 _lock = threading.RLock()
-_conn: sqlite3.Connection | None = None
-_conn_path = ""
+_engine: Engine | None = None
+_engine_path = ""
 
 
 def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def _db() -> sqlite3.Connection:
-    global _conn, _conn_path
-    path = str(agent_dir() / "agent.db")
-    if _conn is not None and _conn_path == path:
-        return _conn
+class DatabaseInUse(OvError):
+    exit_code = EXIT_IN_USE
 
-    if _conn is not None:
-        _conn.close()
-    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
-    conn.execute("PRAGMA synchronous = NORMAL")
-    _close_orphans(conn)
-    _conn, _conn_path = conn, path
-    return conn
-
-
-def _close_orphans(conn: sqlite3.Connection) -> None:
-    marks = ",".join("?" * len(ACTIVE))
-    orphans = conn.execute(f"SELECT id FROM runs WHERE status IN ({marks})", ACTIVE).fetchall()
-    event = json.dumps({"type": "status", "status": "error", "error": "Interrupted by a restart."})
-    for (run_id,) in orphans:
-        conn.execute(
-            "INSERT INTO events (run_id, seq, ts, data) "
-            "SELECT ?, COALESCE(MAX(seq), -1) + 1, ?, ? FROM events WHERE run_id = ?",
-            (run_id, now_ms(), event, run_id),
-        )
-
-    conn.execute(f"UPDATE runs SET status = 'error' WHERE status IN ({marks})", ACTIVE)
-    _close_open_tools(conn)
-
-
-def _close_open_tools(conn: sqlite3.Connection) -> None:
-    rows = conn.execute(
-        "SELECT s.run_id, s.data FROM events s "
-        "WHERE json_extract(s.data, '$.type') = 'tool' "
-        "AND json_extract(s.data, '$.tool.status') = 'running' "
-        "AND NOT EXISTS (SELECT 1 FROM events e WHERE e.run_id = s.run_id AND e.seq > s.seq "
-        "AND json_extract(e.data, '$.type') = 'tool' "
-        "AND json_extract(e.data, '$.tool.id') = json_extract(s.data, '$.tool.id') "
-        "AND json_extract(e.data, '$.tool.status') != 'running')"
-    ).fetchall()
-    for run_id, data in rows:
-        tool = {**json.loads(data)["tool"], "status": "error", "output": INTERRUPTED_TOOL}
-        conn.execute(
-            "INSERT INTO events (run_id, seq, ts, data) "
-            "SELECT ?, COALESCE(MAX(seq), -1) + 1, ?, ? FROM events WHERE run_id = ?",
-            (run_id, now_ms(), json.dumps({"type": "tool", "tool": tool}), run_id),
+    def __init__(self) -> None:
+        super().__init__(
+            "This version of ov needs to upgrade the agent database, but another ov agent still has it open. "
+            "Stop the other one (Ctrl+C in its window), then run 'ov agent' again."
         )
 
 
-def _all(sql: str, *args: Any) -> list[sqlite3.Row]:
+def _pragmas(dbapi_connection: sqlite3.Connection, _: Any) -> None:
+    dbapi_connection.isolation_level = None
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode = WAL")
+    cursor.execute("PRAGMA synchronous = NORMAL")
+    cursor.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    cursor.close()
+
+
+def _alembic_config() -> Config:
+    config = Config()
+    config.set_main_option("script_location", str(MIGRATIONS_DIR))
+    return config
+
+
+def _backup(path: Path, revision: str | None) -> None:
+    target = path.with_name(f"agent.{revision or 'legacy'}.bak.db")
+    with sqlite3.connect(path) as source, sqlite3.connect(target) as copy:
+        source.backup(copy)
+
+
+def _begin_transaction(conn: Any) -> None:
+    conn.exec_driver_sql("BEGIN")
+
+
+def _ensure_alone(path: Path) -> None:
+    probe = sqlite3.connect(path, timeout=0, isolation_level=None)
+    try:
+        if probe.execute("PRAGMA journal_mode = DELETE").fetchone()[0] != "delete":
+            raise DatabaseInUse
+        probe.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.OperationalError:
+        raise DatabaseInUse from None
+    finally:
+        probe.close()
+
+
+def _migrate(engine: Engine, path: Path) -> bool:
+    config = _alembic_config()
+    head = ScriptDirectory.from_config(config).get_current_head()
+    with engine.connect() as conn:
+        current = MigrationContext.configure(conn).get_current_revision()
+        has_data = bool(inspect(conn).get_table_names())
+    engine.dispose()
+    if current == head:
+        return False
+
+    if has_data:
+        _ensure_alone(path)
+        _backup(path, current)
+    with engine.begin() as conn:
+        config.attributes["connection"] = conn
+        command.upgrade(config, "head")
+    return True
+
+
+def _new_engine(path: Path) -> Engine:
+    engine = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
+    event.listen(engine, "connect", _pragmas)
+    event.listen(engine, "begin", _begin_transaction)
+    return engine
+
+
+def _engine_now() -> Engine:
+    global _engine, _engine_path
+    path = agent_dir() / DB_FILE
+    if _engine is not None and _engine_path == str(path):
+        return _engine
+
+    close()
+    engine = _new_engine(path)
+    _migrate(engine, path)
+    with engine.begin() as conn:
+        _close_orphans(conn)
+    _engine, _engine_path = engine, str(path)
+    return engine
+
+
+def migrate() -> bool:
     with _lock:
-        return _db().execute(sql, args).fetchall()
+        close()
+        path = agent_dir() / DB_FILE
+        engine = _new_engine(path)
+        try:
+            return _migrate(engine, path)
+        finally:
+            engine.dispose()
 
 
-def _one(sql: str, *args: Any) -> sqlite3.Row | None:
-    with _lock:
-        return _db().execute(sql, args).fetchone()
-
-
-def _run(sql: str, *args: Any) -> None:
-    with _lock:
-        _db().execute(sql, args)
+@contextmanager
+def _begin() -> Iterator[Connection]:
+    with _lock, _engine_now().begin() as conn:
+        yield conn
 
 
 def close() -> None:
-    global _conn, _conn_path
+    global _engine, _engine_path
     with _lock:
-        if _conn is not None:
-            _conn.close()
-        _conn, _conn_path = None, ""
+        if _engine is not None:
+            _engine.dispose()
+        _engine, _engine_path = None, ""
+
+
+def _append_next(conn: Connection, run_id: str, data: dict[str, Any]) -> None:
+    seq = conn.scalar(select(func.coalesce(func.max(Event.seq), -1) + 1).where(Event.run_id == run_id))
+    conn.execute(insert(Event).values(run_id=run_id, seq=seq, ts=now_ms(), data=data))
+
+
+def _close_orphans(conn: Connection) -> None:
+    for run_id in conn.scalars(select(Run.id).where(Run.status.in_(ACTIVE))).all():
+        _append_next(conn, run_id, {"type": "status", "status": "error", "error": INTERRUPTED_RUN})
+
+    conn.execute(update(Run).where(Run.status.in_(ACTIVE)).values(status="error"))
+    _close_open_tools(conn)
+
+
+def _field(entity: Any, path: str) -> Any:
+    return func.json_extract(entity.data, path)
+
+
+def _close_open_tools(conn: Connection) -> None:
+    later = aliased(Event)
+    finished = exists().where(
+        later.run_id == Event.run_id,
+        later.seq > Event.seq,
+        _field(later, "$.type") == "tool",
+        _field(later, "$.tool.id") == _field(Event, "$.tool.id"),
+        _field(later, "$.tool.status") != "running",
+    )
+    query = select(Event.run_id, Event.data).where(
+        _field(Event, "$.type") == "tool", _field(Event, "$.tool.status") == "running", ~finished
+    )
+    for run_id, data in conn.execute(query).all():
+        tool = {**data["tool"], "status": "error", "output": INTERRUPTED_TOOL}
+        _append_next(conn, run_id, {"type": "tool", "tool": tool})
 
 
 def get_settings() -> dict[str, Any]:
-    stored = {row["key"]: json.loads(row["value"]) for row in _all("SELECT * FROM settings")}
+    with _begin() as conn:
+        stored = dict(conn.execute(select(Setting.key, Setting.value)).all())
     return {**DEFAULT_SETTINGS, **{k: v for k, v in stored.items() if k in DEFAULT_SETTINGS}}
 
 
@@ -189,257 +230,256 @@ def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
 
         patch = {**patch, "workspace": validate_folder(str(patch["workspace"]))}
 
-    for key, value in patch.items():
-        if key not in DEFAULT_SETTINGS:
-            continue
-        stored = bool(value) if isinstance(DEFAULT_SETTINGS[key], bool) else value
-        _run(
-            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            key,
-            json.dumps(stored),
-        )
+    with _begin() as conn:
+        for key, value in patch.items():
+            if key not in DEFAULT_SETTINGS:
+                continue
+            stored = bool(value) if isinstance(DEFAULT_SETTINGS[key], bool) else value
+            statement = insert(Setting).values(key=key, value=stored)
+            conn.execute(statement.on_conflict_do_update(index_elements=[Setting.key], set_={"value": stored}))
     return get_settings()
 
 
-RUN_SELECT = (
-    "SELECT r.*, f.rating, s.ts settled_at, p.ts pinned_at, z.until snoozed_until, "
-    "(SELECT SUM(nano) FROM usage WHERE run_id = r.id) nano, "
-    "(SELECT COUNT(*) FROM usage WHERE run_id = r.id) requests FROM runs r "
-    "LEFT JOIN feedback f ON f.run_id = r.id LEFT JOIN settled s ON s.run_id = r.id "
-    "LEFT JOIN pinned p ON p.run_id = r.id LEFT JOIN snoozed z ON z.run_id = r.id"
-)
+def _run_query() -> Any:
+    usage_of_run = Usage.run_id == Run.id
+    return (
+        select(
+            *Run.__table__.columns,
+            Feedback.rating,
+            Settled.ts.label("settled_at"),
+            Pinned.ts.label("pinned_at"),
+            Snoozed.until.label("snoozed_until"),
+            select(func.sum(Usage.nano)).where(usage_of_run).scalar_subquery().label("nano"),
+            select(func.count()).where(usage_of_run).scalar_subquery().label("requests"),
+        )
+        .outerjoin(Feedback, Feedback.run_id == Run.id)
+        .outerjoin(Settled, Settled.run_id == Run.id)
+        .outerjoin(Pinned, Pinned.run_id == Run.id)
+        .outerjoin(Snoozed, Snoozed.run_id == Run.id)
+    )
 
 
-def _summary(row: sqlite3.Row) -> dict[str, Any]:
+def _summary(row: Any) -> dict[str, Any]:
     summary = {
-        "id": row["id"],
-        "title": row["title"],
-        "status": row["status"],
-        "model": row["model"],
-        "createdAt": row["created_at"],
-        "updatedAt": row["updated_at"],
+        "id": row.id,
+        "title": row.title,
+        "status": row.status,
+        "model": row.model,
+        "createdAt": row.created_at,
+        "updatedAt": row.updated_at,
     }
-    if row["instance"]:
-        summary["instance"] = row["instance"]
-    if row["rating"]:
-        summary["rating"] = row["rating"]
-    if row["settled_at"]:
+    if row.instance:
+        summary["instance"] = row.instance
+    if row.rating:
+        summary["rating"] = row.rating
+    if row.settled_at:
         summary["settled"] = True
-    if row["pinned_at"]:
+    if row.pinned_at:
         summary["pinned"] = True
-    if row["snoozed_until"] and row["snoozed_until"] > now_ms():
-        summary["snoozedUntil"] = row["snoozed_until"]
-    if row["requests"]:
-        summary["cost"] = {"credits": row["nano"] / NANO_PER_CREDIT, "requests": row["requests"]}
+    if row.snoozed_until and row.snoozed_until > now_ms():
+        summary["snoozedUntil"] = row.snoozed_until
+    if row.requests:
+        summary["cost"] = {"credits": row.nano / NANO_PER_CREDIT, "requests": row.requests}
     return summary
 
 
 def create_run(run_id: str, title: str, model: str, data: dict[str, Any]) -> None:
     now = now_ms()
-    _run(
-        "INSERT INTO runs (id, title, instance, status, model, input, created_at, updated_at) "
-        "VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)",
-        run_id,
-        title,
-        data.get("instance"),
-        model,
-        json.dumps(data),
-        now,
-        now,
-    )
+    values = {"title": title, "instance": data.get("instance"), "status": "queued", "model": model}
+    with _begin() as conn:
+        conn.execute(insert(Run).values(id=run_id, input=data, created_at=now, updated_at=now, **values))
 
 
 def update_run(run_id: str, **patch: Any) -> None:
-    columns = {"title", "instance", "status", "saved_minutes"}
-    sets = ["updated_at = ?"]
-    values: list[Any] = [now_ms()]
-    for key, value in patch.items():
-        if key in columns and value is not None:
-            sets.append(f"{key} = ?")
-            values.append(value)
-    _run(f"UPDATE runs SET {', '.join(sets)} WHERE id = ?", *values, run_id)
+    values = {k: v for k, v in patch.items() if k in RUN_COLUMNS and v is not None}
+    with _begin() as conn:
+        conn.execute(update(Run).where(Run.id == run_id).values(updated_at=now_ms(), **values))
 
 
 def list_runs(settled: bool | None = None, limit: int = RUN_LIST_LIMIT) -> list[dict[str, Any]]:
-    where = "" if settled is None else f"WHERE s.run_id IS {'NOT ' if settled else ''}NULL "
-    rows = _all(f"{RUN_SELECT} {where}ORDER BY r.created_at DESC LIMIT ?", limit)
+    query = _run_query()
+    if settled is not None:
+        query = query.where(Settled.run_id.is_not(None) if settled else Settled.run_id.is_(None))
+    with _begin() as conn:
+        rows = conn.execute(query.order_by(Run.created_at.desc()).limit(limit)).all()
     return [_summary(r) for r in rows]
 
 
+def _set_flag(table: Any, run_id: str, on: bool, **values: Any) -> None:
+    with _begin() as conn:
+        if not on:
+            conn.execute(table.__table__.delete().where(table.run_id == run_id))
+            return
+        statement = insert(table).values(run_id=run_id, **values)
+        conn.execute(statement.on_conflict_do_update(index_elements=[table.run_id], set_=values))
+
+
 def set_pinned(run_id: str, pinned: bool) -> None:
-    if pinned:
-        _run("INSERT OR REPLACE INTO pinned (run_id, ts) VALUES (?, ?)", run_id, now_ms())
-    else:
-        _run("DELETE FROM pinned WHERE run_id = ?", run_id)
+    _set_flag(Pinned, run_id, pinned, ts=now_ms())
 
 
 def set_snoozed(run_id: str, until: int | None) -> None:
-    if until is None:
-        _run("DELETE FROM snoozed WHERE run_id = ?", run_id)
-    elif until <= now_ms():
+    if until is not None and until <= now_ms():
         raise ValueError("Snooze until a time in the future.")
-    else:
-        _run("INSERT OR REPLACE INTO snoozed (run_id, until) VALUES (?, ?)", run_id, until)
-
-
-def settled_count() -> int:
-    return int(_one("SELECT COUNT(*) n FROM settled")["n"])
-
-
-def get_run(run_id: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
-    row = _one(f"{RUN_SELECT} WHERE r.id = ?", run_id)
-    if row is None:
-        return None
-    return _summary(row), json.loads(row["input"])
+    _set_flag(Snoozed, run_id, until is not None, until=until)
 
 
 def set_settled(run_id: str, settled: bool) -> None:
-    if settled:
-        _run("INSERT OR REPLACE INTO settled (run_id, ts) VALUES (?, ?)", run_id, now_ms())
-    else:
-        _run("DELETE FROM settled WHERE run_id = ?", run_id)
+    _set_flag(Settled, run_id, settled, ts=now_ms())
+
+
+def settled_count() -> int:
+    with _begin() as conn:
+        return int(conn.scalar(select(func.count()).select_from(Settled)) or 0)
+
+
+def get_run(run_id: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    with _begin() as conn:
+        row = conn.execute(_run_query().where(Run.id == run_id)).first()
+    if row is None:
+        return None
+    return _summary(row), row.input
 
 
 def saved_totals(since: int) -> dict[str, int]:
-    (row,) = _all(
-        "SELECT COALESCE(SUM(r.saved_minutes), 0) AS minutes, COUNT(*) AS runs "
-        "FROM runs r LEFT JOIN feedback f ON f.run_id = r.id "
-        "WHERE r.saved_minutes > 0 AND r.created_at >= ? AND COALESCE(f.rating, '') <> 'wrong'",
-        since,
+    query = (
+        select(func.coalesce(func.sum(Run.saved_minutes), 0), func.count())
+        .outerjoin(Feedback, Feedback.run_id == Run.id)
+        .where(Run.saved_minutes > 0, Run.created_at >= since, func.coalesce(Feedback.rating, "") != "wrong")
     )
-    return {"minutes": row["minutes"], "runs": row["runs"]}
+    with _begin() as conn:
+        minutes, runs = conn.execute(query).one()
+    return {"minutes": minutes, "runs": runs}
 
 
-def append_event(run_id: str, seq: int, event: dict[str, Any]) -> dict[str, Any]:
+def append_event(run_id: str, seq: int, data: dict[str, Any]) -> dict[str, Any]:
     ts = now_ms()
-    _run(
-        "INSERT INTO events (run_id, seq, ts, data) VALUES (?, ?, ?, ?)",
-        run_id,
-        seq,
-        ts,
-        json.dumps(event),
-    )
-    return {"seq": seq, "ts": ts, "event": event}
+    with _begin() as conn:
+        conn.execute(insert(Event).values(run_id=run_id, seq=seq, ts=ts, data=data))
+    return {"seq": seq, "ts": ts, "event": data}
 
 
 def load_events(run_id: str, after: int = -1) -> list[dict[str, Any]]:
-    rows = _all("SELECT seq, ts, data FROM events WHERE run_id = ? AND seq > ? ORDER BY seq", run_id, after)
-    return [{"seq": r["seq"], "ts": r["ts"], "event": json.loads(r["data"])} for r in rows]
+    query = select(Event.seq, Event.ts, Event.data).where(Event.run_id == run_id, Event.seq > after)
+    with _begin() as conn:
+        rows = conn.execute(query.order_by(Event.seq)).all()
+    return [{"seq": r.seq, "ts": r.ts, "event": r.data} for r in rows]
 
 
 def save_conversation(key: str, messages: Any) -> None:
-    _run(
-        "INSERT INTO conversation (run_id, messages) VALUES (?, ?) "
-        "ON CONFLICT(run_id) DO UPDATE SET messages = excluded.messages",
-        key,
-        json.dumps(messages),
-    )
+    statement = insert(Conversation).values(run_id=key, messages=messages)
+    with _begin() as conn:
+        conn.execute(statement.on_conflict_do_update(index_elements=[Conversation.run_id], set_={"messages": messages}))
 
 
 def load_conversation(key: str) -> Any:
-    row = _one("SELECT messages FROM conversation WHERE run_id = ?", key)
-    return json.loads(row["messages"]) if row else None
+    with _begin() as conn:
+        return conn.scalar(select(Conversation.messages).where(Conversation.run_id == key))
 
 
 def save_feedback(run_id: str, rating: str, note: str) -> None:
-    _run(
-        "INSERT INTO feedback (run_id, rating, note, ts) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(run_id) DO UPDATE SET rating = excluded.rating, note = excluded.note, "
-        "ts = excluded.ts",
-        run_id,
-        rating,
-        note,
-        now_ms(),
-    )
+    values = {"rating": rating, "note": note, "ts": now_ms()}
+    statement = insert(Feedback).values(run_id=run_id, **values)
+    with _begin() as conn:
+        conn.execute(statement.on_conflict_do_update(index_elements=[Feedback.run_id], set_=values))
 
 
 def get_feedback(run_id: str) -> dict[str, str] | None:
-    row = _one("SELECT rating, note FROM feedback WHERE run_id = ?", run_id)
-    return {"rating": row["rating"], "note": row["note"]} if row else None
+    with _begin() as conn:
+        row = conn.execute(select(Feedback.rating, Feedback.note).where(Feedback.run_id == run_id)).first()
+    return {"rating": row.rating, "note": row.note} if row else None
 
 
 def skill_rows() -> dict[str, dict[str, Any]]:
-    return {row["name"]: dict(row) for row in _all("SELECT * FROM skills")}
+    with _begin() as conn:
+        rows = conn.execute(select(*Skill.__table__.columns)).mappings().all()
+    return {row["name"]: dict(row) for row in rows}
 
 
 def put_skill(name: str, **fields: Any) -> None:
     current = skill_rows().get(name, {"enabled": 1})
     merged = {**current, **{k: v for k, v in fields.items() if k != "name"}}
-    _run(
-        "INSERT INTO skills (name, title, description, content, enabled) VALUES (?, ?, ?, ?, ?) "
-        "ON CONFLICT(name) DO UPDATE SET title = excluded.title, "
-        "description = excluded.description, content = excluded.content, "
-        "enabled = excluded.enabled",
-        name,
-        merged.get("title"),
-        merged.get("description"),
-        merged.get("content"),
-        1 if merged["enabled"] else 0,
-    )
+    values = {
+        "title": merged.get("title"),
+        "description": merged.get("description"),
+        "content": merged.get("content"),
+        "enabled": 1 if merged["enabled"] else 0,
+    }
+    statement = insert(Skill).values(name=name, **values)
+    with _begin() as conn:
+        conn.execute(statement.on_conflict_do_update(index_elements=[Skill.name], set_=values))
 
 
 def delete_skill(name: str) -> None:
-    _run("DELETE FROM skills WHERE name = ?", name)
+    with _begin() as conn:
+        conn.execute(Skill.__table__.delete().where(Skill.name == name))
+
+
+def _credits(nano: int | None, requests: int) -> dict[str, Any]:
+    return {"credits": (nano or 0) / NANO_PER_CREDIT, "requests": requests}
 
 
 def add_usage(run_id: str, model: str, kind: str, tokens: dict[str, int], nano: int) -> dict[str, Any]:
-    _run(
-        "INSERT INTO usage (run_id, ts, model, kind, tokens, nano) VALUES (?, ?, ?, ?, ?, ?)",
-        run_id,
-        now_ms(),
-        model,
-        kind,
-        json.dumps(tokens),
-        nano,
-    )
-    row = _one("SELECT SUM(nano) nano, COUNT(*) requests FROM usage WHERE run_id = ?", run_id)
-    return {"credits": row["nano"] / NANO_PER_CREDIT, "requests": row["requests"]}
+    with _begin() as conn:
+        conn.execute(insert(Usage).values(run_id=run_id, ts=now_ms(), model=model, kind=kind, tokens=tokens, nano=nano))
+        total, requests = conn.execute(select(func.sum(Usage.nano), func.count()).where(Usage.run_id == run_id)).one()
+    return _credits(total, requests)
 
 
-def _summarize(where: str, *args: Any) -> dict[str, Any]:
-    totals = _one(f"SELECT COALESCE(SUM(nano), 0) nano, COUNT(*) requests FROM usage WHERE {where}", *args)
-    tokens = _all(
-        f"SELECT t.key kind, SUM(t.value) count FROM usage, json_each(usage.tokens) t WHERE {where} GROUP BY t.key",
-        *args,
-    )
-    models = _all(
-        f"SELECT model, SUM(nano) nano, COUNT(*) requests FROM usage WHERE {where} GROUP BY model ORDER BY nano DESC",
-        *args,
-    )
+def _summarize(where: Any) -> dict[str, Any]:
+    each = func.json_each(Usage.tokens).table_valued("key", "value")
+    with _begin() as conn:
+        total, requests = conn.execute(select(func.sum(Usage.nano), func.count()).where(where)).one()
+        tokens = conn.execute(
+            select(each.c.key, func.sum(each.c.value))
+            .select_from(Usage)
+            .join(each, true())
+            .where(where)
+            .group_by(each.c.key)
+        ).all()
+        models = conn.execute(
+            select(Usage.model, func.sum(Usage.nano).label("nano"), func.count().label("requests"))
+            .where(where)
+            .group_by(Usage.model)
+            .order_by(desc("nano"))
+        ).all()
     return {
-        "credits": totals["nano"] / NANO_PER_CREDIT,
-        "requests": totals["requests"],
-        "tokens": {r["kind"]: r["count"] for r in tokens},
-        "models": [
-            {"model": m["model"], "credits": m["nano"] / NANO_PER_CREDIT, "requests": m["requests"]} for m in models
-        ],
+        **_credits(total, requests),
+        "tokens": {kind: count for kind, count in tokens},
+        "models": [{"model": m.model, **_credits(m.nano, m.requests)} for m in models],
     }
 
 
 def run_cost(run_id: str) -> dict[str, Any]:
-    return _summarize("run_id = ?", run_id)
+    return _summarize(Usage.run_id == run_id)
 
 
-def cost_report(since: int) -> dict[str, Any]:
+def _daily_nano(since: int) -> dict[str, int]:
     days: dict[str, int] = {}
     day = datetime.fromtimestamp(since / 1000).date()
     while day <= datetime.now().date():
         days[day.isoformat()] = 0
         day += timedelta(days=1)
-    for row in _all(
-        "SELECT date(ts / 1000, 'unixepoch', 'localtime') day, SUM(nano) nano FROM usage WHERE ts >= ? GROUP BY day",
-        since,
-    ):
-        days[row["day"]] = row["nano"]
 
-    threads = _all(
-        "SELECT u.run_id, r.title, SUM(u.nano) nano FROM usage u JOIN runs r ON r.id = u.run_id "
-        "WHERE u.ts >= ? GROUP BY u.run_id ORDER BY nano DESC LIMIT ?",
-        since,
-        TOP_THREADS,
+    label = func.date(Usage.ts // 1000, "unixepoch", "localtime").label("day")
+    with _begin() as conn:
+        rows = conn.execute(select(label, func.sum(Usage.nano)).where(Usage.ts >= since).group_by(label)).all()
+    return {**days, **dict(rows)}
+
+
+def cost_report(since: int) -> dict[str, Any]:
+    threads = (
+        select(Usage.run_id, Run.title, func.sum(Usage.nano).label("nano"))
+        .join(Run, Run.id == Usage.run_id)
+        .where(Usage.ts >= since)
+        .group_by(Usage.run_id)
+        .order_by(desc("nano"))
+        .limit(TOP_THREADS)
     )
+    with _begin() as conn:
+        top = conn.execute(threads).all()
     return {
-        **_summarize("ts >= ?", since),
-        "days": [{"day": d, "credits": nano / NANO_PER_CREDIT} for d, nano in days.items()],
-        "threads": [{"id": t["run_id"], "title": t["title"], "credits": t["nano"] / NANO_PER_CREDIT} for t in threads],
+        **_summarize(Usage.ts >= since),
+        "days": [{"day": d, "credits": nano / NANO_PER_CREDIT} for d, nano in _daily_nano(since).items()],
+        "threads": [{"id": t.run_id, "title": t.title, "credits": t.nano / NANO_PER_CREDIT} for t in top],
     }

@@ -7,6 +7,10 @@ from ..context import Context
 from ..output import emit, note
 
 SHORT = 7
+DATABASE_WAITS = (
+    "The agent database still needs an upgrade, and a running 'ov agent' has it open. "
+    "Stop it and start 'ov agent' again; it upgrades the database on start."
+)
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
@@ -33,21 +37,36 @@ def cmd_update(ctx: Context) -> int:
         "commits": found.commits,
         "checkout": str(found.install.checkout) if found.install.checkout else None,
     }
-    if found.current == found.latest:
-        emit(ctx, {**data, "status": "up_to_date"}, text=f"Already up to date ({_short(found.latest)}).")
-        return 0
-
+    current = found.current == found.latest and not found.reinstall
     if ctx.args.check:
-        emit(ctx, {**data, "status": "available"}, text=_available_text(found))
+        status = "up_to_date" if current else "available"
+        emit(ctx, {**data, "status": status}, text=_up_to_date(found) if current else _available_text(found))
         return 0
 
-    if found.install.checkout is not None:
+    if current:
+        migrated = update.migrate()
+        emit(ctx, {**data, "status": "up_to_date", "database": migrated}, text=_up_to_date(found, migrated))
+        return 0
+
+    if found.install.checkout is not None and found.current != found.latest:
         note(ctx, f"Pulling into {found.install.checkout}...")
         update.pull(found)
 
     finishing = update.reinstall(update.install_command(found)) if found.reinstall else False
-    emit(ctx, {**data, "status": "updating" if finishing else "updated"}, text=_done_text(found, finishing))
+    migrated = None if finishing else update.migrate()
+    emit(
+        ctx,
+        {**data, "status": "updating" if finishing else "updated", "database": migrated},
+        text=_done_text(found, finishing, migrated),
+    )
     return 0
+
+
+def _up_to_date(found: update.Plan, migrated: bool = True) -> str:
+    lines = [f"Already up to date ({_short(found.latest)})."]
+    if not migrated:
+        lines.append(DATABASE_WAITS)
+    return "\n".join(lines)
 
 
 def _available_text(found: update.Plan) -> str:
@@ -55,12 +74,14 @@ def _available_text(found: update.Plan) -> str:
     return "\n".join([*lines, "Run 'ov update' to install it."])
 
 
-def _done_text(found: update.Plan, finishing: bool) -> str:
+def _done_text(found: update.Plan, finishing: bool, migrated: bool | None) -> str:
     lines = [f"[green]Updated[/green] {_short(found.current)} -> {_short(found.latest)}.", *found.commits]
     if finishing:
         lines.append(
-            f"Reinstalling in the background; it finishes a few seconds after this command exits "
-            f"(log: {update.log_file()})."
+            f"Reinstalling in the background, then upgrading the agent database; it finishes a few seconds "
+            f"after this command exits (log: {update.log_file()})."
         )
+    if migrated is False:
+        lines.append(DATABASE_WAITS)
     lines.append("Restart a running 'ov agent' to use the new version.")
     return "\n".join(lines)

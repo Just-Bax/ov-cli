@@ -8,8 +8,9 @@ from pathlib import Path
 import httpx
 import pytest
 from conftest import BASE_URL, seed_session
+from sqlalchemy import select, update
 
-from ov.agent import db, skills, state
+from ov.agent import db, models, skills, state
 from ov.agent.copilot import StreamResult, Usage, usage_of
 from ov.agent.ovproc import OvResult
 from ov.agent.tools import ToolError, entity_link, run_ov_tool
@@ -857,7 +858,10 @@ def test_a_run_records_what_each_request_cost(logged_in, monkeypatch):
     assert db.list_runs()[0]["cost"] == {"credits": 3.0, "requests": 2}
     cost = db.run_cost(run.id)
     assert cost["tokens"] == {"input": 2000, "output": 20}
-    kinds = [r["kind"] for r in db._all("SELECT kind FROM usage WHERE run_id = ? ORDER BY ts", run.id)]
+    with db._begin() as conn:
+        kinds = list(
+            conn.scalars(select(models.Usage.kind).where(models.Usage.run_id == run.id).order_by(models.Usage.id))
+        )
     assert kinds == ["turn", "step"]
 
 
@@ -1157,7 +1161,8 @@ def test_pinned_and_snoozed_threads(agent_server):
     assert [r["id"] for r in listed["active"]] == ["rpin"] and listed["active"][0]["pinned"]
     assert listed["snoozed"][0]["snoozedUntil"] == later
 
-    db._run("UPDATE snoozed SET until = ? WHERE run_id = 'rnap'", db.now_ms() - 1)
+    with db._begin() as conn:
+        conn.execute(update(models.Snoozed).where(models.Snoozed.run_id == "rnap").values(until=db.now_ms() - 1))
     assert {r["id"] for r in httpx.get(f"{agent_server}/api/runs").json()["active"]} == {"rpin", "rnap"}
 
 
@@ -1382,3 +1387,77 @@ def test_chat_does_not_retry_after_text_streamed(monkeypatch):
     monkeypatch.setattr(copilot, "_stream_once", dropped)
     with pytest.raises(copilot.CopilotError, match="Lost the connection"):
         copilot.stream_chat("m", [], [], "agent", cancel=Cancel(), on_text=lambda _: None)
+
+
+def test_a_legacy_database_is_backed_up_and_migrated_to_singular_tables(ov_home, monkeypatch):
+    import sqlite3
+
+    from ov.agent.migrations.versions import v0001_baseline as baseline
+
+    ov_home = ov_home / "legacy"
+    monkeypatch.setenv("OV_HOME", str(ov_home))
+    path = ov_home / "agent" / "agent.db"
+    path.parent.mkdir(parents=True)
+    with sqlite3.connect(path) as legacy:
+        for statement in baseline.LEGACY_SCHEMA:
+            legacy.execute(statement)
+        legacy.execute("INSERT INTO runs VALUES ('r1', 'Old', NULL, 'done', 'm', '{\"prompt\": \"hi\"}', 0, 1, 1)")
+        legacy.execute("INSERT INTO usage VALUES ('r1', 5, 'm', 'turn', '{\"input\": 3}', 2000000000)")
+        legacy.execute("CREATE TABLE watches (run_id TEXT)")
+    legacy.close()
+
+    assert [r["title"] for r in db.list_runs()] == ["Old"]
+    assert db.run_cost("r1")["credits"] == 2
+    assert (ov_home / "agent" / "agent.legacy.bak.db").exists()
+    with sqlite3.connect(path) as migrated:
+        tables = {r[0] for r in migrated.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    migrated.close()
+    assert {"run", "event", "setting", "skill", "usage", "alembic_version"} <= tables
+    assert not tables & {"runs", "events", "settings", "skills", "watches"}
+
+
+def test_models_match_the_migrations():
+    from alembic.autogenerate import compare_metadata
+    from alembic.runtime.migration import MigrationContext
+
+    db.list_runs()
+    with db._begin() as conn:
+        diffs = compare_metadata(MigrationContext.configure(conn), models.Base.metadata)
+    assert diffs == []
+
+
+HOLD_DATABASE = (
+    "import sqlite3, time; c = sqlite3.connect(r'{path}'); c.execute('select 1 from runs'); "
+    "print('open', flush=True); time.sleep(30)"
+)
+
+
+def test_an_upgrade_waits_while_another_process_has_the_database_open(ov_home, monkeypatch):
+    import sqlite3
+    import subprocess
+    import sys
+
+    from ov.agent.migrations.versions import v0001_baseline as baseline
+
+    ov_home = ov_home / "busy"
+    monkeypatch.setenv("OV_HOME", str(ov_home))
+    path = ov_home / "agent" / "agent.db"
+    path.parent.mkdir(parents=True)
+    with sqlite3.connect(path) as legacy:
+        legacy.execute("PRAGMA journal_mode = WAL")
+        for statement in baseline.LEGACY_SCHEMA:
+            legacy.execute(statement)
+    legacy.close()
+    holder = subprocess.Popen(
+        [sys.executable, "-c", HOLD_DATABASE.format(path=path)], stdout=subprocess.PIPE, text=True
+    )
+    try:
+        assert holder.stdout.readline().strip() == "open"
+        with pytest.raises(db.DatabaseInUse):
+            db.migrate()
+    finally:
+        holder.kill()
+        holder.wait()
+
+    assert db.migrate() is True
+    assert db.migrate() is False

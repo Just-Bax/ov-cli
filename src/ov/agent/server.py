@@ -1008,6 +1008,11 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True) -> int:
             webbrowser.open(url)
         return 0
 
+    try:
+        db.migrate()
+    except OvError:
+        server.server_close()
+        raise
     print(f"OV Agent running at {url}  (Ctrl+C to stop)", flush=True)
     if open_browser:
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()

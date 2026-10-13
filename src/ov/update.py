@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -11,7 +12,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
-from .errors import OvError
+from .errors import EXIT_IN_USE, OvError
 from .paths import home
 
 PACKAGE = "ov-cli"
@@ -23,6 +24,8 @@ LOG_LINES = 20
 DEPENDENCY_FILES = ("pyproject.toml", "uv.lock")
 SYNCHRONIZE = 0x00100000
 WAIT_MS = 120_000
+MIGRATE_ARGS = ("agent", "--migrate")
+REQUIREMENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 @dataclass
@@ -70,6 +73,27 @@ def _direct_url() -> dict:
     return json.loads(text)
 
 
+def missing_dependencies() -> list[str]:
+    missing = []
+    for requirement in metadata.requires(PACKAGE) or []:
+        if "extra ==" in requirement:
+            continue
+        name = REQUIREMENT_NAME.match(requirement)
+        if name is None:
+            raise OvError(f"Cannot read the requirement {requirement!r} of {PACKAGE}.")
+        try:
+            metadata.distribution(name.group())
+        except metadata.PackageNotFoundError:
+            missing.append(name.group())
+    return missing
+
+
+def require_dependencies() -> None:
+    missing = missing_dependencies()
+    if missing:
+        raise OvError(f"ov is missing packages it needs ({', '.join(missing)}). Run 'ov update' to install them.")
+
+
 def _uv_tool() -> bool:
     if shutil.which("uv") is None:
         return False
@@ -102,7 +126,7 @@ def _checkout_plan(install: Install) -> Plan:
         install.commit,
         latest,
         log.splitlines(),
-        install.uv_tool and any(name in DEPENDENCY_FILES for name in changed),
+        install.uv_tool and (any(name in DEPENDENCY_FILES for name in changed) or bool(missing_dependencies())),
     )
 
 
@@ -113,7 +137,10 @@ def _remote_plan(install: Install) -> Plan:
 
 def plan() -> Plan:
     install = detect()
-    return _checkout_plan(install) if install.checkout else _remote_plan(install)
+    found = _checkout_plan(install) if install.checkout else _remote_plan(install)
+    if found.current == found.latest and missing_dependencies():
+        return Plan(install, found.current, found.latest, found.commits, True)
+    return found
 
 
 def pull(found: Plan) -> None:
@@ -136,6 +163,26 @@ def log_file() -> Path:
     return home() / "update.log"
 
 
+def migrate_command() -> list[str]:
+    return [sys.executable, "-m", "ov", *MIGRATE_ARGS]
+
+
+def migrate() -> bool:
+    result = subprocess.run(
+        migrate_command(),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=GIT_TIMEOUT_SECONDS,
+    )
+    if result.returncode == EXIT_IN_USE:
+        return False
+    if result.returncode != 0:
+        raise OvError((result.stdout + result.stderr).strip() or "Upgrading the agent database failed.")
+    return True
+
+
 def reinstall(command: list[str]) -> bool:
     if sys.platform != "win32":
         result = subprocess.run(command, capture_output=True, text=True, timeout=INSTALL_TIMEOUT_SECONDS)
@@ -153,7 +200,8 @@ def reinstall(command: list[str]) -> bool:
         f"    kernel.WaitForSingleObject(handle, {WAIT_MS})\n"
         "    kernel.CloseHandle(handle)\n"
         f"with open({str(log_file())!r}, 'w', encoding='utf-8') as out:\n"
-        f"    subprocess.run({command!r}, stdout=out, stderr=subprocess.STDOUT)\n"
+        f"    if subprocess.run({command!r}, stdout=out, stderr=subprocess.STDOUT).returncode == 0:\n"
+        f"        subprocess.run({migrate_command()!r}, stdout=out, stderr=subprocess.STDOUT)\n"
     )
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
     python = getattr(sys, "_base_executable", sys.executable)

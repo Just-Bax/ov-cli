@@ -93,11 +93,16 @@ ov update --check   # only say whether one is available
 `ov update` uses git with your own GitHub access, so it also works while the repo is
 private. From a clone (`pip install -e` or `uv tool install --editable`) it fast-forwards
 the clone, and stops without touching your work if your local changes conflict; it
-reinstalls only when dependencies changed. Otherwise it reinstalls `ov` from the latest
+reinstalls when dependencies changed or a required package is missing. Otherwise it reinstalls `ov` from the latest
 commit on GitHub. On Windows the reinstall finishes a few seconds after the command
 exits, because a running `ov` cannot replace itself; the log is in `~/.ov/update.log`.
-Settings, sign-ins and agent history in `~/.ov` are kept. Restart a running `ov agent`
-afterwards.
+Settings, sign-ins and agent history in `~/.ov` are kept.
+
+After installing, `ov update` upgrades the agent database (`ov agent --migrate` does the
+same by hand), keeping a copy of the old one next to it as `agent.<revision>.bak.db`. A
+running `ov agent` still uses the old layout, so the upgrade waits while one is open:
+stop it and start `ov agent` again, and it upgrades the database on start. An older
+`ov agent` and a newer one never share the database during an upgrade.
 
 Re-running the install command works too.
 
@@ -599,6 +604,7 @@ permission bits are not enforced; your profile's ACL is what protects `~/.ov` th
 | 5 | the API returned an error, or the schema could not be read |
 | 6 | authenticated, but the server answered 403 |
 | 7 | blocked by read-only mode (`OV_READONLY`) |
+| 8 | the agent database needs an upgrade but a running `ov agent` has it open |
 
 ## Privileges
 
@@ -664,6 +670,20 @@ one module per command group. `cli/dynamic.py` is what turns a schema tag into c
 `agent/` is the agent server: `server.py` (HTTP API and the built UI), `run.py` (the
 model loop), `tools.py` (what the model may call, each `ov` call a read-only subprocess),
 `copilot.py`, `skills.py` and `project.py` (the code workspace). `agent/state.py` mirrors `web/shared/reduce.ts`.
+
+The agent database is SQLite at `~/.ov/agent/agent.db`, accessed through SQLAlchemy in
+`agent/db.py`, with the tables declared in `agent/models.py`. Alembic migrations live in
+`agent/migrations/versions` and run when the agent first opens the database; before
+upgrading an existing database it writes a copy next to it as `agent.<revision>.bak.db`.
+To change the schema, edit `models.py`, then generate and review a migration:
+
+```bash
+uv run alembic revision --autogenerate --rev-id 0003 -m "what changed"
+```
+
+`alembic.ini` points the command at `~/.ov` (or `OV_HOME`), so set `OV_HOME` to a scratch
+folder while generating. `test_models_match_the_migrations` fails if the models and the
+migrations disagree.
 
 Tests use a recorded OpenAPI document and a mock transport, so `pytest` never touches the
 network. `test_login_browser.py` is the exception: it starts a real headless Chromium

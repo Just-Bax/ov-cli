@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from typing import Any
 
 import httpx
 import pytest
+
+SESSION_HOME = tempfile.mkdtemp(prefix="ov-tests-")
+os.environ["OV_HOME"] = SESSION_HOME
+os.environ["OV_CREDENTIALS"] = "file"
 
 BASE_URL = "https://acme.onevizion.test"
 OTHER_URL = "https://globex.onevizion.test"
