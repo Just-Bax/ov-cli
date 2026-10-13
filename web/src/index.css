@@ -311,6 +311,15 @@ svg[data-slot='icon']:is(.size-3, .size-3\.5) {
   animation: fade-up 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+::highlight(ov-find) {
+  background-color: #fff3a0;
+}
+
+::highlight(ov-find-current) {
+  background-color: #ffb74d;
+  color: #263238;
+}
+
 @keyframes tip-in {
   from {
     opacity: 0;

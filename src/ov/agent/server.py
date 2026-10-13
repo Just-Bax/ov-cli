@@ -674,6 +674,14 @@ def run_history(h: Handler, run_id: str) -> str:
     return _run(run_id).history(int(_required(h.query, "end")), _turns(h))
 
 
+@route("GET", "/api/runs/([a-z0-9]+)/search")
+def run_search(h: Handler, run_id: str) -> dict[str, list[int]]:
+    query = _required(h.query, "q").strip()
+    if not query:
+        raise HttpError(400, "Give something to find.")
+    return _run(run_id).search(query)
+
+
 @route("GET", "/api/runs/([a-z0-9]+)/details")
 def run_details(h: Handler, run_id: str) -> str:
     tools = {x for x in h.query.get("tools", "").split(",") if x}

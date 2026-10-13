@@ -29,7 +29,7 @@ from .runfiles import (
     uploads_dir,
     within,
 )
-from .state import details, empty_state, reduce, snapshot, window
+from .state import details, empty_state, reduce, search, snapshot, window
 from .tools import Tool, ToolError, tool_named, tool_specs
 
 CONTEXT_BUDGET = 360_000
@@ -179,6 +179,10 @@ class Run:
     def history(self, end: int, turns: int) -> str:
         with self._lock:
             return json.dumps(window(self.state, min(end, len(self.state["items"])), turns))
+
+    def search(self, query: str) -> dict[str, list[int]]:
+        with self._lock:
+            return {"items": search(self.state, query)}
 
     def details(self, tool_ids: set[str], edit_ids: set[str]) -> str:
         with self._lock:

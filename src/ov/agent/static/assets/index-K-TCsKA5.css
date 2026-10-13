@@ -231,6 +231,9 @@
   .top-1\/2 {
     top: calc(1 / 2 * 100%);
   }
+  .top-2 {
+    top: calc(var(--spacing) * 2);
+  }
   .top-11 {
     top: calc(var(--spacing) * 11);
   }
@@ -257,6 +260,9 @@
   }
   .right-5 {
     right: calc(var(--spacing) * 5);
+  }
+  .right-6 {
+    right: calc(var(--spacing) * 6);
   }
   .right-7 {
     right: calc(var(--spacing) * 7);
@@ -828,6 +834,9 @@
   }
   .w-\[1\%\] {
     width: 1%;
+  }
+  .w-\[64px\] {
+    width: 64px;
   }
   .w-\[72px\] {
     width: 72px;
@@ -2218,6 +2227,9 @@
   .disabled\:text-faint:disabled {
     color: #90a4ae;
   }
+  .disabled\:text-line-strong:disabled {
+    color: #cfd8dc;
+  }
   .disabled\:text-white:disabled {
     color: var(--color-white);
   }
@@ -2571,6 +2583,13 @@ svg[data-slot='icon']:is(.size-3, .size-3\.5) {
     opacity: 1;
     transform: none;
   }
+}
+::highlight(ov-find) {
+  background-color: #fff3a0;
+}
+::highlight(ov-find-current) {
+  background-color: #ffb74d;
+  color: #263238;
 }
 @keyframes tip-in {
   from {

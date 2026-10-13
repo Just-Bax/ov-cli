@@ -69,6 +69,8 @@ export const api = {
   copilotLogout: () => post('/copilot/logout'),
   copilotAccount: () => request<CopilotAccount>('/copilot/account'),
   cost: (range: CostRange) => request<CostReport>(`/cost?range=${range}`),
+  searchRun: (id: string, q: string) =>
+    request<{ items: number[] }>(`/runs/${id}/search?q=${seg(q)}`),
   runCost: (id: string) => request<RunCost>(`/runs/${id}/cost`),
   exportUrl: (id: string) => `/api/runs/${id}/export`,
   models: () => request<ModelInfo[]>('/models'),

@@ -1108,3 +1108,29 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
     assert seen[1][-1] == "now" and "later" not in seen[1]
     assert seen[2][-1] == "later"
     assert not run.state["queued"]
+
+
+def test_a_thread_is_searched_across_messages_changes_and_questions():
+    s = state.empty_state({"id": "r1", "status": "done"}, {"prompt": "hi"})
+    events = [
+        {"type": "user", "message": {"id": "u1", "role": "user", "text": "Why is the Rule slow?", "ts": 1}},
+        {"type": "message", "messageId": "a1", "text": "Looking at the rule queue.", "ts": 2},
+        {"type": "tool", "tool": {"id": "t1", "name": "ov_sql", "label": "rule SQL", "status": "ok"}},
+        {"type": "question", "question": {"id": "q1", "question": "Which instance?", "options": [], "multiple": False}},
+        {
+            "type": "change",
+            "change": {
+                "id": "c1",
+                "title": "Speed up",
+                "after": "select * from rule_queue",
+                "what": "",
+                "why": "",
+                "how": "",
+            },
+        },
+    ]
+    for seq, event in enumerate(events):
+        state.reduce(s, {"seq": seq, "ts": seq, "event": event})
+    assert state.search(s, "RULE") == [0, 1, 4]
+    assert state.search(s, "instance") == [3]
+    assert state.search(s, "nothing here") == []

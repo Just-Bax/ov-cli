@@ -247,3 +247,30 @@ def details(state: State, tool_ids: set[str], edit_ids: set[str]) -> dict[str, A
         "tools": {t["id"]: {k: t.get(k) for k in TOOL_DETAIL} for t in state["tools"] if t["id"] in tool_ids},
         "edits": {e["id"]: {k: e.get(k) for k in EDIT_DETAIL} for e in state["edits"] if e["id"] in edit_ids},
     }
+
+
+def _searchable(state: State) -> dict[tuple[str, str], str]:
+    texts: dict[tuple[str, str], str] = {}
+    for message in state["chat"]:
+        texts[("user" if message["role"] == "user" else "text", message["id"])] = message["text"]
+    for change in state["changes"]:
+        texts[("change", change["id"])] = " ".join(
+            change.get(k) or "" for k in ("title", "what", "why", "how", "after")
+        )
+    for question in state["questions"]:
+        texts[("question", question["id"])] = f"{question['question']} {question.get('answer') or ''}"
+    outcome = state.get("outcome")
+    if outcome and state.get("outcomeId"):
+        parts = [outcome.get("reply") or "", *(f"{i['title']} {i['summary']}" for i in outcome.get("issues") or [])]
+        texts[("outcome", state["outcomeId"])] = " ".join(parts)
+    return texts
+
+
+def search(state: State, query: str) -> list[int]:
+    wanted = query.casefold()
+    texts = _searchable(state)
+    return [
+        index
+        for index, item in enumerate(state["items"])
+        if wanted in texts.get((item["kind"], item["id"]), "").casefold()
+    ]

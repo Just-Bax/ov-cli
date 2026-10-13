@@ -37,6 +37,7 @@ import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
 import { ChangeCard } from './ChangeCard'
 import { CostPill } from './CostPill'
 import { FilesChanged, LineCounts, summarize } from './FilesChanged'
+import { FindBar } from './FindBar'
 import { ThreadRail } from './ThreadRail'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
 import { Answer, LoginCard, QuestionCard } from './Panels'
@@ -285,6 +286,18 @@ export function RunView({ id }: { id: string }) {
   const followBottom = useRef(true)
   const ready = Boolean(state)
   const restoreHeight = useRef<number | undefined>(undefined)
+  const [finding, setFinding] = useState(false)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setFinding(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const older = useCallback(
     (until?: number) => {
@@ -492,6 +505,20 @@ export function RunView({ id }: { id: string }) {
         />
       }
     >
+      {finding ? (
+        <div className="pointer-events-none sticky top-0 z-30 h-0">
+          <div className="pointer-events-auto">
+            <FindBar
+              runId={id}
+              contentRef={scrollRef}
+              start={state.start}
+              version={state.start * 100_000 + state.items.length}
+              onLoadUntil={older}
+              onClose={() => setFinding(false)}
+            />
+          </div>
+        </div>
+      ) : null}
       <ThreadRail
         contentRef={scrollRef}
         version={`${state.start}:${state.items.length}:${state.chat.length}:${state.tools.length}`}
