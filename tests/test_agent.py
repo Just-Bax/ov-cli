@@ -1151,3 +1151,17 @@ def test_pinned_and_snoozed_threads(agent_server):
 
     db._run("UPDATE snoozed SET until = ? WHERE run_id = 'rnap'", db.now_ms() - 1)
     assert {r["id"] for r in httpx.get(f"{agent_server}/api/runs").json()["active"]} == {"rpin", "rnap"}
+
+
+def test_an_instance_check_reads_the_platform_version(agent_server, monkeypatch):
+    real_get = httpx.get
+
+    def fake_get(url, *args, **kwargs):
+        if url.endswith("/Login.do"):
+            return httpx.Response(200, text='<script>var Version = "26.14.2-RC1";</script>')
+        return real_get(url, *args, **kwargs)
+
+    monkeypatch.setattr("ov.agent.server.httpx.get", fake_get)
+    res = httpx.get(f"{agent_server}/api/instances/check?instance=acme.onevizion.com").json()
+    assert res["version"] == "26.14.2-RC1"
+    assert res["url"] == "https://acme.onevizion.com"

@@ -38,6 +38,7 @@ import { ChangeCard } from './ChangeCard'
 import { CostPill } from './CostPill'
 import { FilesChanged, LineCounts, summarize } from './FilesChanged'
 import { FindBar } from './FindBar'
+import { InstanceChip } from './InstanceChip'
 import { OPEN_FIND } from '@/components/CommandPalette'
 import { ThreadRail } from './ThreadRail'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
@@ -450,7 +451,7 @@ export function RunView({ id }: { id: string }) {
       {summary.instance ? (
         <>
           <Dot />
-          <span>{summary.instance}</span>
+          <InstanceChip instance={summary.instance} />
         </>
       ) : null}
     </>

@@ -28,7 +28,7 @@ from .copilot import CopilotError
 from .datadog import DatadogError
 from .explorer import ExplorerError
 from .export import to_markdown
-from .ovproc import instances, login, run_ov, version
+from .ovproc import find_instance, instances, login, run_ov, url_for, version
 from .pagerduty import PagerDutyError
 from .run import RunError, runs, status_feed
 from .runfiles import attachments_dir, uploads_dir, within
@@ -58,6 +58,8 @@ FAILED_PROCESS_STATUSES = "3, 14, 21"
 FAILED_PROCESS_TYPES_SHOWN = 20
 APP_ID = "ov-agent"
 SCREEN_APPEAR_SECONDS = 10
+INSTANCE_CHECK_TIMEOUT_SECONDS = 20
+_PLATFORM_VERSION = re.compile(r'Version\s*=\s*"([^"]+)"')
 EXPORT_NAME_CHARS = 80
 COST_RANGE_DAYS = {"7d": 7, "30d": 30}
 _UNSAFE_FILE_CHARS = re.compile(r"[^\w\- ]+")
@@ -365,6 +367,24 @@ def login_instance(h: Handler) -> dict[str, Any]:
 def _screen_size(data: dict[str, Any]) -> tuple[int, int] | None:
     screen = data.get("screen")
     return (int(screen["width"]), int(screen["height"])) if screen else None
+
+
+@route("GET", "/api/instances/check")
+def check_instance(h: Handler) -> dict[str, Any]:
+    ref = _required(h.query, "instance")
+    found = find_instance(ref)
+    url = found["url"] if found else url_for(ref)
+    started = time.monotonic()
+    try:
+        page = httpx.get(f"{url}/Login.do", timeout=INSTANCE_CHECK_TIMEOUT_SECONDS, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        raise HttpError(502, f"{url} did not answer: {exc}") from None
+    took = int((time.monotonic() - started) * 1000)
+    if page.status_code >= 400:
+        raise HttpError(502, f"{url} answered {page.status_code}.")
+
+    found = _PLATFORM_VERSION.search(page.text)
+    return {"url": url, "ms": took, "version": found.group(1) if found else None}
 
 
 @route("POST", "/api/instances/logout")

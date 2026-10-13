@@ -117,6 +117,10 @@ export const api = {
     request<{ path: string; content: string }>(`/workspace/file?path=${seg(path)}`),
   saveWorkspaceFile: (path: string, content: string) =>
     put<{ path: string; content: string }>('/workspace/file', { path, content }),
+  checkInstance: (instance: string) =>
+    request<{ url: string; ms: number; version: string | null }>(
+      `/instances/check?instance=${seg(instance)}`,
+    ),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),
   settings: () => request<Settings>('/settings'),
   saveSettings: (patch: Partial<Settings>) => put<Settings>('/settings', patch),
