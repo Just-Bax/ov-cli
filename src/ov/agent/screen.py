@@ -56,6 +56,7 @@ class Screen:
         self.frame: dict[str, Any] | None = None
         self.seq = 0
         self.closed = False
+        self.failure: str | None = None
         self.cancel = Cancel()
         self._changed = threading.Condition()
         self._input: queue.SimpleQueue[dict[str, Any]] = queue.SimpleQueue()
@@ -93,10 +94,12 @@ class Screen:
         try:
             with sync_playwright() as p:
                 browser = self._connect(p)
-                if browser is not None:
+                if browser is None:
+                    self.failure = "The sign-in browser did not start."
+                else:
                     self._mirror(browser.contexts[0])
-        except PlaywrightError:
-            pass
+        except PlaywrightError as exc:
+            self.failure = None if self._stop.is_set() or self.frame is not None else str(exc).splitlines()[0]
         finally:
             self.closed = True
             self._publish()
@@ -149,16 +152,52 @@ class Screen:
                 page.wait_for_timeout(LOOP_MS)
 
 
+def _number(event: dict[str, Any], key: str, kind: type = float) -> Any:
+    value = event.get(key, 0)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ScreenError(f"Input {key} must be a number.")
+    return kind(value)
+
+
 def _checked(event: dict[str, Any]) -> dict[str, Any]:
     kind = event.get("type")
     if kind == "mouse" and event.get("event") in MOUSE_EVENTS and event.get("button", "none") in BUTTONS:
-        return event
-    if kind in ("wheel", "back"):
-        return event
+        return {
+            "type": kind,
+            "event": event["event"],
+            "x": _number(event, "x"),
+            "y": _number(event, "y"),
+            "button": event.get("button", "none"),
+            "buttons": _number(event, "buttons", int),
+            "clickCount": _number(event, "clickCount", int),
+            "modifiers": _number(event, "modifiers", int),
+        }
+    if kind == "wheel":
+        return {
+            "type": kind,
+            "x": _number(event, "x"),
+            "y": _number(event, "y"),
+            "dx": _number(event, "dx"),
+            "dy": _number(event, "dy"),
+        }
+    if kind == "back":
+        return {"type": kind}
     if kind == "key" and event.get("event") in KEY_EVENTS:
-        return event
+        commands = event.get("commands") or []
+        if not isinstance(commands, list):
+            raise ScreenError("Input commands must be a list.")
+        return {
+            "type": kind,
+            "event": event["event"],
+            "key": str(event.get("key", "")),
+            "code": str(event.get("code", "")),
+            "keyCode": _number(event, "keyCode", int),
+            "modifiers": _number(event, "modifiers", int),
+            "text": str(event["text"]) if event.get("text") else None,
+            "commands": [c for c in commands if c in COMMANDS],
+        }
     if kind == "text" and isinstance(event.get("text"), str):
-        return {**event, "text": event["text"][:MAX_TEXT_CHARS]}
+        return {"type": kind, "text": event["text"][:MAX_TEXT_CHARS]}
     raise ScreenError(f"Unknown input: {kind}")
 
 
@@ -167,40 +206,25 @@ def _apply(cdp: Any, event: dict[str, Any]) -> None:
     if kind == "mouse":
         cdp.send(
             "Input.dispatchMouseEvent",
-            {
-                "type": event["event"],
-                "x": float(event["x"]),
-                "y": float(event["y"]),
-                "button": event.get("button", "none"),
-                "buttons": int(event.get("buttons", 0)),
-                "clickCount": int(event.get("clickCount", 0)),
-                "modifiers": int(event.get("modifiers", 0)),
-            },
+            {**{k: v for k, v in event.items() if k not in ("type", "event")}, "type": event["event"]},
         )
     elif kind == "wheel":
         cdp.send(
             "Input.dispatchMouseEvent",
-            {
-                "type": "mouseWheel",
-                "x": float(event["x"]),
-                "y": float(event["y"]),
-                "deltaX": float(event.get("dx", 0)),
-                "deltaY": float(event.get("dy", 0)),
-            },
+            {"type": "mouseWheel", "x": event["x"], "y": event["y"], "deltaX": event["dx"], "deltaY": event["dy"]},
         )
     elif kind == "key":
         params: dict[str, Any] = {
             "type": event["event"],
-            "key": str(event.get("key", "")),
-            "code": str(event.get("code", "")),
-            "windowsVirtualKeyCode": int(event.get("keyCode", 0)),
-            "modifiers": int(event.get("modifiers", 0)),
+            "key": event["key"],
+            "code": event["code"],
+            "windowsVirtualKeyCode": event["keyCode"],
+            "modifiers": event["modifiers"],
         }
-        if event.get("text"):
-            params["text"] = params["unmodifiedText"] = str(event["text"])
-        commands = [c for c in event.get("commands", []) if c in COMMANDS]
-        if commands:
-            params["commands"] = commands
+        if event["text"]:
+            params["text"] = params["unmodifiedText"] = event["text"]
+        if event["commands"]:
+            params["commands"] = event["commands"]
         cdp.send("Input.dispatchKeyEvent", params)
     elif kind == "text":
         cdp.send("Input.insertText", {"text": event["text"]})

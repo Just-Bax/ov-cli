@@ -307,10 +307,6 @@ def append_event(run_id: str, seq: int, event: dict[str, Any]) -> dict[str, Any]
     return {"seq": seq, "ts": ts, "event": event}
 
 
-def last_seq(run_id: str) -> int:
-    return int(_one("SELECT COALESCE(MAX(seq), -1) seq FROM events WHERE run_id = ?", run_id)["seq"])
-
-
 def load_events(run_id: str, after: int = -1) -> list[dict[str, Any]]:
     rows = _all("SELECT seq, ts, data FROM events WHERE run_id = ? AND seq > ? ORDER BY seq", run_id, after)
     return [{"seq": r["seq"], "ts": r["ts"], "event": json.loads(r["data"])} for r in rows]

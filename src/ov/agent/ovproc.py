@@ -17,6 +17,7 @@ from .. import session as session_store
 from ..errors import EXIT_AUTH
 from ..paths import agent_dir
 from .cancel import Cancel
+from .procs import kill_tree, spawn_options
 from .screen import Screen, close_screen, open_screen, screen_key
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -25,6 +26,7 @@ DEFAULT_TIMEOUT_SECONDS = 120
 LOGIN_TIMEOUT_SECONDS = 300
 BROWSER_LOGIN_TIMEOUT_SECONDS = 280
 POLL_SECONDS = 0.2
+STOP_GRACE_SECONDS = 10
 SIGN_IN_CANCELLED = "Sign-in cancelled."
 CONSOLE_COLUMNS = "200"
 
@@ -77,15 +79,13 @@ def run_ov(
             stdout=out,
             stderr=err,
             env=env,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **spawn_options(),
         )
         if stdin is not None:
             process.stdin.write(stdin.encode())
             process.stdin.close()
 
-        timed_out = _wait(process, timeout, cancel)
-        if hold_stdin:
-            process.stdin.close()
+        timed_out = _wait(process, timeout, cancel, hold_stdin)
         out.seek(0)
         err.seek(0)
         return OvResult(
@@ -96,7 +96,7 @@ def run_ov(
         )
 
 
-def _wait(process: subprocess.Popen[Any], timeout: float, cancel: Cancel | None) -> bool:
+def _wait(process: subprocess.Popen[Any], timeout: float, cancel: Cancel | None, held: bool) -> bool:
     deadline = time.monotonic() + timeout
     while True:
         try:
@@ -104,11 +104,23 @@ def _wait(process: subprocess.Popen[Any], timeout: float, cancel: Cancel | None)
         except subprocess.TimeoutExpired:
             expired = time.monotonic() > deadline
             if expired or (cancel is not None and cancel.is_set()):
-                process.kill()
-                process.wait()
+                _stop(process, held)
                 return expired
         else:
+            if held:
+                process.stdin.close()
             return False
+
+
+def _stop(process: subprocess.Popen[Any], held: bool) -> None:
+    if held:
+        process.stdin.close()
+        try:
+            process.wait(timeout=STOP_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            kill_tree(process)
+        return
+    kill_tree(process)
 
 
 def host_of(value: str) -> str:

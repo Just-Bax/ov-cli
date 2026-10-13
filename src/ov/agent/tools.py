@@ -137,7 +137,24 @@ def entity_link(entity_type: str, entity_id: str | None, instance: str | None) -
     return f"https://{host_of(instance)}{form}{entity_id.strip()}" if form else None
 
 
+_SECRET_JSON = re.compile(
+    r'("[\w.\-]*(?:pass(?:word|wd)?|secret|token|api_?key|private_?key|credential)[\w.\-]*"\s*:\s*)"[^"]*"',
+    re.IGNORECASE,
+)
+_SECRET_ASSIGN = re.compile(
+    r"""(\b[\w.\-]*(?:password|passwd|secret|api_?key|private_?key|credential|access_?token|auth_?token)[\w.\-]*"""
+    r"""\s*[=:]\s*)(["']?)([^\s"',;]{4,})\2""",
+    re.IGNORECASE,
+)
+
+
+def mask_secrets(text: str) -> str:
+    masked = _SECRET_JSON.sub(rf'\1"{SECRET_MASK}"', text)
+    return _SECRET_ASSIGN.sub(rf"\1\2{SECRET_MASK}\2", masked)
+
+
 def clip(text: str, ctx: ToolContext, what: str) -> str:
+    text = mask_secrets(text)
     if len(text) <= MAX_OUTPUT:
         return text
 
@@ -341,10 +358,6 @@ _PLSQL_IN_WITH = re.compile(r"\bwith\s+(function|procedure)\b", re.IGNORECASE)
 _SECRET_SQL = re.compile(r"\bselect\s+\*\s+from\s+(module|users?|auth_token\w*)\b", re.IGNORECASE)
 _SECRET_NAME = re.compile(r"pass(word|wd)?|secret|token|api_?key|private_?key|credential", re.IGNORECASE)
 _SECRET_KEY = re.compile(r"^[\w.\-]{0,60}$")
-_SECRET_JSON = re.compile(
-    r'("[\w.\-]*(?:pass(?:word|wd)?|secret|token|api_?key|private_?key|credential)[\w.\-]*"\s*:\s*)"[^"]*"',
-    re.IGNORECASE,
-)
 
 
 def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:

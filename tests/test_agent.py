@@ -768,14 +768,21 @@ def test_resuming_a_stream_sends_the_partial_message(logged_in):
     assert "live" not in committed
 
 
-def test_idle_runs_are_dropped_from_memory(logged_in):
-    from ov.agent.run import MAX_CACHED_RUNS, runs
+def test_idle_runs_are_dropped_from_memory_but_never_while_in_use(logged_in):
+    from ov.agent.run import EVICT_GRACE_MS, MAX_CACHED_RUNS, runs
 
+    runs._runs.clear()
+    held = []
     for n in range(MAX_CACHED_RUNS + 3):
         db.create_run(f"revict{n}", "t", "m", {"prompt": "x"})
-        runs.get(f"revict{n}")
-    assert len(runs._runs) <= MAX_CACHED_RUNS
-    assert "revict0" not in runs._runs
+        held.append(runs.get(f"revict{n}"))
+    assert all(runs.get(f"revict{n}") is held[n] for n in range(MAX_CACHED_RUNS + 3))
+
+    for run in held:
+        run.touched -= EVICT_GRACE_MS + 1
+    runs.get("revict0")
+    assert len(runs._runs) <= MAX_CACHED_RUNS + 1
+    assert "revict0" in runs._runs and "revict1" not in runs._runs
 
 
 def test_run_list_splits_active_and_settled(logged_in):
@@ -1247,3 +1254,80 @@ def test_a_case_reply_is_drafted_with_the_reply_style(logged_in, monkeypatch):
     model, system, user_text, max_tokens = calls[-1]
     assert model == "test-model" and "## Reply style" in system and "Write as I, never we" in system
     assert "Found it." in user_text and "case 1234" in user_text and max_tokens > 200
+
+
+def test_commands_leaving_the_workspace_need_approval(workspace):
+    from ov.agent import project
+
+    sub = project.root() / "module"
+    sub.mkdir(exist_ok=True)
+    assert project.risks("Set-Content ..\\..\\x.txt hi", sub) == ["climbs out of the workspace"]
+    assert project.risks("cat ../readme.md", sub) == []
+    assert project.risks("Get-Content $env:USERPROFILE\\.ssh\\id_rsa", project.root()) == [
+        "uses a path from an environment variable"
+    ]
+
+
+def test_a_cancelled_command_stops_its_children(workspace):
+    from ov.agent import project
+    from ov.agent.cancel import Cancel
+
+    marker = project.root() / "child-alive.txt"
+    script = project.root() / "child.py"
+    script.write_text(f"import time\ntime.sleep(4)\nopen({str(marker)!r}, 'w').write('x')\n")
+    started = time.monotonic()
+    project.run(f'python "{script}"; python "{script}"', "", 1, Cancel())
+    assert time.monotonic() - started < 15
+    time.sleep(5)
+    assert not marker.exists()
+
+
+def test_bad_sign_in_input_is_refused():
+    from ov.agent.screen import ScreenError, _checked
+
+    assert _checked({"type": "mouse", "event": "mousePressed", "x": 3, "y": 4, "button": "left"})["x"] == 3.0
+    for bad in (
+        {"type": "mouse", "event": "mousePressed", "x": "a", "y": 1},
+        {"type": "wheel", "x": 1, "y": 1, "dx": None},
+        {"type": "key", "event": "keyDown", "keyCode": "13"},
+        {"type": "eval"},
+    ):
+        with pytest.raises(ScreenError):
+            _checked(bad)
+
+
+def test_cross_site_requests_are_refused(agent_server):
+    assert httpx.get(f"{agent_server}/api/runs", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert httpx.get(f"{agent_server}/api/runs", headers={"Sec-Fetch-Site": "same-origin"}).status_code == 200
+
+
+def test_secrets_are_masked_in_any_tool_output(tmp_path):
+    from ov.agent.tools import clip
+
+    out = clip('DB_PASSWORD=Xy9abc {"apiKey": "k-123"} max_tokens=32000', FakeContext(tmp_path), "output")
+    assert out == 'DB_PASSWORD=*** {"apiKey": "***"} max_tokens=32000'
+
+
+def test_two_open_questions_keep_the_run_waiting(logged_in):
+    from ov.agent.run import runs
+
+    db.create_run("rwait", "t", "m", {"prompt": "x"})
+    run = runs.get("rwait")
+    answers: list[str] = []
+    threads = [
+        threading.Thread(target=lambda q=q: answers.append(run.ask_user(q, ["a", "b"], False))) for q in ("one", "two")
+    ]
+    for t in threads:
+        t.start()
+    for _ in range(100):
+        if len(run.state["questions"]) == 2:
+            break
+        time.sleep(0.02)
+    assert run.state["summary"]["status"] == "waiting"
+    run.answer(run.state["questions"][0]["id"], "a")
+    time.sleep(0.2)
+    assert run.state["summary"]["status"] == "waiting"
+    run.answer(run.state["questions"][1]["id"], "b")
+    for t in threads:
+        t.join(2)
+    assert sorted(answers) == ["a", "b"] and run.state["summary"]["status"] == "running"

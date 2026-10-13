@@ -102,6 +102,7 @@ export function RemoteScreen({
   const [frame, setFrame] = useState<Frame>()
   const [phase, setPhase] = useState<Phase>('starting')
   const [focused, setFocused] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
   const keys = useRef<HTMLTextAreaElement>(null)
   const surface = useRef<HTMLImageElement>(null)
   const sendTo = useSender(url, tenant)
@@ -114,7 +115,8 @@ export function RemoteScreen({
       setFrame(JSON.parse(e.data as string) as Frame)
       setPhase('live')
     }
-    source.addEventListener('end', () => {
+    source.addEventListener('end', (e) => {
+      setFailure((JSON.parse((e as MessageEvent<string>).data) as { error: string | null }).error)
       source.close()
       setPhase('gone')
     })
@@ -259,7 +261,7 @@ export function RemoteScreen({
                 Opening {host}
               </>
             ) : frame ? null : (
-              'The sign-in page is not shown here.'
+              (failure ?? 'The sign-in page is not shown here.')
             )}
           </div>
         ) : null}

@@ -14,6 +14,7 @@ from typing import Any
 
 from . import db
 from .cancel import Cancel
+from .procs import kill_tree, spawn_options
 
 SKIPPED_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", ".idea", ".gradle"}
 MAX_LIST_ENTRIES = 400
@@ -28,6 +29,11 @@ POLL_SECONDS = 0.2
 BINARY_SNIFF_BYTES = 4096
 SEARCH_WORKERS = 6
 SEARCH_TIMEOUT_SECONDS = 120
+
+_PARENT_PATH = re.compile(r"(?<![\w.])((?:\.\.[\\/])+[^\s\"';|&>]*|\.\.(?=[\s\"';|&>]|$))")
+_ENV_PATH = re.compile(
+    r"\$env:\w+|%\w+%|\$\{?(HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP)\b|(^|\s)~[\\/]", re.IGNORECASE
+)
 
 RISKY_COMMANDS = [
     (re.compile(r"\b(rm|rmdir|rd|del|erase|Remove-Item|ri)\b", re.IGNORECASE), "deletes files"),
@@ -356,8 +362,12 @@ def risks(command: str, cwd: Path) -> list[str]:
         target = Path(match.group(1)).expanduser().resolve()
         if target != base and base not in target.parents:
             found.append(f"touches {match.group(1)} outside the workspace")
-    if re.search(r"(^|[\s\"'\\/])\.\.([\\/]|\s|$)", command) and cwd == base:
-        found.append("climbs out of the workspace")
+    for match in _PARENT_PATH.finditer(command):
+        target = (cwd / match.group(1)).resolve()
+        if target != base and base not in target.parents:
+            found.append("climbs out of the workspace")
+    if _ENV_PATH.search(command):
+        found.append("uses a path from an environment variable")
     return list(dict.fromkeys(found))
 
 
@@ -376,7 +386,6 @@ def run(command: str, rel: str, timeout: int, cancel: Cancel) -> str:
         raise ProjectError(f"Not a folder: {rel}")
 
     limit = min(max(timeout, 1), MAX_TIMEOUT_SECONDS)
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     with tempfile.TemporaryFile() as out:
         process = subprocess.Popen(
             _shell(command),
@@ -385,7 +394,7 @@ def run(command: str, rel: str, timeout: int, cancel: Cancel) -> str:
             stdout=out,
             stderr=subprocess.STDOUT,
             env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1", "OV_READONLY": "1"},
-            creationflags=flags,
+            **spawn_options(),
         )
         timed_out = _wait(process, limit, cancel)
         out.seek(0)
@@ -401,8 +410,7 @@ def _wait(process: subprocess.Popen[Any], limit: int, cancel: Cancel) -> bool:
     deadline = time.monotonic() + limit
     while process.poll() is None:
         if cancel.is_set() or time.monotonic() > deadline:
-            process.kill()
-            process.wait()
+            kill_tree(process)
             cancel.check()
             return True
         time.sleep(POLL_SECONDS)

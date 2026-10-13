@@ -86,6 +86,7 @@ CONTENT_TYPES = {
 }
 
 INLINE_FILES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".log", ".csv"}
+TRUSTED_FETCH_SITES = ("same-origin", "none")
 _BODY_TYPES = ("application/json", "application/octet-stream")
 CLIENT_ERRORS = (
     RunError,
@@ -197,6 +198,8 @@ class Handler(BaseHTTPRequestHandler):
     def _trusted(self, method: str) -> bool:
         host = (self.headers.get("Host") or "").split(":")[0]
         if host not in ("127.0.0.1", "localhost"):
+            return False
+        if self.headers.get("Sec-Fetch-Site", "none") not in TRUSTED_FETCH_SITES:
             return False
         origin = self.headers.get("Origin")
         if origin and origin not in self._origins():
@@ -733,8 +736,10 @@ def _watcher(stop: threading.Event) -> None:
                 continue
             try:
                 run.fire_watch()
-            except RunError as exc:
-                run.emit({"type": "status", "status": "error", "error": f"Watch check failed: {exc}"})
+            except Exception as exc:
+                db.clear_watch(run_id)
+                run.emit({"type": "watch", "watch": None})
+                run.emit({"type": "status", "status": "error", "error": f"Watch stopped: {exc}"})
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/reply")
@@ -827,7 +832,7 @@ def signin_screen(h: Handler) -> None:
             if screen.frame is not None:
                 h.wfile.write(f"data: {json.dumps(screen.frame)}\n\n".encode())
                 h.wfile.flush()
-        h.wfile.write(b"event: end\ndata: \n\n")
+        h.wfile.write(f"event: end\ndata: {json.dumps({'error': screen.failure})}\n\n".encode())
         h.wfile.flush()
     except OSError:
         pass

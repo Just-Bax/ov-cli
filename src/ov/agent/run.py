@@ -7,7 +7,6 @@ import json
 import queue
 import random
 import shutil
-import sqlite3
 import string
 import threading
 from collections.abc import Callable
@@ -57,6 +56,7 @@ MAX_TITLE_WORDS = 10
 RUN_ID_SUFFIX_CHARS = 4
 IDLE_EVICT_MS = 5 * 60_000
 MAX_CACHED_RUNS = 6
+EVICT_GRACE_MS = 60_000
 
 MINUTE_MS = 60_000
 HOUR_MS = 60 * MINUTE_MS
@@ -145,6 +145,7 @@ class Run:
         self._local = threading.local()
         self._pending_images: list[tuple[str, str]] = []
         self._notes: list[str] = []
+        self._waits = 0
         self._queue: list[tuple[dict[str, Any], Any]] = []
         self._held: set[str] = set()
         self._questions: dict[str, tuple[threading.Event, list[str]]] = {}
@@ -272,11 +273,7 @@ class Run:
         with self._lock:
             self.touched = db.now_ms()
             self.seq += 1
-            try:
-                stored = db.append_event(self.id, self.seq, event)
-            except sqlite3.IntegrityError:
-                self.seq = db.last_seq(self.id) + 1
-                stored = db.append_event(self.id, self.seq, event)
+            stored = db.append_event(self.id, self.seq, event)
             reduce(self.state, stored)
             kind = event["type"]
             if kind == "status":
@@ -297,12 +294,13 @@ class Run:
         db.save_conversation(key, value)
 
     def _set_status(self, status: str, error: str | None = None) -> None:
-        if self.state["summary"]["status"] == status and not error:
-            return
-        event: dict[str, Any] = {"type": "status", "status": status}
-        if error:
-            event["error"] = error
-        self.emit(event)
+        with self._lock:
+            if self.state["summary"]["status"] == status and not error:
+                return
+            event: dict[str, Any] = {"type": "status", "status": status}
+            if error:
+                event["error"] = error
+            self.emit(event)
         status_feed.publish(
             {"kind": "status", "id": self.id, "status": status, "title": self.state["summary"]["title"]}
         )
@@ -387,11 +385,24 @@ class Run:
             self.cancel.check()
 
         self.emit({"type": "question", "question": entry})
-        self._set_status("waiting")
-        event.wait()
-        self.cancel.check()
-        self._set_status("running")
+        self._wait_for(event)
         return holder[0]
+
+    def _wait_for(self, event: threading.Event) -> None:
+        with self._lock:
+            self._waits += 1
+            first = self._waits == 1
+        if first:
+            self._set_status("waiting")
+        try:
+            event.wait()
+        finally:
+            with self._lock:
+                self._waits -= 1
+                last = self._waits == 0
+        self.cancel.check()
+        if last:
+            self._set_status("running")
 
     def require_login(self, host: str, tenant: str = "") -> bool:
         with self._lock:
@@ -418,10 +429,7 @@ class Run:
                 self.emit({"type": "login", "login": prompt})
             self.cancel.check()
 
-        self._set_status("waiting")
-        waiter[0].wait()
-        self.cancel.check()
-        self._set_status("running")
+        self._wait_for(waiter[0])
         return waiter[1][0]
 
     def login(
@@ -1011,9 +1019,12 @@ class RunManager:
 
     def _evict(self) -> None:
         now = db.now_ms()
-        idle = sorted((r for r in self._runs.values() if r.idle()), key=lambda r: r.touched)
+        idle = sorted(
+            (r for r in self._runs.values() if r.idle() and now - r.touched > EVICT_GRACE_MS),
+            key=lambda r: r.touched,
+        )
         for run in idle:
-            if now - run.touched > IDLE_EVICT_MS or len(self._runs) >= MAX_CACHED_RUNS:
+            if now - run.touched > IDLE_EVICT_MS or len(self._runs) > MAX_CACHED_RUNS:
                 del self._runs[run.id]
 
 
