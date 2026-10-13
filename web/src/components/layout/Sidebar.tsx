@@ -770,7 +770,7 @@ export function Sidebar({
                 onClick={() => setSnoozedOpen((v) => !v)}
               />
               {snoozedOpen ? (
-                <div className="animate-fade-in fade-bottom mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto pb-3">
+                <div className="animate-fade-in fade-bottom -mx-3 mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto px-3 pb-3">
                   {snoozed.map((r) => (
                     <RunItem key={r.id} run={r} active={isOpen(r.id)} />
                   ))}
@@ -818,7 +818,7 @@ export function Sidebar({
                   onClick={() => toggleSettled()}
                 />
                 {settledOpen ? (
-                  <div className="animate-fade-in fade-bottom mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto pb-3">
+                  <div className="animate-fade-in fade-bottom -mx-3 mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto px-3 pb-3">
                     {settled.map((r) => (
                       <RunItem key={r.id} run={r} active={isOpen(r.id)} settled />
                     ))}
