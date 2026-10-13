@@ -84,6 +84,7 @@ FOLLOW_UPS = ("steer", "queue")
 REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
 NANO_PER_CREDIT = 1_000_000_000
 TOP_THREADS = 5
+INTERRUPTED_TOOL = "Interrupted by a restart."
 RUN_LIST_LIMIT = 500
 ACTIVE = ("queued", "running", "waiting")
 
@@ -125,6 +126,26 @@ def _close_orphans(conn: sqlite3.Connection) -> None:
         )
 
     conn.execute(f"UPDATE runs SET status = 'error' WHERE status IN ({marks})", ACTIVE)
+    _close_open_tools(conn)
+
+
+def _close_open_tools(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        "SELECT s.run_id, s.data FROM events s "
+        "WHERE json_extract(s.data, '$.type') = 'tool' "
+        "AND json_extract(s.data, '$.tool.status') = 'running' "
+        "AND NOT EXISTS (SELECT 1 FROM events e WHERE e.run_id = s.run_id AND e.seq > s.seq "
+        "AND json_extract(e.data, '$.type') = 'tool' "
+        "AND json_extract(e.data, '$.tool.id') = json_extract(s.data, '$.tool.id') "
+        "AND json_extract(e.data, '$.tool.status') != 'running')"
+    ).fetchall()
+    for run_id, data in rows:
+        tool = {**json.loads(data)["tool"], "status": "error", "output": INTERRUPTED_TOOL}
+        conn.execute(
+            "INSERT INTO events (run_id, seq, ts, data) "
+            "SELECT ?, COALESCE(MAX(seq), -1) + 1, ?, ? FROM events WHERE run_id = ?",
+            (run_id, now_ms(), json.dumps({"type": "tool", "tool": tool}), run_id),
+        )
 
 
 def _all(sql: str, *args: Any) -> list[sqlite3.Row]:

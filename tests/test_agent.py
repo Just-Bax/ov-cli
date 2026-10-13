@@ -1370,3 +1370,16 @@ def test_a_thread_is_named_with_the_main_model_without_a_fast_model(logged_in, m
     assert run.state["summary"]["title"] == "Rule queue backlog"
     assert seen == ["main-model"]
     assert run.retitle() == "Rule queue backlog" and seen == ["main-model", "main-model"]
+
+
+def test_restart_closes_tools_left_running():
+    db.create_run("r1", "t", "m", {})
+    db.append_event("r1", 0, {"type": "tool", "tool": {"id": "a", "status": "running"}})
+    db.append_event("r1", 1, {"type": "tool", "tool": {"id": "b", "status": "running"}})
+    db.append_event("r1", 2, {"type": "tool", "tool": {"id": "b", "status": "ok"}})
+    db.close()
+
+    tools = [e["event"]["tool"] for e in db.load_events("r1") if e["event"]["type"] == "tool"]
+
+    assert [(t["id"], t["status"]) for t in tools][-1] == ("a", "error")
+    assert sum(t["status"] == "error" for t in tools) == 1
