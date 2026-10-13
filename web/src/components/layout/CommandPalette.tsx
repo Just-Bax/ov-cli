@@ -203,7 +203,7 @@ export function CommandPalette({ route }: { route: Route }) {
     }
 
     const pages: [Route, string, ReactNode][] = [
-      [{ page: 'map' }, 'Map', <MapIcon key="m" className="size-4" />],
+      [{ page: 'map' }, 'Instance map', <MapIcon key="m" className="size-4" />],
       [{ page: 'explorer' }, 'Code explorer', <CodeBracketIcon key="e" className="size-4" />],
       [{ page: 'health' }, 'Instance health', <HeartIcon key="h" className="size-4" />],
       [{ page: 'settings' }, 'Settings', <Cog6ToothIcon key="s" className="size-4" />],

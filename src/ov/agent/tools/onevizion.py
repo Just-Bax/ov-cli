@@ -446,7 +446,7 @@ TOOLS = [
     ),
     Tool(
         "ov_map",
-        "Look an object up on the Map: what a trackor type, field, rule, automation, "
+        "Look an object up on the Instance map: what a trackor type, field, rule, automation, "
         "import, report, notification, workflow, module or DB package is linked to (relations, "
         "fields, triggers, packages it calls, and objects its code references by quoted name, "
         "config id or id.* object reference). Fast, no SQL needed. Builds the map on first use "

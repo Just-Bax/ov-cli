@@ -489,7 +489,7 @@ your approval.
 The agent commits only when you ask and never pushes on its own. Paths in the `ws_` tools
 cannot leave the workspace; a shell command could, which is why those need your approval.
 
-**Map** shows how an instance's configuration fits together: trackor types and
+**Instance map** shows how an instance's configuration fits together: trackor types and
 their relations, fields, rules and what triggers them, automations, imports, reports,
 notifications, workflows and modules, plus the fields each rule, import and report uses in
 its SQL. Pick an instance and Build: it reads the configuration with read-only SQL (about a
@@ -510,9 +510,9 @@ status and trigger, quick static checks (SELECT INTO without a no-data handler, 
 inside loops, COMMIT in a rule, swallowed errors, unknown hard-coded ids and similar),
 recent runs and errors, and everything the object links to.
 
-Every object, on the Map, in the Code explorer and in a code hover card, has the same actions:
+Every object, on the Instance map, in the Code explorer and in a code hover card, has the same actions:
 **Ask the agent** opens New thread with a prompt filled in for you to edit and send, **Open in
-Code explorer** opens its code, **Show on map** jumps to it on the Map, and the arrow
+Code explorer** opens its code, **Show on map** jumps to it on the Instance map, and the arrow
 opens it in OneVizion. The Code explorer adds **Review with AI** for objects with code.
 
 **Datadog** (optional) adds the server side. In Settings > Integrations, connect it with

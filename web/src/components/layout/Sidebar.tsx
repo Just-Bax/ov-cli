@@ -59,7 +59,7 @@ const SETTLED_MIN_ROWS = 4
 type NavTool = { route: Route; label: string; icon: Icon }
 
 const TOOLS: NavTool[] = [
-  { route: { page: 'map' }, label: 'Map', icon: MapIcon },
+  { route: { page: 'map' }, label: 'Instance map', icon: MapIcon },
   { route: { page: 'explorer' }, label: 'Code explorer', icon: CodeBracketIcon },
   { route: { page: 'health' }, label: 'Instance health', icon: HeartIcon },
 ]

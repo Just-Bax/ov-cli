@@ -567,7 +567,7 @@ export function MapPage() {
   )
 
   return (
-    <Page title="Map" subtitle={subtitle} actions={<GraphActions state={state} />}>
+    <Page title="Instance map" subtitle={subtitle} actions={<GraphActions state={state} />}>
       <div className="flex h-full min-h-[480px]">
         <div className="bg-canvas/40 flex min-w-0 flex-1 flex-col">
           {graph && idx ? (
