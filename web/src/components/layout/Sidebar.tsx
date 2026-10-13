@@ -842,7 +842,7 @@ export function Sidebar({
                 </div>
               ) : null}
               {snoozed.length || settledTotal ? (
-                <div className="mt-auto space-y-4 pt-4">
+                <div className="mt-auto space-y-1 pt-4">
                   {snoozed.length ? (
                     <Shelf
                       label="Snoozed"
