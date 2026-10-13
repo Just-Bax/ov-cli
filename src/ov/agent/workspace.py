@@ -373,7 +373,7 @@ def risks(command: str, cwd: Path) -> list[str]:
         if target != base and base not in target.parents:
             found.append(f"touches {match.group(1)} outside the workspace")
     for match in _PARENT_PATH.finditer(command):
-        target = (cwd / match.group(1)).resolve()
+        target = (cwd / match.group(1).replace("\\", "/")).resolve()
         if target != base and base not in target.parents:
             found.append("climbs out of the workspace")
     if _ENV_PATH.search(command):
