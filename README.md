@@ -656,7 +656,7 @@ pnpm check        # typecheck + prettier
 pnpm build        # writes src/ov/agent/static; commit the result
 ```
 
-Run these before committing; there is no CI.
+There is no CI. A pre-commit hook in `.githooks` runs ruff and the unit tests when Python files are staged, and `pnpm check` and the build when `web/` files are; turn it on once with `git config core.hooksPath .githooks`.
 
 The layout follows the request path: `client.py` speaks HTTP and owns the two auth
 schemes, `auth.py` mints tokens, `session.py` keeps one credential set per instance and

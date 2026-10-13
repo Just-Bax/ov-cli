@@ -1,0 +1,20 @@
+#!/bin/sh
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACMRD)
+
+if echo "$staged" | grep -qE '^(src|tests)/|^pyproject.toml$|^uv.lock$'; then
+  echo "pre-commit: ruff and unit tests"
+  uv run --extra dev ruff check src tests
+  uv run --extra dev ruff format --check src tests
+  uv run --extra dev pytest -q -p no:warnings tests/unit
+fi
+
+if echo "$staged" | grep -qE '^web/'; then
+  echo "pre-commit: web check and build"
+  (cd web && pnpm check && pnpm build)
+  if ! git diff --quiet -- src/ov/agent/static; then
+    echo "pre-commit: the web build changed src/ov/agent/static; stage it and commit again."
+    exit 1
+  fi
+fi
