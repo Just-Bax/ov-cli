@@ -203,7 +203,7 @@ ov logout --all          # all of them
 ```
 
 Logging out of an instance also deletes everything kept for it on this computer: its
-secrets, cached schema, Instance map and Datadog servers. Agent runs are kept. `ov agent` does the
+secrets, cached schema, Map and Datadog servers. Agent threads are kept. `ov agent` does the
 same on start for anything left over from instances you are no longer signed in to.
 
 ### Instances with several tenants
@@ -398,13 +398,13 @@ The first screen walks you through setup:
 1. Sign in to GitHub. The agent runs on GitHub Copilot, so the account needs a Copilot
    subscription; you pick the model.
 2. Sign in to at least one instance (the same browser sign-in as `ov login`).
-3. Pick a main model. It can be changed per run. In Settings you can also pick a fast
-   model (Haiku, for example) for small chores such as naming runs.
+3. Pick a main model. It can be changed per thread. In Settings you can also pick a fast
+   model (Haiku, for example) for small chores such as naming threads.
 
 Setup stays open until the last step, so signing in to GitHub does not skip the others.
 
 Read-only by default: every call runs with `OV_READONLY=1`. Turn on **Allow changes** for
-a run and the agent may apply changes, but each one shows you the exact `ov` command and
+a thread and the agent may apply changes, but each one shows you the exact `ov` command and
 waits for your **Approve**.
 
 In **Settings**:
@@ -452,11 +452,11 @@ next week or a custom time; snoozed and settled threads wait in their own shelve
 bottom. Undo any of these from the toast or with Ctrl+Z for five seconds. Ctrl+K opens the
 command palette; press ? for every keyboard shortcut.
 
-The agent's tools come in groups, and the system prompt lists the ones a run has:
+The agent's tools come in groups, and the system prompt lists the ones a thread has:
 
 | Group | Tools |
 | --- | --- |
-| OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_import` (component import from an export file; dry run first, then approval), `ov_search` (trackor search), `ov_map` (Instance map lookup), `ov_case` (a trackor support case) |
+| OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_import` (component import from an export file; dry run first, then approval), `ov_search` (trackor search), `ov_map` (Map lookup), `ov_case` (a trackor support case) |
 | Workspace | `ws_list`, `ws_search`, `ws_read`, `ws_edit`, `ws_write`, `ws_run` (only while a workspace folder is set) |
 | Datadog | `dd_logs`, `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm` |
 | PagerDuty | `pd_incidents`, `pd_incident`, `pd_oncall`, `pd_directory`; with changes allowed also `pd_note`, `pd_ack`, `pd_resolve`, `pd_escalate`, `pd_reassign`, `pd_snooze` |
@@ -472,11 +472,11 @@ GitHub token is kept in the vault with your other credentials.
 1. Settings > Workspace: enter the folder, for example `C:\Projects\OneVizion`, and a few
    notes ("ov/ is the platform repo, Modules/ holds Vizion Hub modules; clone new ones
    there"). Save.
-2. Ask for code work in a normal run: "Clone the sftp module into Modules and add retry to
+2. Ask for code work in a normal thread: "Clone the sftp module into Modules and add retry to
    the upload", "Why does TestSqlApiControllerV3 reject this query?", "Fix the failing rule
    package and run its tests". The agent finds files with `ws_search`, reads them with
    `ws_read`, changes them with `ws_edit` and `ws_write`, and runs `git`, builds and tests
-   with `ws_run`. Every step shows up in the run.
+   with `ws_run`. Every step shows up in the thread.
 3. Commands run straight away, except ones that delete files, push, rewrite git history,
    stop processes, publish packages, run downloaded code or touch paths outside the
    workspace. Those wait for your Approve, showing the exact command and folder.
@@ -489,20 +489,20 @@ your approval.
 The agent commits only when you ask and never pushes on its own. Paths in the `ws_` tools
 cannot leave the workspace; a shell command could, which is why those need your approval.
 
-**Instance map** shows how an instance's configuration fits together: trackor types and
+**Map** shows how an instance's configuration fits together: trackor types and
 their relations, fields, rules and what triggers them, automations, imports, reports,
 notifications, workflows and modules, plus the fields each rule, import and report uses in
 its SQL. Pick an instance and Build: it reads the configuration with read-only SQL (about a
 minute on a large instance, Test SQL privilege needed) and caches it in `~/.ov/agent/graphs`.
 Start from a hotspot or search, double-click an object to bring in what it links to, and use
-"Ask the agent" on any object. The agent uses the same map in runs (`ov_map`) to see
+"Ask the agent" on any object. The agent uses the same map in threads (`ov_map`) to see
 what depends on something before it touches it. Links found in SQL text are best-effort.
 DB packages are objects on the map too: their bodies come from one component export, so a package
 links to the fields, trackor types and packages it uses and to the rules that call it. Only
 clean references count as links: quoted names (`'P_STATUS'`), config ids, `id.*` object
 references (`id.project.cf.p_status`, `id.get('id.site.tt')`) and `PACKAGE.procedure` calls.
 
-**Explorer** is a read-only code browser over the same map. Pick a rule, DB package,
+**Code explorer** is a read-only code browser over the same map. Pick a rule, DB package,
 trackor type, import, report, workflow, automation or notification in the tree to open its
 code in a tab. References in the code sit on a pill in their object's color: hover for a
 card with what it is and how it is referenced, click to open. The panel on the right shows
@@ -510,10 +510,10 @@ status and trigger, quick static checks (SELECT INTO without a no-data handler, 
 inside loops, COMMIT in a rule, swallowed errors, unknown hard-coded ids and similar),
 recent runs and errors, and everything the object links to.
 
-Every object, on the map, in the Explorer and in a code hover card, has the same actions:
-**Ask the agent** opens New run with a prompt filled in for you to edit and send, **Open in
-Explorer** opens its code, **Show on map** jumps to it on the Instance map, and the arrow
-opens it in OneVizion. The Explorer adds **Review with AI** for objects with code.
+Every object, on the Map, in the Code explorer and in a code hover card, has the same actions:
+**Ask the agent** opens New thread with a prompt filled in for you to edit and send, **Open in
+Code explorer** opens its code, **Show on map** jumps to it on the Map, and the arrow
+opens it in OneVizion. The Code explorer adds **Review with AI** for objects with code.
 
 **Datadog** (optional) adds the server side. In Settings > Integrations, connect it with
 your own keys: an **API key** (Organization Settings > API Keys) and an **application key**
@@ -529,23 +529,23 @@ the longest instance name wins, so `acme` never takes `dev-acme`'s servers). Eac
 role is its machine name without the number (`web`, `app`). Adjust the chips, or write any
 Datadog filter instead; a tenant shares its host's servers unless you give it its own.
 
-Once connected, runs get read-only Datadog tools (`dd_logs` with message grouping,
+Once connected, threads get read-only Datadog tools (`dd_logs` with message grouping,
 `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm`), offered only for
 what the key can read, with a `role` option to look at one kind of server.
 
-The **Health** page shows one instance at a time, each card loading on its own: a verdict
+The **Instance health** page shows one instance at a time, each card loading on its own: a verdict
 with open incidents, alerting monitors, error logs against the previous window, peak p95,
 failed OneVizion processes and the busiest server; a timeline of requests, p95 and error
 logs with incidents, Datadog events (deploys, restarts) and failed runs marked under it, so
 you see what lined up; incidents you can expand for the alert and its timeline; every
 server with a trend line per metric; top error groups; failed runs by type; slowest
-endpoints; monitors and events. Every card has Ask, which opens New run with a prompt
+endpoints; monitors and events. Every card has Ask, which opens New thread with a prompt
 about that card. A card your account or key cannot read says so instead of failing, for
 example failed runs on an instance where you lack the Test SQL privilege. Nothing on the
 page writes to Datadog, PagerDuty or the instance.
 
 Your Datadog admins can see application keys and may audit their use, and logs the
-agent reads in a run go to GitHub Copilot like any other tool result.
+agent reads in a thread go to GitHub Copilot like any other tool result.
 
 **PagerDuty** (optional) adds incidents and on-call. In Settings > Integrations, connect it
 with your account address (e.g. `yourcompany.pagerduty.com`, which also picks the US or EU
@@ -553,12 +553,12 @@ region) and a personal **API user token** from My Profile > User Settings > Crea
 Token. The token is checked and stored in the vault. There is
 nothing to map: services are shared, so each incident is tied to an instance by what its
 alert names - OV monitoring's `website` field, the database on database alerts (learned from
-website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Runs get `pd_incidents`,
-`pd_incident` (timeline, alerts and notes) and `pd_oncall`, and Health shows
+website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Threads get `pd_incidents`,
+`pd_incident` (timeline, alerts and notes) and `pd_oncall`, and Instance health shows
 open and recent incidents and who is on call for the policies that paged, and counts
 triggered incidents in its verdict, even before the instance is matched in Datadog.
 
-With **Allow changes** on for a run, the agent can also change incidents: add notes,
+With **Allow changes** on for a thread, the agent can also change incidents: add notes,
 acknowledge, resolve, snooze, escalate to a level, and reassign to another escalation policy
 or to people (pd_directory finds them by name). Each change waits for your Approve, and
 PagerDuty records it as you. These need a full-access user token; a read-only one is refused
@@ -577,7 +577,7 @@ Everything lives in `~/.ov` (`ov --home` prints the path, `OV_HOME` overrides it
   spec/            cached OpenAPI schema, one file per instance and group
   cache/           cached API responses
   downloads/       files written by --out
-  agent/           agent history (agent.db), run folders, uploads, Instance maps
+  agent/           agent history (agent.db), run folders, uploads, Maps
   vault            every secret, encrypted
 ```
 

@@ -123,7 +123,7 @@ function Preferences() {
 
   return (
     <Card className="divide-line divide-y">
-      <Row title="Main model" hint="Used for every new run.">
+      <Row title="Main model" hint="Used for every new thread.">
         <Select
           className="w-[260px]"
           value={settings.defaultModel}
@@ -181,7 +181,7 @@ function Preferences() {
       </Row>
       <Row
         title="Step limit"
-        hint="How many tool steps a run may take before it stops. Big investigations need more."
+        hint="How many tool steps a thread may take before it stops. Big investigations need more."
       >
         <Segmented
           label="Step limit"
@@ -293,7 +293,7 @@ function Instances() {
                       const name = i.tenant ? `${i.host} (${i.tenant})` : i.host
                       const ok = await dialog.confirm({
                         title: `Remove ${name}?`,
-                        body: 'Signs out and forgets it on this computer. Runs, maps and Datadog matches are kept; sign in again to use it.',
+                        body: 'Signs out and forgets it on this computer. Threads, maps and Datadog matches are kept; sign in again to use it.',
                         confirmLabel: 'Remove',
                         tone: 'danger',
                       })
@@ -429,7 +429,7 @@ function Skills() {
   const remove = async (skill: SkillInfo) => {
     const ok = await dialog.confirm({
       title: `Delete "${skill.title}"?`,
-      body: 'The skill is removed for new runs. This cannot be undone.',
+      body: 'The skill is removed for new threads. This cannot be undone.',
       confirmLabel: 'Delete',
       tone: 'danger',
     })
@@ -503,7 +503,7 @@ function Skills() {
             </div>
             {current ? (
               <label className="text-muted flex shrink-0 cursor-pointer items-center gap-2.5 text-[12.5px]">
-                {current.enabled ? 'On for new runs' : 'Off'}
+                {current.enabled ? 'On for new threads' : 'Off'}
                 <Switch
                   on={current.enabled}
                   label={current.enabled ? 'Turn off' : 'Turn on'}
@@ -578,7 +578,7 @@ function Skills() {
               </Button>
             ) : null}
             <span className="text-faint ml-auto text-[12px]">
-              {bundled ? 'Bundled skills are read-only' : 'Applies to new runs'}
+              {bundled ? 'Bundled skills are read-only' : 'Applies to new threads'}
             </span>
           </div>
         </div>
@@ -666,19 +666,19 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
       <div className="divide-line mx-auto max-w-[1040px] divide-y px-6 pb-6">
         <Section
           title="Preferences"
-          hint="How runs start and what you see. Saved as you change them."
+          hint="How threads start and what you see. Saved as you change them."
         >
           <Preferences />
         </Section>
         <Section
           title="Instances"
-          hint="OneVizion instances signed in with ov. The agent only reads from them unless you allow changes in a run."
+          hint="OneVizion instances signed in with ov. The agent only reads from them unless you allow changes in a thread."
         >
           <Instances />
         </Section>
         <Section
           title="Integrations"
-          hint="Outside services the agent can read from, and the Health page draws on."
+          hint="Outside services the agent can read from, and the Instance health page draws on."
         >
           <div className="space-y-4">
             <DatadogCard status={datadog.status} setStatus={datadog.setStatus} />
@@ -687,7 +687,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
         </Section>
         <Section
           title="Skills"
-          hint="Instructions added to every run. Bundled ones are read-only: switch them off or clone one to edit it. Or write your own."
+          hint="Instructions added to every thread. Bundled ones are read-only: switch them off or clone one to edit it. Or write your own."
         >
           <Skills />
         </Section>

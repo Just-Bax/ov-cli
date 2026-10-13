@@ -367,7 +367,7 @@ export function RunView({ id }: { id: string }) {
 
   if (error)
     return (
-      <Page title="Run not found" subtitle={<span className="text-danger">{error}</span>}>
+      <Page title="Thread not found" subtitle={<span className="text-danger">{error}</span>}>
         {null}
       </Page>
     )

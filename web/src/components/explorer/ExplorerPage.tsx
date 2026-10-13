@@ -662,7 +662,7 @@ export function ExplorerPage() {
   )
 
   return (
-    <Page title="Explorer" subtitle={subtitle} actions={<GraphActions state={state} />}>
+    <Page title="Code explorer" subtitle={subtitle} actions={<GraphActions state={state} />}>
       {graph && idx ? (
         <div className="flex h-full min-h-[480px]">
           <Tree graph={graph} idx={idx} active={active} onOpen={open} />

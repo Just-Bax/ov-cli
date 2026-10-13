@@ -19,7 +19,7 @@ export function WriteSwitch({
     const next = !local
     if (next) {
       const ok = await dialog.confirm({
-        title: 'Allow changes in this run?',
+        title: 'Allow changes in this thread?',
         body: (
           <>
             The agent will be able to change data and configuration on the instance through ov.

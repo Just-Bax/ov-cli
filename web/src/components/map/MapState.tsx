@@ -39,7 +39,7 @@ function MapState({
     >
       {building
         ? `${step ?? 'Starting'}. Large instances take about a minute.`
-        : 'The Instance map and the Explorer both read the map: how trackor types, fields, rules, automations, imports, reports and workflows link together, with their code. Building it reads the configuration with read-only SQL and needs the Test SQL privilege.'}
+        : 'The Map and the Code explorer both read the map: how trackor types, fields, rules, automations, imports, reports and workflows link together, with their code. Building it reads the configuration with read-only SQL and needs the Test SQL privilege.'}
     </EmptyState>
   )
 }

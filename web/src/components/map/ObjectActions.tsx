@@ -59,7 +59,7 @@ export function ObjectActions({
         </Button>
       ) : null}
       {explorable ? (
-        <IconButton label="Open in Explorer" className={ICON_BUTTON} onClick={explore}>
+        <IconButton label="Open in Code explorer" className={ICON_BUTTON} onClick={explore}>
           <CodeBracketIcon className="size-4" />
         </IconButton>
       ) : null}

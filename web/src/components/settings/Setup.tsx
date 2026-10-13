@@ -322,7 +322,7 @@ export function Setup({
               active={current === 3}
               icon={<AdjustmentsHorizontalIcon className="size-5" />}
               title="Pick a model"
-              subtitle="The default for new runs. You can switch it for any run."
+              subtitle="The default for new threads. You can switch it for any thread."
             >
               {current === 3 ? (
                 <div className="grid gap-4">

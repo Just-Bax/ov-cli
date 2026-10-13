@@ -125,7 +125,7 @@ export function DatadogConnectModal({
       ready={Boolean(apiKey.trim() && appKey.trim())}
       onClose={onClose}
       onSubmit={() => void submit()}
-      privacy="Keys stay in this computer's credential store and are only sent to Datadog. Your Datadog admins can see application keys and may audit their use. Logs the agent reads in a run are sent to GitHub Copilot like any other tool result."
+      privacy="Keys stay in this computer's credential store and are only sent to Datadog. Your Datadog admins can see application keys and may audit their use. Logs the agent reads in a thread are sent to GitHub Copilot like any other tool result."
     >
       <div>
         <div className="text-fg text-[13px] font-medium">Site</div>

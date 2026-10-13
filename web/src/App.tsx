@@ -133,7 +133,7 @@ export function App() {
       <div className="flex h-full">
         <Sidebar route={route} user={status.copilot.user} />
         <main
-          key={route.page === 'run' ? `run-${route.id}` : route.page}
+          key={route.page === 'thread' ? `run-${route.id}` : route.page}
           className="animate-fade-in min-w-0 flex-1 bg-white"
         >
           <Suspense fallback={PAGE_FALLBACK}>
@@ -142,7 +142,7 @@ export function App() {
             {route.page === 'map' && <MapPage />}
             {route.page === 'health' && <HealthPage />}
             {route.page === 'explorer' && <ExplorerPage />}
-            {route.page === 'run' && <RunView key={route.id} id={route.id} />}
+            {route.page === 'thread' && <RunView key={route.id} id={route.id} />}
           </Suspense>
         </main>
         <DialogHost />

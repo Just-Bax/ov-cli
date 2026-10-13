@@ -67,12 +67,12 @@ export function ActionsSkeleton({ widths }: { widths: string[] }) {
 export function ComposerSkeleton() {
   return (
     <div className="px-6 pt-1 pb-4">
-      <div className="border-line-strong/60 mx-auto flex h-[132px] max-w-[860px] flex-col justify-between rounded-[28px] border bg-white p-3">
-        <Skeleton className="mt-1 ml-1 h-3 w-56" />
-        <div className="flex items-center gap-2">
-          <Skeleton className="size-9 rounded-full" />
-          <Skeleton className="h-9 w-32 rounded-full" />
-          <Skeleton className="ml-auto size-9 rounded-full" />
+      <div className="border-line-strong/60 mx-auto flex h-[104px] max-w-[860px] flex-col justify-between rounded-[26px] border bg-white px-2.5 pt-4 pb-2.5">
+        <Skeleton className="ml-1.5 h-3 w-56" />
+        <div className="flex items-center gap-1.5">
+          <Skeleton className="size-8 rounded-full" />
+          <Skeleton className="h-8 w-32 rounded-full" />
+          <Skeleton className="ml-auto size-8 rounded-full" />
         </div>
       </div>
     </div>

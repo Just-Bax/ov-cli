@@ -214,7 +214,7 @@ function AgentUsage() {
                     key: t.id,
                     label: (
                       <a
-                        href={href({ page: 'run', id: t.id })}
+                        href={href({ page: 'thread', id: t.id })}
                         className="hover:text-brand-strong hover:underline"
                       >
                         {t.title}

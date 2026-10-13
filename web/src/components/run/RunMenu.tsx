@@ -155,7 +155,7 @@ async function deleteThread(id: string): Promise<void> {
 
   await api.deleteRun(id)
   await refreshRuns()
-  if (window.location.hash === href({ page: 'run', id })) go({ page: 'home' })
+  if (window.location.hash === href({ page: 'thread', id })) go({ page: 'home' })
 }
 
 function SnoozePanel({ onPick }: { onPick: (until: number) => void }) {

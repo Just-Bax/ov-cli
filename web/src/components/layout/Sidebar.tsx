@@ -1,29 +1,29 @@
 import {
   DotsThree as MoreIcon,
-  CaretDoubleLeft as ChevronDoubleLeftIcon,
-  CaretDoubleRight as ChevronDoubleRightIcon,
   Checks as DoubleCheckIcon,
   Code as CodeBracketIcon,
   GearSix as Cog6ToothIcon,
   Heartbeat as HeartIcon,
+  MagnifyingGlass as SearchIcon,
   MapTrifold as MapIcon,
   Plus as PlusIcon,
   CaretUp as ChevronUpIcon,
   PushPin as BookmarkIcon,
+  SidebarSimple as SidebarIcon,
 } from '@phosphor-icons/react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { EditableTitle } from '@/components/common/EditableTitle'
 import { type Icon, Skeleton, Spinner } from '@/components/common/ui'
-import { TOGGLE_SIDEBAR } from '@/components/layout/CommandPalette'
+import { OPEN_PALETTE, TOGGLE_SIDEBAR } from '@/components/layout/CommandPalette'
 import { RunMenu, snoozeLabel } from '@/components/run/RunMenu'
 import { RUN_STATUS, StatusIcon } from '@/components/run/RunStatus'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { useWindowEvent } from '@/lib/hooks'
+import { useClickOutside, useWindowEvent } from '@/lib/hooks'
 import { useLayer } from '@/lib/layers'
 import { go, href, type Route } from '@/lib/route'
 import { refreshRuns, showMoreSettled, sidebarOrder, useRuns, WORKING } from '@/lib/runs'
@@ -42,15 +42,26 @@ const IN_PROGRESS = 'In progress'
 const SETTLED_OPEN_KEY = 'ov-agent.settled-open'
 const COLLAPSED_KEY = 'ov-agent.sidebar-collapsed'
 const DOCK_QUERY = '(min-width: 1200px)'
-
-const MORE_OPEN_KEY = 'ov-agent.more-open'
+const EXPANDED_WIDTH = 'w-[332px]'
+const FLYOUT_GAP_PX = 8
+const FLYOUT_WIDTH_PX = 220
+const EDGE_PX = 8
+const SEARCH_LABEL = 'Search (Ctrl+K)'
+const OPEN_SIDEBAR_LABEL = 'Open sidebar (Ctrl+B)'
+const CLOSE_SIDEBAR_LABEL = 'Close sidebar (Ctrl+B)'
+const SHELF_ROW_PX = 38
+const HEADER_BUTTON =
+  'text-faint hover:bg-canvas hover:text-brand-strong flex size-8 items-center justify-center rounded-full transition-colors'
+const SHELF_CHROME_PX = 46
+const SNOOZED_MIN_ROWS = 2
+const SETTLED_MIN_ROWS = 4
 
 type NavTool = { route: Route; label: string; icon: Icon }
 
 const TOOLS: NavTool[] = [
-  { route: { page: 'map' }, label: 'Instance map', icon: MapIcon },
-  { route: { page: 'explorer' }, label: 'Explorer', icon: CodeBracketIcon },
-  { route: { page: 'health' }, label: 'Health', icon: HeartIcon },
+  { route: { page: 'map' }, label: 'Map', icon: MapIcon },
+  { route: { page: 'explorer' }, label: 'Code explorer', icon: CodeBracketIcon },
+  { route: { page: 'health' }, label: 'Instance health', icon: HeartIcon },
 ]
 
 const MORE_TOOLS: NavTool[] = []
@@ -132,8 +143,8 @@ function RunItem({
       tabIndex={0}
       onMouseEnter={hover.start}
       onMouseLeave={hover.stop}
-      onClick={() => go({ page: 'run', id: run.id })}
-      onKeyDown={(e) => e.key === 'Enter' && go({ page: 'run', id: run.id })}
+      onClick={() => go({ page: 'thread', id: run.id })}
+      onKeyDown={(e) => e.key === 'Enter' && go({ page: 'thread', id: run.id })}
       className={cn(
         'group/run animate-slide-in flex h-9 cursor-pointer items-center gap-2 rounded-full pr-1.5 pl-3.5 text-[12.5px] font-medium transition-colors outline-none',
         active
@@ -209,7 +220,7 @@ function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
 
   return (
     <a
-      href={href({ page: 'run', id: run.id })}
+      href={href({ page: 'thread', id: run.id })}
       aria-label={run.title}
       onMouseEnter={(e) => {
         tip.show(e)
@@ -310,16 +321,14 @@ function NavRow({
   label,
   active,
   collapsed,
-  trailing,
   expanded,
 }: {
   to?: string
-  onClick?: () => void
+  onClick?: (e: React.MouseEvent<HTMLElement>) => void
   icon: Icon
   label: string
   active: boolean
   collapsed: boolean
-  trailing?: ReactNode
   expanded?: boolean
 }) {
   const tip = useRailTip()
@@ -329,24 +338,36 @@ function NavRow({
     <Element
       href={to}
       type={to ? undefined : 'button'}
-      onClick={onClick}
+      onClick={(e: React.MouseEvent<HTMLElement>) => {
+        tip.hide()
+        onClick?.(e)
+      }}
+      aria-haspopup={expanded === undefined ? undefined : 'menu'}
       aria-expanded={expanded}
       aria-label={collapsed ? label : undefined}
-      onMouseEnter={collapsed ? tip.show : undefined}
+      onMouseEnter={collapsed && !expanded ? tip.show : undefined}
       onMouseLeave={tip.hide}
       className={cn(
         'group/rail relative flex h-9 items-center rounded-full text-[13px] font-medium transition-colors',
         collapsed ? 'mx-auto w-9 justify-center' : 'w-full gap-2.5 pr-3 pl-1',
         active && 'bg-brand-soft text-brand-strong',
-        !active && !collapsed && 'text-text hover:bg-canvas hover:text-brand-strong',
+        !active &&
+          !collapsed &&
+          (expanded
+            ? 'bg-canvas text-brand-strong'
+            : 'text-text hover:bg-canvas hover:text-brand-strong'),
       )}
     >
       <span
         className={cn(
           'flex shrink-0 items-center justify-center rounded-full transition-colors',
           collapsed && !active ? 'size-9' : 'size-7',
-          active ? 'bg-brand text-white' : 'bg-brand-soft text-brand-strong',
-          !active && collapsed && 'group-hover/rail:bg-brand/20',
+          active
+            ? 'bg-brand text-white'
+            : collapsed && expanded
+              ? 'bg-brand/20 text-brand-strong'
+              : 'bg-brand-soft text-brand-strong',
+          !active && collapsed && !expanded && 'group-hover/rail:bg-brand/20',
         )}
       >
         <Icon className="size-3.5" />
@@ -354,12 +375,69 @@ function NavRow({
       {collapsed ? (
         <RailTip at={tip.at}>{label}</RailTip>
       ) : (
-        <>
-          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-          {trailing}
-        </>
+        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
       )}
     </Element>
+  )
+}
+
+type FlyoutAt = { left: number; top: number }
+
+function MoreFlyout({
+  at,
+  anchor,
+  route,
+  onClose,
+}: {
+  at: FlyoutAt
+  anchor: RefObject<HTMLElement | null>
+  route: Route
+  onClose: () => void
+}) {
+  const menu = useRef<HTMLDivElement>(null)
+  const [top, setTop] = useState(at.top)
+
+  useLayoutEffect(() => {
+    if (!menu.current) return
+
+    const height = menu.current.getBoundingClientRect().height
+    setTop(Math.max(EDGE_PX, Math.min(at.top, window.innerHeight - height - EDGE_PX)))
+  }, [at.top])
+
+  useClickOutside([menu, anchor], onClose, true)
+  useLayer(onClose)
+
+  return createPortal(
+    <div
+      ref={menu}
+      role="menu"
+      aria-label="More"
+      style={{ left: at.left, top, width: FLYOUT_WIDTH_PX }}
+      className="border-line-strong/70 animate-pop fixed z-[200] rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]"
+    >
+      {MORE_TOOLS.length ? (
+        MORE_TOOLS.map((tool) => (
+          <a
+            key={tool.label}
+            role="menuitem"
+            href={href(tool.route)}
+            onClick={onClose}
+            className={cn(
+              'flex h-9 items-center gap-2.5 rounded-xl px-2.5 text-[12.5px] font-medium transition-colors',
+              route.page === tool.route.page
+                ? 'bg-brand-soft text-brand-strong'
+                : 'text-fg hover:bg-raised',
+            )}
+          >
+            <tool.icon className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{tool.label}</span>
+          </a>
+        ))
+      ) : (
+        <div className="text-faint px-2.5 py-2 text-[12.5px]">Nothing here yet</div>
+      )}
+    </div>,
+    document.body,
   )
 }
 
@@ -382,6 +460,10 @@ function ToolRows({
       collapsed={collapsed}
     />
   ))
+}
+
+function shelfMinHeight(items: number, minRows: number): number {
+  return SHELF_CHROME_PX + Math.min(items, minRows) * SHELF_ROW_PX
 }
 
 function ShelfToggle({
@@ -422,7 +504,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const [pinnedCollapsed, setCollapsed] = useState(storedCollapsed)
   const [drawer, setDrawer] = useState(false)
   const [snoozedOpen, setSnoozedOpen] = useState(false)
-  const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem(MORE_OPEN_KEY) === '1')
+  const [moreAt, setMoreAt] = useState<FlyoutAt>()
   const [settledOpen, setSettledOpen] = useState(
     () => localStorage.getItem(SETTLED_OPEN_KEY) === '1',
   )
@@ -434,8 +516,10 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const collapsed = docked ? pinnedCollapsed : !drawer
   const overlay = !docked && drawer
   const routeKey = JSON.stringify(route)
+  const moreAnchor = useRef<HTMLElement | null>(null)
 
   useEffect(() => setDrawer(false), [routeKey, docked])
+  useEffect(() => setMoreAt(undefined), [routeKey, collapsed])
   useLayer(() => setDrawer(false), overlay)
 
   const active = list?.active ?? []
@@ -445,7 +529,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const ordered = sidebarOrder(active)
   const shown = showAll ? ordered : ordered.slice(0, RECENT_LIMIT)
   const onSettings = route.page === 'settings'
-  const isOpen = (id: string) => route.page === 'run' && route.id === id
+  const isOpen = (id: string) => route.page === 'thread' && route.id === id
 
   const toggleSettled = (open = !settledOpen) => {
     localStorage.setItem(SETTLED_OPEN_KEY, open ? '1' : '0')
@@ -476,11 +560,17 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
     toggleSettled(true)
   }
 
-  const toggleMore = () => {
-    const open = collapsed || !moreOpen
-    localStorage.setItem(MORE_OPEN_KEY, open ? '1' : '0')
-    setMoreOpen(open)
-    if (collapsed) expand()
+  const toggleMore = (e: React.MouseEvent<HTMLElement>) => {
+    if (moreAt) return setMoreAt(undefined)
+
+    const box = e.currentTarget.getBoundingClientRect()
+    moreAnchor.current = e.currentTarget
+    setMoreAt({ left: box.right + FLYOUT_GAP_PX, top: box.top })
+  }
+
+  const openPalette = () => {
+    toggleTip.hide()
+    window.dispatchEvent(new Event(OPEN_PALETTE))
   }
 
   return (
@@ -499,9 +589,12 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
         className={cn(
           'border-line-strong/60 z-20 flex shrink-0 flex-col border-r bg-white transition-[width] duration-200 ease-out',
           overlay
-            ? 'animate-slide-in fixed inset-y-0 left-0 z-50 w-[352px] shadow-[0_12px_40px_rgba(38,50,56,0.22)]'
+            ? cn(
+                'animate-slide-in fixed inset-y-0 left-0 z-50 shadow-[0_12px_40px_rgba(38,50,56,0.22)]',
+                EXPANDED_WIDTH,
+              )
             : 'relative',
-          !overlay && (collapsed ? 'w-[72px]' : 'w-[352px]'),
+          !overlay && (collapsed ? 'w-[72px]' : EXPANDED_WIDTH),
         )}
       >
         <div
@@ -514,7 +607,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             <button
               type="button"
               onClick={toggle}
-              aria-label="Expand sidebar"
+              aria-label="Open sidebar"
               onMouseEnter={toggleTip.show}
               onMouseLeave={toggleTip.hide}
               className="group/logo hover:bg-brand-soft relative flex size-10 items-center justify-center rounded-full transition-colors"
@@ -524,31 +617,51 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 alt=""
                 className="h-[26px] w-auto transition-opacity group-hover/logo:opacity-0"
               />
-              <ChevronDoubleRightIcon className="text-brand-strong absolute size-4 opacity-0 transition-opacity group-hover/logo:opacity-100" />
-              <RailTip at={toggleTip.at}>Expand sidebar</RailTip>
+              <SidebarIcon className="text-brand-strong absolute size-[18px] opacity-0 transition-opacity group-hover/logo:opacity-100" />
+              <RailTip at={toggleTip.at}>{OPEN_SIDEBAR_LABEL}</RailTip>
             </button>
           ) : (
             <>
               <a href="#/" aria-label="OV Agent home">
                 <img src={wordmark} alt="OV Agent" className="h-[26px] w-auto max-w-none" />
               </a>
-              <button
-                type="button"
-                onClick={toggle}
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar"
-                className="text-faint hover:bg-canvas hover:text-brand-strong flex size-8 items-center justify-center rounded-full transition-colors"
-              >
-                <ChevronDoubleLeftIcon className="size-4" />
-              </button>
+              <span className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={openPalette}
+                  aria-label="Search"
+                  title={SEARCH_LABEL}
+                  className={HEADER_BUTTON}
+                >
+                  <SearchIcon className="size-[18px]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={toggle}
+                  aria-label="Close sidebar"
+                  title={CLOSE_SIDEBAR_LABEL}
+                  className={HEADER_BUTTON}
+                >
+                  <SidebarIcon className="size-[18px]" />
+                </button>
+              </span>
             </>
           )}
         </div>
         <nav className={cn('shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}>
+          {collapsed ? (
+            <NavRow
+              icon={SearchIcon}
+              label={SEARCH_LABEL}
+              active={false}
+              collapsed
+              onClick={openPalette}
+            />
+          ) : null}
           <NavRow
             to="#/"
             icon={PlusIcon}
-            label="New run"
+            label="New thread"
             active={route.page === 'home'}
             collapsed={collapsed}
           />
@@ -558,31 +671,25 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             label="More"
             active={false}
             collapsed={collapsed}
-            expanded={moreOpen && !collapsed}
+            expanded={Boolean(moreAt)}
             onClick={toggleMore}
-            trailing={
-              <ChevronUpIcon
-                className={cn(
-                  'text-faint size-3 transition-transform duration-200',
-                  !moreOpen && 'rotate-90',
-                )}
-              />
-            }
           />
-          {moreOpen && !collapsed ? (
-            MORE_TOOLS.length ? (
-              <div className="animate-fade-in space-y-0.5 pl-4">
-                <ToolRows tools={MORE_TOOLS} route={route} collapsed={false} />
-              </div>
-            ) : (
-              <div className="text-faint animate-fade-in py-1.5 pl-12 text-[12px]">
-                Nothing here yet
-              </div>
-            )
+          {moreAt ? (
+            <MoreFlyout
+              at={moreAt}
+              anchor={moreAnchor}
+              route={route}
+              onClose={() => setMoreAt(undefined)}
+            />
           ) : null}
         </nav>
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div
+          className={cn(
+            'flex min-h-0 flex-1 flex-col',
+            !collapsed && Boolean(snoozed.length || settledTotal) && 'pb-2.5',
+          )}
+        >
           {collapsed ? (
             <div className="border-line-strong/60 mt-1 min-h-0 flex-1 scrollbar-thin space-y-1.5 overflow-y-auto border-t px-2 pt-3 pb-3">
               {active.slice(0, RAIL_RUNS).map((r) => (
@@ -632,8 +739,8 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
               {list && !active.length ? (
                 <div className="text-faint px-3.5 py-3 text-[12.5px]">
                   {settledTotal
-                    ? 'Everything is settled. Start a new run with a case number or a question.'
-                    : 'Your runs appear here. Start one with a case number or a question.'}
+                    ? 'Everything is settled. Start a new thread with a case number or a question.'
+                    : 'Your threads appear here. Start one with a case number or a question.'}
                 </div>
               ) : null}
             </div>
@@ -642,9 +749,14 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           {snoozed.length && !collapsed ? (
             <div
               className={cn(
-                'flex min-h-0 flex-col px-3 py-0.5',
+                'flex flex-col px-3 py-1.5',
                 snoozedOpen ? 'max-h-[30%] shrink' : 'shrink-0',
               )}
+              style={
+                snoozedOpen
+                  ? { minHeight: shelfMinHeight(snoozed.length, SNOOZED_MIN_ROWS) }
+                  : undefined
+              }
             >
               <ShelfToggle
                 label="Snoozed"
@@ -653,7 +765,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 onClick={() => setSnoozedOpen((v) => !v)}
               />
               {snoozedOpen ? (
-                <div className="animate-fade-in mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto">
+                <div className="animate-fade-in fade-bottom mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto pb-3">
                   {snoozed.map((r) => (
                     <RunItem key={r.id} run={r} active={isOpen(r.id)} />
                   ))}
@@ -680,9 +792,19 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             ) : (
               <div
                 className={cn(
-                  'flex min-h-0 flex-col px-3 py-0.5',
-                  settledOpen ? 'max-h-[45%] min-h-[88px] shrink' : 'shrink-0',
+                  'flex flex-col px-3 py-1.5',
+                  settledOpen ? 'max-h-[45%] shrink' : 'shrink-0',
                 )}
+                style={
+                  settledOpen
+                    ? {
+                        minHeight: shelfMinHeight(
+                          settled.length + (settledTotal > settled.length ? 1 : 0),
+                          SETTLED_MIN_ROWS,
+                        ),
+                      }
+                    : undefined
+                }
               >
                 <ShelfToggle
                   label="Settled"
@@ -691,7 +813,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                   onClick={() => toggleSettled()}
                 />
                 {settledOpen ? (
-                  <div className="animate-fade-in mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto">
+                  <div className="animate-fade-in fade-bottom mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto pb-3">
                     {settled.map((r) => (
                       <RunItem key={r.id} run={r} active={isOpen(r.id)} settled />
                     ))}

@@ -92,7 +92,7 @@ export function Home() {
         allowWrite,
       })
       void refreshRuns()
-      go({ page: 'run', id })
+      go({ page: 'thread', id })
     } catch (e) {
       setError((e as Error).message)
       setStarting(false)
@@ -127,7 +127,7 @@ export function Home() {
           />
           <div className="text-faint mt-2 px-2 text-center text-[11.5px]">
             {allowWrite
-              ? 'Changes allowed for this run. Each change waits for your Approve.'
+              ? 'Changes allowed for this thread. Each change waits for your Approve.'
               : 'Read-only on every instance. Changes come back as diffs for you to apply.'}
           </div>
           {error ? <div className="text-danger mt-2 text-center text-[12.5px]">{error}</div> : null}

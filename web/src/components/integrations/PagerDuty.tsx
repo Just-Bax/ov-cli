@@ -78,7 +78,7 @@ function PagerDutyConnectModal({
       ready={Boolean(apiKey.trim())}
       onClose={onClose}
       onSubmit={() => void submit()}
-      privacy="The token stays in this computer's credential store and is only sent to PagerDuty. Your PagerDuty admins can see and revoke user tokens. Incidents the agent reads in a run are sent to GitHub Copilot like any other tool result."
+      privacy="The token stays in this computer's credential store and is only sent to PagerDuty. Your PagerDuty admins can see and revoke user tokens. Incidents the agent reads in a thread are sent to GitHub Copilot like any other tool result."
     >
       <div>
         <div className="text-fg text-[13px] font-medium">Account</div>
@@ -132,7 +132,7 @@ export function PagerDutyCard({
       details={
         <div
           className="border-line flex flex-wrap items-center gap-3 border-t px-5 py-3"
-          title="Only in runs with Allow changes on, and each change waits for your Approve. Needs a full-access token."
+          title="Only in threads with Allow changes on, and each change waits for your Approve. Needs a full-access token."
         >
           <span className="text-muted inline-flex items-center gap-1 text-[12px] font-medium">
             Can change <InformationCircleIcon className="text-faint size-3.5" />

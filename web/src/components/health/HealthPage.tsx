@@ -197,7 +197,7 @@ export function HealthPage() {
   }
 
   return (
-    <Page title="Health" subtitle={subtitle} actions={actions}>
+    <Page title="Instance health" subtitle={subtitle} actions={actions}>
       {body}
       <DatadogConnectModal
         open={connecting}

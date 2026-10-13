@@ -30,6 +30,7 @@ const THREAD_CANDIDATES = MAX_THREADS * 4
 const THREAD_JUMPS = 9
 export const TOGGLE_SIDEBAR = 'ov-agent:toggle-sidebar'
 export const OPEN_FIND = 'ov-agent:find'
+export const OPEN_PALETTE = 'ov-agent:open-palette'
 
 type Command = {
   id: string
@@ -43,7 +44,7 @@ type Command = {
 
 const SHORTCUTS: [string, string][] = [
   ['Ctrl+K', 'Command palette'],
-  ['Alt+N', 'New run'],
+  ['Alt+N', 'New thread'],
   ['Alt+1 to Alt+9', 'Open a thread from the sidebar'],
   ['Ctrl+B', 'Collapse or expand the sidebar'],
   ['Ctrl+F', 'Find in this thread'],
@@ -66,14 +67,14 @@ export function CommandPalette({ route }: { route: Route }) {
   const list = useRuns()
   const input = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const runId = route.page === 'run' ? route.id : undefined
+  const runId = route.page === 'thread' ? route.id : undefined
 
   const altAction = (e: KeyboardEvent): (() => void) | undefined => {
     if (e.code === 'KeyN') return () => go({ page: 'home' })
     if (e.code === 'KeyS' && runId) return () => void api.cancel(runId).catch(reportError)
     const digit = /^Digit([1-9])$/.exec(e.code)
     const target = digit ? sidebarOrder(list?.active ?? [])[Number(digit[1]) - 1] : undefined
-    return target ? () => go({ page: 'run', id: target.id }) : undefined
+    return target ? () => go({ page: 'thread', id: target.id }) : undefined
   }
 
   useWindowEvent('keydown', (e) => {
@@ -118,6 +119,11 @@ export function CommandPalette({ route }: { route: Route }) {
     setHelp((v) => !v)
   })
 
+  useWindowEvent(OPEN_PALETTE, () => {
+    setHelp(false)
+    setOpen(true)
+  })
+
   useLayer(() => setOpen(false), open)
 
   useEffect(() => {
@@ -134,7 +140,7 @@ export function CommandPalette({ route }: { route: Route }) {
       {
         id: 'new',
         group: 'Actions',
-        label: 'New run',
+        label: 'New thread',
         keys: 'Alt+N',
         icon: <PlusIcon className="size-4" />,
         run: () => go({ page: 'home' }),
@@ -197,9 +203,9 @@ export function CommandPalette({ route }: { route: Route }) {
     }
 
     const pages: [Route, string, ReactNode][] = [
-      [{ page: 'map' }, 'Instance map', <MapIcon key="m" className="size-4" />],
-      [{ page: 'explorer' }, 'Explorer', <CodeBracketIcon key="e" className="size-4" />],
-      [{ page: 'health' }, 'Health', <HeartIcon key="h" className="size-4" />],
+      [{ page: 'map' }, 'Map', <MapIcon key="m" className="size-4" />],
+      [{ page: 'explorer' }, 'Code explorer', <CodeBracketIcon key="e" className="size-4" />],
+      [{ page: 'health' }, 'Instance health', <HeartIcon key="h" className="size-4" />],
       [{ page: 'settings' }, 'Settings', <Cog6ToothIcon key="s" className="size-4" />],
     ]
     for (const [target, label, icon] of pages)
@@ -216,7 +222,7 @@ export function CommandPalette({ route }: { route: Route }) {
         hint: settledIds.has(r.id) ? 'settled' : r.snoozedUntil ? 'snoozed' : r.instance,
         keys: jump >= 0 && jump < THREAD_JUMPS ? `Alt+${jump + 1}` : undefined,
         icon: <ChatBubbleLeftRightIcon className="size-4" />,
-        run: () => go({ page: 'run', id: r.id }),
+        run: () => go({ page: 'thread', id: r.id }),
       })
     }
 
@@ -233,7 +239,7 @@ export function CommandPalette({ route }: { route: Route }) {
     visible.push({
       id: 'draft',
       group: 'Actions',
-      label: `New run: ${query.trim()}`,
+      label: `New thread: ${query.trim()}`,
       hint: 'opens it in the composer',
       icon: <PlusIcon className="size-4" />,
       run: () => openDraft({ prompt: query.trim() }),
@@ -253,15 +259,15 @@ export function CommandPalette({ route }: { route: Route }) {
   let group = ''
   return createPortal(
     <div
-      className="fixed inset-0 z-[150] flex items-start justify-center bg-[#263238]/25 px-4 pt-[12vh] backdrop-blur-[2px]"
+      className="fixed inset-0 z-[150] flex items-center justify-center bg-[#263238]/25 p-4 backdrop-blur-[2px]"
       onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}
     >
       <div
         role="dialog"
         aria-label="Command palette"
-        className="animate-pop w-full max-w-[600px] overflow-hidden rounded-2xl bg-white shadow-[0_20px_60px_rgba(38,50,56,0.28)]"
+        className="animate-pop flex h-[min(560px,72vh)] w-full max-w-[600px] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_20px_60px_rgba(38,50,56,0.28)]"
       >
-        <div className="border-line flex h-14 items-center gap-3 border-b px-4">
+        <div className="border-line flex h-14 shrink-0 items-center gap-3 border-b px-4">
           <MagnifyingGlassIcon className="text-faint size-5 shrink-0" />
           <input
             ref={input}
@@ -287,7 +293,7 @@ export function CommandPalette({ route }: { route: Route }) {
           />
           <kbd className="text-faint border-line rounded-md border px-1.5 text-[11px]">Esc</kbd>
         </div>
-        <div ref={listRef} className="max-h-[56vh] scrollbar-thin overflow-y-auto p-2">
+        <div ref={listRef} className="min-h-0 flex-1 scrollbar-thin overflow-y-auto p-2">
           {visible.map((c, i) => {
             const header = c.group !== group ? (group = c.group) : undefined
             return (
