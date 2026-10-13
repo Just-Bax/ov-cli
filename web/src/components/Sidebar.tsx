@@ -23,6 +23,7 @@ import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
 import { RunMenu, snoozeLabel } from '@/components/RunMenu'
+import { TOGGLE_SIDEBAR } from '@/components/CommandPalette'
 import { EditableTitle } from '@/components/EditableTitle'
 import { notifyInApp } from '@/components/Toasts'
 import { Skeleton, Spinner } from '@/components/ui'
@@ -477,6 +478,13 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
       return !c
     })
   }
+  const toggleRef = useRef(toggle)
+  toggleRef.current = toggle
+  useEffect(() => {
+    const onToggle = () => toggleRef.current()
+    window.addEventListener(TOGGLE_SIDEBAR, onToggle)
+    return () => window.removeEventListener(TOGGLE_SIDEBAR, onToggle)
+  }, [])
   const openSettled = () => {
     if (docked) {
       localStorage.setItem(COLLAPSED_KEY, '0')

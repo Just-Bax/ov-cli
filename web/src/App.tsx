@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import type { Settings, Status } from '@shared/types.ts'
+import { CommandPalette } from '@/components/CommandPalette'
 import { DialogHost, dialog } from '@/components/Dialog'
 import { Home } from '@/components/Home'
 import { RunView } from '@/components/run/RunView'
@@ -158,6 +159,7 @@ export function App() {
         </main>
         <DialogHost />
         <Toasts />
+        <CommandPalette route={route} />
       </div>
     </SettingsContext.Provider>
   )

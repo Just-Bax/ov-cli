@@ -38,6 +38,7 @@ import { ChangeCard } from './ChangeCard'
 import { CostPill } from './CostPill'
 import { FilesChanged, LineCounts, summarize } from './FilesChanged'
 import { FindBar } from './FindBar'
+import { OPEN_FIND } from '@/components/CommandPalette'
 import { ThreadRail } from './ThreadRail'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
 import { Answer, LoginCard, QuestionCard } from './Panels'
@@ -295,8 +296,13 @@ export function RunView({ id }: { id: string }) {
         setFinding(true)
       }
     }
+    const onFind = () => setFinding(true)
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener(OPEN_FIND, onFind)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener(OPEN_FIND, onFind)
+    }
   }, [])
 
   const older = useCallback(
