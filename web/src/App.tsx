@@ -137,7 +137,7 @@ export function App() {
           className="animate-fade-in min-w-0 flex-1 bg-white"
         >
           <Suspense fallback={PAGE_FALLBACK}>
-            {route.page === 'home' && <Home settings={status.settings} />}
+            {route.page === 'home' && <Home />}
             {route.page === 'settings' && <SettingsPage onChange={refresh} />}
             {route.page === 'map' && <MapPage />}
             {route.page === 'health' && <HealthPage />}

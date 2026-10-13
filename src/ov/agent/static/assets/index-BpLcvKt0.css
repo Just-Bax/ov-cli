@@ -644,9 +644,6 @@
   .h-16 {
     height: calc(var(--spacing) * 16);
   }
-  .h-20 {
-    height: calc(var(--spacing) * 20);
-  }
   .h-24 {
     height: calc(var(--spacing) * 24);
   }
@@ -673,6 +670,9 @@
   }
   .h-\[74px\] {
     height: 74px;
+  }
+  .h-\[132px\] {
+    height: 132px;
   }
   .h-\[230px\] {
     height: 230px;
@@ -749,14 +749,14 @@
   .min-h-24 {
     min-height: calc(var(--spacing) * 24);
   }
-  .min-h-\[44px\] {
-    min-height: 44px;
-  }
-  .min-h-\[56px\] {
-    min-height: 56px;
+  .min-h-\[80px\] {
+    min-height: 80px;
   }
   .min-h-\[88px\] {
     min-height: 88px;
+  }
+  .min-h-\[96px\] {
+    min-height: 96px;
   }
   .min-h-\[200px\] {
     min-height: 200px;
@@ -880,6 +880,9 @@
   }
   .w-\[72px\] {
     width: 72px;
+  }
+  .w-\[112px\] {
+    width: 112px;
   }
   .w-\[220px\] {
     width: 220px;
@@ -1306,6 +1309,9 @@
   .rounded-\[26px\] {
     border-radius: 26px;
   }
+  .rounded-\[28px\] {
+    border-radius: 28px;
+  }
   .rounded-full {
     border-radius: calc(infinity * 1px);
   }
@@ -1625,6 +1631,9 @@
   .px-6 {
     padding-inline: calc(var(--spacing) * 6);
   }
+  .px-8 {
+    padding-inline: calc(var(--spacing) * 8);
+  }
   .px-20 {
     padding-inline: calc(var(--spacing) * 20);
   }
@@ -1675,6 +1684,9 @@
   }
   .pt-3 {
     padding-top: calc(var(--spacing) * 3);
+  }
+  .pt-3\.5 {
+    padding-top: calc(var(--spacing) * 3.5);
   }
   .pt-4 {
     padding-top: calc(var(--spacing) * 4);

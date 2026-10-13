@@ -642,7 +642,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
           {snoozed.length && !collapsed ? (
             <div
               className={cn(
-                'flex min-h-0 flex-col px-3 pt-1 pb-2',
+                'flex min-h-0 flex-col px-3 py-0.5',
                 snoozedOpen ? 'max-h-[30%] shrink' : 'shrink-0',
               )}
             >
@@ -680,7 +680,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             ) : (
               <div
                 className={cn(
-                  'flex min-h-0 flex-col px-3 pt-1 pb-2',
+                  'flex min-h-0 flex-col px-3 py-0.5',
                   settledOpen ? 'max-h-[45%] min-h-[88px] shrink' : 'shrink-0',
                 )}
               >

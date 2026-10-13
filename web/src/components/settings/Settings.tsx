@@ -123,7 +123,7 @@ function Preferences() {
 
   return (
     <Card className="divide-line divide-y">
-      <Row title="Main model" hint="Used for new runs. You can switch it per run in the chat.">
+      <Row title="Main model" hint="Used for every new run.">
         <Select
           className="w-[260px]"
           value={settings.defaultModel}

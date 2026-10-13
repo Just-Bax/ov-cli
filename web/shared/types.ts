@@ -199,7 +199,6 @@ export interface RunInput {
   prompt: string
   instance?: string
   attachments?: Upload[]
-  model?: string
   allowWrite?: boolean
 }
 

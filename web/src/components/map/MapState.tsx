@@ -1,9 +1,11 @@
 import { ArrowsClockwise as ArrowPathIcon, MapTrifold as MapIcon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
-import { useSkeleton } from '@/components/common/skeletons'
+import { ActionsSkeleton, useSkeleton } from '@/components/common/skeletons'
 import { Button, EmptyState, IconBadge, Select, Spinner } from '@/components/common/ui'
 import { instanceLabel } from '@/lib/instances'
 import type { InstanceGraphState } from '@/lib/useInstanceGraph'
+
+const GRAPH_ACTION_WIDTHS = ['w-[260px]', 'w-24']
 
 function MapState({
   building,
@@ -75,6 +77,8 @@ export function BuildingNote({ step }: { step?: string }) {
 }
 
 export function GraphActions({ state }: { state: InstanceGraphState }) {
+  if (!state.instances || state.loading) return <ActionsSkeleton widths={GRAPH_ACTION_WIDTHS} />
+
   return (
     <>
       <div className="w-[260px]">

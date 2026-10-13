@@ -2,7 +2,7 @@ import { ArrowSquareOut as ArrowTopRightOnSquareIcon } from '@phosphor-icons/rea
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatMessage, FollowUp, RunState, ThreadItem, ToolActivity } from '@shared/types.ts'
 import { EditableTitle } from '@/components/common/EditableTitle'
-import { useSkeleton } from '@/components/common/skeletons'
+import { ActionsSkeleton, ComposerSkeleton, useSkeleton } from '@/components/common/skeletons'
 import { reportError } from '@/components/common/Toasts'
 import {
   Dot,
@@ -42,6 +42,7 @@ const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as c
 const MARK_LABEL_CHARS = 160
 const OLDER_MARGIN_PX = 600
 const OLDER_ARM_MS = 500
+const RUN_ACTION_WIDTHS = ['w-24', 'w-9']
 
 const MemoChangeCard = memo(ChangeCard)
 const MemoAnswer = memo(Answer)
@@ -375,6 +376,8 @@ export function RunView({ id }: { id: string }) {
     return (
       <Page
         title={<Skeleton className="h-4 w-80" />}
+        actions={<ActionsSkeleton widths={RUN_ACTION_WIDTHS} />}
+        footer={<ComposerSkeleton />}
         subtitle={
           <>
             <Skeleton className="h-3 w-16" />

@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { Settings } from '@shared/types.ts'
 import { Composer } from '@/components/composer/Composer'
 import { InstancePicker } from '@/components/composer/InstancePicker'
-import { ModelPicker } from '@/components/composer/ModelPicker'
 import { WriteSwitch } from '@/components/composer/WriteSwitch'
 import { Page } from '@/components/common/ui'
 import { api } from '@/lib/api'
@@ -52,17 +50,16 @@ function greeting(): string {
   return h < NOON_HOUR ? 'Good morning' : h < EVENING_HOUR ? 'Good afternoon' : 'Good evening'
 }
 
-type Choices = { model?: string; instance?: string; allowWrite?: boolean }
+type Choices = { instance?: string; allowWrite?: boolean }
 
 function loadChoices(): Choices {
   const raw = localStorage.getItem(CHOICES_KEY)
   return raw ? (JSON.parse(raw) as Choices) : {}
 }
 
-export function Home({ settings }: { settings: Settings }) {
+export function Home() {
   const saved = loadChoices()
   const { instances } = useInstances()
-  const [model, setModel] = useState(saved.model ?? settings.defaultModel)
   const [instance, setInstance] = useState(saved.instance ?? '')
   const [allowWrite, setAllowWrite] = useState(saved.allowWrite ?? false)
   const [error, setError] = useState<string>()
@@ -70,8 +67,8 @@ export function Home({ settings }: { settings: Settings }) {
   const [draft, setDraft] = useState<{ text: string; at: number }>()
 
   useEffect(() => {
-    localStorage.setItem(CHOICES_KEY, JSON.stringify({ model, instance, allowWrite }))
-  }, [model, instance, allowWrite])
+    localStorage.setItem(CHOICES_KEY, JSON.stringify({ instance, allowWrite }))
+  }, [instance, allowWrite])
 
   const loadDraft = () => {
     const found = takeDraft()
@@ -92,7 +89,6 @@ export function Home({ settings }: { settings: Settings }) {
         prompt: text.trim(),
         instance: instance || undefined,
         attachments,
-        model,
         allowWrite,
       })
       void refreshRuns()
@@ -125,7 +121,6 @@ export function Home({ settings }: { settings: Settings }) {
                 {instances?.length ? (
                   <InstancePicker value={instance} onChange={setInstance} instances={instances} />
                 ) : null}
-                <ModelPicker value={model} onChange={setModel} />
                 <WriteSwitch value={allowWrite} onChange={setAllowWrite} />
               </>
             }

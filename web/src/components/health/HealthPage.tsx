@@ -1,6 +1,6 @@
 import { ArrowsClockwise as ArrowPathIcon, Sparkle as SparklesIcon } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { useSkeleton } from '@/components/common/skeletons'
+import { ActionsSkeleton, useSkeleton } from '@/components/common/skeletons'
 import { Button, Card, EmptyState, Page, Select, Skeleton } from '@/components/common/ui'
 import { DatadogBadge, DatadogConnectModal, useDatadog } from '@/components/integrations/Datadog'
 import { cn } from '@/lib/cn'
@@ -25,6 +25,7 @@ import { MatchInstance } from './MatchInstance'
 
 const INSTANCE_KEY = 'ov-agent.health-instance'
 const STAT_TILES = 6
+const HEALTH_ACTION_WIDTHS = ['w-[260px]', 'w-[112px]', 'w-9', 'w-36']
 
 function serverCount(scope: string): ReactNode {
   const hosts = hostsIn(scope)
@@ -86,7 +87,9 @@ export function HealthPage() {
       prompt: `Check the health of ${label} over the last ${RANGE_WORDS[range]}. Use PagerDuty incidents, Datadog monitors, events such as deploys and restarts, error logs grouped by pattern, traffic and latency, and server metrics. Line them up with failed OneVizion processes in the same window. Tell me what changed or is failing, the likely cause, and what to do.`,
     })
 
-  const actions = status?.connected ? (
+  const actions = !status ? (
+    <ActionsSkeleton widths={HEALTH_ACTION_WIDTHS} />
+  ) : status.connected ? (
     <>
       <div className="w-[260px]">
         <Select

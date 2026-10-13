@@ -655,7 +655,7 @@ def start_run(h: Handler) -> dict[str, str]:
     attachments = _objects(data, "attachments")
     if not prompt and not attachments:
         raise HttpError(400, "Describe what you need.")
-    model = str(data.get("model") or settings["defaultModel"])
+    model = settings["defaultModel"]
     if not model:
         raise HttpError(400, "Pick a model first (Settings).")
 

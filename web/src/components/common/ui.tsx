@@ -149,8 +149,15 @@ export function Spinner({ className }: { className?: string }) {
   )
 }
 
+const SIZED = /(^|\s)(h|size)-/
+
 export function Skeleton({ className, style }: { className?: string; style?: CSSProperties }) {
-  return <div className={cn('skeleton h-3', className)} style={style} />
+  return (
+    <div
+      className={cn('skeleton', !SIZED.test(className ?? '') && 'h-3', className)}
+      style={style}
+    />
+  )
 }
 
 export function SkeletonText({ lines = 3 }: { lines?: number }) {

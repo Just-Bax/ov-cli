@@ -228,7 +228,7 @@ export function Composer({
         placeholder={placeholder}
         className={cn(
           'placeholder:text-faint block field-sizing-content max-h-60 w-full resize-none scrollbar-thin bg-transparent px-4 text-[14px] outline-none',
-          size === 'lg' ? 'min-h-[56px] pt-4 pb-3' : 'min-h-[44px] pt-3 pb-2',
+          size === 'lg' ? 'min-h-[96px] pt-4 pb-3' : 'min-h-[80px] pt-3.5 pb-2',
         )}
       />
       <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
