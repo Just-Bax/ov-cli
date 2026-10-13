@@ -453,27 +453,6 @@ def delete_skill(_: Handler, name: str) -> list[dict[str, Any]]:
     return skills.list_skills()
 
 
-@route("GET", "/api/workspace/entries")
-def workspace_entries(h: Handler) -> dict[str, Any]:
-    return {"root": str(project.root()), "entries": project.entries(h.query.get("path", ""))}
-
-
-@route("GET", "/api/workspace/file")
-def workspace_file(h: Handler) -> dict[str, str]:
-    path = _required(h.query, "path")
-    return {"path": path, "content": project.text_of(path)}
-
-
-@route("PUT", "/api/workspace/file")
-def workspace_save(h: Handler) -> dict[str, str]:
-    data = h.json()
-    path = _required(data, "path")
-    if not isinstance(data.get("content"), str):
-        raise HttpError(400, "Give the file content as a string.")
-    project.write(path, data["content"])
-    return {"path": path, "content": project.text_of(path)}
-
-
 @route("POST", "/api/uploads")
 def upload(h: Handler) -> dict[str, str]:
     name = Path(unquote(h.headers.get("X-File-Name") or "")).name

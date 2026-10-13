@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-const SIMPLE_PAGES = ['settings', 'map', 'explorer', 'health', 'workspace'] as const
+const SIMPLE_PAGES = ['settings', 'map', 'explorer', 'health'] as const
 
 type SimplePage = (typeof SIMPLE_PAGES)[number]
 

@@ -1,5 +1,5 @@
 import {
-  Folder as FolderIcon,
+  DotsThree as MoreIcon,
   CaretDoubleLeft as ChevronDoubleLeftIcon,
   CaretDoubleRight as ChevronDoubleRightIcon,
   Checks as DoubleCheckIcon,
@@ -43,12 +43,17 @@ const SETTLED_OPEN_KEY = 'ov-agent.settled-open'
 const COLLAPSED_KEY = 'ov-agent.sidebar-collapsed'
 const DOCK_QUERY = '(min-width: 1200px)'
 
-const TOOLS = [
-  { page: 'map', label: 'Instance map', icon: MapIcon },
-  { page: 'health', label: 'Health', icon: HeartIcon },
-  { page: 'explorer', label: 'Explorer', icon: CodeBracketIcon },
-  { page: 'workspace', label: 'Workspace', icon: FolderIcon },
-] as const
+const MORE_OPEN_KEY = 'ov-agent.more-open'
+
+type NavTool = { route: Route; label: string; icon: Icon }
+
+const TOOLS: NavTool[] = [
+  { route: { page: 'map' }, label: 'Instance map', icon: MapIcon },
+  { route: { page: 'explorer' }, label: 'Explorer', icon: CodeBracketIcon },
+  { route: { page: 'health' }, label: 'Health', icon: HeartIcon },
+]
+
+const MORE_TOOLS: NavTool[] = []
 
 function dayLabel(ts: number): string {
   const day = new Date(ts).setHours(0, 0, 0, 0)
@@ -300,28 +305,38 @@ function RailTip({ at, children }: { at?: TipAt; children: ReactNode }) {
 
 function NavRow({
   to,
+  onClick,
   icon: Icon,
   label,
   active,
   collapsed,
+  trailing,
+  expanded,
 }: {
-  to: string
+  to?: string
+  onClick?: () => void
   icon: Icon
   label: string
   active: boolean
   collapsed: boolean
+  trailing?: ReactNode
+  expanded?: boolean
 }) {
   const tip = useRailTip()
+  const Element = to ? 'a' : 'button'
 
   return (
-    <a
+    <Element
       href={to}
+      type={to ? undefined : 'button'}
+      onClick={onClick}
+      aria-expanded={expanded}
       aria-label={collapsed ? label : undefined}
       onMouseEnter={collapsed ? tip.show : undefined}
       onMouseLeave={tip.hide}
       className={cn(
         'group/rail relative flex h-9 items-center rounded-full text-[13px] font-medium transition-colors',
-        collapsed ? 'mx-auto w-9 justify-center' : 'gap-2.5 pr-3 pl-1',
+        collapsed ? 'mx-auto w-9 justify-center' : 'w-full gap-2.5 pr-3 pl-1',
         active && 'bg-brand-soft text-brand-strong',
         !active && !collapsed && 'text-text hover:bg-canvas hover:text-brand-strong',
       )}
@@ -339,10 +354,34 @@ function NavRow({
       {collapsed ? (
         <RailTip at={tip.at}>{label}</RailTip>
       ) : (
-        <span className="truncate">{label}</span>
+        <>
+          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+          {trailing}
+        </>
       )}
-    </a>
+    </Element>
   )
+}
+
+function ToolRows({
+  tools,
+  route,
+  collapsed,
+}: {
+  tools: NavTool[]
+  route: Route
+  collapsed: boolean
+}) {
+  return tools.map((tool) => (
+    <NavRow
+      key={tool.label}
+      to={href(tool.route)}
+      icon={tool.icon}
+      label={tool.label}
+      active={route.page === tool.route.page}
+      collapsed={collapsed}
+    />
+  ))
 }
 
 function ShelfToggle({
@@ -383,6 +422,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const [pinnedCollapsed, setCollapsed] = useState(storedCollapsed)
   const [drawer, setDrawer] = useState(false)
   const [snoozedOpen, setSnoozedOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem(MORE_OPEN_KEY) === '1')
   const [settledOpen, setSettledOpen] = useState(
     () => localStorage.getItem(SETTLED_OPEN_KEY) === '1',
   )
@@ -424,12 +464,23 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
 
   useWindowEvent(TOGGLE_SIDEBAR, toggle)
 
+  const expand = () => {
+    if (!docked) return setDrawer(true)
+
+    localStorage.setItem(COLLAPSED_KEY, '0')
+    setCollapsed(false)
+  }
+
   const openSettled = () => {
-    if (docked) {
-      localStorage.setItem(COLLAPSED_KEY, '0')
-      setCollapsed(false)
-    } else setDrawer(true)
+    expand()
     toggleSettled(true)
+  }
+
+  const toggleMore = () => {
+    const open = collapsed || !moreOpen
+    localStorage.setItem(MORE_OPEN_KEY, open ? '1' : '0')
+    setMoreOpen(open)
+    if (collapsed) expand()
   }
 
   return (
@@ -501,16 +552,34 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             active={route.page === 'home'}
             collapsed={collapsed}
           />
-          {TOOLS.map((tool) => (
-            <NavRow
-              key={tool.page}
-              to={href({ page: tool.page })}
-              icon={tool.icon}
-              label={tool.label}
-              active={route.page === tool.page}
-              collapsed={collapsed}
-            />
-          ))}
+          <ToolRows tools={TOOLS} route={route} collapsed={collapsed} />
+          <NavRow
+            icon={MoreIcon}
+            label="More"
+            active={false}
+            collapsed={collapsed}
+            expanded={moreOpen && !collapsed}
+            onClick={toggleMore}
+            trailing={
+              <ChevronUpIcon
+                className={cn(
+                  'text-faint size-3 transition-transform duration-200',
+                  !moreOpen && 'rotate-90',
+                )}
+              />
+            }
+          />
+          {moreOpen && !collapsed ? (
+            MORE_TOOLS.length ? (
+              <div className="animate-fade-in space-y-0.5 pl-4">
+                <ToolRows tools={MORE_TOOLS} route={route} collapsed={false} />
+              </div>
+            ) : (
+              <div className="text-faint animate-fade-in py-1.5 pl-12 text-[12px]">
+                Nothing here yet
+              </div>
+            )
+          ) : null}
         </nav>
 
         <div className="flex min-h-0 flex-1 flex-col">

@@ -24,7 +24,6 @@ import type {
   RunList,
   Settings,
   SkillInfo,
-  WorkspaceEntries,
   Status,
   Upload,
 } from '@shared/types.ts'
@@ -127,12 +126,6 @@ export const api = {
     ),
   pagerdutyIncident: (id: string) =>
     request<PagerDutyIncidentDetail>(`/pagerduty/incidents/${seg(id)}`),
-  workspaceEntries: (path: string) =>
-    request<WorkspaceEntries>(`/workspace/entries?path=${seg(path)}`),
-  workspaceFile: (path: string) =>
-    request<{ path: string; content: string }>(`/workspace/file?path=${seg(path)}`),
-  saveWorkspaceFile: (path: string, content: string) =>
-    put<{ path: string; content: string }>('/workspace/file', { path, content }),
   checkInstance: (instance: string) =>
     request<{ url: string; ms: number; version: string | null }>(
       `/instances/check?instance=${seg(instance)}`,

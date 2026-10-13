@@ -260,17 +260,6 @@ export interface SkillInfo {
   enabled: boolean
 }
 
-interface WorkspaceEntry {
-  name: string
-  path: string
-  dir: boolean
-}
-
-export interface WorkspaceEntries {
-  root: string
-  entries: WorkspaceEntry[]
-}
-
 export interface ModelInfo {
   id: string
   name: string

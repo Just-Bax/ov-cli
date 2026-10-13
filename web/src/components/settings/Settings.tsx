@@ -49,7 +49,7 @@ import { cn } from '@/lib/cn'
 import { useLoad } from '@/lib/hooks'
 import { useInstances } from '@/lib/instances'
 import { useModels } from '@/lib/models'
-import { go, href } from '@/lib/route'
+import { go } from '@/lib/route'
 import { useSettings } from '@/lib/settings'
 import { UnsavedGuard, useUnsavedWarning } from '@/lib/unsaved'
 
@@ -636,14 +636,6 @@ function Workspace() {
         <Button variant="primary" size="sm" disabled={!dirty || saving} onClick={() => void save()}>
           {saving ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />} Save
         </Button>
-        {settings.workspace ? (
-          <a
-            href={href({ page: 'workspace' })}
-            className="text-brand-strong text-[12.5px] font-medium hover:underline"
-          >
-            Open the workspace
-          </a>
-        ) : null}
         {error ? <span className="text-danger text-[12px]">{error}</span> : null}
       </div>
     </Card>

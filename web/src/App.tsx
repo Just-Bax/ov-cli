@@ -14,9 +14,6 @@ import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
 import { SettingsContext } from '@/lib/settings'
 
-const WorkspacePage = lazy(() =>
-  import('@/components/workspace/WorkspacePage').then((m) => ({ default: m.WorkspacePage })),
-)
 const ExplorerPage = lazy(() =>
   import('@/components/explorer/ExplorerPage').then((m) => ({ default: m.ExplorerPage })),
 )
@@ -145,7 +142,6 @@ export function App() {
             {route.page === 'map' && <MapPage />}
             {route.page === 'health' && <HealthPage />}
             {route.page === 'explorer' && <ExplorerPage />}
-            {route.page === 'workspace' && <WorkspacePage />}
             {route.page === 'run' && <RunView key={route.id} id={route.id} />}
           </Suspense>
         </main>

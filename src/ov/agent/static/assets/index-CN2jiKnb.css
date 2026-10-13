@@ -1766,6 +1766,9 @@
   .pl-5 {
     padding-left: calc(var(--spacing) * 5);
   }
+  .pl-12 {
+    padding-left: calc(var(--spacing) * 12);
+  }
   .pl-20 {
     padding-left: calc(var(--spacing) * 20);
   }

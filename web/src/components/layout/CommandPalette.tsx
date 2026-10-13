@@ -4,7 +4,6 @@ import {
   Code as CodeBracketIcon,
   GearSix as Cog6ToothIcon,
   TerminalWindow as CommandLineIcon,
-  Folder as FolderIcon,
   Heartbeat as HeartIcon,
   MagnifyingGlass as MagnifyingGlassIcon,
   MapTrifold as MapIcon,
@@ -201,7 +200,6 @@ export function CommandPalette({ route }: { route: Route }) {
       [{ page: 'map' }, 'Instance map', <MapIcon key="m" className="size-4" />],
       [{ page: 'explorer' }, 'Explorer', <CodeBracketIcon key="e" className="size-4" />],
       [{ page: 'health' }, 'Health', <HeartIcon key="h" className="size-4" />],
-      [{ page: 'workspace' }, 'Workspace', <FolderIcon key="w" className="size-4" />],
       [{ page: 'settings' }, 'Settings', <Cog6ToothIcon key="s" className="size-4" />],
     ]
     for (const [target, label, icon] of pages)
