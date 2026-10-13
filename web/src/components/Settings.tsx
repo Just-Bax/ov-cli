@@ -9,7 +9,7 @@ import {
   TrashIcon,
 } from '@heroicons/react/24/outline'
 import { useEffect, useState } from 'react'
-import type { Instance, SkillInfo } from '@shared/types.ts'
+import type { Instance, ReasoningLevel, SkillInfo } from '@shared/types.ts'
 import {
   AccountRow,
   DatadogAccountRow,
@@ -71,6 +71,25 @@ function Section({
 }
 
 const STEP_LIMITS = [40, 80, 150, 300]
+
+const REASONING: { value: ReasoningLevel | ''; label: string; hint: string }[] = [
+  { value: '', label: 'Model default', hint: 'what each model picks' },
+  { value: 'none', label: 'None', hint: 'no thinking, where offered' },
+  { value: 'low', label: 'Low', hint: 'fastest, cheapest' },
+  { value: 'medium', label: 'Medium', hint: '' },
+  { value: 'high', label: 'High', hint: '' },
+  { value: 'xhigh', label: 'Extra high', hint: '' },
+  { value: 'max', label: 'Max', hint: 'slowest, most credits' },
+]
+
+function reasoningHint(levels: ReasoningLevel[] | undefined, wanted: ReasoningLevel | ''): string {
+  const base = 'How hard the model thinks before answering. Higher is slower and uses more credits.'
+  if (!levels) return base
+  if (!levels.length) return `${base} The main model has no levels, so this does not apply to it.`
+  const names = levels.map((l) => REASONING.find((r) => r.value === l)?.label ?? l).join(', ')
+  const note = wanted && !levels.includes(wanted) ? ' The nearest one is used.' : ''
+  return `${base} The main model offers: ${names}.${note}`
+}
 
 function Row({
   title,
@@ -165,6 +184,20 @@ function Preferences() {
             label: m.name,
             hint: m.premium ? `x${m.premium}` : m.vendor,
           }))}
+        />
+      </Row>
+      <Row
+        title="Reasoning"
+        hint={reasoningHint(
+          models.find((m) => m.id === settings.defaultModel)?.reasoning,
+          settings.reasoning,
+        )}
+      >
+        <Select
+          className="w-[260px]"
+          value={settings.reasoning}
+          onChange={(v) => void update({ reasoning: v as ReasoningLevel | '' })}
+          options={REASONING.map((r) => ({ value: r.value, label: r.label, hint: r.hint }))}
         />
       </Row>
       <Row

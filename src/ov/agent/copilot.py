@@ -11,6 +11,7 @@ import httpx
 
 from .. import credentials
 from .cancel import Cancel, Cancelled
+from .db import REASONING_LEVELS
 
 CLIENT_ID = "Iv1.b507a08c87ecfe98"
 EDITOR_HEADERS = {
@@ -202,6 +203,7 @@ def _model_entry(model: dict[str, Any]) -> dict[str, Any]:
         "vendor": model.get("vendor") or "",
         "vision": bool(supports.get("vision")),
         "premium": (model.get("billing") or {}).get("multiplier"),
+        "reasoning": [level for level in supports.get("reasoning_effort") or [] if level in REASONING_LEVELS],
     }
 
 
@@ -225,6 +227,21 @@ def list_models() -> list[dict[str, Any]]:
     with _lock:
         _models = (time.time(), listed)
     return listed
+
+
+def reasoning_for(model_id: str, wanted: str) -> str | None:
+    if not wanted:
+        return None
+    if wanted not in REASONING_LEVELS:
+        raise CopilotError(f"Unknown reasoning level: {wanted}")
+    model = next((m for m in list_models() if m["id"] == model_id), None)
+    if model is None or not model["reasoning"]:
+        return None
+    rank = REASONING_LEVELS.index(wanted)
+    return min(
+        model["reasoning"],
+        key=lambda level: (abs(REASONING_LEVELS.index(level) - rank), -REASONING_LEVELS.index(level)),
+    )
 
 
 def supports_vision(model_id: str) -> bool:
@@ -276,6 +293,7 @@ def stream_chat(
     *,
     cancel: Cancel,
     on_text: Callable[[str], None],
+    reasoning: str | None = None,
 ) -> StreamResult:
     extra = {"X-Initiator": initiator}
     if _has_images(messages):
@@ -289,6 +307,7 @@ def stream_chat(
         "stream": True,
         "stream_options": {"include_usage": True},
         "max_tokens": MAX_TOKENS,
+        **({"reasoning_effort": reasoning} if reasoning else {}),
     }
 
     with httpx.Client(timeout=httpx.Timeout(HTTP_TIMEOUT_SECONDS, read=CHAT_READ_TIMEOUT_SECONDS)) as http:

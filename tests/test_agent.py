@@ -231,7 +231,7 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
         ]
     )
 
-    def fake_chat(*args, cancel, on_text):
+    def fake_chat(*args, cancel, on_text, **_):
         reply = next(replies)
         on_text(reply.text)
         return reply
@@ -511,7 +511,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
     db.save_settings({"fastModel": "fast-model"})
     seen: list[str] = []
 
-    def fake_chat(*args, cancel, on_text):
+    def fake_chat(*args, cancel, on_text, **_):
         return StreamResult(text="Done.")
 
     def fake_complete(model, system, user_text):
@@ -575,7 +575,7 @@ def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch
     )
     sent: list[list[dict]] = []
 
-    def fake_chat(model, messages, *args, cancel, on_text):
+    def fake_chat(model, messages, *args, cancel, on_text, **_):
         sent.append(json.loads(json.dumps(messages)))
         reply = next(replies)
         on_text(reply.text)
@@ -635,7 +635,7 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
             StreamResult(text="Stopped."),
         ]
     )
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text: next(replies))
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
     monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
 
     run = runs.create({"prompt": "help", "instance": "acme"}, "test-model")
@@ -685,7 +685,7 @@ def test_runs_can_be_settled_and_a_follow_up_unsettles_them(logged_in):
 
 
 def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypatch):
-    def fake_chat(*args, cancel, on_text):
+    def fake_chat(*args, cancel, on_text, **_):
         on_text("All ")
         on_text("good.")
         return StreamResult(text="All good.")
@@ -836,7 +836,7 @@ def test_a_run_records_what_each_request_cost(logged_in, monkeypatch):
             StreamResult(text="Done.", usage=usage),
         ]
     )
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text: next(replies))
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
     monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
     monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
 
@@ -898,7 +898,7 @@ def test_a_thread_exports_as_markdown(agent_server, monkeypatch):
         ]
     )
 
-    def fake_chat(*args, cancel, on_text):
+    def fake_chat(*args, cancel, on_text, **_):
         reply = next(replies)
         on_text(reply.text)
         return reply
@@ -934,7 +934,7 @@ def test_cost_routes_answer(agent_server):
 def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(logged_in, monkeypatch):
     sent: list[list[dict]] = []
 
-    def fake_chat(model, messages, *args, cancel, on_text):
+    def fake_chat(model, messages, *args, cancel, on_text, **_):
         sent.append([dict(m) for m in messages])
         return StreamResult(text="Carrying on.")
 
@@ -1016,7 +1016,7 @@ def test_datadog_queries_naming_a_host_skip_the_instance_lookup(logged_in, tmp_p
 def test_the_system_prompt_follows_write_access(logged_in, monkeypatch):
     sent: list[str] = []
 
-    def fake_chat(model, messages, *args, cancel, on_text):
+    def fake_chat(model, messages, *args, cancel, on_text, **_):
         sent.append(messages[0]["content"])
         return StreamResult(text="ok")
 
@@ -1039,7 +1039,7 @@ def test_the_system_prompt_follows_write_access(logged_in, monkeypatch):
 
 def test_an_empty_reply_is_asked_for_once(logged_in, monkeypatch):
     replies = iter([StreamResult(text=""), StreamResult(text="Here it is.")])
-    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text: next(replies))
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
     monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
 
     from ov.agent.run import runs
@@ -1048,3 +1048,25 @@ def test_an_empty_reply_is_asked_for_once(logged_in, monkeypatch):
     _wait_done(run)
     assert run._messages[-2]["content"].startswith("[Your last reply was empty")
     assert run._messages[-1]["content"] == "Here it is."
+
+
+def test_reasoning_picks_the_nearest_level_the_model_accepts(monkeypatch):
+    from ov.agent import copilot
+
+    monkeypatch.setattr(
+        copilot,
+        "list_models",
+        lambda: [
+            {"id": "big", "reasoning": ["low", "medium", "high", "xhigh", "max"]},
+            {"id": "mini", "reasoning": ["low", "medium", "high"]},
+            {"id": "old", "reasoning": []},
+        ],
+    )
+    assert copilot.reasoning_for("big", "max") == "max"
+    assert copilot.reasoning_for("mini", "max") == "high"
+    assert copilot.reasoning_for("mini", "none") == "low"
+    assert copilot.reasoning_for("old", "high") is None
+    assert copilot.reasoning_for("big", "") is None
+    with pytest.raises(ValueError):
+        db.save_settings({"reasoning": "huge"})
+    assert db.save_settings({"reasoning": "xhigh"})["reasoning"] == "xhigh"

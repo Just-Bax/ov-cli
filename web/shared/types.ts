@@ -247,6 +247,7 @@ export interface Settings {
   workspace: string
   workspaceNotes: string
   maxSteps: number
+  reasoning: ReasoningLevel | ''
   notify: boolean
   showTimeSaved: boolean
   expandTools: boolean
@@ -286,7 +287,10 @@ export interface ModelInfo {
   vendor: string
   vision: boolean
   premium?: number
+  reasoning: ReasoningLevel[]
 }
+
+export type ReasoningLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface Instance {
   alias: string

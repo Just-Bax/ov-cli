@@ -63,12 +63,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "workspace": "",
     "workspaceNotes": "",
     "maxSteps": 80,
+    "reasoning": "",
     "notify": False,
     "showTimeSaved": True,
     "expandTools": False,
 }
 
 MAX_STEPS_LIMIT = 500
+REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
 NANO_PER_CREDIT = 1_000_000_000
 TOP_THREADS = 10
 RUN_LIST_LIMIT = 500
@@ -153,6 +155,8 @@ def _max_steps(value: Any) -> int:
 def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
     if "maxSteps" in patch:
         patch = {**patch, "maxSteps": _max_steps(patch["maxSteps"])}
+    if patch.get("reasoning") and patch["reasoning"] not in REASONING_LEVELS:
+        raise ValueError(f"Unknown reasoning level: {patch['reasoning']}")
     if "workspace" in patch:
         from .project import validate_folder
 

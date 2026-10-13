@@ -709,6 +709,7 @@ class Run:
                 initiator,
                 cancel=self.cancel,
                 on_text=lambda delta: self._stream_text(message_id, delta),
+                reasoning=copilot.reasoning_for(model, db.get_settings()["reasoning"]),
             )
         finally:
             self._commit_text(message_id)
