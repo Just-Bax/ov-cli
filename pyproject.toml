@@ -71,3 +71,8 @@ max-nested-blocks = 3
 
 [tool.pytest.ini_options]
 pythonpath = ["tests"]
+testpaths = ["tests"]
+markers = [
+    "integration: starts servers, runs the CLI end to end, uses git, subprocesses or a browser",
+    "browser: drives a real Chromium through Playwright",
+]

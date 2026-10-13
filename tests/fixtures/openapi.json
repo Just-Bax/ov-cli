@@ -1,0 +1,214 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OneVizion API",
+    "version": "2026.1"
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
+  "paths": {
+    "/v3/users/{user_id}": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "public com.onevizion.vo.api.v3.UserJsonModel com.onevizion.web.controller.api.v3.UserJsonApiControllerV3.getUserById(java.lang.Long)",
+        "summary": "Read User",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "public com.onevizion.vo.api.v3.UserJsonModel com.onevizion.web.controller.api.v3.UserJsonApiControllerV3.deleteUser(java.lang.Long)",
+        "summary": "Delete User",
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/v3/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "public com.onevizion.vo.api.v3.UserJsonModel com.onevizion.web.controller.api.v3.UserJsonApiControllerV3.getUserByUnOrEmail(String,String)",
+        "summary": "Find User by user name or email",
+        "parameters": [
+          {
+            "name": "user_name",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Email address"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "public com.onevizion.vo.api.v3.UserJsonModel com.onevizion.web.controller.api.v3.UserJsonApiControllerV3.createUser(UserSubmitJsonModel)",
+        "summary": "Create User",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserSubmit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v3/schema/trackor_types": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "operationId": "public com.onevizion.vo.api.v3.UserJsonModel com.onevizion.web.controller.api.v3.UserJsonApiControllerV3.getTrackorTypes()",
+        "summary": "Read Trackor Types schema",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v3/trackor_types/{trackor_type}/trackors/search": {
+      "post": {
+        "tags": [
+          "trackor-types"
+        ],
+        "operationId": "public com.onevizion.vo.api.v3.UserJsonModel com.onevizion.web.controller.api.v3.UserJsonApiControllerV3.search(String)",
+        "summary": "Search Trackors",
+        "parameters": [
+          {
+            "name": "trackor_type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          {
+            "name": "json",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UserSubmit": {
+        "type": "object",
+        "required": [
+          "user_name"
+        ],
+        "properties": {
+          "user_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
