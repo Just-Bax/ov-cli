@@ -1,4 +1,8 @@
-import { ChevronRightIcon, DocumentPlusIcon, PencilSquareIcon } from '@heroicons/react/24/outline'
+import {
+  CaretRight as ChevronRightIcon,
+  FilePlus as DocumentPlusIcon,
+  NotePencil as PencilSquareIcon,
+} from '@phosphor-icons/react'
 import { memo, useEffect, useState } from 'react'
 import type { FileEdit, RunDetails } from '@shared/types.ts'
 import { useSkeleton } from '@/components/skeletons'

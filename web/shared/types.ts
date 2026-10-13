@@ -269,7 +269,6 @@ export interface Settings {
   maxSteps: number
   reasoning: ReasoningLevel | ''
   followUp: FollowUp
-  notify: boolean
   showTimeSaved: boolean
   expandTools: boolean
 }

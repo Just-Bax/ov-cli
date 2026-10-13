@@ -1,20 +1,19 @@
 import {
-  FolderIcon,
-  CheckCircleIcon,
-  ChevronDoubleLeftIcon,
-  ChevronDoubleRightIcon,
-  CodeBracketIcon,
-  Cog6ToothIcon,
-  ExclamationCircleIcon,
-  HeartIcon,
-  MapIcon,
-  NoSymbolIcon,
-  PlusIcon,
-  ArrowUturnLeftIcon,
-  ChevronUpIcon,
-  BookmarkIcon,
-  BellSnoozeIcon,
-} from '@heroicons/react/24/outline'
+  Folder as FolderIcon,
+  CheckCircle as CheckCircleIcon,
+  CaretDoubleLeft as ChevronDoubleLeftIcon,
+  CaretDoubleRight as ChevronDoubleRightIcon,
+  Code as CodeBracketIcon,
+  GearSix as Cog6ToothIcon,
+  WarningCircle as ExclamationCircleIcon,
+  Heartbeat as HeartIcon,
+  MapTrifold as MapIcon,
+  Prohibit as NoSymbolIcon,
+  Plus as PlusIcon,
+  CaretUp as ChevronUpIcon,
+  PushPin as BookmarkIcon,
+  BellZ as BellSnoozeIcon,
+} from '@phosphor-icons/react'
 import type { Icon } from '@/components/ui'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -25,14 +24,12 @@ import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
 import { RunMenu, snoozeLabel } from '@/components/RunMenu'
 import { TOGGLE_SIDEBAR } from '@/components/CommandPalette'
 import { EditableTitle } from '@/components/EditableTitle'
-import { notifyInApp } from '@/components/Toasts'
 import { Skeleton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { go, href, type Route } from '@/lib/route'
-import { useSettings } from '@/lib/settings'
 import { prefetchRun } from '@/lib/useRun'
-import { onStatusChange, refreshRuns, setSettled, showMoreSettled, useRuns } from '@/lib/runs'
+import { refreshRuns, showMoreSettled, useRuns } from '@/lib/runs'
 
 const RECENT_LIMIT = 40
 
@@ -96,49 +93,6 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
 
 const BUSY = new Set(['queued', 'running'])
 const HOVER_PREFETCH_MS = 150
-const NOTICE: Partial<Record<RunStatus, string>> = {
-  done: 'Run finished',
-  error: 'Run failed',
-  waiting: 'Run needs you',
-}
-
-function useRunNotifications(route: Route, enabled: boolean) {
-  const current = useRef(route)
-  useEffect(() => {
-    current.current = route
-  }, [route])
-
-  useEffect(() => {
-    if (!enabled) return
-
-    return onStatusChange((change) => {
-      const title = change.kind === 'status' && change.status ? NOTICE[change.status] : undefined
-      if (!title || !change.id) return
-      const id = change.id
-
-      const open = () => {
-        window.focus()
-        go({ page: 'run', id })
-      }
-      const focused = document.visibilityState === 'visible' && document.hasFocus()
-      const watching = current.current.page === 'run' && current.current.id === id
-      if (focused && watching) return
-      if (focused || !('Notification' in window) || Notification.permission !== 'granted')
-        return notifyInApp(title, change.title ?? '', open)
-
-      const notice = new Notification(title, {
-        body: change.title,
-        icon: '/favicon-32.png',
-        tag: id,
-        requireInteraction: change.status === 'waiting',
-      })
-      notice.onclick = () => {
-        notice.close()
-        open()
-      }
-    })
-  }, [enabled])
-}
 
 function Avatar({ user }: { user?: string }) {
   const [broken, setBroken] = useState(false)
@@ -168,7 +122,6 @@ function RunItem({
   active: boolean
   settled?: boolean
 }) {
-  const busy = BUSY.has(run.status) || run.status === 'waiting'
   const hover = useHoverPrefetch(run.id, active)
 
   return (
@@ -212,28 +165,7 @@ function RunItem({
           {snoozeLabel(run.snoozedUntil)}
         </span>
       ) : null}
-      <RunMenu run={run} settled={Boolean(settled)} />
-      {busy ? null : (
-        <button
-          type="button"
-          title={settled ? 'Move back to active' : 'Settle'}
-          aria-label={settled ? 'Move back to active' : 'Settle'}
-          onClick={(e) => {
-            e.stopPropagation()
-            void setSettled(run.id, !settled)
-          }}
-          className={cn(
-            'flex size-7 shrink-0 items-center justify-center rounded-full opacity-0 transition-[opacity,color,background-color] group-hover/run:opacity-100 hover:bg-black/[0.06] focus-visible:opacity-100',
-            settled ? 'text-faint hover:text-brand-strong' : 'text-faint hover:text-ok',
-          )}
-        >
-          {settled ? (
-            <ArrowUturnLeftIcon className="size-3.5" />
-          ) : (
-            <DoubleCheckIcon className="size-4" />
-          )}
-        </button>
-      )}
+      <RunMenu run={run} settled={Boolean(settled)} inRow />
     </div>
   )
 }
@@ -433,7 +365,6 @@ function NavRow({
 
 export function Sidebar({ route, user }: { route: Route; user?: string }) {
   const list = useRuns()
-  useRunNotifications(route, useSettings().settings.notify)
   const [showAll, setShowAll] = useState(false)
   const [pinnedCollapsed, setCollapsed] = useState(storedCollapsed)
   const toggleTip = useRailTip()
@@ -660,11 +591,17 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 type="button"
                 onClick={() => setSnoozedOpen((v) => !v)}
                 aria-expanded={snoozedOpen}
-                className="text-muted hover:text-fg hover:bg-canvas flex h-8 w-full shrink-0 items-center gap-2 rounded-full px-3.5 text-[12px] font-medium transition-colors"
+                className="group/shelf text-faint hover:text-fg flex h-8 w-full shrink-0 items-center gap-2 rounded-full px-3.5 text-[11px] font-semibold tracking-wide uppercase transition-colors"
               >
                 <BellSnoozeIcon className="text-brand size-3.5" />
-                <span className="flex-1 text-left">Snoozed</span>
-                <span className="text-faint tabular-nums">{snoozed.length}</span>
+                <span className="text-left">Snoozed</span>
+                <span className="bg-raised text-muted rounded-full px-1.5 text-[10.5px] tabular-nums">
+                  {snoozed.length}
+                </span>
+                <span className="flex-1" />
+                <span className="text-[10.5px] tracking-normal normal-case opacity-0 transition-opacity group-hover/shelf:opacity-100">
+                  {snoozedOpen ? 'Hide' : 'Show'}
+                </span>
                 <ChevronUpIcon
                   className={cn(
                     'size-3 transition-transform duration-200',
@@ -708,11 +645,17 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                   type="button"
                   onClick={() => toggleSettled()}
                   aria-expanded={settledOpen}
-                  className="text-muted hover:text-fg hover:bg-canvas flex h-8 w-full shrink-0 items-center gap-2 rounded-full px-3.5 text-[12px] font-medium transition-colors"
+                  className="group/shelf text-faint hover:text-fg flex h-8 w-full shrink-0 items-center gap-2 rounded-full px-3.5 text-[11px] font-semibold tracking-wide uppercase transition-colors"
                 >
                   <DoubleCheckIcon className="text-ok size-3.5" />
-                  <span className="flex-1 text-left">Settled</span>
-                  <span className="text-faint tabular-nums">{settledTotal}</span>
+                  <span className="text-left">Settled</span>
+                  <span className="bg-raised text-muted rounded-full px-1.5 text-[10.5px] tabular-nums">
+                    {settledTotal}
+                  </span>
+                  <span className="flex-1" />
+                  <span className="text-[10.5px] tracking-normal normal-case opacity-0 transition-opacity group-hover/shelf:opacity-100">
+                    {settledOpen ? 'Hide' : 'Show'}
+                  </span>
                   <ChevronUpIcon
                     className={cn(
                       'size-3 transition-transform duration-200',

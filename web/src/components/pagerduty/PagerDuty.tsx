@@ -1,12 +1,12 @@
 import {
-  InformationCircleIcon,
-  PencilIcon,
-  ArrowPathIcon,
-  CheckIcon,
-  LinkSlashIcon,
-  LockClosedIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
+  Info as InformationCircleIcon,
+  PencilSimple as PencilIcon,
+  ArrowsClockwise as ArrowPathIcon,
+  Check as CheckIcon,
+  LinkBreak as LinkSlashIcon,
+  Lock as LockClosedIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { PagerDutyArea, PagerDutyStatus } from '@shared/types.ts'

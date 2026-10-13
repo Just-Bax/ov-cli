@@ -1,4 +1,8 @@
-import { ClockIcon, KeyIcon, PaperAirplaneIcon } from '@heroicons/react/24/outline'
+import {
+  Clock as ClockIcon,
+  Key as KeyIcon,
+  PaperPlaneTilt as PaperAirplaneIcon,
+} from '@phosphor-icons/react'
 import { formatMinutes } from '@shared/estimate.ts'
 import { useState } from 'react'
 import type { LoginPrompt, Outcome, Question, Verdict } from '@shared/types.ts'

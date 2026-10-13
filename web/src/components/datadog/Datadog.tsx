@@ -1,16 +1,16 @@
 import {
-  ArrowPathIcon,
-  ArrowTopRightOnSquareIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  EyeIcon,
-  EyeSlashIcon,
-  LinkSlashIcon,
-  LockClosedIcon,
-  SparklesIcon,
-  Square2StackIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
+  ArrowsClockwise as ArrowPathIcon,
+  ArrowSquareOut as ArrowTopRightOnSquareIcon,
+  Check as CheckIcon,
+  CaretDown as ChevronDownIcon,
+  Eye as EyeIcon,
+  EyeSlash as EyeSlashIcon,
+  LinkBreak as LinkSlashIcon,
+  Lock as LockClosedIcon,
+  Sparkle as SparklesIcon,
+  Copy as Square2StackIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { DatadogArea, DatadogDiscovery, DatadogStatus } from '@shared/types.ts'

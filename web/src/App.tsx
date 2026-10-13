@@ -29,7 +29,7 @@ const SettingsPage = lazy(() =>
 )
 
 const PAGE_FALLBACK = (
-  <div className="space-y-3 p-6">
+  <div className="h-full space-y-3 bg-white p-6">
     <Skeleton className="h-10 w-1/3 rounded-full" />
     <Skeleton className="h-[60vh] w-full rounded-2xl" />
   </div>
@@ -145,7 +145,7 @@ export function App() {
         <Sidebar route={route} user={status.copilot.user} />
         <main
           key={route.page === 'run' ? `run-${route.id}` : route.page}
-          className="animate-fade-in min-w-0 flex-1"
+          className="animate-fade-in min-w-0 flex-1 bg-white"
         >
           <Suspense fallback={PAGE_FALLBACK}>
             {route.page === 'home' && <Home settings={status.settings} />}

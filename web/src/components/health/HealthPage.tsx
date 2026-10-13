@@ -1,4 +1,4 @@
-import { ArrowPathIcon, SparklesIcon } from '@heroicons/react/24/outline'
+import { ArrowsClockwise as ArrowPathIcon, Sparkle as SparklesIcon } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { Instance } from '@shared/types.ts'
 import { DatadogBadge, DatadogConnectModal, useDatadog } from '@/components/datadog/Datadog'

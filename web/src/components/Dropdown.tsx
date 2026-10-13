@@ -1,4 +1,8 @@
-import { CheckIcon, ChevronDownIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import {
+  Check as CheckIcon,
+  CaretDown as ChevronDownIcon,
+  MagnifyingGlass as MagnifyingGlassIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/cn'

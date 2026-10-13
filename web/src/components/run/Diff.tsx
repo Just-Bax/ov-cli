@@ -1,5 +1,5 @@
 import { diffLines, diffWordsWithSpace } from 'diff'
-import { ChevronUpDownIcon } from '@heroicons/react/24/outline'
+import { CaretUpDown as ChevronUpDownIcon } from '@phosphor-icons/react'
 import { type ReactNode, useMemo, useState } from 'react'
 import { cn } from '@/lib/cn'
 

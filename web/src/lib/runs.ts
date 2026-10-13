@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { RunList, RunStatus } from '@shared/types.ts'
+import type { RunList } from '@shared/types.ts'
 import { reportError } from '@/components/Toasts'
 import { api } from '@/lib/api'
 import { remember } from '@/lib/undo'
@@ -8,13 +8,6 @@ const FALLBACK_POLL_MS = 60_000
 const REFRESH_DEBOUNCE_MS = 150
 export const SETTLED_PAGE = 50
 
-export type StatusChange = {
-  kind: 'status' | 'meta' | 'list'
-  id?: string
-  status?: RunStatus
-  title?: string
-}
-
 let list: RunList | undefined
 let raw = ''
 let settledLimit = SETTLED_PAGE
@@ -22,7 +15,6 @@ let source: EventSource | undefined
 let poll: ReturnType<typeof setInterval> | undefined
 let pending: ReturnType<typeof setTimeout> | undefined
 const listeners = new Set<() => void>()
-const statusListeners = new Set<(change: StatusChange) => void>()
 
 function publish(next: RunList) {
   list = next
@@ -55,17 +47,13 @@ function start() {
   void refreshRuns()
   source = new EventSource('/api/status-events')
   source.onopen = () => void refreshRuns()
-  source.onmessage = (message) => {
-    const change = JSON.parse(message.data as string) as StatusChange
-    scheduleRefresh()
-    for (const listen of statusListeners) listen(change)
-  }
+  source.onmessage = scheduleRefresh
   poll = setInterval(onVisible, FALLBACK_POLL_MS)
   document.addEventListener('visibilitychange', onVisible)
 }
 
 function stopIfIdle() {
-  if (listeners.size || statusListeners.size) return
+  if (listeners.size) return
   source?.close()
   source = undefined
   clearInterval(poll)
@@ -78,15 +66,6 @@ function subscribe(listen: () => void): () => void {
   start()
   return () => {
     listeners.delete(listen)
-    stopIfIdle()
-  }
-}
-
-export function onStatusChange(listen: (change: StatusChange) => void): () => void {
-  statusListeners.add(listen)
-  start()
-  return () => {
-    statusListeners.delete(listen)
     stopIfIdle()
   }
 }

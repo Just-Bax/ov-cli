@@ -433,19 +433,20 @@ next step) or queue (sent after the turn). Ctrl+Enter sends the other way.
 
 In a thread:
 
-- The header shows its credits (hover for tokens and models), **Watch**, **Export** (the
-  whole thread as Markdown) and **Settle**. The instance in the subtitle shows its sign-in
-  state; **Check** reads the platform version and response time, only when you click it.
+- The header shows its credits (hover for tokens and models) and a **...** menu: pin, snooze,
+  watch, export as Markdown and settle. Click the instance in the subtitle for its sign-in
+  state and to check its platform version and response time.
 - **Watch** has the agent recheck something every few minutes for some hours, each check a
-  new turn with the usual notification. The agent can propose one with `run_watch`.
+  new turn in the thread. The agent can propose one with `run_watch`.
 - Mentions like "rule 123" link to their page on the instance when that ID appeared in the
   agent's tool results; links to IDs it never looked up get a warning.
 - The envelope under an answer writes it as a case reply in your reply style.
 - Ctrl+F finds text anywhere in the thread, including turns not loaded yet.
 
-In the sidebar, pin threads, snooze them (an hour, until tomorrow, until Monday) or settle
-them; Ctrl+Z undoes it for five seconds. Ctrl+K opens the command palette; press ? for every
-keyboard shortcut.
+Each sidebar thread has the same **...** menu. Snooze offers in 1 hour, in 3 hours, tomorrow,
+next week or a custom time; snoozed and settled threads wait in their own shelves at the
+bottom. Undo any of these from the toast or with Ctrl+Z for five seconds. Ctrl+K opens the
+command palette; press ? for every keyboard shortcut.
 
 The agent's tools come in groups, and the system prompt lists the ones a run has:
 

@@ -1,4 +1,4 @@
-import { SparklesIcon } from '@heroicons/react/24/outline'
+import { Sparkle as SparklesIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import type { DatadogDiscovery, DatadogStatus } from '@shared/types.ts'
 import { DatadogBadge, ServerChips } from '@/components/datadog/Datadog'

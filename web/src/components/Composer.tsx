@@ -1,4 +1,9 @@
-import { ArrowUpIcon, PaperClipIcon, StopIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import {
+  ArrowUp as ArrowUpIcon,
+  Paperclip as PaperClipIcon,
+  Stop as StopIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { reportError } from '@/components/Toasts'
 import { cn } from '@/lib/cn'
@@ -257,7 +262,7 @@ export function Composer({
             onClick={onStop}
             className="bg-fg flex size-8 items-center justify-center rounded-full text-white hover:opacity-85"
           >
-            <StopIcon className="size-3 fill-current" />
+            <StopIcon weight="fill" className="size-3" />
           </button>
         ) : (
           <button

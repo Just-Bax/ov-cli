@@ -1,4 +1,4 @@
-import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline'
+import { ArrowSquareOut as ArrowTopRightOnSquareIcon } from '@phosphor-icons/react'
 import type { Change } from '@shared/types.ts'
 import { Button, Chip, CopyButton } from '@/components/ui'
 import { Diff } from './Diff'

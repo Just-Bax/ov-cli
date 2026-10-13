@@ -1,4 +1,9 @@
-import { ArrowLeftIcon, GlobeAltIcon, LockClosedIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import {
+  ArrowLeft as ArrowLeftIcon,
+  Globe as GlobeAltIcon,
+  Lock as LockClosedIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,

@@ -1,8 +1,8 @@
 import {
-  ExclamationTriangleIcon,
-  InformationCircleIcon,
-  ShieldExclamationIcon,
-} from '@heroicons/react/24/outline'
+  Warning as ExclamationTriangleIcon,
+  Info as InformationCircleIcon,
+  ShieldWarning as ShieldExclamationIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui'

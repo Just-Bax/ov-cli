@@ -1,4 +1,4 @@
-import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
+import { CaretDown as ChevronDownIcon, CaretUp as ChevronUpIcon } from '@phosphor-icons/react'
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import type { OutlineMark } from '@shared/types.ts'
 import { Markdown } from '@/components/ui'

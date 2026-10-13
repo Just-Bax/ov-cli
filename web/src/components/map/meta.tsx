@@ -1,15 +1,15 @@
 import {
-  Bars3BottomLeftIcon,
-  BellIcon,
-  BoltIcon,
-  CircleStackIcon,
-  CpuChipIcon,
-  CubeIcon,
-  DocumentArrowUpIcon,
-  RectangleStackIcon,
-  ShareIcon,
-  TableCellsIcon,
-} from '@heroicons/react/24/outline'
+  TextAlignLeft as Bars3BottomLeftIcon,
+  Bell as BellIcon,
+  Lightning as BoltIcon,
+  Database as CircleStackIcon,
+  Cpu as CpuChipIcon,
+  Cube as CubeIcon,
+  FileArrowUp as DocumentArrowUpIcon,
+  Stack as RectangleStackIcon,
+  ShareNetwork as ShareIcon,
+  Table as TableCellsIcon,
+} from '@phosphor-icons/react'
 import type { Icon } from '@/components/ui'
 import type { GraphNode, GraphNodeType, InstanceGraph } from '@shared/types.ts'
 

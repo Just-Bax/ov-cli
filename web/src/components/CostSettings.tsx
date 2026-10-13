@@ -1,4 +1,4 @@
-import { ArrowPathIcon } from '@heroicons/react/24/outline'
+import { ArrowsClockwise as ArrowPathIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import type { CopilotAccount, CostRange, CostReport } from '@shared/types.ts'
 import { AccountRow } from '@/components/datadog/Datadog'

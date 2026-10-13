@@ -1,10 +1,10 @@
 import {
-  ArrowTopRightOnSquareIcon,
-  CodeBracketIcon,
-  DocumentMagnifyingGlassIcon,
-  MapIcon,
-  SparklesIcon,
-} from '@heroicons/react/24/outline'
+  ArrowSquareOut as ArrowTopRightOnSquareIcon,
+  Code as CodeBracketIcon,
+  FileMagnifyingGlass as DocumentMagnifyingGlassIcon,
+  MapTrifold as MapIcon,
+  Sparkle as SparklesIcon,
+} from '@phosphor-icons/react'
 import type { GraphNode } from '@shared/types.ts'
 import { FORMS, TYPES, WITH_CODE } from '@/components/map/meta'
 import { Button, IconButton } from '@/components/ui'

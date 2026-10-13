@@ -1,17 +1,17 @@
 import {
-  ArrowDownTrayIcon,
-  ChatBubbleLeftRightIcon,
-  CodeBracketIcon,
-  Cog6ToothIcon,
-  CommandLineIcon,
-  FolderIcon,
-  HeartIcon,
-  MagnifyingGlassIcon,
-  MapIcon,
-  PlusIcon,
-  StopIcon,
-  ViewColumnsIcon,
-} from '@heroicons/react/24/outline'
+  DownloadSimple as ArrowDownTrayIcon,
+  ChatsCircle as ChatBubbleLeftRightIcon,
+  Code as CodeBracketIcon,
+  GearSix as Cog6ToothIcon,
+  TerminalWindow as CommandLineIcon,
+  Folder as FolderIcon,
+  Heartbeat as HeartIcon,
+  MagnifyingGlass as MagnifyingGlassIcon,
+  MapTrifold as MapIcon,
+  Plus as PlusIcon,
+  Stop as StopIcon,
+  SidebarSimple as ViewColumnsIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { RunSummary } from '@shared/types.ts'
@@ -194,7 +194,7 @@ export function CommandPalette({ route }: { route: Route }) {
           group: 'This thread',
           label: action.label,
           icon: action.icon,
-          run: () => void action.run().catch(reportError),
+          run: () => void Promise.resolve(action.run()).catch(reportError),
         })
     }
 

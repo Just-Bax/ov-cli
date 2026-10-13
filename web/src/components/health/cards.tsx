@@ -1,12 +1,12 @@
 import {
-  ArrowTopRightOnSquareIcon,
-  CheckCircleIcon,
-  ChevronRightIcon,
-  ExclamationTriangleIcon,
-  LockClosedIcon,
-  ShieldExclamationIcon,
-  SparklesIcon,
-} from '@heroicons/react/24/outline'
+  ArrowSquareOut as ArrowTopRightOnSquareIcon,
+  CheckCircle as CheckCircleIcon,
+  CaretRight as ChevronRightIcon,
+  Warning as ExclamationTriangleIcon,
+  Lock as LockClosedIcon,
+  ShieldWarning as ShieldExclamationIcon,
+  Sparkle as SparklesIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import type {
   HealthMeta,

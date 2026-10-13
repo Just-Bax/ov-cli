@@ -75,7 +75,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "maxSteps": 80,
     "reasoning": "",
     "followUp": "steer",
-    "notify": False,
     "showTimeSaved": True,
     "expandTools": False,
 }

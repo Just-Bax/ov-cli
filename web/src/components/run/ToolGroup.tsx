@@ -1,31 +1,31 @@
 import {
-  ArchiveBoxArrowDownIcon,
-  BellAlertIcon,
-  BookOpenIcon,
-  CalendarIcon,
-  ChartBarIcon,
-  ChevronRightIcon,
-  ClockIcon,
-  CircleStackIcon,
-  CodeBracketSquareIcon,
-  CommandLineIcon,
-  DocumentPlusIcon,
-  DocumentTextIcon,
-  FolderIcon,
-  MagnifyingGlassIcon,
-  MapIcon,
-  PencilSquareIcon,
-  TicketIcon,
-  UserIcon,
-  UsersIcon,
-  ChatBubbleLeftEllipsisIcon,
-  CheckIcon,
-  CheckCircleIcon,
-  ArrowUpCircleIcon,
-  ArrowsRightLeftIcon,
-  MoonIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
+  Archive as ArchiveBoxArrowDownIcon,
+  BellRinging as BellAlertIcon,
+  BookOpen as BookOpenIcon,
+  Calendar as CalendarIcon,
+  ChartBar as ChartBarIcon,
+  CaretRight as ChevronRightIcon,
+  Clock as ClockIcon,
+  Database as CircleStackIcon,
+  CodeBlock as CodeBracketSquareIcon,
+  TerminalWindow as CommandLineIcon,
+  FilePlus as DocumentPlusIcon,
+  FileText as DocumentTextIcon,
+  Folder as FolderIcon,
+  MagnifyingGlass as MagnifyingGlassIcon,
+  MapTrifold as MapIcon,
+  NotePencil as PencilSquareIcon,
+  Ticket as TicketIcon,
+  User as UserIcon,
+  Users as UsersIcon,
+  ChatCircleDots as ChatBubbleLeftEllipsisIcon,
+  Check as CheckIcon,
+  CheckCircle as CheckCircleIcon,
+  ArrowCircleUp as ArrowUpCircleIcon,
+  ArrowsLeftRight as ArrowsRightLeftIcon,
+  Moon as MoonIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import type { Icon } from '@/components/ui'
 import { memo, useEffect, useState } from 'react'
 import type { ToolActivity } from '@shared/types.ts'
@@ -284,7 +284,9 @@ export const ToolGroup = memo(function ToolGroup({
 }) {
   const running = tools.find((t) => t.status === 'running')
   const failed = tools.filter((t) => t.status === 'error').length
-  const [open, setOpen] = useState(useSettings().settings.expandTools)
+  const { expandTools } = useSettings().settings
+  const [open, setOpen] = useState(expandTools)
+  useEffect(() => setOpen(expandTools), [expandTools])
   const total = tools.reduce((s, t) => s + (t.ms ?? 0), 0)
 
   return (

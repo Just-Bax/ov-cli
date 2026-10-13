@@ -244,14 +244,6 @@
   cursor: pointer;
 }
 
-svg[data-slot='icon'] {
-  stroke-width: 1.6;
-}
-
-svg[data-slot='icon']:is(.size-3, .size-3\.5) {
-  stroke-width: 1.9;
-}
-
 @keyframes pop-in {
   from {
     opacity: 0;
@@ -337,6 +329,16 @@ svg[data-slot='icon']:is(.size-3, .size-3\.5) {
 
 @utility animate-slide-in {
   animation: slide-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes toast-timer {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@utility animate-toast-timer {
+  animation: toast-timer linear both;
 }
 
 @utility animate-toast {

@@ -1,13 +1,13 @@
 import {
-  ArrowDownTrayIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  DocumentIcon,
-  DocumentTextIcon,
-  EnvelopeIcon,
-  PhotoIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
+  DownloadSimple as ArrowDownTrayIcon,
+  CaretLeft as ChevronLeftIcon,
+  CaretRight as ChevronRightIcon,
+  File as DocumentIcon,
+  FileText as DocumentTextIcon,
+  EnvelopeSimple as EnvelopeIcon,
+  Image as PhotoIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { MessageFile } from '@shared/types.ts'

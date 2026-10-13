@@ -1,9 +1,4 @@
-import {
-  ArrowDownTrayIcon,
-  ArrowTopRightOnSquareIcon,
-  ClockIcon,
-} from '@heroicons/react/24/outline'
-import { formatMinutes, savedMinutes } from '@shared/estimate.ts'
+import { ArrowSquareOut as ArrowTopRightOnSquareIcon } from '@phosphor-icons/react'
 import { Composer } from '@/components/Composer'
 import { EditableTitle } from '@/components/EditableTitle'
 import { WriteSwitch } from '@/components/WriteSwitch'
@@ -17,29 +12,20 @@ import type {
   ToolActivity,
 } from '@shared/types.ts'
 import { StatusIcon } from '@/components/Sidebar'
-import {
-  Dot,
-  Button,
-  Markdown,
-  Page,
-  Skeleton,
-  SkeletonText,
-  Spinner,
-  type Tone,
-} from '@/components/ui'
+import { Dot, Markdown, Page, Skeleton, SkeletonText, Spinner, type Tone } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
 import { useSkeleton } from '@/components/skeletons'
-import { setSettled, useRuns } from '@/lib/runs'
-import { DoubleCheckIcon } from '@/components/DoubleCheckIcon'
+import { useRuns } from '@/lib/runs'
 import { ChangeCard } from './ChangeCard'
 import { CostPill } from './CostPill'
-import { FilesChanged, LineCounts, summarize } from './FilesChanged'
+import { FilesChanged } from './FilesChanged'
 import { FindBar } from './FindBar'
 import { InstanceChip } from './InstanceChip'
-import { WatchButton } from './WatchButton'
+import { WatchChip, WatchDialog } from './WatchButton'
+import { RunMenu } from '@/components/RunMenu'
 import { OPEN_FIND } from '@/components/CommandPalette'
 import { ThreadRail } from './ThreadRail'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
@@ -280,7 +266,6 @@ function OlderTurns({
 }
 
 export function RunView({ id }: { id: string }) {
-  const { settings } = useSettings()
   const { state: loaded, error, loadOlder, loadingOlder } = useRun(id)
   const list = useRuns()
   const [feedback, setFeedback] = useState<{ rating: Rating; note: string }>()
@@ -290,6 +275,7 @@ export function RunView({ id }: { id: string }) {
   const ready = Boolean(state)
   const restoreHeight = useRef<number | undefined>(undefined)
   const [finding, setFinding] = useState(false)
+  const [watching, setWatching] = useState(false)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -422,33 +408,6 @@ export function RunView({ id }: { id: string }) {
           </a>
         </>
       ) : null}
-      {!busy && settings.showTimeSaved && state.outcome?.timeSaved ? (
-        <>
-          <Dot />
-          <span
-            title={state.outcome.timeSaved.basis}
-            className={cn(
-              'inline-flex cursor-help items-center gap-1 font-medium',
-              savedMinutes(state) ? 'text-ok' : 'text-faint line-through',
-            )}
-          >
-            <ClockIcon className="size-3" />~{formatMinutes(state.outcome.timeSaved.minutes)} saved
-          </span>
-        </>
-      ) : null}
-      {state.edits.length ? (
-        <>
-          <Dot />
-          <span className="inline-flex items-center gap-1.5">
-            {summarize(state.edits).length} file{summarize(state.edits).length === 1 ? '' : 's'}{' '}
-            changed
-            <LineCounts
-              added={state.edits.reduce((n, e) => n + e.added, 0)}
-              removed={state.edits.reduce((n, e) => n + e.removed, 0)}
-            />
-          </span>
-        </>
-      ) : null}
       {summary.instance ? (
         <>
           <Dot />
@@ -458,37 +417,16 @@ export function RunView({ id }: { id: string }) {
     </>
   )
 
-  const settled = list?.settled.some((r) => r.id === id)
-    ? true
-    : list?.active.some((r) => r.id === id)
-      ? false
-      : Boolean(summary.settled)
+  const listed = [...(list?.active ?? []), ...(list?.snoozed ?? []), ...(list?.settled ?? [])].find(
+    (r) => r.id === id,
+  )
+  const settled = list?.settled.some((r) => r.id === id) ?? Boolean(summary.settled)
   const actions = (
     <>
       {busy && !summary.cost ? null : <CostPill runId={id} cost={summary.cost} />}
-      <WatchButton runId={id} watch={state.watch} />
-      <a
-        href={api.exportUrl(id)}
-        download
-        title="Download this thread as Markdown"
-        className="text-text inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium transition-colors hover:bg-black/[0.06]"
-      >
-        <ArrowDownTrayIcon className="size-4" />
-        Export
-      </a>
-      <Button
-        variant={settled ? 'secondary' : 'ghost'}
-        disabled={busy}
-        title={
-          settled
-            ? 'Move back to active threads'
-            : 'Mark as settled: it moves to Settled in the sidebar'
-        }
-        onClick={() => void setSettled(id, !settled)}
-      >
-        <DoubleCheckIcon className="size-4" />
-        {settled ? 'Settled' : 'Settle'}
-      </Button>
+      {state.watch ? <WatchChip runId={id} watch={state.watch} /> : null}
+      <RunMenu run={listed ?? summary} settled={settled} onWatch={() => setWatching(true)} />
+      {watching ? <WatchDialog runId={id} onClose={() => setWatching(false)} /> : null}
     </>
   )
 

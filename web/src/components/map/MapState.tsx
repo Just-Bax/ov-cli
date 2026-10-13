@@ -1,4 +1,4 @@
-import { MapIcon } from '@heroicons/react/24/outline'
+import { MapTrifold as MapIcon } from '@phosphor-icons/react'
 import { Button, EmptyState, IconBadge, Spinner } from '@/components/ui'
 
 export function MapState({

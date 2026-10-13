@@ -1,11 +1,11 @@
 import {
-  AdjustmentsHorizontalIcon,
-  ArrowRightIcon,
-  ArrowTopRightOnSquareIcon,
-  CheckIcon,
-  ServerIcon,
-  Square2StackIcon,
-} from '@heroicons/react/24/outline'
+  SlidersHorizontal as AdjustmentsHorizontalIcon,
+  ArrowRight as ArrowRightIcon,
+  ArrowSquareOut as ArrowTopRightOnSquareIcon,
+  Check as CheckIcon,
+  HardDrives as ServerIcon,
+  Copy as Square2StackIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { ModelInfo, Status } from '@shared/types.ts'
 import wordmark from '@/assets/ov-agent-wordmark.svg'

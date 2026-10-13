@@ -1,12 +1,12 @@
 import {
-  ArrowPathIcon,
-  CheckIcon,
-  ChevronRightIcon,
-  DocumentIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  SparklesIcon,
-} from '@heroicons/react/24/outline'
+  ArrowsClockwise as ArrowPathIcon,
+  Check as CheckIcon,
+  CaretRight as ChevronRightIcon,
+  File as DocumentIcon,
+  Folder as FolderIcon,
+  FolderOpen as FolderOpenIcon,
+  Sparkle as SparklesIcon,
+} from '@phosphor-icons/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WorkspaceEntry } from '@shared/types.ts'
 import { dialog } from '@/components/Dialog'

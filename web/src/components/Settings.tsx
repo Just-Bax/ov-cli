@@ -1,13 +1,13 @@
 import {
-  ArrowRightStartOnRectangleIcon,
-  ArrowUturnLeftIcon,
-  CheckIcon,
-  FolderIcon,
-  KeyIcon,
-  MagnifyingGlassIcon,
-  PlusIcon,
-  TrashIcon,
-} from '@heroicons/react/24/outline'
+  SignOut as ArrowRightStartOnRectangleIcon,
+  ArrowUUpLeft as ArrowUturnLeftIcon,
+  Check as CheckIcon,
+  Folder as FolderIcon,
+  Key as KeyIcon,
+  MagnifyingGlass as MagnifyingGlassIcon,
+  Plus as PlusIcon,
+  Trash as TrashIcon,
+} from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import type { Instance, ReasoningLevel, SkillInfo } from '@shared/types.ts'
 import {
@@ -72,23 +72,20 @@ function Section({
 
 const STEP_LIMITS = [40, 80, 150, 300]
 
-const REASONING: { value: ReasoningLevel | ''; label: string; hint: string }[] = [
-  { value: '', label: 'Model default', hint: 'what each model picks' },
-  { value: 'none', label: 'None', hint: 'no thinking, where offered' },
-  { value: 'low', label: 'Low', hint: 'fastest, cheapest' },
-  { value: 'medium', label: 'Medium', hint: '' },
-  { value: 'high', label: 'High', hint: '' },
-  { value: 'xhigh', label: 'Extra high', hint: '' },
-  { value: 'max', label: 'Max', hint: 'slowest, most credits' },
+const REASONING: { value: ReasoningLevel | ''; label: string }[] = [
+  { value: '', label: 'Auto' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'max', label: 'Max' },
 ]
 
 function reasoningHint(levels: ReasoningLevel[] | undefined, wanted: ReasoningLevel | ''): string {
-  const base = 'How hard the model thinks before answering. Higher is slower and uses more credits.'
-  if (!levels) return base
-  if (!levels.length) return `${base} The main model has no levels, so this does not apply to it.`
-  const names = levels.map((l) => REASONING.find((r) => r.value === l)?.label ?? l).join(', ')
-  const note = wanted && !levels.includes(wanted) ? ' The nearest one is used.' : ''
-  return `${base} The main model offers: ${names}.${note}`
+  const base = 'How long models think before answering. Higher is slower and costs more.'
+  if (levels && !levels.length) return `${base} Your main model has no levels.`
+  if (levels && wanted && !levels.includes(wanted))
+    return `${base} Your main model uses the nearest one it has.`
+  return base
 }
 
 function Row({
@@ -142,35 +139,6 @@ function Segmented({
 function Preferences() {
   const { settings, update } = useSettings()
   const models = useModels()
-  const [notice, setNotice] = useState<string>()
-
-  const toggleNotify = async () => {
-    setNotice(undefined)
-    if (settings.notify) return void update({ notify: false })
-    if (!('Notification' in window))
-      return setNotice('This browser does not support notifications.')
-
-    const permission = await Notification.requestPermission()
-    if (permission !== 'granted')
-      return setNotice('Notifications are blocked for this page. Allow them in the browser first.')
-
-    await update({ notify: true })
-  }
-
-  const testNotify = () => {
-    setNotice(undefined)
-    if (Notification.permission !== 'granted')
-      return setNotice('Notifications are blocked for this page. Allow them in the browser first.')
-
-    new Notification('Run needs you', {
-      body: 'This is how OV Agent notifications look.',
-      icon: '/favicon-32.png',
-    })
-    setNotice(
-      'Sent. If nothing appeared, check Windows notification settings and Focus Assist for this browser.',
-    )
-  }
-
   return (
     <Card className="divide-line divide-y">
       <Row title="Main model" hint="Used for new runs. You can switch it per run in the chat.">
@@ -193,12 +161,23 @@ function Preferences() {
           settings.reasoning,
         )}
       >
-        <Select
-          className="w-[260px]"
-          value={settings.reasoning}
-          onChange={(v) => void update({ reasoning: v as ReasoningLevel | '' })}
-          options={REASONING.map((r) => ({ value: r.value, label: r.label, hint: r.hint }))}
-        />
+        <div className="bg-raised flex rounded-full p-1">
+          {REASONING.map((r) => (
+            <button
+              key={r.value || 'auto'}
+              type="button"
+              onClick={() => void update({ reasoning: r.value })}
+              className={cn(
+                'h-7 min-w-11 rounded-full px-3 text-[12.5px] font-medium transition-colors',
+                r.value === settings.reasoning
+                  ? 'text-fg bg-white shadow-sm'
+                  : 'text-muted hover:text-fg',
+              )}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
       </Row>
       <Row
         title="Fast model"
@@ -261,26 +240,6 @@ function Preferences() {
         />
       </Row>
       <Row
-        title="Desktop notifications"
-        hint={
-          notice ??
-          'Notify me when a run finishes, fails or needs me. In this window you get a toast instead, unless you are already looking at that run.'
-        }
-      >
-        <div className="flex items-center gap-2">
-          {settings.notify && (
-            <Button size="sm" variant="ghost" onClick={testNotify}>
-              Test
-            </Button>
-          )}
-          <Switch
-            on={settings.notify}
-            onChange={() => void toggleNotify()}
-            label="Desktop notifications"
-          />
-        </div>
-      </Row>
-      <Row
         title="Show time saved"
         hint="The agent's estimate of how long the work would take by hand."
       >
@@ -291,13 +250,13 @@ function Preferences() {
         />
       </Row>
       <Row
-        title="Expand tool calls"
-        hint="Open the API calls and SQL of each step instead of a summary."
+        title="Show every step"
+        hint="List every step the agent took in each turn instead of a one-line summary. Click a step to see its SQL or API call."
       >
         <Switch
           on={settings.expandTools}
           onChange={() => void update({ expandTools: !settings.expandTools })}
-          label="Expand tool calls"
+          label="Show every step"
         />
       </Row>
     </Card>

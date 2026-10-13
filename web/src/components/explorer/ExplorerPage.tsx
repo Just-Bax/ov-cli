@@ -1,10 +1,10 @@
 import {
-  ArrowPathIcon,
-  ChevronRightIcon,
-  CodeBracketIcon,
-  MagnifyingGlassIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
+  ArrowsClockwise as ArrowPathIcon,
+  CaretRight as ChevronRightIcon,
+  Code as CodeBracketIcon,
+  MagnifyingGlass as MagnifyingGlassIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   CodeHint,

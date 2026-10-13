@@ -1,4 +1,3 @@
-import { CpuChipIcon } from '@heroicons/react/24/outline'
 import { useState } from 'react'
 import type { CostTotal, RunCost } from '@shared/types.ts'
 import { useModels } from '@/components/ModelPicker'
@@ -17,9 +16,8 @@ export function CostPill({ runId, cost }: { runId: string; cost?: CostTotal }) {
     return (
       <span
         title="Usage was not recorded for this thread"
-        className="text-faint inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px]"
+        className="text-faint inline-flex h-8 items-center rounded-full px-3 text-[12px]"
       >
-        <CpuChipIcon className="size-4" />
         Not tracked
       </span>
     )
@@ -32,8 +30,7 @@ export function CostPill({ runId, cost }: { runId: string; cost?: CostTotal }) {
 
   return (
     <span className="relative" onMouseEnter={show} onMouseLeave={() => setOpen(false)}>
-      <span className="bg-raised text-text inline-flex h-8 cursor-default items-center gap-1.5 rounded-full px-3 text-[12px] font-medium tabular-nums">
-        <CpuChipIcon className="text-muted size-4" />
+      <span className="bg-raised text-text inline-flex h-8 cursor-default items-center rounded-full px-3 text-[12px] font-medium tabular-nums">
         {formatCredits(cost.credits)} credits
       </span>
       {open ? (

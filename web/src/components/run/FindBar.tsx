@@ -1,9 +1,9 @@
 import {
-  ChevronDownIcon,
-  ChevronUpIcon,
-  MagnifyingGlassIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
+  CaretDown as ChevronDownIcon,
+  CaretUp as ChevronUpIcon,
+  MagnifyingGlass as MagnifyingGlassIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { type RefObject, useEffect, useRef, useState } from 'react'
 import { reportError } from '@/components/Toasts'
 import { Spinner } from '@/components/ui'

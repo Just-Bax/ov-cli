@@ -1,11 +1,11 @@
 import {
-  ArrowPathIcon,
-  CheckIcon,
-  GlobeAltIcon,
-  KeyIcon,
-  LockClosedIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
+  ArrowsClockwise as ArrowPathIcon,
+  Check as CheckIcon,
+  Globe as GlobeAltIcon,
+  Key as KeyIcon,
+  Lock as LockClosedIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { RemoteScreen, SCREEN_BAR_PX, screenSize } from '@/components/RemoteScreen'

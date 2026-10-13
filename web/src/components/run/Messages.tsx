@@ -1,13 +1,13 @@
 import {
-  ArrowUturnLeftIcon,
-  CheckIcon,
-  DocumentTextIcon,
-  EnvelopeIcon,
-  HandThumbDownIcon,
-  HandThumbUpIcon,
-  Square2StackIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
+  ArrowUUpLeft as ArrowUturnLeftIcon,
+  Check as CheckIcon,
+  FileText as DocumentTextIcon,
+  EnvelopeSimple as EnvelopeIcon,
+  ThumbsDown as HandThumbDownIcon,
+  ThumbsUp as HandThumbUpIcon,
+  Copy as Square2StackIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { type ReactNode, useState } from 'react'
 import type { ChatMessage, MessageFile, Rating } from '@shared/types.ts'
 import { FilePreview } from '@/components/run/FilePreview'

@@ -1,4 +1,8 @@
-import { ArrowPathIcon, EnvelopeIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import {
+  ArrowsClockwise as ArrowPathIcon,
+  EnvelopeSimple as EnvelopeIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, CopyButton, Skeleton } from '@/components/ui'

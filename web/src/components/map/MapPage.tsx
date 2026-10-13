@@ -12,14 +12,14 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import {
-  ArrowPathIcon,
-  ArrowUturnLeftIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  MagnifyingGlassIcon,
-  MapIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
+  ArrowsClockwise as ArrowPathIcon,
+  ArrowUUpLeft as ArrowUturnLeftIcon,
+  Check as CheckIcon,
+  CaretDown as ChevronDownIcon,
+  MagnifyingGlass as MagnifyingGlassIcon,
+  MapTrifold as MapIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GraphEdge, GraphNode, GraphNodeType, InstanceGraph } from '@shared/types.ts'
 import {

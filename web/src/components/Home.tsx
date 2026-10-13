@@ -1,4 +1,4 @@
-import { ClockIcon } from '@heroicons/react/24/outline'
+import { Clock as ClockIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { formatMinutes } from '@shared/estimate.ts'
 import type { SavedTotals, Settings } from '@shared/types.ts'
