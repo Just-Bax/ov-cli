@@ -587,10 +587,6 @@
     width: calc(var(--spacing) * 16);
     height: calc(var(--spacing) * 16);
   }
-  .size-\[17px\] {
-    width: 17px;
-    height: 17px;
-  }
   .size-\[18px\] {
     width: 18px;
     height: 18px;
@@ -1478,6 +1474,9 @@
   }
   .bg-canvas\/40 {
     background-color: color-mix(in oklab, #eceff1 40%, transparent);
+  }
+  .bg-canvas\/70 {
+    background-color: color-mix(in oklab, #eceff1 70%, transparent);
   }
   .bg-danger {
     background-color: #ce2605;

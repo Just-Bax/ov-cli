@@ -329,18 +329,27 @@ function RailTip({ at, children }: { at?: TipAt; children: ReactNode }) {
   )
 }
 
+const TOOLS = [
+  { page: 'map', label: 'Instance map', icon: MapIcon },
+  { page: 'health', label: 'Health', icon: HeartIcon },
+  { page: 'explorer', label: 'Explorer', icon: CodeBracketIcon },
+  { page: 'workspace', label: 'Workspace', icon: FolderIcon },
+] as const
+
 function NavRow({
   to,
   icon: Icon,
   label,
   active,
   collapsed,
+  compact,
 }: {
   to: string
   icon: Icon
   label: string
   active: boolean
   collapsed: boolean
+  compact?: boolean
 }) {
   const tip = useRailTip()
   return (
@@ -350,8 +359,10 @@ function NavRow({
       onMouseEnter={collapsed ? tip.show : undefined}
       onMouseLeave={tip.hide}
       className={cn(
-        'group/rail relative flex h-9 items-center rounded-full text-[13px] font-medium transition-colors',
-        collapsed ? 'mx-auto w-9 justify-center' : 'gap-2.5 pr-3 pl-1',
+        'group/rail relative flex h-9 items-center rounded-full font-medium transition-colors',
+        compact ? 'text-[12.5px]' : 'text-[13px]',
+        collapsed ? 'mx-auto w-9 justify-center' : 'min-w-0 gap-2 pr-3 pl-1',
+        compact && !collapsed && !active && 'bg-canvas/70',
         active && 'bg-brand-soft text-brand-strong',
         !active && !collapsed && 'text-text hover:bg-canvas hover:text-brand-strong',
       )}
@@ -404,32 +415,6 @@ function ShelfToggle({
         className={cn('size-3 shrink-0 transition-transform duration-200', !open && 'rotate-180')}
       />
     </button>
-  )
-}
-
-function FooterLink({
-  to,
-  icon: Icon,
-  label,
-  active,
-}: {
-  to: string
-  icon: Icon
-  label: string
-  active: boolean
-}) {
-  return (
-    <a
-      href={to}
-      aria-label={label}
-      title={label}
-      className={cn(
-        'flex size-9 shrink-0 items-center justify-center rounded-full transition-colors',
-        active ? 'bg-brand-soft text-brand-strong' : 'text-muted hover:bg-canvas hover:text-fg',
-      )}
-    >
-      <Icon className="size-[17px]" />
-    </a>
   )
 }
 
@@ -551,7 +536,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             </>
           )}
         </div>
-        <nav className={cn('shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}>
+        <nav className={cn('shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-1')}>
           <NavRow
             to="#/"
             icon={PlusIcon}
@@ -559,20 +544,19 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             active={route.page === 'home'}
             collapsed={collapsed}
           />
-          <NavRow
-            to={href({ page: 'map' })}
-            icon={MapIcon}
-            label="Instance map"
-            active={route.page === 'map'}
-            collapsed={collapsed}
-          />
-          <NavRow
-            to={href({ page: 'health' })}
-            icon={HeartIcon}
-            label="Health"
-            active={route.page === 'health'}
-            collapsed={collapsed}
-          />
+          <div className={collapsed ? 'space-y-1.5' : 'grid grid-cols-2 gap-1'}>
+            {TOOLS.map((tool) => (
+              <NavRow
+                key={tool.page}
+                to={href({ page: tool.page })}
+                icon={tool.icon}
+                label={tool.label}
+                active={route.page === tool.page}
+                collapsed={collapsed}
+                compact
+              />
+            ))}
+          </div>
         </nav>
 
         <div className="flex min-h-0 flex-1 flex-col">
@@ -737,18 +721,6 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
                 <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
               </span>
             </a>
-            <FooterLink
-              to={href({ page: 'explorer' })}
-              icon={CodeBracketIcon}
-              label="Explorer"
-              active={route.page === 'explorer'}
-            />
-            <FooterLink
-              to={href({ page: 'workspace' })}
-              icon={FolderIcon}
-              label="Workspace"
-              active={route.page === 'workspace'}
-            />
             <a
               href={href({ page: 'settings' })}
               aria-label="Settings"
