@@ -30,6 +30,7 @@ from .runfiles import (
     uploads_dir,
     within,
 )
+from .skills import reply_style
 from .state import details, empty_state, reduce, search, snapshot, window
 from .tools import Tool, ToolError, tool_named, tool_specs
 
@@ -68,6 +69,12 @@ WATCH_SUFFIX = (
     "check and whether it is resolved. If it is resolved or no longer worth checking, call run_watch with "
     "stop=true.)"
 )
+REPLY_PROMPT = (
+    "Rewrite the engineer's findings below as the comment they will post to the customer on the support "
+    "case. Use only facts in the findings; never add new ones. Output only the comment text."
+)
+REPLY_CONTEXT_CHARS = 2000
+REPLY_MAX_TOKENS = 1500
 EMPTY_REPLY_NOTE = "Your last reply was empty. Answer the user's last message."
 WRITE_ON_NOTE = (
     "The user turned ON write access for this run. You may now apply changes with ov and the PagerDuty change "
@@ -588,6 +595,19 @@ class Run:
             return
         if self.state["summary"]["title"] == placeholder:
             self.rename(title)
+
+    def draft_reply(self, message_id: str) -> str:
+        answer = next((m for m in self.state["chat"] if m["id"] == message_id and m["role"] == "assistant"), None)
+        if answer is None:
+            raise RunError("No such agent message.")
+        asked = next((m["text"] for m in self.state["chat"] if m["role"] == "user"), "")
+        model = self.state["summary"]["model"]
+        prompt = f"{REPLY_PROMPT}\n\n{reply_style()}"
+        case = f"{self.state['summary']['title']}\n{asked[:REPLY_CONTEXT_CHARS]}"
+        body = f"<case>\n{case}\n</case>\n\n<findings>\n{answer['text']}\n</findings>"
+        text, usage = copilot.complete(model, prompt, body, REPLY_MAX_TOKENS)
+        self._record_usage(model, "reply", usage)
+        return text
 
     def rename(self, title: str) -> None:
         cleaned = " ".join(title.split())[:TITLE_CHARS]

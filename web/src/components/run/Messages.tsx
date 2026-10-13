@@ -2,6 +2,7 @@ import {
   ArrowUturnLeftIcon,
   CheckIcon,
   DocumentTextIcon,
+  EnvelopeIcon,
   HandThumbDownIcon,
   HandThumbUpIcon,
   Square2StackIcon,
@@ -10,6 +11,7 @@ import {
 import { type ReactNode, useState } from 'react'
 import type { ChatMessage, MessageFile, Rating } from '@shared/types.ts'
 import { FilePreview } from '@/components/run/FilePreview'
+import { ReplyDraft } from '@/components/run/ReplyDraft'
 import { Spinner, Markdown } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -224,9 +226,11 @@ export function AssistantActions({
   rating,
   canRetry,
   onRated,
+  replyFrom,
 }: {
   runId: string
   turnId: string
+  replyFrom?: string
   text: string
   ts?: number
   rating?: { rating: Rating; note?: string }
@@ -237,6 +241,7 @@ export function AssistantActions({
   const [note, setNote] = useState(rating?.note ?? '')
   const [sentNote, setSentNote] = useState(rating?.note ?? '')
   const [retrying, setRetrying] = useState(false)
+  const [drafting, setDrafting] = useState(false)
 
   const rate = (r: Rating) => {
     const next = current === r ? null : r
@@ -254,6 +259,14 @@ export function AssistantActions({
       <ActionButton label="Bad response" active={current === 'wrong'} onClick={() => rate('wrong')}>
         <HandThumbDownIcon className="size-3.5" />
       </ActionButton>
+      {replyFrom ? (
+        <ActionButton label="Write as a case reply" onClick={() => setDrafting(true)}>
+          <EnvelopeIcon className="size-3.5" />
+        </ActionButton>
+      ) : null}
+      {drafting && replyFrom ? (
+        <ReplyDraft runId={runId} messageId={replyFrom} onClose={() => setDrafting(false)} />
+      ) : null}
       {canRetry ? (
         <ActionButton
           label="Retry"

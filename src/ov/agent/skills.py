@@ -86,6 +86,22 @@ def list_skills() -> list[dict[str, Any]]:
     return skills
 
 
+REPLY_SKILL = "tce-best-practices"
+REPLY_HEADING = "## Reply style"
+
+
+def reply_style() -> str:
+    skill = next((s for s in list_skills() if s["name"] == REPLY_SKILL), None)
+    if skill is None:
+        raise SkillError(f"The {REPLY_SKILL} skill is missing, and it holds the reply style.")
+    content = skill["content"]
+    start = content.find(REPLY_HEADING)
+    if start < 0:
+        raise SkillError(f'The {skill["title"]} skill has no "{REPLY_HEADING[3:]}" section.')
+    end = content.find("\n## ", start + len(REPLY_HEADING))
+    return content[start : end if end > 0 else len(content)].strip()
+
+
 def enabled_skills() -> list[dict[str, Any]]:
     return [s for s in list_skills() if s["enabled"] and s["content"].strip()]
 

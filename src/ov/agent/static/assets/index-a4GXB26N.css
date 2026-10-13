@@ -328,6 +328,9 @@
   .z-\[100\] {
     z-index: 100;
   }
+  .z-\[120\] {
+    z-index: 120;
+  }
   .z-\[150\] {
     z-index: 150;
   }
@@ -695,6 +698,9 @@
   .max-h-\[56vh\] {
     max-height: 56vh;
   }
+  .max-h-\[80vh\] {
+    max-height: 80vh;
+  }
   .max-h-\[140px\] {
     max-height: 140px;
   }
@@ -742,6 +748,9 @@
   }
   .min-h-\[88px\] {
     min-height: 88px;
+  }
+  .min-h-\[200px\] {
+    min-height: 200px;
   }
   .min-h-\[480px\] {
     min-height: 480px;

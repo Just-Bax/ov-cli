@@ -593,6 +593,12 @@ export function RunView({ id }: { id: string }) {
                 <AssistantActions
                   runId={id}
                   turnId={turnId}
+                  replyFrom={
+                    turn.blocks.findLast(
+                      (b): b is Extract<Block, { kind: 'item' }> =>
+                        b.kind === 'item' && b.item.kind === 'text',
+                    )?.item.id
+                  }
                   text={text}
                   ts={turnTime(turn, state)}
                   rating={state.ratings[turnId]}

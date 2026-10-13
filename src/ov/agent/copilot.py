@@ -324,13 +324,15 @@ def stream_chat(
                 raise
 
 
-def complete(model: str, system: str, user_text: str) -> tuple[str, Usage | None]:
+def complete(
+    model: str, system: str, user_text: str, max_tokens: int = COMPLETE_MAX_TOKENS
+) -> tuple[str, Usage | None]:
     api, headers = _headers(**{"X-Initiator": "agent"})
     payload = {
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_text}],
         "stream": False,
-        "max_tokens": COMPLETE_MAX_TOKENS,
+        "max_tokens": max_tokens,
     }
 
     with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as http:
