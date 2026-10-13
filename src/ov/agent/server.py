@@ -823,7 +823,7 @@ def run_login(h: Handler, run_id: str) -> dict[str, Any]:
 def message(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     files = _objects(data, "files")
-    _run(run_id).follow_up(str(data.get("text", "")), files)
+    _run(run_id).follow_up(str(data.get("text", "")), files, data.get("mode", "steer") != "queue")
     db.set_settled(run_id, False)
     status_feed.publish({"kind": "list"})
     return {"ok": True}
@@ -838,6 +838,12 @@ def rename(h: Handler, run_id: str) -> dict[str, bool]:
 @route("POST", "/api/runs/([a-z0-9]+)/retry")
 def retry(h: Handler, run_id: str) -> dict[str, bool]:
     _run(run_id).retry(_required(h.json(), "itemId"))
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/steer")
+def steer_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
+    _run(run_id).steer_queued(message_id)
     return {"ok": True}
 
 

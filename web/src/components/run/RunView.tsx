@@ -8,7 +8,14 @@ import { Composer } from '@/components/Composer'
 import { EditableTitle } from '@/components/EditableTitle'
 import { WriteSwitch } from '@/components/WriteSwitch'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ChatMessage, Rating, RunState, ThreadItem, ToolActivity } from '@shared/types.ts'
+import type {
+  ChatMessage,
+  FollowUp,
+  Rating,
+  RunState,
+  ThreadItem,
+  ToolActivity,
+} from '@shared/types.ts'
 import { StatusIcon } from '@/components/Sidebar'
 import {
   Dot,
@@ -178,12 +185,17 @@ function Footer({
 }) {
   const [error, setError] = useState<string>()
 
-  const send = async (text: string, files: File[] = []) => {
+  const { settings } = useSettings()
+  const other: FollowUp = settings.followUp === 'steer' ? 'queue' : 'steer'
+  const describe = (mode: FollowUp) =>
+    mode === 'steer' ? 'Steer: picked up at the next step' : 'Queue: sent after this turn'
+
+  const send = async (text: string, files: File[] = [], alternate = false) => {
     setError(undefined)
     onSend()
     try {
       const uploaded = files.length ? await api.upload(files) : []
-      await api.message(runId, text, uploaded)
+      await api.message(runId, text, uploaded, alternate && busy ? other : settings.followUp)
     } catch (e) {
       setError((e as Error).message)
       throw e
@@ -200,10 +212,11 @@ function Footer({
           allowFiles
           placeholder={
             busy
-              ? 'Send a follow-up; it is picked up at the next step'
+              ? `${describe(settings.followUp)}. Ctrl+Enter to ${other} instead`
               : 'Ask a follow-up or give direction'
           }
-          onSend={(text, files) => send(text, files)}
+          busyHint={(alternate) => describe(alternate ? other : settings.followUp)}
+          onSend={(text, files, alternate) => send(text, files, alternate)}
           draftKey={`run-${runId}`}
           onStop={() => void api.cancel(runId)}
           extras={<WriteSwitch value={write} onChange={(v) => api.setWriteAccess(runId, v)} />}

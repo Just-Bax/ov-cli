@@ -20,9 +20,11 @@ export function Composer({
   queueWhileBusy,
   draft,
   draftKey,
+  busyHint,
 }: {
   placeholder: string
-  onSend: (text: string, files: File[]) => void | Promise<void>
+  onSend: (text: string, files: File[], alternate: boolean) => void | Promise<void>
+  busyHint?: (alternate: boolean) => string
   onStop?: () => void
   busy?: boolean
   allowFiles?: boolean
@@ -71,7 +73,7 @@ export function Composer({
   const textRef = useRef<HTMLTextAreaElement>(null)
   const canSend = (!busy || Boolean(queueWhileBusy)) && (text.trim().length > 0 || files.length > 0)
 
-  const send = async () => {
+  const send = async (alternate = false) => {
     if (!canSend) return
 
     const value = text.trim()
@@ -79,7 +81,7 @@ export function Composer({
     setText('')
     setFiles([])
     try {
-      await onSend(value, attached)
+      await onSend(value, attached, alternate)
       forgetDraft(draftKey)
     } catch {
       setText(value)
@@ -216,7 +218,7 @@ export function Composer({
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            void send()
+            void send(e.ctrlKey || e.metaKey)
           }
         }}
         rows={1}
@@ -260,7 +262,7 @@ export function Composer({
         ) : (
           <button
             type="button"
-            title={busy ? 'Queue as follow-up' : 'Send'}
+            title={busy && busyHint ? busyHint(false) : 'Send'}
             disabled={!canSend}
             onClick={() => void send()}
             className="bg-brand hover:bg-brand-strong disabled:bg-line-strong flex size-8 items-center justify-center rounded-full text-white transition-colors"

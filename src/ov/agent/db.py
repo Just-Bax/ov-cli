@@ -64,12 +64,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "workspaceNotes": "",
     "maxSteps": 80,
     "reasoning": "",
+    "followUp": "steer",
     "notify": False,
     "showTimeSaved": True,
     "expandTools": False,
 }
 
 MAX_STEPS_LIMIT = 500
+FOLLOW_UPS = ("steer", "queue")
 REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
 NANO_PER_CREDIT = 1_000_000_000
 TOP_THREADS = 10
@@ -157,6 +159,8 @@ def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
         patch = {**patch, "maxSteps": _max_steps(patch["maxSteps"])}
     if patch.get("reasoning") and patch["reasoning"] not in REASONING_LEVELS:
         raise ValueError(f"Unknown reasoning level: {patch['reasoning']}")
+    if "followUp" in patch and patch["followUp"] not in FOLLOW_UPS:
+        raise ValueError(f"followUp must be one of {', '.join(FOLLOW_UPS)}.")
     if "workspace" in patch:
         from .project import validate_folder
 

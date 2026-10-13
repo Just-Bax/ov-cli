@@ -1070,3 +1070,41 @@ def test_reasoning_picks_the_nearest_level_the_model_accepts(monkeypatch):
     with pytest.raises(ValueError):
         db.save_settings({"reasoning": "huge"})
     assert db.save_settings({"reasoning": "xhigh"})["reasoning"] == "xhigh"
+
+
+def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_in, monkeypatch):
+    gate = threading.Event()
+    seen: list[list[str]] = []
+
+    def fake_chat(model, messages, *args, cancel, on_text, **_):
+        seen.append([m["content"] for m in messages if m["role"] == "user"])
+        if len(seen) == 1:
+            gate.wait(5)
+            return StreamResult(
+                text="Working.",
+                tool_calls=[{"id": "c1", "type": "function", "function": {"name": "ov", "arguments": '{"args": []}'}}],
+            )
+        return StreamResult(text="ok")
+
+    monkeypatch.setattr("ov.agent.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.copilot.supports_vision", lambda _: True)
+    monkeypatch.setattr("ov.agent.tools.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
+
+    from ov.agent.run import runs
+
+    run = runs.create({"prompt": "start", "instance": "acme"}, "test-model")
+    for _ in range(100):
+        if seen:
+            break
+        time.sleep(0.05)
+    run.follow_up("later", [], steer=False)
+    run.follow_up("now", [], steer=True)
+    gate.set()
+    for _ in range(200):
+        if len(seen) >= 3 and run.state["summary"]["status"] == "done":
+            break
+        time.sleep(0.05)
+
+    assert seen[1][-1] == "now" and "later" not in seen[1]
+    assert seen[2][-1] == "later"
+    assert not run.state["queued"]

@@ -3,6 +3,7 @@ import type {
   CopilotAccount,
   CostRange,
   CostReport,
+  FollowUp,
   RunCost,
   DatadogDiscovery,
   DatadogStatus,
@@ -163,8 +164,9 @@ export const api = {
     loginId: string,
     options: { skip?: boolean; token?: string; screen?: { width: number; height: number } } = {},
   ) => post<{ ok: boolean; message: string }>(`/runs/${id}/login`, { loginId, ...options }),
-  message: (id: string, text: string, files: Upload[] = []) =>
-    post(`/runs/${id}/message`, { text, files }),
+  message: (id: string, text: string, files: Upload[] = [], mode: FollowUp = 'steer') =>
+    post(`/runs/${id}/message`, { text, files, mode }),
+  steerQueued: (id: string, mid: string) => post(`/runs/${id}/queued/${seg(mid)}/steer`),
   retry: (id: string, itemId: string) => post(`/runs/${id}/retry`, { itemId }),
   renameRun: (id: string, title: string) => post(`/runs/${id}/title`, { title }),
   removeQueued: (id: string, mid: string) => del(`/runs/${id}/queued/${seg(mid)}`),

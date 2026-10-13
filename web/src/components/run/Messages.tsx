@@ -13,6 +13,7 @@ import { FilePreview } from '@/components/run/FilePreview'
 import { Spinner, Markdown } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { reportError } from '@/components/Toasts'
 
 const COPIED_FEEDBACK_MS = 1200
 
@@ -188,7 +189,20 @@ export function QueuedMessage({ runId, message }: { runId: string; message: Chat
         {message.text}
       </div>
       <div className="text-faint flex h-7 items-center gap-1 text-[11.5px]">
-        <Spinner className="text-brand size-3" /> Queued, sent when the agent can take it
+        <Spinner className="text-brand size-3" />
+        {message.steer === false
+          ? 'Queued, sent after this turn'
+          : 'Steering, picked up at the next step'}
+        {message.steer === false ? (
+          <button
+            type="button"
+            title="Send now, at the next step"
+            onClick={() => void api.steerQueued(runId, message.id).catch(reportError)}
+            className="text-brand-strong hover:bg-brand-soft ml-1 h-6 rounded-full px-2 font-medium"
+          >
+            Send now
+          </button>
+        ) : null}
         <button
           type="button"
           title="Remove from queue"

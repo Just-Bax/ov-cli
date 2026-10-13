@@ -100,6 +100,7 @@ export interface ChatMessage {
   text: string
   ts: number
   files?: MessageFile[]
+  steer?: boolean
 }
 
 export type RunEvent =
@@ -248,6 +249,7 @@ export interface Settings {
   workspaceNotes: string
   maxSteps: number
   reasoning: ReasoningLevel | ''
+  followUp: FollowUp
   notify: boolean
   showTimeSaved: boolean
   expandTools: boolean
@@ -289,6 +291,8 @@ export interface ModelInfo {
   premium?: number
   reasoning: ReasoningLevel[]
 }
+
+export type FollowUp = 'steer' | 'queue'
 
 export type ReasoningLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 

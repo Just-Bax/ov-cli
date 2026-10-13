@@ -127,6 +127,7 @@ class Run:
         self._pending_images: list[tuple[str, str]] = []
         self._notes: list[str] = []
         self._queue: list[tuple[dict[str, Any], Any]] = []
+        self._held: set[str] = set()
         self._questions: dict[str, tuple[threading.Event, list[str]]] = {}
         self._logins: dict[str, tuple[threading.Event, list[bool]]] = {}
         self._busy = False
@@ -304,6 +305,7 @@ class Run:
             questions, self._questions = self._questions, {}
             logins, self._logins = self._logins, {}
 
+        self._held.clear()
         for message, _ in dropped:
             self.emit({"type": "unqueue", "id": message["id"]})
         for question_id, (event, answer) in questions.items():
@@ -507,7 +509,7 @@ class Run:
             text += f"\n\nThe run's default instance is now {bundle['website']}."
         return text
 
-    def follow_up(self, text: str, files: list[dict[str, str]]) -> None:
+    def follow_up(self, text: str, files: list[dict[str, str]], steer: bool = True) -> None:
         claimed = self._claim()
         if claimed and not self._messages:
             self._busy = False
@@ -525,7 +527,9 @@ class Run:
         if not claimed:
             with self._lock:
                 self._queue.append((message, content))
-            self.emit({"type": "queued", "message": message})
+                if not steer:
+                    self._held.add(message["id"])
+            self.emit({"type": "queued", "message": {**message, "steer": steer}})
             self._pick_up_queue()
             return
 
@@ -565,7 +569,20 @@ class Run:
     def remove_queued(self, message_id: str) -> None:
         with self._lock:
             self._queue = [q for q in self._queue if q[0]["id"] != message_id]
+            self._held.discard(message_id)
         self.emit({"type": "unqueue", "id": message_id})
+
+    def steer_queued(self, message_id: str) -> None:
+        with self._lock:
+            entry = next((q for q in self._queue if q[0]["id"] == message_id), None)
+            if entry is None:
+                raise RunError("That message is no longer queued.")
+            self._held.discard(message_id)
+        self.emit({"type": "queued", "message": {**entry[0], "steer": True}})
+
+    def _steering(self) -> bool:
+        with self._lock:
+            return any(q[0]["id"] not in self._held for q in self._queue)
 
     def retry(self, item_id: str) -> None:
         turn = self._turns.get(item_id)
@@ -585,6 +602,7 @@ class Run:
     def _run_turn(self) -> None:
         try:
             self._set_status("running")
+            self._deliver_queued(everything=True)
             self._loop("user")
         except Exception as exc:
             self._fail(exc)
@@ -606,9 +624,11 @@ class Run:
         self._save(f"{self.id}#turns", self._turns)
         self._messages.append({"role": "user", "content": content})
 
-    def _deliver_queued(self) -> None:
+    def _deliver_queued(self, everything: bool = False) -> None:
         with self._lock:
-            ready, self._queue = self._queue, []
+            ready = [q for q in self._queue if everything or q[0]["id"] not in self._held]
+            self._queue = [q for q in self._queue if q not in ready]
+            self._held -= {q[0]["id"] for q in ready}
         for message, content in ready:
             self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
             self._push_turn(message["id"], content)
@@ -673,12 +693,12 @@ class Run:
             calls = self._ask_model(model, specs, initiator if step == 0 else "agent")
             if calls:
                 self._run_tools(calls)
-                if self._finished and not self._queue:
+                if self._finished and not self._steering():
                     break
             elif not self._messages[-1].get("content") and not nudged:
                 nudged = True
                 self._notes.append(EMPTY_REPLY_NOTE)
-            elif not self._queue:
+            elif not self._steering():
                 break
 
         self._set_status("done")
@@ -691,7 +711,7 @@ class Run:
         if self._notes:
             notes, self._notes = self._notes, []
             self._messages.append({"role": "user", "content": f"[{' '.join(notes)}]"})
-        if self._queue:
+        if self._steering():
             self._deliver_queued()
             self._finished = False
 

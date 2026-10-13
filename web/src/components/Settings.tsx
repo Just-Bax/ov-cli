@@ -220,6 +220,33 @@ function Preferences() {
         />
       </Row>
       <Row
+        title="Messages while working"
+        hint="What a message sent while the agent works does. Ctrl+Enter does the other one."
+      >
+        <div className="bg-raised flex rounded-full p-1">
+          {(['steer', 'queue'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => void update({ followUp: mode })}
+              title={
+                mode === 'steer'
+                  ? 'Picked up at the next step of the current turn'
+                  : 'Waits until the current turn is finished'
+              }
+              className={cn(
+                'h-7 rounded-full px-3 text-[12.5px] font-medium transition-colors',
+                mode === settings.followUp
+                  ? 'text-fg bg-white shadow-sm'
+                  : 'text-muted hover:text-fg',
+              )}
+            >
+              {mode === 'steer' ? 'Steer' : 'Queue'}
+            </button>
+          ))}
+        </div>
+      </Row>
+      <Row
         title="Step limit"
         hint="How many tool steps a run may take before it stops. Big investigations need more."
       >
