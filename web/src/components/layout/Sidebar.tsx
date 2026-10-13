@@ -49,12 +49,14 @@ const EDGE_PX = 8
 const SEARCH_LABEL = 'Search (Ctrl+K)'
 const OPEN_SIDEBAR_LABEL = 'Open sidebar (Ctrl+B)'
 const CLOSE_SIDEBAR_LABEL = 'Close sidebar (Ctrl+B)'
-const SHELF_ROW_PX = 38
 const HEADER_BUTTON =
   'text-faint hover:bg-canvas hover:text-brand-strong flex size-8 items-center justify-center rounded-full transition-colors'
-const SHELF_CHROME_PX = 46
-const SNOOZED_MIN_ROWS = 2
-const SETTLED_MIN_ROWS = 4
+const BODY_INSET = 'pr-0.5 pl-3'
+const CONTENT_INSET = 'px-2'
+const ROW_INSET = 'pr-2 pl-2'
+const GROUP_GAP = 'mt-4'
+const FOOTER_INSET = 'pr-[9px] pl-3'
+const ACCOUNT_INSET = 'pr-3 pl-2'
 
 type NavTool = { route: Route; label: string; icon: Icon }
 
@@ -147,7 +149,8 @@ function RunItem({
       onClick={() => go({ page: 'thread', id: run.id })}
       onKeyDown={(e) => e.key === 'Enter' && go({ page: 'thread', id: run.id })}
       className={cn(
-        'group/run animate-slide-in flex h-9 cursor-pointer items-center gap-2 rounded-full pr-1.5 pl-3.5 text-[12.5px] font-medium transition-colors outline-none',
+        'group/run animate-slide-in flex h-9 cursor-pointer items-center gap-2 rounded-full text-[12.5px] font-medium transition-colors outline-none',
+        ROW_INSET,
         active
           ? 'bg-brand-soft text-brand-strong'
           : settled
@@ -169,7 +172,7 @@ function RunItem({
         <BookmarkIcon className="text-brand size-3.5 shrink-0 group-hover/run:hidden" />
       ) : null}
       <span className="relative flex h-7 min-w-7 shrink-0 items-center justify-end text-[11.5px] font-normal tabular-nums">
-        <span className="pr-1 group-focus-within/run:invisible group-hover/run:invisible">
+        <span className="group-focus-within/run:invisible group-hover/run:invisible">
           <RunMeta run={run} />
         </span>
         <span className="absolute inset-y-0 right-0 flex items-center">
@@ -459,39 +462,41 @@ function ToolRows({
   ))
 }
 
-function shelfMinHeight(items: number, minRows: number): number {
-  return SHELF_CHROME_PX + Math.min(items, minRows) * SHELF_ROW_PX
-}
-
-function ShelfToggle({
+function Shelf({
   label,
   count,
   open,
-  onClick,
+  onToggle,
+  children,
 }: {
   label: string
   count: number
   open: boolean
-  onClick: () => void
+  onToggle: () => void
+  children: ReactNode
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-expanded={open}
-      className={cn(
-        'flex h-8 w-full shrink-0 items-center gap-2 pr-[11px] pl-1 text-[12px] font-medium transition-colors',
-        open ? 'text-brand-strong' : 'text-faint hover:text-fg',
-      )}
-    >
-      <span className="shrink-0">
-        {label} <span className="tabular-nums">({count})</span>
-      </span>
-      <span className={cn('h-px flex-1', open ? 'bg-brand/30' : 'bg-line-strong/60')} />
-      <ChevronUpIcon
-        className={cn('size-3 shrink-0 transition-transform duration-200', !open && 'rotate-180')}
-      />
-    </button>
+    <section>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={cn(
+          'flex h-8 w-full items-center gap-2 text-[12px] font-medium transition-colors',
+          CONTENT_INSET,
+          open ? 'text-brand-strong' : 'text-faint hover:text-fg',
+        )}
+      >
+        <span className="shrink-0">
+          {label} <span className="tabular-nums">({count})</span>
+        </span>
+        <span className={cn('h-px flex-1', open ? 'bg-brand/30' : 'bg-line-strong/60')} />
+        <ChevronUpIcon
+          className={cn('size-3 shrink-0 transition-transform duration-200', !open && 'rotate-180')}
+        />
+      </button>
+      {open ? <div className="animate-fade-in mt-1 space-y-0.5">{children}</div> : null}
+    </section>
   )
 }
 
@@ -689,13 +694,8 @@ export function Sidebar({
           ) : null}
         </nav>
 
-        <div
-          className={cn(
-            'flex min-h-0 flex-1 flex-col',
-            !collapsed && Boolean(snoozed.length || settledTotal) && 'pb-2.5',
-          )}
-        >
-          {collapsed ? (
+        {collapsed ? (
+          <div className="flex min-h-0 flex-1 flex-col">
             <div className="border-line-strong/60 mt-1 min-h-0 flex-1 scrollbar-thin space-y-1.5 overflow-y-auto border-t px-2 pt-3 pb-3">
               {active.slice(0, RAIL_RUNS).map((r) => (
                 <RailRun key={r.id} run={r} active={isOpen(r.id)} />
@@ -713,74 +713,7 @@ export function Sidebar({
                 </button>
               ) : null}
             </div>
-          ) : (
-            <div className="min-h-16 flex-1 scrollbar-thin overflow-y-auto px-3 pt-2 pb-4">
-              {!list ? (
-                <div className="space-y-4 px-3 pt-3">
-                  {[0, 1, 2, 3].map((i) => (
-                    <Skeleton key={i} className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
-                  ))}
-                </div>
-              ) : null}
-              {group(shown).map(([label, list], index) => (
-                <div key={label} className={index ? 'mt-5' : 'mt-1'}>
-                  <div className="text-faint mb-1 px-3.5 text-[12px] font-medium">{label}</div>
-                  <div className="space-y-0.5">
-                    {list.map((r) => (
-                      <RunItem key={r.id} run={r} active={isOpen(r.id)} />
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {!showAll && active.length > RECENT_LIMIT ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAll(true)}
-                  className="text-brand-strong hover:bg-canvas mt-3 h-9 w-full rounded-full px-3.5 text-left text-[12.5px] font-medium"
-                >
-                  Show all {active.length} threads
-                </button>
-              ) : null}
-              {list && !active.length ? (
-                <div className="text-faint px-3.5 py-3 text-[12.5px]">
-                  {settledTotal
-                    ? 'Everything is settled. Start a new thread with a case number or a question.'
-                    : 'Your threads appear here. Start one with a case number or a question.'}
-                </div>
-              ) : null}
-            </div>
-          )}
-
-          {snoozed.length && !collapsed ? (
-            <div
-              className={cn(
-                'flex flex-col px-3 py-1.5',
-                snoozedOpen ? 'max-h-[30%] shrink' : 'shrink-0',
-              )}
-              style={
-                snoozedOpen
-                  ? { minHeight: shelfMinHeight(snoozed.length, SNOOZED_MIN_ROWS) }
-                  : undefined
-              }
-            >
-              <ShelfToggle
-                label="Snoozed"
-                count={snoozed.length}
-                open={snoozedOpen}
-                onClick={() => setSnoozedOpen((v) => !v)}
-              />
-              {snoozedOpen ? (
-                <div className="animate-fade-in fade-bottom -mx-3 mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto px-3 pb-3">
-                  {snoozed.map((r) => (
-                    <RunItem key={r.id} run={r} active={isOpen(r.id)} />
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {settledTotal ? (
-            collapsed ? (
+            {settledTotal ? (
               <div className="flex shrink-0 justify-center pb-2">
                 <button
                   type="button"
@@ -794,49 +727,92 @@ export function Sidebar({
                   <RailTip at={settledTip.at}>Settled threads</RailTip>
                 </button>
               </div>
-            ) : (
-              <div
-                className={cn(
-                  'flex flex-col px-3 py-1.5',
-                  settledOpen ? 'max-h-[45%] shrink' : 'shrink-0',
-                )}
-                style={
-                  settledOpen
-                    ? {
-                        minHeight: shelfMinHeight(
-                          settled.length + (settledTotal > settled.length ? 1 : 0),
-                          SETTLED_MIN_ROWS,
-                        ),
-                      }
-                    : undefined
-                }
-              >
-                <ShelfToggle
-                  label="Settled"
-                  count={settledTotal}
-                  open={settledOpen}
-                  onClick={() => toggleSettled()}
-                />
-                {settledOpen ? (
-                  <div className="animate-fade-in fade-bottom -mx-3 mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto px-3 pb-3">
-                    {settled.map((r) => (
-                      <RunItem key={r.id} run={r} active={isOpen(r.id)} settled />
-                    ))}
-                    {settledTotal > settled.length ? (
-                      <button
-                        type="button"
-                        onClick={() => void showMoreSettled()}
-                        className="text-brand-strong hover:bg-canvas h-8 w-full rounded-full px-3.5 text-left text-[12px] font-medium"
-                      >
-                        Show more ({settledTotal - settled.length} left)
-                      </button>
-                    ) : null}
+            ) : null}
+          </div>
+        ) : (
+          <div className={cn('min-h-0 flex-1 scrollbar-thin overflow-y-auto', BODY_INSET)}>
+            <div className="flex min-h-full flex-col pt-2 pb-3">
+              {!list ? (
+                <div className={cn('space-y-4 pt-3', CONTENT_INSET)}>
+                  {[0, 1, 2, 3].map((i) => (
+                    <Skeleton key={i} className={i % 2 ? 'h-3 w-3/5' : 'h-3 w-4/5'} />
+                  ))}
+                </div>
+              ) : null}
+              {group(shown).map(([label, list], index) => (
+                <div key={label} className={index ? GROUP_GAP : undefined}>
+                  <div className={cn('text-faint mb-1 text-[12px] font-medium', CONTENT_INSET)}>
+                    {label}
                   </div>
-                ) : null}
-              </div>
-            )
-          ) : null}
-        </div>
+                  <div className="space-y-0.5">
+                    {list.map((r) => (
+                      <RunItem key={r.id} run={r} active={isOpen(r.id)} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {!showAll && active.length > RECENT_LIMIT ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(true)}
+                  className={cn(
+                    'text-brand-strong hover:bg-canvas mt-1 h-9 w-full rounded-full text-left text-[12.5px] font-medium',
+                    CONTENT_INSET,
+                  )}
+                >
+                  Show all {active.length} threads
+                </button>
+              ) : null}
+              {list && !active.length ? (
+                <div className={cn('text-faint py-3 text-[12.5px]', CONTENT_INSET)}>
+                  {settledTotal
+                    ? 'Everything is settled. Start a new thread with a case number or a question.'
+                    : 'Your threads appear here. Start one with a case number or a question.'}
+                </div>
+              ) : null}
+              {snoozed.length || settledTotal ? (
+                <div className="mt-auto space-y-4 pt-4">
+                  {snoozed.length ? (
+                    <Shelf
+                      label="Snoozed"
+                      count={snoozed.length}
+                      open={snoozedOpen}
+                      onToggle={() => setSnoozedOpen((v) => !v)}
+                    >
+                      {snoozed.map((r) => (
+                        <RunItem key={r.id} run={r} active={isOpen(r.id)} />
+                      ))}
+                    </Shelf>
+                  ) : null}
+                  {settledTotal ? (
+                    <Shelf
+                      label="Settled"
+                      count={settledTotal}
+                      open={settledOpen}
+                      onToggle={() => toggleSettled()}
+                    >
+                      {settled.map((r) => (
+                        <RunItem key={r.id} run={r} active={isOpen(r.id)} settled />
+                      ))}
+                      {settledTotal > settled.length ? (
+                        <button
+                          type="button"
+                          onClick={() => void showMoreSettled()}
+                          className={cn(
+                            'text-brand-strong hover:bg-canvas h-8 w-full rounded-full text-left text-[12px] font-medium',
+                            CONTENT_INSET,
+                          )}
+                        >
+                          Show more ({settledTotal - settled.length} left)
+                        </button>
+                      ) : null}
+                    </Shelf>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
 
         {collapsed ? (
           <div className="border-line-strong/60 flex h-16 shrink-0 items-center justify-center border-t">
@@ -855,11 +831,17 @@ export function Sidebar({
             </a>
           </div>
         ) : (
-          <div className="border-line-strong/60 flex h-16 shrink-0 items-center gap-1 border-t px-3">
+          <div
+            className={cn(
+              'border-line-strong/60 flex h-16 shrink-0 items-center gap-1 border-t',
+              FOOTER_INSET,
+            )}
+          >
             <a
               href={href({ page: 'settings' })}
               className={cn(
-                'flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full pr-3 pl-1.5 transition-colors',
+                'flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full transition-colors',
+                ACCOUNT_INSET,
                 onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
               )}
             >

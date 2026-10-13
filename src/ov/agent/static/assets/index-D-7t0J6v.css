@@ -346,9 +346,6 @@
   .-mx-2 {
     margin-inline: calc(var(--spacing) * -2);
   }
-  .-mx-3 {
-    margin-inline: calc(var(--spacing) * -3);
-  }
   .mx-1 {
     margin-inline: var(--spacing);
   }
@@ -408,6 +405,9 @@
   }
   .mt-\[7px\] {
     margin-top: 7px;
+  }
+  .mt-auto {
+    margin-top: auto;
   }
   .mt-px {
     margin-top: 1px;
@@ -700,12 +700,6 @@
   }
   .max-h-64 {
     max-height: calc(var(--spacing) * 64);
-  }
-  .max-h-\[30\%\] {
-    max-height: 30%;
-  }
-  .max-h-\[45\%\] {
-    max-height: 45%;
   }
   .max-h-\[80vh\] {
     max-height: 80vh;
@@ -1556,9 +1550,6 @@
     --tw-gradient-to: transparent;
     --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position));
   }
-  .fade-bottom {
-    mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
-  }
   .stroke-line {
     stroke: #eceff1;
   }
@@ -1700,6 +1691,9 @@
   .pt-16 {
     padding-top: calc(var(--spacing) * 16);
   }
+  .pr-0\.5 {
+    padding-right: calc(var(--spacing) * 0.5);
+  }
   .pr-1 {
     padding-right: var(--spacing);
   }
@@ -1721,8 +1715,8 @@
   .pr-6 {
     padding-right: calc(var(--spacing) * 6);
   }
-  .pr-\[11px\] {
-    padding-right: 11px;
+  .pr-\[9px\] {
+    padding-right: 9px;
   }
   .pb-1 {
     padding-bottom: var(--spacing);
