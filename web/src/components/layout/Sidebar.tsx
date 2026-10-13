@@ -480,7 +480,7 @@ function ShelfToggle({
       onClick={onClick}
       aria-expanded={open}
       className={cn(
-        'flex h-8 w-full shrink-0 items-center gap-3 pr-3.5 pl-1.5 text-[12px] font-medium transition-colors',
+        'flex h-8 w-full shrink-0 items-center gap-2 pr-[11px] pl-1 text-[12px] font-medium transition-colors',
         open ? 'text-brand-strong' : 'text-faint hover:text-fg',
       )}
     >
