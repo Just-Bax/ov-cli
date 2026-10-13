@@ -195,7 +195,7 @@ export function Segmented<T extends string | number>({
           title={o.title}
           onClick={() => onChange(o.value)}
           className={cn(
-            'h-7 min-w-11 flex-1 rounded-full px-3 text-[12.5px] font-medium whitespace-nowrap transition-colors',
+            'h-7 min-w-max flex-1 rounded-full px-3 text-[12.5px] font-medium whitespace-nowrap transition-colors',
             o.value === value ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
           )}
         >

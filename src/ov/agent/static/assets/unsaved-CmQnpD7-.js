@@ -1,0 +1,1 @@
+import{At as e,Mt as t}from"./index-CgHxgmCq.js";var n=t(e(),1);function r(e){(0,n.useEffect)(()=>{if(!e)return;let t=e=>e.preventDefault();return window.addEventListener(`beforeunload`,t),()=>window.removeEventListener(`beforeunload`,t)},[e])}function i({dirty:e}){return r(e),null}export{r as n,i as t};
