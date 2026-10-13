@@ -31,6 +31,38 @@ TYPES = (
 )
 
 
+IMPORT_PATH = "/v3/components/imports/run"
+IMPORT_TYPES = (
+    *TYPES,
+    "CONFIG_GROUP",
+    "CONFIG_APPLET",
+    "DYNAMIC_VTABLE",
+    "VIEW_OPT",
+    "FILTER_OPT",
+    "BPD_ITEM",
+    "TRACKOR_TOUR",
+    "WORKPLAN",
+    "RELATION_TYPE",
+)
+IMPORT_MODES = (
+    "UNASSING_ALL_MENU",
+    "MERGE_APP_ITEMS",
+    "THROW_IF_EXIST",
+    "SKIP_IF_EXIST",
+    "UPDATE_IF_EXIST",
+    "DONT_MODIFY",
+    "APPEND",
+    "REPLACE",
+    "MERGE",
+    "DONT_ASSIGN_TO_TREE",
+    "ASSIGN_TO_ROOT",
+    "IMPORT_RELATIONS",
+    "IMPORT_RELATIONS_ONLY",
+    "USE_EXIST",
+)
+IMPORT_MESSAGE_CHARS = 300
+
+
 class ExportError(Exception):
     pass
 
@@ -71,3 +103,46 @@ def export(alias: str, component_type: str, ids: list[int] | None, cancel: Cance
     if result.code != 0:
         raise ExportError(result.message[:ERROR_CHARS] or f"Component export exited {result.code}")
     return items(result.stdout)
+
+
+def _selection(entry: dict[str, Any]) -> dict[str, Any]:
+    component_type = str(entry.get("component_type", "")).upper()
+    if component_type not in IMPORT_TYPES:
+        raise ExportError(f"Unknown component type {component_type}. Use one of: {', '.join(IMPORT_TYPES)}.")
+
+    picked: dict[str, Any] = {"component_type": component_type}
+    if entry.get("mode"):
+        mode = str(entry["mode"]).upper()
+        if mode not in IMPORT_MODES:
+            raise ExportError(f"Unknown import mode {mode}. Use one of: {', '.join(IMPORT_MODES)}.")
+        picked["mode"] = mode
+    if entry.get("ids"):
+        picked["components"] = [{"id": int(i)} for i in entry["ids"]]
+    return picked
+
+
+def import_args(file: str, selection: list[dict[str, Any]], dry_run: bool) -> list[str]:
+    args = ["request", "POST", IMPORT_PATH, "-q", f"is_dry_run={str(dry_run).lower()}"]
+    args += ["-q", f"is_import_all={str(not selection).lower()}", "--file", f"file=@{file}"]
+    if selection:
+        args += ["--field", "components:=" + json.dumps([_selection(entry) for entry in selection])]
+    return args
+
+
+def import_summary(response: str) -> str:
+    try:
+        results = json.loads(response)
+    except json.JSONDecodeError:
+        raise ExportError(f"The import returned something that is not JSON: {response[:ERROR_CHARS]}") from None
+    if not isinstance(results, list):
+        raise ExportError(f"The import returned an unexpected shape: {response[:ERROR_CHARS]}")
+
+    lines = []
+    for result in results:
+        name = result.get("component") or result.get("id")
+        lines.append(f"{result.get('component_type')} {name}: {result.get('status')}")
+        lines += [
+            f"  {m.get('status')}: {(m.get('message') or m.get('full_message') or '')[:IMPORT_MESSAGE_CHARS]}"
+            for m in result.get("messages") or []
+        ]
+    return "\n".join(lines) or "Nothing was imported."

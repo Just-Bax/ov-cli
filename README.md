@@ -456,7 +456,7 @@ The agent's tools come in groups, and the system prompt lists the ones a run has
 
 | Group | Tools |
 | --- | --- |
-| OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_search` (trackor search), `ov_map` (Instance map lookup), `ov_case` (a trackor support case) |
+| OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_import` (component import from an export file; dry run first, then approval), `ov_search` (trackor search), `ov_map` (Instance map lookup), `ov_case` (a trackor support case) |
 | Workspace | `ws_list`, `ws_search`, `ws_read`, `ws_edit`, `ws_write`, `ws_run` (only while a workspace folder is set) |
 | Datadog | `dd_logs`, `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm` |
 | PagerDuty | `pd_incidents`, `pd_incident`, `pd_oncall`, `pd_directory`; with changes allowed also `pd_note`, `pd_ack`, `pd_resolve`, `pd_escalate`, `pd_reassign`, `pd_snooze` |

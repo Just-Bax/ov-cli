@@ -342,14 +342,12 @@ function NavRow({
   label,
   active,
   collapsed,
-  compact,
 }: {
   to: string
   icon: Icon
   label: string
   active: boolean
   collapsed: boolean
-  compact?: boolean
 }) {
   const tip = useRailTip()
   return (
@@ -359,10 +357,8 @@ function NavRow({
       onMouseEnter={collapsed ? tip.show : undefined}
       onMouseLeave={tip.hide}
       className={cn(
-        'group/rail relative flex h-9 items-center rounded-full font-medium transition-colors',
-        compact ? 'text-[12.5px]' : 'text-[13px]',
-        collapsed ? 'mx-auto w-9 justify-center' : 'min-w-0 gap-2 pr-3 pl-1',
-        compact && !collapsed && !active && 'bg-canvas/70',
+        'group/rail relative flex h-9 items-center rounded-full text-[13px] font-medium transition-colors',
+        collapsed ? 'mx-auto w-9 justify-center' : 'gap-2.5 pr-3 pl-1',
         active && 'bg-brand-soft text-brand-strong',
         !active && !collapsed && 'text-text hover:bg-canvas hover:text-brand-strong',
       )}
@@ -536,7 +532,7 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             </>
           )}
         </div>
-        <nav className={cn('shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-1')}>
+        <nav className={cn('shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}>
           <NavRow
             to="#/"
             icon={PlusIcon}
@@ -544,19 +540,16 @@ export function Sidebar({ route, user }: { route: Route; user?: string }) {
             active={route.page === 'home'}
             collapsed={collapsed}
           />
-          <div className={collapsed ? 'space-y-1.5' : 'grid grid-cols-2 gap-1'}>
-            {TOOLS.map((tool) => (
-              <NavRow
-                key={tool.page}
-                to={href({ page: tool.page })}
-                icon={tool.icon}
-                label={tool.label}
-                active={route.page === tool.page}
-                collapsed={collapsed}
-                compact
-              />
-            ))}
-          </div>
+          {TOOLS.map((tool) => (
+            <NavRow
+              key={tool.page}
+              to={href({ page: tool.page })}
+              icon={tool.icon}
+              label={tool.label}
+              active={route.page === tool.page}
+              collapsed={collapsed}
+            />
+          ))}
         </nav>
 
         <div className="flex min-h-0 flex-1 flex-col">

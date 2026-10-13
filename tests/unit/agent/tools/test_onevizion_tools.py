@@ -122,3 +122,63 @@ def test_sql_timeout_explains_what_to_do(logged_in, tmp_path, monkeypatch):
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(1, "", "", timed_out=True))
     with pytest.raises(ToolError, match="may still be running"):
         tool_named("ov_sql").handler({"query": "select 1 from dual", "timeout": 30}, FakeContext(tmp_path))
+
+
+IMPORT_RESULT = json.dumps(
+    [
+        {
+            "component_type": "RULE",
+            "id": 7,
+            "component": "Push to Kafka",
+            "status": "UPDATED",
+            "messages": [{"status": "WARNING", "message": "Trigger changed"}],
+        }
+    ]
+)
+
+
+def test_imports_dry_run_first_and_need_approval_to_apply(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools import tool_named
+    from ov.core.errors import EXIT_READ_ONLY
+
+    (tmp_path / "export-1.xml").write_text("<COMPONENTS/>", encoding="utf-8")
+    seen: list[tuple[list[str], bool]] = []
+
+    def fake(args, read_only=True, **_):
+        seen.append((args, read_only))
+        dry = "is_dry_run=true" in args
+        if read_only and not dry:
+            return OvResult(EXIT_READ_ONLY, "", "Read-only mode")
+        return OvResult(0, IMPORT_RESULT, "")
+
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", fake)
+    picked = [{"component_type": "rule", "mode": "update_if_exist", "ids": [7]}]
+    tool = tool_named("ov_import")
+
+    text = tool.handler({"file": "export-1.xml", "components": picked}, FakeContext(tmp_path))
+    assert text.startswith("Dry run, nothing changed:") and "RULE Push to Kafka: UPDATED" in text
+    assert "WARNING: Trigger changed" in text
+    args = seen[0][0]
+    assert args[args.index("--file") + 1] == f"file=@{tmp_path / 'export-1.xml'}"
+    assert json.loads(args[args.index("--field") + 1].removeprefix("components:=")) == [
+        {"component_type": "RULE", "mode": "UPDATE_IF_EXIST", "components": [{"id": 7}]}
+    ]
+
+    with pytest.raises(ToolError, match="write access is OFF"):
+        tool.handler({"file": "export-1.xml", "dry_run": False}, FakeContext(tmp_path))
+    ctx = FakeContext(tmp_path, write=True)
+    assert tool.handler({"file": "export-1.xml", "dry_run": False}, ctx).startswith("Imported:")
+    assert "is_import_all=true" in seen[-1][0] and seen[-1][1] is False and ctx.asked
+
+
+def test_imports_check_the_file_and_component_types(logged_in, tmp_path):
+    from ov.agent.tools import tool_named
+
+    tool = tool_named("ov_import")
+    with pytest.raises(ToolError, match=r"No file missing\.xml"):
+        tool.handler({"file": "missing.xml"}, FakeContext(tmp_path))
+    (tmp_path / "x.xml").write_text("<COMPONENTS/>", encoding="utf-8")
+    with pytest.raises(ToolError, match="Unknown import mode"):
+        tool.handler(
+            {"file": "x.xml", "components": [{"component_type": "RULE", "mode": "NOPE"}]}, FakeContext(tmp_path)
+        )

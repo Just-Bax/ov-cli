@@ -1,6 +1,6 @@
 ---
 title: OV CLI
-description: The OV tools: ov, ov_sql, ov_export, ov_search, ov_map and ov_case on signed-in instances.
+description: The OV tools: ov, ov_sql, ov_export, ov_import, ov_search, ov_map and ov_case on signed-in instances.
 core: true
 ---
 
@@ -9,6 +9,7 @@ The OV tools work on signed-in OneVizion instances:
 - `ov`: any ov command - API calls, schema discovery, component export, chats, files.
 - `ov_sql`: a read-only SELECT through the platform's Test SQL endpoint.
 - `ov_export`: the full definition and code of components (DB packages, rules, imports, reports and more) by id, saved to files in the run folder.
+- `ov_import`: import components from a component export XML (an ov_export file, or a file in the workspace) into an instance. Always dry run first and show the result; a real import needs Allow changes and the user's approval. To copy a rule or package between instances, ov_export it from one and ov_import the file into the other.
 - `ov_search`: trackor search with conditions.
 - `ov_map`: what an object is linked to, from the Instance map. Start here before reading code.
 - `ov_case`: a whole support case from trackor.onevizion.com, with chat and attachments.

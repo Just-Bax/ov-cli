@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from ov.agent import workspace
 from ov.agent.engine.files import within
 from ov.agent.instances import components, graph
 from ov.agent.instances.ovproc import OvResult, find_instance, host_of, run_ov, url_for
@@ -36,6 +38,8 @@ MAP_LISTED_MATCHES = 20
 MAX_EXPORT_IDS = 20
 EXPORT_INLINE_CHARS = 200
 LABEL_ARGS = 4
+APPLIED = "Applied.\n"
+IMPORT_FILE_PREFIX = "import-"
 
 BLOCKED_COMMANDS = {"login", "logout", "use", "config", "setup", "spec", "tenants", "agent", "ui"}
 CONFINED_FLAGS = ("--out", "--file", "--data")
@@ -172,9 +176,8 @@ def run_ov_tool(
             continue
         if result.timed_out:
             raise ToolError(f"ov timed out after {timeout}s")
-        if result.code == EXIT_READ_ONLY:
-            return _write(alias, host, cleaned, ctx)
-        return _output(result) if raw else clip(_output(result), ctx, "ov output")
+        output = APPLIED + _write(alias, host, cleaned, ctx) if result.code == EXIT_READ_ONLY else _output(result)
+        return output if raw else clip(output, ctx, "ov output")
     raise ToolError(f"Still not signed in to {target}.")
 
 
@@ -202,7 +205,7 @@ def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
     )
     if result.timed_out:
         raise ToolError(f"ov timed out after {OV_TIMEOUT_SECONDS}s")
-    return clip(f"Applied.\n{_output(result)}", ctx, "ov output")
+    return _output(result)
 
 
 def _sql_cell(value: Any) -> str:
@@ -331,6 +334,35 @@ def _ov_export(args: dict[str, Any], ctx: ToolContext) -> str:
     )
 
 
+def _import_file(name: str, ctx: ToolContext) -> str:
+    in_run = within(ctx.work_dir, Path(name).name)
+    if in_run.is_file():
+        return in_run.name
+    if not workspace.configured():
+        raise ToolError(f"No file {name} in the run folder, and no workspace is set.")
+
+    source = workspace.resolve(name)
+    if not source.is_file():
+        raise ToolError(f"No file {name} in the run folder or the workspace.")
+    copy = ctx.work_dir / f"{IMPORT_FILE_PREFIX}{int(time.time() * 1000)}{source.suffix}"
+    shutil.copyfile(source, copy)
+    return copy.name
+
+
+def _ov_import(args: dict[str, Any], ctx: ToolContext) -> str:
+    dry_run = args.get("dry_run", True) is not False
+    try:
+        request = components.import_args(_import_file(str(args["file"]), ctx), args.get("components") or [], dry_run)
+        output = run_ov_tool([*request, "--raw"], args.get("instance"), ctx, raw=True)
+        summary = components.import_summary(output.removeprefix(APPLIED))
+    except components.ExportError as exc:
+        raise ToolError(str(exc)) from None
+
+    if dry_run:
+        return f"Dry run, nothing changed:\n{summary}\n\nCall again with dry_run false to import."
+    return f"Imported:\n{summary}"
+
+
 def _ov_search(args: dict[str, Any], ctx: ToolContext) -> str:
     trackor_type = quote(str(args["trackor_type"]), safe="")
     limit = min(int(args.get("limit") or DEFAULT_SEARCH_LIMIT), MAX_SEARCH_LIMIT)
@@ -455,6 +487,35 @@ TOOLS = [
         ["component_type", "ids"],
         lambda a: f"export {a.get('component_type')} {', '.join(map(str, a.get('ids') or []))}"[:LABEL_CHARS],
         _ov_export,
+    ),
+    Tool(
+        "ov_import",
+        "Import components into an instance with the platform's component import, from a component "
+        "export XML: an ov_export file in the run folder, or a file in the workspace. Always run it "
+        "with dry_run true first and show the user what it would do; a real import needs Allow changes "
+        "and the user's approval. Leave components out to import everything in the file.",
+        {
+            "instance": INSTANCE,
+            "file": string_param("Export XML: a file name in the run folder, or a path inside the workspace"),
+            "components": {
+                "type": "array",
+                "description": "Which components to import and how; leave out to import all",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "component_type": {"type": "string", "enum": list(components.IMPORT_TYPES)},
+                        "mode": {"type": "string", "enum": list(components.IMPORT_MODES)},
+                        "ids": {"type": "array", "items": {"type": "integer"}, "description": "Only these ids"},
+                    },
+                    "required": ["component_type"],
+                    "additionalProperties": False,
+                },
+            },
+            "dry_run": {"type": "boolean", "description": "Check without changing anything. Default true"},
+        },
+        ["file"],
+        lambda a: f"import {a.get('file')}{' (dry run)' if a.get('dry_run', True) is not False else ''}"[:LABEL_CHARS],
+        _ov_import,
     ),
     Tool(
         "ov_search",

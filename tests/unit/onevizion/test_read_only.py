@@ -58,3 +58,13 @@ def test_read_only_web_paths_cannot_climb_out(monkeypatch):
     for path in ("/api/docs/../../DeleteTrackor.do", "/api/docs/%2e%2e/%2e%2e/x.do"):
         with pytest.raises(ReadOnlyBlocked):
             guard_web_read_only(path)
+
+
+def test_component_import_dry_runs_pass_read_only(monkeypatch):
+    from ov.onevizion.client import guard_read_only
+
+    monkeypatch.setenv("OV_READONLY", "1")
+    guard_read_only("POST", "/v3/components/imports/run", [("is_dry_run", "true")])
+    guard_read_only("POST", "/v3/components/imports/run?is_dry_run=true")
+    with pytest.raises(ReadOnlyBlocked):
+        guard_read_only("POST", "/v3/components/imports/run", [("is_dry_run", "false")])

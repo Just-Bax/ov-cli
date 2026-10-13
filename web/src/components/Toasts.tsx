@@ -2,6 +2,7 @@ import { Warning as ExclamationTriangleIcon, X as XMarkIcon } from '@phosphor-ic
 import { useEffect, useState } from 'react'
 
 const TOAST_MS = 8000
+const RING_RADIUS = 7.5
 
 type Toast = {
   id: number
@@ -59,28 +60,45 @@ export function Toasts() {
           <div
             key={t.id}
             role="status"
-            className="animate-toast border-line-strong/70 relative overflow-hidden rounded-2xl border bg-white shadow-[0_8px_28px_rgba(38,50,56,0.16)]"
+            className="animate-toast border-line-strong/70 flex items-center gap-3 rounded-full border bg-white py-1.5 pr-1.5 pl-4 shadow-[0_8px_28px_rgba(38,50,56,0.16)]"
           >
-            <div className="flex items-center gap-3 py-2 pr-2 pl-4">
-              <span className="text-fg min-w-0 flex-1 text-[13px]">{t.message}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  t.action?.run()
-                  setToasts((all) => all.filter((x) => x.id !== t.id))
-                }}
-                className="bg-brand-soft text-brand-strong hover:bg-brand-chip inline-flex h-8 shrink-0 items-center gap-2 rounded-full pr-1.5 pl-3.5 text-[12.5px] font-semibold transition-colors"
-              >
-                {t.action.label}
-                <kbd className="text-brand-strong/70 rounded-full bg-white px-2 py-0.5 font-sans text-[10.5px] font-medium">
-                  Ctrl Z
-                </kbd>
-              </button>
-            </div>
-            <div
-              className="bg-brand animate-toast-timer absolute bottom-0 left-0 h-[3px] w-full origin-left"
-              style={{ animationDuration: `${t.ms ?? TOAST_MS}ms` }}
-            />
+            <svg viewBox="0 0 20 20" className="text-brand size-4 shrink-0 -rotate-90" aria-hidden>
+              <circle
+                cx="10"
+                cy="10"
+                r={RING_RADIUS}
+                className="stroke-line"
+                strokeWidth="2.5"
+                fill="none"
+              />
+              <circle
+                cx="10"
+                cy="10"
+                r={RING_RADIUS}
+                stroke="currentColor"
+                strokeWidth="2.5"
+                fill="none"
+                strokeLinecap="round"
+                pathLength="1"
+                strokeDasharray="1"
+                className="animate-toast-ring"
+                style={{ animationDuration: `${t.ms ?? TOAST_MS}ms` }}
+              />
+            </svg>
+            <span className="text-fg min-w-0 flex-1 truncate text-[13px]">{t.message}</span>
+            <button
+              type="button"
+              onClick={() => {
+                t.action?.run()
+                setToasts((all) => all.filter((x) => x.id !== t.id))
+              }}
+              className="bg-brand-soft text-brand-strong hover:bg-brand-chip inline-flex h-8 shrink-0 items-center gap-2 rounded-full pr-1.5 pl-3.5 text-[12.5px] font-semibold transition-colors"
+            >
+              {t.action.label}
+              <kbd className="text-brand-strong/70 rounded-full bg-white px-2 py-0.5 font-sans text-[10.5px] font-medium">
+                Ctrl Z
+              </kbd>
+            </button>
           </div>
         ) : (
           <div

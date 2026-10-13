@@ -339,14 +339,14 @@
   animation: slide-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes toast-timer {
+@keyframes toast-ring {
   to {
-    transform: scaleX(0);
+    stroke-dashoffset: 1;
   }
 }
 
-@utility animate-toast-timer {
-  animation: toast-timer linear both;
+@utility animate-toast-ring {
+  animation: toast-ring linear both;
 }
 
 @utility animate-toast {

@@ -66,7 +66,7 @@ export function InstanceChip({ instance }: { instance: string }) {
             state === 'ok' ? 'bg-ok' : state === 'loading' ? 'bg-line-strong' : 'bg-warn',
           )}
         />
-        {found?.alias ?? instance}
+        {host}
         {found?.tenant ? <span className="text-faint">/ {found.tenant}</span> : null}
       </button>
       {open ? (

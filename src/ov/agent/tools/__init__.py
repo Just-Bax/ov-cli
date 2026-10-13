@@ -18,7 +18,7 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     (
         "OV CLI",
         "signed-in OneVizion instances",
-        ["ov", "ov_sql", "ov_export", "ov_search", "ov_map", "ov_case", "ov_propose"],
+        ["ov", "ov_sql", "ov_export", "ov_import", "ov_search", "ov_map", "ov_case", "ov_propose"],
     ),
     ("Workspace", "the user's code folder: files, search, edits and commands", _names(workspace.TOOLS)),
     ("Datadog", "logs, metrics, monitors, events and APM", _names(datadog.TOOLS)),

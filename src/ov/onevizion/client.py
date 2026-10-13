@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import parse_qsl, unquote
 
 import httpx
 
@@ -32,6 +32,9 @@ READ_ONLY_POSTS = (
     re.compile(r"^/api/v3/components/exports/run$"),
 )
 
+DRY_RUN_POSTS = (re.compile(r"^/api/v3/components/imports/run$"),)
+DRY_RUN_PARAM = "is_dry_run"
+
 READ_ONLY_WEB_PATHS = (
     re.compile(r"^/api/docs/"),
     re.compile(r"^/logoff\.do$", re.IGNORECASE),
@@ -42,7 +45,12 @@ def read_only_enabled() -> bool:
     return os.environ.get(READ_ONLY_ENV, "").strip().lower() in TRUE_WORDS
 
 
-def guard_read_only(method: str, path: str) -> None:
+def _dry_run(path: str, params: list[tuple[str, str]]) -> bool:
+    query = parse_qsl(api_path(path).partition("?")[2])
+    return any(name == DRY_RUN_PARAM and value.lower() in TRUE_WORDS for name, value in [*query, *params])
+
+
+def guard_read_only(method: str, path: str, params: list[tuple[str, str]] | None = None) -> None:
     if not read_only_enabled():
         return
 
@@ -53,10 +61,12 @@ def guard_read_only(method: str, path: str) -> None:
     cleaned = api_path(path).split("?", 1)[0]
     if verb == "POST" and any(rule.match(cleaned) for rule in READ_ONLY_POSTS):
         return
+    if verb == "POST" and any(rule.match(cleaned) for rule in DRY_RUN_POSTS) and _dry_run(path, params or []):
+        return
 
     raise ReadOnlyBlocked(
         f"Read-only mode ({READ_ONLY_ENV}) blocks {verb} {cleaned}. "
-        "Only GET, searches, SQL test and component export are allowed."
+        "Only GET, searches, SQL test, component export and component import dry runs are allowed."
     )
 
 
@@ -114,7 +124,7 @@ class Client:
         headers: dict[str, str] | None = None,
         accept: str = "application/json",
     ) -> httpx.Response:
-        guard_read_only(method, path)
+        guard_read_only(method, path, params)
         if self.session.needs_refresh():
             self.refresh_token()
 
