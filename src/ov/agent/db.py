@@ -83,7 +83,7 @@ MAX_STEPS_LIMIT = 500
 FOLLOW_UPS = ("steer", "queue")
 REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
 NANO_PER_CREDIT = 1_000_000_000
-TOP_THREADS = 10
+TOP_THREADS = 5
 RUN_LIST_LIMIT = 500
 ACTIVE = ("queued", "running", "waiting")
 
