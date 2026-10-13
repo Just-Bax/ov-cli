@@ -427,8 +427,25 @@ In **Settings**:
   and tokens per day, per model and per thread. The numbers are the credits Copilot reports
   for each request; threads from before usage was recorded show "Not tracked".
 
-Each thread shows its credits in its header (hover for tokens and models), and **Export**
-downloads the whole thread as Markdown.
+Preferences also hold the **Reasoning** level (how hard models think; each model gets the
+nearest level it supports) and what **messages while working** do: steer (picked up at the
+next step) or queue (sent after the turn). Ctrl+Enter sends the other way.
+
+In a thread:
+
+- The header shows its credits (hover for tokens and models), **Watch**, **Export** (the
+  whole thread as Markdown) and **Settle**. The instance in the subtitle shows its sign-in
+  state; **Check** reads the platform version and response time, only when you click it.
+- **Watch** has the agent recheck something every few minutes for some hours, each check a
+  new turn with the usual notification. The agent can propose one with `run_watch`.
+- Mentions like "rule 123" link to their page on the instance when that ID appeared in the
+  agent's tool results; links to IDs it never looked up get a warning.
+- The envelope under an answer writes it as a case reply in your reply style.
+- Ctrl+F finds text anywhere in the thread, including turns not loaded yet.
+
+In the sidebar, pin threads, snooze them (an hour, until tomorrow, until Monday) or settle
+them; Ctrl+Z undoes it for five seconds. Ctrl+K opens the command palette; press ? for every
+keyboard shortcut.
 
 The agent's tools come in groups, and the system prompt lists the ones a run has:
 
@@ -439,7 +456,7 @@ The agent's tools come in groups, and the system prompt lists the ones a run has
 | Datadog | `dd_logs`, `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm` |
 | PagerDuty | `pd_incidents`, `pd_incident`, `pd_oncall`, `pd_directory`; with changes allowed also `pd_note`, `pd_ack`, `pd_resolve`, `pd_escalate`, `pd_reassign`, `pd_snooze` |
 | Skills | `skill_read` |
-| Run | `run_read` (attachments, exports and long output in the run folder), `run_ask`, `run_report` |
+| Run | `run_read` (attachments, exports and long output in the run folder), `run_ask`, `run_watch` (scheduled rechecks you approve), `run_report` |
 
 Nothing leaves your machine except calls to your instances and to GitHub Copilot. The
 server listens on 127.0.0.1 only. History and uploads live in `~/.ov/agent`; the
