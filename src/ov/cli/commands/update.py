@@ -25,14 +25,14 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
 
 
 def _short(commit: str) -> str:
-    return commit[:SHORT] if commit else "unknown"
+    return commit[:SHORT]
 
 
 def cmd_update(ctx: Context) -> int:
     note(ctx, "Checking GitHub for the latest version...")
     found = update.plan()
     data = {
-        "current": found.current or None,
+        "current": found.current,
         "latest": found.latest,
         "commits": found.commits,
         "checkout": str(found.install.checkout) if found.install.checkout else None,

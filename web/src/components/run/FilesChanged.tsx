@@ -5,9 +5,9 @@ import {
 } from '@phosphor-icons/react'
 import { memo, useEffect, useState } from 'react'
 import type { FileEdit, RunDetails } from '@shared/types.ts'
-import { useSkeleton } from '@/components/skeletons'
-import { reportError } from '@/components/Toasts'
-import { Skeleton } from '@/components/ui'
+import { useSkeleton } from '@/components/common/skeletons'
+import { reportError } from '@/components/common/Toasts'
+import { Skeleton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { prefetch, take } from '@/lib/prefetch'
@@ -21,7 +21,7 @@ type FileSummary = {
   edits: FileEdit[]
 }
 
-export function summarize(edits: FileEdit[]): FileSummary[] {
+function summarize(edits: FileEdit[]): FileSummary[] {
   const byPath = new Map<string, FileSummary>()
   for (const e of edits) {
     const entry = byPath.get(e.path) ?? {
@@ -37,6 +37,7 @@ export function summarize(edits: FileEdit[]): FileSummary[] {
     entry.edits.push(e)
     byPath.set(e.path, entry)
   }
+
   return [...byPath.values()]
 }
 

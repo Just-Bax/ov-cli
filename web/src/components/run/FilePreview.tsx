@@ -11,12 +11,12 @@ import {
 import { type ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { MessageFile } from '@shared/types.ts'
-import { reportError } from '@/components/Toasts'
-import { Spinner } from '@/components/ui'
-import type { Icon } from '@/components/ui'
+import { reportError } from '@/components/common/Toasts'
+import { type Icon, Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
-import { useLayer } from '@/lib/layers'
 import { cn } from '@/lib/cn'
+import { useEnterTransition, useWindowEvent } from '@/lib/hooks'
+import { useLayer } from '@/lib/layers'
 
 const MAX_TEXT_CHARS = 400_000
 const EMAIL_TEXT_SUFFIX = '.txt'
@@ -53,11 +53,13 @@ function useText(runId: string, file: MessageFile): Text {
 
   useEffect(() => {
     if (!source) return setText({ state: 'none' })
+
     const abort = new AbortController()
     setText({ state: 'loading' })
     fetch(api.fileUrl(runId, source), { signal: abort.signal })
       .then(async (res) => {
         if (!res.ok) return setText({ state: 'none' })
+
         const raw = await res.text()
         setText({
           state: 'ready',
@@ -93,6 +95,7 @@ function RoundButton({
     'flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/85 transition-colors hover:bg-white/20 hover:text-white',
     className,
   )
+
   return href ? (
     <a href={href} download aria-label={label} title={label} className={style}>
       {children}
@@ -134,6 +137,7 @@ function TextBody({ text }: { text: Extract<Text, { state: 'ready' }> }) {
 
 function NoPreview({ runId, file }: { runId: string; file: MessageFile }) {
   const Icon = KIND_ICON[file.kind]
+
   return (
     <div className="flex w-[320px] flex-col items-center rounded-2xl bg-white px-6 py-8 text-center shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
       <div className="bg-brand-soft text-brand-strong flex size-14 items-center justify-center rounded-full">
@@ -192,6 +196,7 @@ function Thumb({
   onClick: () => void
 }) {
   const Icon = KIND_ICON[file.kind]
+
   return (
     <button
       type="button"
@@ -231,29 +236,19 @@ export function FilePreview({
   onClose: () => void
 }) {
   const [index, setIndex] = useState(start)
-  const [shown, setShown] = useState(false)
+  const shown = useEnterTransition(true)
   const file = files[index]
   const many = files.length > 1
   const step = (by: number) => setIndex((i) => (i + by + files.length) % files.length)
 
   useLayer(onClose)
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setShown(true))
-    return () => cancelAnimationFrame(frame)
-  }, [])
-
-  useEffect(() => {
-    if (!many) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') setIndex((i) => (i - 1 + files.length) % files.length)
-      if (e.key === 'ArrowRight') setIndex((i) => (i + 1) % files.length)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [many, files.length])
+  useWindowEvent('keydown', (e) => {
+    if (many && e.key === 'ArrowLeft') step(-1)
+    if (many && e.key === 'ArrowRight') step(1)
+  })
 
   if (!file) throw new Error(`No file at ${index}`)
+
   const Icon = KIND_ICON[file.kind]
 
   return createPortal(

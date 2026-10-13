@@ -1,4 +1,5 @@
-import { reportError } from '@/components/Toasts'
+import { reportError } from '@/components/common/Toasts'
+
 const TEXT_PREFIX = 'ov-agent.draft.'
 const DB_NAME = 'ov-agent'
 const STORE = 'draft-files'

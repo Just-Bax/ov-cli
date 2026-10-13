@@ -78,7 +78,8 @@ def list_skills() -> list[dict[str, Any]]:
 
 
 REPLY_SKILL = "tce-best-practices"
-REPLY_HEADING = "## Reply style"
+REPLY_SECTION = "Reply style"
+REPLY_HEADING = f"## {REPLY_SECTION}"
 
 
 def reply_style() -> str:
@@ -88,7 +89,7 @@ def reply_style() -> str:
     ]
     skill = next((s for s in preferred if REPLY_HEADING in s["content"]), None)
     if skill is None:
-        raise SkillError(f'No enabled skill has a "{REPLY_HEADING[3:]}" section; turn on {REPLY_SKILL}.')
+        raise SkillError(f'No enabled skill has a "{REPLY_SECTION}" section; turn on {REPLY_SKILL}.')
     content = skill["content"]
     start = content.find(REPLY_HEADING)
     end = content.find("\n## ", start + len(REPLY_HEADING))
@@ -112,7 +113,6 @@ def create(title: str, description: str, content: str) -> str:
     title = title.strip()
     if not title:
         raise SkillError("A skill needs a title.")
-
     name = _free_name(title)
     db.add_skill(name, title, description.strip(), content.strip())
     return name

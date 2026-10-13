@@ -5,7 +5,7 @@ import {
 } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, CopyButton, Skeleton } from '@/components/ui'
+import { Button, CopyButton, Skeleton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { useLayer } from '@/lib/layers'
 
@@ -22,7 +22,6 @@ export function ReplyDraft({
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(true)
   const edited = useRef(false)
-
   const latest = useRef(0)
 
   const draft = () => {

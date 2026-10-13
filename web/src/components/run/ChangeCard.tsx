@@ -1,6 +1,6 @@
 import { ArrowSquareOut as ArrowTopRightOnSquareIcon } from '@phosphor-icons/react'
 import type { Change } from '@shared/types.ts'
-import { Button, Chip, CopyButton } from '@/components/ui'
+import { Button, Chip, CopyButton } from '@/components/common/ui'
 import { Diff } from './Diff'
 
 export function ChangeCard({ change }: { change: Change }) {

@@ -1,4 +1,4 @@
-import { dismissToast, notifyAction, reportError } from '@/components/Toasts'
+import { dismissToast, notifyAction, reportError } from '@/components/common/Toasts'
 
 const UNDO_MS = 5000
 

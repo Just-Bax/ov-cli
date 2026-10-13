@@ -26,16 +26,16 @@ import {
   Moon as MoonIcon,
   X as XMarkIcon,
 } from '@phosphor-icons/react'
-import type { Icon } from '@/components/ui'
 import { memo, useEffect, useState } from 'react'
 import type { ToolActivity } from '@shared/types.ts'
-import { useSkeleton } from '@/components/skeletons'
-import { reportError } from '@/components/Toasts'
-import { CopyButton, Skeleton, Spinner } from '@/components/ui'
+import { useSkeleton } from '@/components/common/skeletons'
+import { reportError } from '@/components/common/Toasts'
+import { CopyButton, type Icon, Skeleton, Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
-import { prefetch, take } from '@/lib/prefetch'
 import { cn } from '@/lib/cn'
+import { prefetch, take } from '@/lib/prefetch'
 import { useSettings } from '@/lib/settings'
+import { seconds } from '@/lib/time'
 
 const ICONS: Record<string, Icon> = {
   ov: CommandLineIcon,
@@ -149,6 +149,7 @@ function readableInput(tool: ToolActivity): string {
     if (name === 'ws_write') return `${a.path}\n${a.content}`
     if (name === 'ws_read' || name === 'ws_list' || name === 'run_read')
       return String(a.path ?? '.')
+
     return JSON.stringify(a, null, 2)
   } catch {
     return tool.input
@@ -237,7 +238,7 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
           {tool.label}
         </span>
         {tool.ms !== undefined ? (
-          <span className="text-faint shrink-0 text-[11px]">{(tool.ms / 1000).toFixed(1)}s</span>
+          <span className="text-faint shrink-0 text-[11px]">{seconds(tool.ms)}</span>
         ) : null}
       </button>
       {open ? (
@@ -286,8 +287,9 @@ export const ToolGroup = memo(function ToolGroup({
   const failed = tools.filter((t) => t.status === 'error').length
   const { expandTools } = useSettings().settings
   const [open, setOpen] = useState(expandTools)
-  useEffect(() => setOpen(expandTools), [expandTools])
   const total = tools.reduce((s, t) => s + (t.ms ?? 0), 0)
+
+  useEffect(() => setOpen(expandTools), [expandTools])
 
   return (
     <div>
@@ -313,7 +315,7 @@ export const ToolGroup = memo(function ToolGroup({
         </span>
         {failed ? <span className="text-danger shrink-0 text-[11px]">{failed} failed</span> : null}
         {!running && total ? (
-          <span className="text-faint shrink-0 text-[11px]">{(total / 1000).toFixed(1)}s</span>
+          <span className="text-faint shrink-0 text-[11px]">{seconds(total)}</span>
         ) : null}
       </button>
       {open ? (

@@ -1,5 +1,6 @@
 import type { GraphNode, GraphNodeType } from '@shared/types.ts'
 import type { Index } from '@/components/map/meta'
+import { groupBy } from '@/lib/collections'
 
 type RefKind = 'objref' | 'name' | 'id' | 'call'
 export type Ref = { start: number; end: number; node: GraphNode; kind: RefKind; text: string }
@@ -15,6 +16,7 @@ const QUOTED = /(['"])([A-Za-z][A-Za-z0-9_$#]{2,})\1/g
 const NUMBER = /\b\d{6,12}\b/g
 const CALL = /\b([A-Za-z][A-Za-z0-9_$#]*)(?=\s*\.\s*[A-Za-z])/g
 const OBJREF_KINDS: Record<string, GraphNodeType> = { imp: 'import', rpt: 'report', wf: 'workflow' }
+const MIN_NAME_CHARS = 3
 const NAMED: GraphNodeType[] = ['field', 'trackor_type', 'db_package']
 
 const ID_COLUMNS: [string, GraphNodeType][] = [
@@ -44,23 +46,24 @@ const ID_KEYWORDS = new Set(
 const IDENT = /:?[A-Za-z_][A-Za-z0-9_$#]*/g
 const NAME_COMMENT = /^\s*(?:\/\*\s*([^*]+?)\s*\*\/|--\s*(\S+))/
 
+function enclosingCall(text: string): string | undefined {
+  let depth = 0
+  for (let i = text.length - 1; i >= 0; i--) {
+    if (text[i] === ')') depth++
+    if (text[i] !== '(') continue
+    if (depth === 0) return /([A-Za-z_][A-Za-z0-9_$#]*)\s*$/.exec(text.slice(0, i))?.[1]
+
+    depth--
+  }
+
+  return undefined
+}
+
 function idKind(before: string): GraphNodeType | undefined {
   const text = (before.split(/[;\n]/).at(-1) ?? '')
     .replace(/'[^']*'/g, "''")
     .replace(/\/\*.*?\*\//g, ' ')
-
-  let depth = 0
-  for (let i = text.length - 1; i >= 0; i--) {
-    if (text[i] === ')') depth++
-    else if (text[i] === '(') {
-      if (depth === 0) {
-        const call = /([A-Za-z_][A-Za-z0-9_$#]*)\s*$/.exec(text.slice(0, i))
-        if (call && call[1].toLowerCase().endsWith('byid')) return 'field'
-        break
-      }
-      depth--
-    }
-  }
+  if (enclosingCall(text)?.toLowerCase().endsWith('byid')) return 'field'
 
   for (const token of [...text.matchAll(IDENT)].map((m) => m[0].toLowerCase()).reverse()) {
     if (ID_KEYWORDS.has(token)) continue
@@ -112,10 +115,10 @@ export function refIndex(nodes: GraphNode[], idx?: Index): RefIndex {
     objrefs,
     names: unique(
       nodes
-        .filter((n) => NAMED.includes(n.type) && n.name.length > 3)
+        .filter((n) => NAMED.includes(n.type) && n.name.length > MIN_NAME_CHARS)
         .map((n) => [n.name.toUpperCase(), n]),
     ),
-    byRef: nodes.reduce((m, n) => m.set(n.ref, [...(m.get(n.ref) ?? []), n]), new Map()),
+    byRef: groupBy(nodes, (n) => n.ref),
     packages: new Map(
       nodes.filter((n) => n.type === 'db_package').map((n) => [n.name.toUpperCase(), n]),
     ),
@@ -143,12 +146,15 @@ export function findRefs(line: string, index: RefIndex): Ref[] {
     const text = m[0].replace(/\.+$/, '')
     add(m.index, text, objref(text, index), 'objref')
   }
+
   for (const m of line.matchAll(QUOTED))
     add(m.index, m[0], index.names.get(m[2].toUpperCase()), 'name')
+
   for (const m of line.matchAll(NUMBER)) {
     const end = m.index + m[0].length
     add(m.index, m[0], byId(index, m[0], line.slice(0, m.index), line.slice(end)), 'id')
   }
+
   for (const m of line.matchAll(CALL))
     add(m.index, m[0], index.packages.get(m[1].toUpperCase()), 'call')
 

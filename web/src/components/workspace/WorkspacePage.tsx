@@ -8,21 +8,27 @@ import {
   Sparkle as SparklesIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { WorkspaceEntry } from '@shared/types.ts'
-import { dialog } from '@/components/Dialog'
-import { CodeSkeleton, TreeRowsSkeleton, useSkeleton } from '@/components/skeletons'
-import { reportError } from '@/components/Toasts'
-import { Button, EmptyState, IconBadge, Page, Spinner } from '@/components/ui'
+import { dialog } from '@/components/common/Dialog'
+import { CodeSkeleton, TreeRowsSkeleton, useSkeleton } from '@/components/common/skeletons'
+import { reportError } from '@/components/common/Toasts'
+import { Button, EmptyState, IconBadge, Page, Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
-import { useUnsavedWarning } from '@/lib/unsaved'
 import { cn } from '@/lib/cn'
+import { toggled } from '@/lib/collections'
 import { openDraft } from '@/lib/draft'
+import { useLoad, useWindowEvent } from '@/lib/hooks'
 import { languageOf } from '@/lib/languages'
-import { monaco } from '@/lib/monaco'
+import { EDITOR_FONT, EDITOR_PADDING, monaco } from '@/lib/monaco'
 import { href } from '@/lib/route'
 import { useSettings } from '@/lib/settings'
+import { useUnsavedWarning } from '@/lib/unsaved'
 
 const INDENT_PX = 14
+const ROW_PAD_PX = 8
+const EMPTY_PAD_PX = 30
+const ROOT_SKELETON_ROWS = 14
+const NESTED_SKELETON_ROWS = 3
+const LINE_HEIGHT = 21
 
 type Open = { path: string; saved: string }
 
@@ -39,29 +45,19 @@ function Folder({
   onOpen: (path: string) => void
   version: number
 }) {
-  const [entries, setEntries] = useState<WorkspaceEntry[]>()
+  const entries = useLoad(() => api.workspaceEntries(path), [path, version]).value?.entries
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const showSkeleton = useSkeleton(!entries)
+  if (showSkeleton)
+    return (
+      <TreeRowsSkeleton
+        rows={depth ? NESTED_SKELETON_ROWS : ROOT_SKELETON_ROWS}
+        indent={depth * INDENT_PX}
+      />
+    )
+  if (!entries) return null
 
-  useEffect(() => {
-    api
-      .workspaceEntries(path)
-      .then((r) => setEntries(r.entries))
-      .catch(reportError)
-  }, [path, version])
-
-  if (showSkeleton || !entries)
-    return showSkeleton ? (
-      <TreeRowsSkeleton rows={depth ? 3 : 14} indent={depth * INDENT_PX} />
-    ) : null
-
-  const toggle = (p: string) =>
-    setExpanded((all) => {
-      const next = new Set(all)
-      if (next.has(p)) next.delete(p)
-      else next.add(p)
-      return next
-    })
+  const toggle = (p: string) => setExpanded((all) => toggled(all, p))
 
   return (
     <>
@@ -79,7 +75,7 @@ function Folder({
                 'flex h-7 w-full items-center gap-1.5 rounded-full pr-3 text-left text-[12.5px] transition-colors',
                 active === e.path ? 'bg-brand-soft text-brand-strong' : 'text-text hover:bg-raised',
               )}
-              style={{ paddingLeft: depth * INDENT_PX + 8 }}
+              style={{ paddingLeft: depth * INDENT_PX + ROW_PAD_PX }}
             >
               <ChevronRightIcon
                 className={cn(
@@ -106,7 +102,7 @@ function Folder({
       {!entries.length ? (
         <div
           className="text-faint py-1 text-[12px]"
-          style={{ paddingLeft: depth * INDENT_PX + 30 }}
+          style={{ paddingLeft: depth * INDENT_PX + EMPTY_PAD_PX }}
         >
           Empty
         </div>
@@ -125,14 +121,13 @@ function Editor({ file, onChange }: { file: Open; onChange: (text: string) => vo
     if (!host.current) return
 
     const created = monaco.editor.create(host.current, {
+      ...EDITOR_FONT,
       theme: 'ov-light',
       automaticLayout: true,
-      fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
-      fontSize: 12.5,
-      lineHeight: 21,
+      lineHeight: LINE_HEIGHT,
       minimap: { enabled: true, renderCharacters: false },
       scrollBeyondLastLine: false,
-      padding: { top: 12, bottom: 12 },
+      padding: EDITOR_PADDING,
       stickyScroll: { enabled: true },
       fixedOverflowWidgets: true,
     })
@@ -148,7 +143,6 @@ function Editor({ file, onChange }: { file: Open; onChange: (text: string) => vo
   useEffect(() => {
     const current = editor.current
     if (!current) return
-
     const previous = current.getModel()
     current.setModel(monaco.editor.createModel(file.saved, languageOf(file.path)))
     previous?.dispose()
@@ -165,8 +159,9 @@ export function WorkspacePage() {
   const [saving, setSaving] = useState(false)
   const [version, setVersion] = useState(0)
   const dirty = Boolean(open && text !== open.saved)
-  useUnsavedWarning(dirty)
   const showEditorSkeleton = useSkeleton(loading)
+
+  useUnsavedWarning(dirty)
 
   const load = useCallback(async (path: string) => {
     setLoading(true)
@@ -181,16 +176,16 @@ export function WorkspacePage() {
     }
   }, [])
 
+  const confirmDiscard = () =>
+    dialog.confirm({
+      title: 'Discard unsaved changes?',
+      body: `${open?.path} has changes that are not saved.`,
+      confirmLabel: 'Discard',
+      tone: 'danger',
+    })
+
   const choose = async (path: string) => {
-    if (dirty) {
-      const ok = await dialog.confirm({
-        title: 'Discard unsaved changes?',
-        body: `${open?.path} has changes that are not saved.`,
-        confirmLabel: 'Discard',
-        tone: 'danger',
-      })
-      if (!ok) return
-    }
+    if (dirty && !(await confirmDiscard())) return
     void load(path)
   }
 
@@ -208,17 +203,11 @@ export function WorkspacePage() {
     }
   }, [open, dirty, text])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-        void save()
-      }
-    }
-
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [save])
+  useWindowEvent('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's') return
+    e.preventDefault()
+    void save()
+  })
 
   if (!settings.workspace)
     return (

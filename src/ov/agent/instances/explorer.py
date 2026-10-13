@@ -16,6 +16,7 @@ MAX_CHARS = 400_000
 CACHE_SIZE = 200
 ACTIVITY_ROWS = 10
 LONG_SYNC_LINES = 250
+NESTED_LOOP_DEPTH = 2
 
 _cache: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
 _cache_lock = threading.Lock()
@@ -109,7 +110,6 @@ def _exported(sql: SqlReader, kind: str, ref: int) -> list[dict[str, str]]:
     found = components.export(sql.alias, component_type, [ref], sql.cancel)
     if not found:
         raise ExplorerError(f"The component export returned no {kind} {ref}.")
-
     values = components.fields(found[0])
     return [{"title": title, "code": values[tag]} for title, tag in columns.items()]
 
@@ -306,7 +306,7 @@ def _loop_hints(lines: list[str]) -> list[dict[str, Any]]:
         ends = bool(_LOOP_END.search(line))
         starts = not ends and bool(_LOOP_START.search(line))
         depth = max(0, depth - 1) if ends else depth + starts
-        if starts and depth == 2 and "nested" not in found:
+        if starts and depth == NESTED_LOOP_DEPTH and "nested" not in found:
             found["nested"] = _hint(number, *_NESTED_LOOPS)
         if depth and not starts and _LOOKUP.search(line) and "lookup" not in found:
             found["lookup"] = _hint(number, *_QUERY_IN_LOOP)

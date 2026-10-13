@@ -204,7 +204,6 @@ def _append_next(conn: Connection, thread_id: str, kind: EventType, data: dict[s
 def _close_orphans(conn: Connection) -> None:
     for thread_id in conn.scalars(select(Thread.id).where(Thread.status.in_(ACTIVE))).all():
         _append_next(conn, thread_id, EventType.STATUS, {"status": ThreadStatus.ERROR, "error": INTERRUPTED_RUN})
-
     conn.execute(update(Thread).where(Thread.status.in_(ACTIVE)).values(status=ThreadStatus.ERROR))
     _close_open_tools(conn)
 

@@ -1,31 +1,21 @@
 import { useEffect, useState } from 'react'
 
-export type Route =
-  | { page: 'home' }
-  | { page: 'settings' }
-  | { page: 'map' }
-  | { page: 'explorer' }
-  | { page: 'health' }
-  | { page: 'workspace' }
-  | { page: 'run'; id: string }
+const SIMPLE_PAGES = ['settings', 'map', 'explorer', 'health', 'workspace'] as const
+
+type SimplePage = (typeof SIMPLE_PAGES)[number]
+
+export type Route = { page: 'home' } | { page: SimplePage } | { page: 'run'; id: string }
 
 function parse(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, '').split('/')
-  if (parts[0] === 'run' && parts[1]) return { page: 'run', id: parts[1] }
-  if (parts[0] === 'settings') return { page: 'settings' }
-  if (parts[0] === 'map') return { page: 'map' }
-  if (parts[0] === 'explorer') return { page: 'explorer' }
-  if (parts[0] === 'health') return { page: 'health' }
-  if (parts[0] === 'workspace') return { page: 'workspace' }
-  return { page: 'home' }
+  const [page, id] = hash.replace(/^#\/?/, '').split('/')
+  if (page === 'run' && id) return { page: 'run', id }
+  const simple = SIMPLE_PAGES.find((p) => p === page)
+  return simple ? { page: simple } : { page: 'home' }
 }
 
 export function href(route: Route): string {
-  return route.page === 'run'
-    ? `#/run/${route.id}`
-    : route.page === 'home'
-      ? '#/'
-      : `#/${route.page}`
+  if (route.page === 'run') return `#/run/${route.id}`
+  return route.page === 'home' ? '#/' : `#/${route.page}`
 }
 
 export function go(route: Route): void {
@@ -34,10 +24,12 @@ export function go(route: Route): void {
 
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parse(window.location.hash))
+
   useEffect(() => {
     const onChange = () => setRoute(parse(window.location.hash))
     window.addEventListener('hashchange', onChange)
     return () => window.removeEventListener('hashchange', onChange)
   }, [])
+
   return route
 }

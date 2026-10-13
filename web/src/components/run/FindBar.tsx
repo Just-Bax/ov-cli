@@ -5,8 +5,8 @@ import {
   X as XMarkIcon,
 } from '@phosphor-icons/react'
 import { type RefObject, useEffect, useRef, useState } from 'react'
-import { reportError } from '@/components/Toasts'
-import { Spinner } from '@/components/ui'
+import { reportError } from '@/components/common/Toasts'
+import { Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useLayer } from '@/lib/layers'
@@ -14,6 +14,7 @@ import { useLayer } from '@/lib/layers'
 const SEARCH_DELAY_MS = 200
 const MATCH = 'ov-find'
 const CURRENT = 'ov-find-current'
+export const FIND_LABEL = 'Find in thread'
 
 function textRanges(root: HTMLElement, query: string): Range[] {
   const wanted = query.toLocaleLowerCase()
@@ -33,6 +34,7 @@ function textRanges(root: HTMLElement, query: string): Range[] {
       ranges.push(range)
     }
   }
+
   return ranges
 }
 
@@ -59,7 +61,7 @@ export function FindBar({
   runId: string
   contentRef: RefObject<HTMLDivElement | null>
   start: number
-  version: number
+  version: unknown
   onLoadUntil: (index: number) => Promise<void>
   onClose: () => void
 }) {
@@ -116,6 +118,7 @@ export function FindBar({
     const root = contentRef.current
     const wanted = query.trim()
     if (!root || !wanted) return
+
     const found = textRanges(root, wanted)
     setRanges(found)
     setCurrent(found.length ? found.length - 1 : 0)
@@ -147,8 +150,8 @@ export function FindBar({
             step(e.shiftKey ? 1 : -1)
           }
         }}
-        placeholder="Find in thread"
-        aria-label="Find in thread"
+        placeholder={FIND_LABEL}
+        aria-label={FIND_LABEL}
         className="placeholder:text-faint text-fg w-[220px] bg-transparent text-[13px] outline-none"
       />
       <span

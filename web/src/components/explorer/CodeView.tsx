@@ -3,12 +3,18 @@ import type { CodeHint, GraphNode, GraphNodeType } from '@shared/types.ts'
 import { TypeDot, TYPES } from '@/components/map/meta'
 import { ObjectActions } from '@/components/map/ObjectActions'
 import { findRefs, type Ref, type RefIndex, REF_KINDS } from '@/lib/references'
-import { monaco } from '@/lib/monaco'
+import { EDITOR_FONT, EDITOR_PADDING, monaco } from '@/lib/monaco'
 
 const MAX_LINKS = 6000
 const CARD_WIDTH = 320
 const HIDE_DELAY_MS = 300
 const SWITCH_DELAY_MS = 250
+const LINE_HEIGHT = 22
+const SCROLLBAR_PX = 10
+const CARD_EDGE_PX = 8
+const CARD_NUDGE_PX = 12
+const CARD_RIGHT_ROOM_PX = 24
+const CARD_DROP_PX = 2
 
 let refTypeStylesAdded = false
 
@@ -96,23 +102,22 @@ export function CodeView({
     addRefTypeStyles()
 
     const editor = monaco.editor.create(host.current!, {
+      ...EDITOR_FONT,
       readOnly: true,
       theme: 'ov-light',
       language: 'sql',
       automaticLayout: true,
-      fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
-      fontSize: 12.5,
-      lineHeight: 22,
+      lineHeight: LINE_HEIGHT,
       minimap: { enabled: true, renderCharacters: false, scale: 1 },
       scrollBeyondLastLine: false,
       smoothScrolling: true,
-      padding: { top: 12, bottom: 12 },
+      padding: EDITOR_PADDING,
       stickyScroll: { enabled: true },
       renderLineHighlight: 'line',
       occurrencesHighlight: 'singleFile',
       folding: true,
       guides: { indentation: true },
-      scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+      scrollbar: { verticalScrollbarSize: SCROLLBAR_PX, horizontalScrollbarSize: SCROLLBAR_PX },
       fixedOverflowWidgets: true,
     })
     editorRef.current = editor
@@ -147,7 +152,13 @@ export function CodeView({
             column: ref.start + 1,
           })
           if (!at) return current
-          return { ref, line: position.lineNumber, top: at.top + at.height + 2, left: at.left }
+
+          return {
+            ref,
+            line: position.lineNumber,
+            top: at.top + at.height + CARD_DROP_PX,
+            left: at.left,
+          }
         })
       clearTimeout(switchTimer.current)
       const switchingAwayFromOpenCard = shown.current && shown.current.ref !== ref
@@ -159,7 +170,6 @@ export function CodeView({
     const openOnPlainClick = editor.onMouseUp((e) => {
       const selectingText = !editor.getSelection()?.isEmpty()
       if (selectingText) return
-
       const ref = refAt(e.target.position)
       if (ref) openRef.current(ref.node)
     })
@@ -200,6 +210,7 @@ export function CodeView({
           },
         })
     }
+
     linksRef.current?.set(decorations)
 
     monaco.editor.setModelMarkers(
@@ -242,7 +253,6 @@ export function CodeView({
   useEffect(() => {
     const editor = editorRef.current
     if (!editor || !revealLine) return
-
     editor.revealLineInCenter(revealLine.line)
     editor.setSelection(new monaco.Range(revealLine.line, 1, revealLine.line, 1))
     editor.focus()
@@ -259,7 +269,10 @@ export function CodeView({
           facts={facts(hover.ref.node)}
           style={{
             top: hover.top,
-            left: Math.max(8, Math.min(hover.left - 12, width - CARD_WIDTH - 24)),
+            left: Math.max(
+              CARD_EDGE_PX,
+              Math.min(hover.left - CARD_NUDGE_PX, width - CARD_WIDTH - CARD_RIGHT_ROOM_PX),
+            ),
             width: CARD_WIDTH,
           }}
           onEnter={enterCard}

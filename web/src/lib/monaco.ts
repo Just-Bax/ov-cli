@@ -21,6 +21,13 @@ import '../../node_modules/monaco-editor/esm/vs/base/browser/ui/codicons/codicon
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
 
+export const EDITOR_FONT = {
+  fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
+  fontSize: 12.5,
+}
+
+export const EDITOR_PADDING = { top: 12, bottom: 12 }
+
 monaco.editor.defineTheme('ov-light', {
   base: 'vs',
   inherit: true,

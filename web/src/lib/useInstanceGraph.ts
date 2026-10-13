@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { GraphStatus, InstanceGraph } from '@shared/types.ts'
-import { useInstances } from '@/components/InstancePicker'
 import { api } from '@/lib/api'
+import { instanceLabel, useInstances } from '@/lib/instances'
 
 const INSTANCE_KEY = 'ov-agent.map-instance'
 const BUILD_POLL_MS = 2000
@@ -19,6 +19,7 @@ export function useInstanceGraph() {
   useEffect(() => {
     if (instances && !signedIn.some((i) => i.alias === alias)) setAlias(signedIn[0]?.alias ?? '')
   }, [instances])
+
   useEffect(() => {
     if (alias) localStorage.setItem(INSTANCE_KEY, alias)
   }, [alias])
@@ -76,11 +77,23 @@ export function useInstanceGraph() {
   }
 
   const current = signedIn.find((i) => i.alias === alias)
-  const label = current
-    ? current.tenant
-      ? `${current.host} / ${current.tenant}`
-      : current.host
-    : ''
+  const label = current ? instanceLabel(current) : ''
+  const building = status?.state === 'building'
+  const loading = !error && (!status || (Boolean(status.builtAt) && !graph && !building))
 
-  return { instances, signedIn, alias, setAlias, label, status, graph, error, build }
+  return {
+    instances,
+    signedIn,
+    alias,
+    setAlias,
+    label,
+    status,
+    graph,
+    error,
+    build,
+    building,
+    loading,
+  }
 }
+
+export type InstanceGraphState = ReturnType<typeof useInstanceGraph>

@@ -1,16 +1,15 @@
 import { useState } from 'react'
 import type { CostTotal, RunCost } from '@shared/types.ts'
-import { useModels } from '@/components/ModelPicker'
-import { reportError } from '@/components/Toasts'
-import { Spinner } from '@/components/ui'
+import { reportError } from '@/components/common/Toasts'
+import { Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { formatCredits, formatTokens, orderedTokens, tokenLabel } from '@/lib/cost'
+import { modelName, useModels } from '@/lib/models'
 
 export function CostPill({ runId, cost }: { runId: string; cost?: CostTotal }) {
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState<RunCost>()
   const models = useModels()
-  const name = (id: string) => models.find((m) => m.id === id)?.name ?? id
 
   if (!cost) {
     return (
@@ -56,7 +55,7 @@ export function CostPill({ runId, cost }: { runId: string; cost?: CostTotal }) {
                 <div className="border-line mt-3 space-y-1 border-t pt-3">
                   {detail.models.map((m) => (
                     <div key={m.model} className="flex justify-between gap-3">
-                      <span className="text-muted truncate">{name(m.model)}</span>
+                      <span className="text-muted truncate">{modelName(models, m.model)}</span>
                       <span className="text-text shrink-0 tabular-nums">
                         {formatCredits(m.credits)}
                       </span>

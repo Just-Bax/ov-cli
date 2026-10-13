@@ -29,15 +29,23 @@ import type {
   Upload,
 } from '@shared/types.ts'
 
+const API_ROOT = '/api'
+const UNNAMED_UPLOAD = 'pasted.png'
+
+function errorIn(text: string): string | undefined {
+  if (!text.startsWith('{')) return undefined
+  return (JSON.parse(text) as { error?: string }).error
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_ROOT}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok)
-    throw new Error((body as { error?: string }).error ?? `${res.status} ${res.statusText}`)
-  return body as T
+  const text = await res.text()
+  if (!res.ok) throw new Error(errorIn(text) ?? `${res.status} ${res.statusText}`)
+
+  return JSON.parse(text) as T
 }
 
 const post = <T>(path: string, body?: unknown) =>
@@ -46,6 +54,7 @@ const put = <T>(path: string, body: unknown) =>
   request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
 const del = <T>(path: string) => request<T>(path, { method: 'DELETE' })
 const seg = encodeURIComponent
+const signInQuery = (url: string, tenant?: string) => `url=${seg(url)}&tenant=${seg(tenant ?? '')}`
 
 interface SkillDraft {
   title: string
@@ -75,7 +84,9 @@ export const api = {
   searchRun: (id: string, q: string, signal?: AbortSignal) =>
     request<{ items: number[] }>(`/runs/${id}/search?q=${seg(q)}`, { signal }),
   runCost: (id: string) => request<RunCost>(`/runs/${id}/cost`),
-  exportUrl: (id: string) => `/api/runs/${id}/export`,
+  exportUrl: (id: string) => `${API_ROOT}/runs/${id}/export`,
+  runEventsUrl: (id: string, after: number) => `${API_ROOT}/runs/${id}/events?after=${after}`,
+  statusEventsUrl: () => `${API_ROOT}/status-events`,
   models: () => request<ModelInfo[]>('/models'),
   instances: () => request<Instance[]>('/instances'),
   loginInstance: (
@@ -85,7 +96,11 @@ export const api = {
     screen?: { width: number; height: number },
   ) => post<{ ok: boolean; message: string }>('/instances/login', { url, tenant, token, screen }),
   cancelSignIn: (url: string, tenant?: string) =>
-    post(`/signin/cancel?url=${seg(url)}&tenant=${seg(tenant ?? '')}`),
+    post(`/signin/cancel?${signInQuery(url, tenant)}`),
+  signInInput: (url: string, tenant: string | undefined, events: unknown[]) =>
+    post(`/signin/input?${signInQuery(url, tenant)}`, { events }),
+  signInScreenUrl: (url: string, tenant?: string) =>
+    `${API_ROOT}/signin/screen?${signInQuery(url, tenant)}`,
   datadog: () => request<DatadogStatus>('/datadog'),
   datadogConnect: (site: string, apiKey: string, appKey: string) =>
     post<DatadogStatus>('/datadog/connect', { site, apiKey, appKey }),
@@ -123,7 +138,6 @@ export const api = {
       `/instances/check?instance=${seg(instance)}`,
     ),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),
-  settings: () => request<Settings>('/settings'),
   saveSettings: (patch: Partial<Settings>) => put<Settings>('/settings', patch),
   skills: () => request<SkillInfo[]>('/skills'),
   createSkill: (draft: SkillDraft) => post<{ name: string; skills: SkillInfo[] }>('/skills', draft),
@@ -141,11 +155,12 @@ export const api = {
           body: file,
           headers: {
             'Content-Type': 'application/octet-stream',
-            'X-File-Name': encodeURIComponent(file.name || 'pasted.png'),
+            'X-File-Name': encodeURIComponent(file.name || UNNAMED_UPLOAD),
           },
         }),
       )
     }
+
     return saved
   },
   graphStatus: (instance: string) =>
@@ -180,7 +195,7 @@ export const api = {
   retry: (id: string, itemId: string) => post(`/runs/${id}/retry`, { itemId }),
   renameRun: (id: string, title: string) => post(`/runs/${id}/title`, { title }),
   removeQueued: (id: string, mid: string) => del(`/runs/${id}/queued/${seg(mid)}`),
-  fileUrl: (id: string, name: string) => `/api/runs/${id}/files/${seg(name)}`,
+  fileUrl: (id: string, name: string) => `${API_ROOT}/runs/${id}/files/${seg(name)}`,
   setWriteAccess: (id: string, write: boolean) => post(`/runs/${id}/access`, { write }),
   cancel: (id: string) => post(`/runs/${id}/cancel`),
   settleRun: (id: string, settled: boolean) => post(`/runs/${id}/settle`, { settled }),

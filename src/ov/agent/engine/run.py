@@ -41,6 +41,7 @@ from ov.agent.tools.base import Tool, ToolError
 CONTEXT_BUDGET = 360_000
 COMPACT_TARGET = int(CONTEXT_BUDGET * 0.7)
 KEEP_RECENT_MESSAGES = 12
+PINNED_MESSAGES = 2
 TRIMMED_TOOL_OUTPUT = 1200
 TOOL_WORKERS = 8
 TOOL_INPUT_CHARS = 8000
@@ -62,6 +63,7 @@ RETITLE_CHARS = 1500
 _TITLE_PREFIX = re.compile(r"^(title|subject|topic)\s*[:\-]\s*", re.IGNORECASE)
 _TITLE_NOISE = "\"'#*`_.:;,- "
 RUN_ID_SUFFIX_CHARS = 4
+BASE36_DIGITS = string.digits + string.ascii_lowercase
 IDLE_EVICT_MS = 5 * 60_000
 MAX_CACHED_RUNS = 6
 LOGIN_ATTEMPTS = 2
@@ -879,8 +881,8 @@ class Run:
         if total < CONTEXT_BUDGET:
             return
 
-        keep_from = max(2, len(self._messages) - KEEP_RECENT_MESSAGES)
-        for message in self._messages[2:keep_from]:
+        keep_from = max(PINNED_MESSAGES, len(self._messages) - KEEP_RECENT_MESSAGES)
+        for message in self._messages[PINNED_MESSAGES:keep_from]:
             if total <= COMPACT_TARGET:
                 break
             before = _size(message)
@@ -1055,11 +1057,10 @@ def clean_title(reply: str) -> str:
 
 
 def _base36(value: int) -> str:
-    digits = string.digits + string.ascii_lowercase
     out = ""
     while value:
-        value, rest = divmod(value, 36)
-        out = digits[rest] + out
+        value, rest = divmod(value, len(BASE36_DIGITS))
+        out = BASE36_DIGITS[rest] + out
     return out or "0"
 
 

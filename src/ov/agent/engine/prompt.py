@@ -30,7 +30,6 @@ def _servers(scope: str) -> str:
 def _workspace_text() -> str:
     if not project.configured():
         return "none set, so there are no ws_ tools. Code work needs the user to pick a folder in Settings > Workspace."
-
     notes = db.get_preferences()["workspaceNotes"].strip()
     return f"{project.root()}" + (f"\nNotes from the user:\n{notes}" if notes else "")
 
@@ -38,7 +37,6 @@ def _workspace_text() -> str:
 def _datadog_text() -> str:
     if not datadog.connected():
         return "not connected"
-
     matches = datadog.load_state().get("matches") or {}
     matched = "\n".join(f"- {alias}: {_servers(scope)}" for alias, scope in sorted(matches.items()))
     return f"connected. Instance filters:\n{matched or 'none matched yet'}"

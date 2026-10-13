@@ -1,22 +1,4 @@
-import type { RunInput, RunState, RunSummary, StoredEvent, ThreadItem } from './types.ts'
-
-export function emptyState(summary: RunSummary, input: RunInput): RunState {
-  return {
-    summary,
-    input,
-    items: [],
-    start: 0,
-    outline: [],
-    tools: [],
-    changes: [],
-    edits: [],
-    questions: [],
-    logins: [],
-    chat: [],
-    writeAccess: Boolean(input.allowWrite),
-    queued: [],
-  }
-}
+import type { RunState, StoredEvent, ThreadItem } from './types.ts'
 
 function upsert<T extends { id: string }>(list: T[], next: T, merge = false): T[] {
   const i = list.findIndex((x) => x.id === next.id)

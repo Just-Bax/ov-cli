@@ -23,6 +23,7 @@ export function useLayer(onClose: () => void, open = true): void {
 
   useEffect(() => {
     if (!open) return
+
     const layer: Layer = { close: () => close.current() }
     const returnTo = document.activeElement as HTMLElement | null
     stack.push(layer)

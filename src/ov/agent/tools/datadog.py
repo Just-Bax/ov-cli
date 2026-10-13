@@ -166,7 +166,6 @@ def _error_spans(query: str, start: int, end: int, limit: int, ctx: ToolContext)
     rows = datadog.error_spans(query, start, end, limit)
     if not rows:
         return f"No error spans for {query}."
-
     lines = [f"{r['time']} {r['service']} {r['resource']}: {r['error']} (trace {r['trace']})" for r in rows]
     return clip(f"Error spans for {query}:\n" + "\n".join(lines), ctx, "spans")
 
@@ -175,7 +174,6 @@ def _slow_endpoints(query: str, start: int, end: int, limit: int) -> str:
     rows = datadog.slow_endpoints(query, start, end, limit)
     if not rows:
         return f"No spans for {query}."
-
     lines = [f"p95 {r['p95Ms']} ms, {r['count']} calls: {r['resource']}" for r in rows]
     return f"Slowest endpoints by p95 for {query}:\n" + "\n".join(lines)
 
@@ -281,6 +279,5 @@ TOOLS = [
 def offered() -> list[Tool]:
     if not datadog.connected():
         return []
-
     areas = datadog.permissions()
     return [t for t in TOOLS if areas[AREA_OF_TOOL[t.name]]]

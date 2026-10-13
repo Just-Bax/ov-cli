@@ -38,11 +38,16 @@ from ov.agent.integrations.pagerduty import PagerDutyError
 from ov.agent.skills import SkillError
 from ov.agent.storage import db
 from ov.core.errors import OvError
+from ov.onevizion.auth import LOGIN_PATH
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
 DEFAULT_PORT = 5180
 DEV_PORT = 5179
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+LOOPBACK_HOST = "127.0.0.1"
+LOCAL_HOSTS = (LOOPBACK_HOST, "localhost")
+BYTES_PER_MB = 1024 * 1024
+MAX_UPLOAD_MB = 50
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * BYTES_PER_MB
 GZIP_MIN_BYTES = 64 * 1024
 PING_SECONDS = 15
 SETTLED_PAGE = 50
@@ -151,7 +156,7 @@ class Handler(BaseHTTPRequestHandler):
     def body(self) -> bytes:
         length = self._unread
         if length > MAX_UPLOAD_BYTES:
-            raise HttpError(413, "File is larger than 50MB.")
+            raise HttpError(413, f"File is larger than {MAX_UPLOAD_MB}MB.")
         self._unread = 0
         return self.rfile.read(length) if length else b""
 
@@ -200,7 +205,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _trusted(self, method: str) -> bool:
         host = (self.headers.get("Host") or "").split(":")[0]
-        if host not in ("127.0.0.1", "localhost"):
+        if host not in LOCAL_HOSTS:
             return False
         if self.headers.get("Sec-Fetch-Site", "none") not in TRUSTED_FETCH_SITES:
             return False
@@ -214,7 +219,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _origins(self) -> set[str]:
         ports = (self.server.server_address[1], DEV_PORT)
-        return {f"http://{host}:{port}" for host in ("127.0.0.1", "localhost") for port in ports}
+        return {f"http://{host}:{port}" for host in LOCAL_HOSTS for port in ports}
 
     def _dispatch(self, method: str) -> None:
         self._unread = max(int(self.headers.get("Content-Length") or 0), 0)
@@ -388,7 +393,7 @@ def check_instance(h: Handler) -> dict[str, Any]:
     url = found["url"] if found else url_for(ref)
     started = time.monotonic()
     try:
-        page = httpx.get(f"{url}/Login.do", timeout=INSTANCE_CHECK_TIMEOUT_SECONDS, follow_redirects=True)
+        page = httpx.get(f"{url}{LOGIN_PATH}", timeout=INSTANCE_CHECK_TIMEOUT_SECONDS, follow_redirects=True)
     except httpx.HTTPError as exc:
         raise HttpError(502, f"{url} did not answer: {exc}") from None
     took = int((time.monotonic() - started) * 1000)
@@ -465,7 +470,6 @@ def workspace_save(h: Handler) -> dict[str, str]:
     path = _required(data, "path")
     if not isinstance(data.get("content"), str):
         raise HttpError(400, "Give the file content as a string.")
-
     project.write(path, data["content"])
     return {"path": path, "content": project.text_of(path)}
 
@@ -475,7 +479,6 @@ def upload(h: Handler) -> dict[str, str]:
     name = Path(unquote(h.headers.get("X-File-Name") or "")).name
     if not name:
         raise HttpError(400, "Give the file name in the X-File-Name header.")
-
     upload_id = _short_id()
     (uploads_dir() / upload_id).write_bytes(h.body())
     return {"id": upload_id, "name": name}
@@ -975,16 +978,20 @@ def cancel(_: Handler, run_id: str) -> dict[str, bool]:
 
 def already_running(port: int) -> bool:
     try:
-        response = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=HEALTH_CHECK_TIMEOUT_SECONDS)
+        response = httpx.get(f"{_local_url(port)}/api/health", timeout=HEALTH_CHECK_TIMEOUT_SECONDS)
         return response.json().get("app") == APP_ID
     except (httpx.HTTPError, ValueError):
         return False
 
 
+def _local_url(port: int) -> str:
+    return f"http://{LOOPBACK_HOST}:{port}"
+
+
 def serve(port: int = DEFAULT_PORT, open_browser: bool = True) -> int:
-    url = f"http://127.0.0.1:{port}"
+    url = _local_url(port)
     try:
-        server = AgentServer(("127.0.0.1", port), Handler)
+        server = AgentServer((LOOPBACK_HOST, port), Handler)
     except OSError:
         if not already_running(port):
             raise OvError(f"Port {port} is in use by another program. Pass --port.") from None

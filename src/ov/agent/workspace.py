@@ -105,7 +105,6 @@ def root() -> Path:
 def validate_folder(value: str) -> str:
     if not value.strip():
         return ""
-
     path = Path(value.strip()).expanduser()
     if not path.is_absolute() or not path.is_dir():
         raise ValueError(f"Not an existing folder: {value}")

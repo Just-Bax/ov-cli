@@ -10,8 +10,9 @@ import {
   ShareNetwork as ShareIcon,
   Table as TableCellsIcon,
 } from '@phosphor-icons/react'
-import type { Icon } from '@/components/ui'
 import type { GraphNode, GraphNodeType, InstanceGraph } from '@shared/types.ts'
+import type { Icon } from '@/components/common/ui'
+import { groupBy } from '@/lib/collections'
 
 export const TYPES: Record<
   GraphNodeType,
@@ -68,7 +69,7 @@ export const WITH_CODE = new Set<GraphNodeType>([
   'notification',
 ])
 
-export const LABELS: Record<string, [string, string]> = {
+const LABELS: Record<string, [string, string]> = {
   parent_of: ['Parent of', 'Child of'],
   field_of: ['Field of', 'Fields'],
   points_to: ['Points to', 'Pointed to by'],
@@ -105,6 +106,7 @@ export function index(graph: InstanceGraph): Index {
     const source = byId.get(e.source)
     const target = byId.get(e.target)
     if (!source || !target) continue
+
     add(source.id, { other: target, kind: e.kind, out: true, code: Boolean(e.code) })
     add(target.id, { other: source, kind: e.kind, out: false, code: Boolean(e.code) })
   }
@@ -114,6 +116,27 @@ export function index(graph: InstanceGraph): Index {
 
 export function degree(idx: Index, id: string): number {
   return idx.links.get(id)?.length ?? 0
+}
+
+export function fieldsOf(idx: Index, id: string): GraphNode[] {
+  return (idx.links.get(id) ?? [])
+    .filter((l) => l.kind === 'field_of' && !l.out)
+    .map((l) => l.other)
+}
+
+export function statusOf(node: GraphNode): { label: string; dot: string } | undefined {
+  if (node.invalid) return { label: 'Invalid code', dot: 'bg-danger' }
+  if (node.enabled === false) return { label: 'Disabled', dot: 'bg-warn' }
+  if (node.enabled) return { label: 'Enabled', dot: 'bg-ok' }
+  return undefined
+}
+
+export function linkGroups(links: Link[]): [string, Link[]][] {
+  const groups = groupBy(links, (l) => {
+    const [forward, back] = LABELS[l.kind] ?? [l.kind, l.kind]
+    return l.out ? forward : back
+  })
+  return [...groups.entries()].sort((a, b) => b[1].length - a[1].length)
 }
 
 export function TypeDot({ type }: { type: GraphNodeType }) {

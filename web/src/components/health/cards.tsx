@@ -16,13 +16,14 @@ import type {
   PagerDutyIncident,
   PagerDutyIncidentDetail,
 } from '@shared/types.ts'
-import { DATADOG_PURPLE } from '@/components/datadog/Datadog'
-import { type BadgeTone, Card, IconBadge, Skeleton } from '@/components/ui'
-import { useSkeleton } from '@/components/skeletons'
+import { useSkeleton } from '@/components/common/skeletons'
+import { type BadgeTone, Card, IconBadge, Skeleton } from '@/components/common/ui'
+import { DATADOG_PURPLE } from '@/components/integrations/Datadog'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
 import { shortHost } from '@/lib/servers'
+import { MINUTE_MS } from '@/lib/time'
 import { type Lane, Sparkline, Timeline } from './charts'
 import {
   count,
@@ -52,6 +53,7 @@ const MONITOR_ROWS = 8
 const TOP_ERROR_ROWS = 6
 const EVENT_ROWS = 6
 const DETAIL_TIMELINE_ROWS = 6
+const MIN_BAR_PERCENT = 3
 
 type Tone = 'danger' | 'warn' | null
 
@@ -189,10 +191,19 @@ function Body<K extends HealthSection>({
         {slot.reason}
       </div>
     )
+
   return <>{children(slot.value)}</>
 }
 
 type Signal = { tone: 'danger' | 'warn'; text: string }
+
+function openFirst(incidents: HealthSections['incidents']): PagerDutyIncident[] {
+  const openIds = new Set((incidents.open ?? []).map((i) => i.id))
+  return [
+    ...(incidents.open ?? []),
+    ...(incidents.incidents ?? []).filter((i) => !openIds.has(i.id)),
+  ]
+}
 
 function errorChange(logs?: HealthSections['logs']): number | null {
   if (!logs?.previousErrors) return null
@@ -211,6 +222,7 @@ function signals(slots: Slots): Signal[] {
   const triggered = open.filter((i) => i.status === 'triggered').length
   if (triggered)
     out.push({ tone: 'danger', text: `${triggered} incident${triggered > 1 ? 's' : ''} triggered` })
+
   if (open.length - triggered)
     out.push({ tone: 'warn', text: `${open.length - triggered} incident(s) acknowledged` })
 
@@ -249,6 +261,7 @@ function signals(slots: Slots): Signal[] {
           text: `${shortHost(server.host)} ${THRESHOLDS[key].title.toLowerCase()} ${fmt(metric.latest, THRESHOLDS[key].unit)}`,
         })
     }
+
   return out
 }
 
@@ -458,9 +471,10 @@ export function TimelineCard({ ctx }: { ctx: Context }) {
     {
       label: 'Incidents',
       color: RED,
-      items: [...(incidents?.open ?? []), ...(incidents?.incidents ?? [])]
-        .filter((i, k, all) => all.findIndex((x) => x.id === i.id) === k)
-        .map((i) => ({ t: utcMs(i.created), title: `#${i.number} ${i.title}` })),
+      items: (incidents ? openFirst(incidents) : []).map((i) => ({
+        t: utcMs(i.created),
+        title: `#${i.number} ${i.title}`,
+      })),
     },
     {
       label: 'Events',
@@ -471,7 +485,7 @@ export function TimelineCard({ ctx }: { ctx: Context }) {
       label: 'Failed runs',
       color: ORANGE,
       items: (failures?.failures ?? []).map((f) => ({
-        t: utcMs(f.at) - failures!.utcOffsetMinutes * 60_000,
+        t: utcMs(f.at) - failures!.utcOffsetMinutes * MINUTE_MS,
         title: f.type,
       })),
     },
@@ -558,6 +572,7 @@ function shortTime(value: string): string {
 function IncidentDetail({ incident, ctx }: { incident: PagerDutyIncident; ctx: Context }) {
   const [detail, setDetail] = useState<PagerDutyIncidentDetail>()
   const [error, setError] = useState<string>()
+
   useEffect(() => {
     api
       .pagerdutyIncident(incident.id)
@@ -636,11 +651,7 @@ export function IncidentsCard({ ctx }: { ctx: Context }) {
     >
       <Body slot={ctx.slots.incidents}>
         {(v) => {
-          const openIds = new Set((v.open ?? []).map((i) => i.id))
-          const rows = [
-            ...(v.open ?? []),
-            ...(v.incidents ?? []).filter((i) => !openIds.has(i.id)),
-          ].slice(0, INCIDENT_ROWS)
+          const rows = openFirst(v).slice(0, INCIDENT_ROWS)
           if (Object.keys(v.errors).length)
             return <div className="text-danger text-[12.5px]">{Object.values(v.errors)[0]}</div>
           if (!rows.length) return <Quiet>No incidents in the last {RANGE_WORDS[ctx.range]}.</Quiet>
@@ -788,7 +799,7 @@ function Bar({ value, max, tone }: { value: number; max: number; tone: string })
     <div className="bg-raised mt-1.5 h-1.5 overflow-hidden rounded-full">
       <div
         className={cn('h-full rounded-full', tone)}
-        style={{ width: `${Math.max(3, (value / max) * 100)}%` }}
+        style={{ width: `${Math.max(MIN_BAR_PERCENT, (value / max) * 100)}%` }}
       />
     </div>
   )
@@ -807,6 +818,7 @@ export function TopErrorsCard({ ctx }: { ctx: Context }) {
       <Body slot={ctx.slots.logs}>
         {(v) => {
           if (!v.topErrors.length) return <Quiet>No error logs.</Quiet>
+
           const max = Math.max(...v.topErrors.map((e) => e.count))
           return (
             <div className="space-y-3">
@@ -846,6 +858,7 @@ export function FailedRunsCard({ ctx }: { ctx: Context }) {
       <Body slot={ctx.slots.onevizion}>
         {(v) => {
           if (!v.byType.length) return <Quiet>No failed processes in this window.</Quiet>
+
           const max = Math.max(...v.byType.map((f) => f.count))
           return (
             <div className="space-y-3">
@@ -885,6 +898,7 @@ export function SlowEndpointsCard({ ctx }: { ctx: Context }) {
       <Body slot={ctx.slots.traffic}>
         {(v) => {
           if (!v.slowEndpoints.length) return <Quiet>No traces in this window.</Quiet>
+
           const max = Math.max(...v.slowEndpoints.map((s) => s.p95Ms))
           return (
             <div className="space-y-3">
@@ -930,6 +944,7 @@ export function MonitorsCard({ ctx }: { ctx: Context }) {
           const alerting = v.monitors.filter((m) => m.state !== 'OK')
           if (!v.monitors.length) return <Quiet>No monitors watch this instance.</Quiet>
           if (!alerting.length) return <Quiet>All {v.monitors.length} monitors OK.</Quiet>
+
           return (
             <div className="-mx-2 space-y-0.5">
               {alerting.slice(0, MONITOR_ROWS).map((m) => (

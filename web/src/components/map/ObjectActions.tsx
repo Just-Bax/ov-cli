@@ -7,7 +7,7 @@ import {
 } from '@phosphor-icons/react'
 import type { GraphNode } from '@shared/types.ts'
 import { FORMS, TYPES, WITH_CODE } from '@/components/map/meta'
-import { Button, IconButton } from '@/components/ui'
+import { Button, IconButton } from '@/components/common/ui'
 import { openDraft } from '@/lib/draft'
 import { go } from '@/lib/route'
 import { EXPLORE_KEY, FOCUS_KEY } from '@/lib/useInstanceGraph'

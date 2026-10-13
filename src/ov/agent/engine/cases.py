@@ -14,6 +14,7 @@ from ov.agent.engine.files import describe, html_to_text, unique_path
 from ov.agent.instances.ovproc import find_instance, run_ov
 
 TRACKOR_HOST = "trackor.onevizion.com"
+FORM_PATH = "/form/ConfigAppForm.do?id="
 CASE_TYPE = "Cases"
 FIELD_BATCH = 40
 FETCH_WORKERS = 6
@@ -66,7 +67,7 @@ def case_ref(prompt: str) -> str | None:
 
 
 def form_url(trackor_id: int | str, host: str = TRACKOR_HOST) -> str:
-    return f"https://{host}/form/ConfigAppForm.do?id={trackor_id}"
+    return f"https://{host}{FORM_PATH}{trackor_id}"
 
 
 def _parse_ref(ref: str) -> tuple[str | None, str | None]:

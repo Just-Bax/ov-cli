@@ -337,7 +337,6 @@ WRITE_TOOLS = [
 def offered_readers() -> list[Tool]:
     if not pagerduty.connected():
         return []
-
     areas = pagerduty.permissions()
     return [t for t in READ_TOOLS if areas[AREA_OF_TOOL[t.name]]]
 

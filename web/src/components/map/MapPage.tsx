@@ -12,7 +12,6 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import {
-  ArrowsClockwise as ArrowPathIcon,
   ArrowUUpLeft as ArrowUturnLeftIcon,
   Check as CheckIcon,
   CaretDown as ChevronDownIcon,
@@ -22,26 +21,20 @@ import {
 } from '@phosphor-icons/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GraphEdge, GraphNode, GraphNodeType, InstanceGraph } from '@shared/types.ts'
-import {
-  degree,
-  index,
-  type Index,
-  LABELS,
-  type Link,
-  ObjectRow,
-  TypeDot,
-  TYPES,
-} from '@/components/map/meta'
-import { Button, Card, Page, Select, Spinner, timeAgo } from '@/components/ui'
-import { cn } from '@/lib/cn'
-import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
+import { MapSkeleton } from '@/components/common/skeletons'
+import { Button, Card, Page } from '@/components/common/ui'
+import { BuildingNote, GraphActions, GraphPlaceholder } from '@/components/map/MapState'
+import { degree, index, type Index, ObjectRow, TYPES } from '@/components/map/meta'
 import { ObjectActions } from '@/components/map/ObjectActions'
-import { MapState } from '@/components/map/MapState'
-import { MapSkeleton, useSkeleton } from '@/components/skeletons'
+import { LinkGroups, ObjectFacts, ObjectTitle } from '@/components/map/ObjectDetails'
+import { cn } from '@/lib/cn'
+import { toggled } from '@/lib/collections'
+import { useClickOutside } from '@/lib/hooks'
+import { timeAgo } from '@/lib/time'
+import { FOCUS_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
 
 const EXPAND_LIMIT = 40
 const START_POINT_ROWS = 6
-const GROUP_PREVIEW_ROWS = 8
 const SEARCH_MIN_CHARS = 2
 const SEARCH_RESULTS = 12
 const TYPE_DOTS = 5
@@ -49,10 +42,19 @@ const FIT_DELAY_MS = 30
 const FIT_DURATION_MS = 350
 const NODE_W = 230
 const NODE_H = 44
+const LAYOUT = { rankdir: 'LR', nodesep: 18, ranksep: 90, marginx: 20, marginy: 20 }
+const FIT_PADDING = 0.2
+const FIT_MAX_ZOOM = 1.1
+const MIN_ZOOM = 0.15
+const MAX_ZOOM = 1.6
+const GRID_GAP_PX = 22
+const EDGE_WIDTH = 1.2
+const LIT_EDGE_WIDTH = 1.8
+const DIM_OPACITY = 0.35
 
 function layout(nodes: GraphNode[], edges: GraphEdge[]): Map<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph()
-  g.setGraph({ rankdir: 'LR', nodesep: 18, ranksep: 90, marginx: 20, marginy: 20 })
+  g.setGraph(LAYOUT)
   g.setDefaultEdgeLabel(() => ({}))
   for (const n of nodes) g.setNode(n.id, { width: NODE_W, height: NODE_H })
   for (const e of edges) g.setEdge(e.source, e.target)
@@ -175,9 +177,9 @@ function Canvas({
       animated: Boolean(lit && e.code),
       style: {
         stroke: lit ? 'var(--color-brand)' : 'var(--color-line-strong)',
-        strokeWidth: lit ? 1.8 : 1.2,
+        strokeWidth: lit ? LIT_EDGE_WIDTH : EDGE_WIDTH,
         strokeDasharray: e.code ? '4 4' : undefined,
-        opacity: related && !lit ? 0.35 : 1,
+        opacity: related && !lit ? DIM_OPACITY : 1,
       },
     }
   })
@@ -189,9 +191,9 @@ function Canvas({
     const timer = setTimeout(
       () =>
         void flow.fitView({
-          padding: 0.2,
+          padding: FIT_PADDING,
           duration: first.current ? 0 : FIT_DURATION_MS,
-          maxZoom: 1.1,
+          maxZoom: FIT_MAX_ZOOM,
         }),
       FIT_DELAY_MS,
     )
@@ -209,11 +211,11 @@ function Canvas({
       onNodeDoubleClick={(_, n) => onExpand(n.id)}
       onPaneClick={() => onSelect(undefined)}
       nodesConnectable={false}
-      minZoom={0.15}
-      maxZoom={1.6}
+      minZoom={MIN_ZOOM}
+      maxZoom={MAX_ZOOM}
       proOptions={{ hideAttribution: true }}
     >
-      <Background color="#cfd8dc" gap={22} size={1} />
+      <Background color="#cfd8dc" gap={GRID_GAP_PX} size={1} />
     </ReactFlow>
   )
 }
@@ -312,63 +314,26 @@ function Details({
   onExpand: (id: string) => void
   onClose: () => void
 }) {
-  const [open, setOpen] = useState<string>()
-  const meta = TYPES[node.type]
   const links = idx.links.get(node.id) ?? []
-  const groups = new Map<string, Link[]>()
-  for (const l of links) {
-    const [forward, back] = LABELS[l.kind] ?? [l.kind, l.kind]
-    const label = l.out ? forward : back
-    groups.set(label, [...(groups.get(label) ?? []), l])
-  }
-
   const hidden = links.filter((l) => !visible.has(l.other.id)).length
   const onMap = links.length - hidden
-  const status = node.invalid
-    ? { label: 'Invalid code', dot: 'bg-danger' }
-    : node.enabled === false
-      ? { label: 'Disabled', dot: 'bg-warn' }
-      : node.enabled
-        ? { label: 'Enabled', dot: 'bg-ok' }
-        : undefined
 
   return (
     <aside className="border-line-strong/60 flex w-[340px] shrink-0 flex-col border-l bg-white">
-      <div className="flex items-start gap-3 px-4 pt-4 pb-3">
-        <TypeDot type={node.type} />
-        <div className="min-w-0 flex-1">
-          <div className="text-fg text-[14px] leading-snug font-semibold break-words">
-            {node.name}
-          </div>
-          <div className="text-muted mt-0.5 text-[12px]">
-            {meta.label} - id {node.ref}
-          </div>
-        </div>
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={onClose}
-          className="text-muted hover:bg-raised hover:text-fg flex size-8 shrink-0 items-center justify-center rounded-full"
-        >
-          <XMarkIcon className="size-4" />
-        </button>
-      </div>
-      <dl className="bg-raised mx-4 grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 rounded-2xl px-4 py-3 text-[12.5px]">
-        {status ? (
-          <>
-            <dt className="text-muted">Status</dt>
-            <dd className="text-fg flex items-center gap-2 font-medium">
-              <span className={cn('size-2 rounded-full', status.dot)} />
-              {status.label}
-            </dd>
-          </>
-        ) : null}
-        {node.trigger ? (
-          <>
-            <dt className="text-muted">Trigger</dt>
-            <dd className="text-fg">{node.trigger}</dd>
-          </>
-        ) : null}
+      <ObjectTitle
+        node={node}
+        action={
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="text-muted hover:bg-raised hover:text-fg flex size-8 shrink-0 items-center justify-center rounded-full"
+          >
+            <XMarkIcon className="size-4" />
+          </button>
+        }
+      />
+      <ObjectFacts node={node}>
         <dt className="text-muted">Links</dt>
         <dd className="text-fg">
           {links.length}
@@ -378,7 +343,7 @@ function Details({
             </span>
           ) : null}
         </dd>
-      </dl>
+      </ObjectFacts>
       <div className="space-y-2 px-4 pt-3 pb-4">
         <ObjectActions node={node} host={host} alias={alias} page="map" />
         {hidden ? (
@@ -388,42 +353,12 @@ function Details({
         ) : null}
       </div>
       <div className="border-line min-h-0 flex-1 scrollbar-thin space-y-3 overflow-y-auto border-t px-3 py-3">
-        {[...groups.entries()]
-          .sort((a, b) => b[1].length - a[1].length)
-          .map(([label, items]) => {
-            const expanded = open === label
-            const shown = expanded ? items : items.slice(0, GROUP_PREVIEW_ROWS)
-
-            return (
-              <div key={label}>
-                <div className="text-faint flex items-center px-2 pb-1 text-[11.5px] font-medium">
-                  <span className="flex-1">{label}</span>
-                  <span>{items.length}</span>
-                </div>
-                {shown
-                  .sort((a, b) => a.other.name.localeCompare(b.other.name))
-                  .map((l) => (
-                    <ObjectRow
-                      key={`${label}-${l.other.id}`}
-                      node={l.other}
-                      hint={visible.has(l.other.id) ? 'on map' : l.code ? 'in code' : undefined}
-                      onClick={() =>
-                        visible.has(l.other.id) ? onFocus(l.other.id) : onAdd(l.other.id)
-                      }
-                    />
-                  ))}
-                {items.length > shown.length ? (
-                  <button
-                    type="button"
-                    onClick={() => setOpen(label)}
-                    className="text-brand-strong hover:bg-raised h-8 w-full rounded-full px-3 text-left text-[12px] font-medium"
-                  >
-                    Show all {items.length}
-                  </button>
-                ) : null}
-              </div>
-            )
-          })}
+        <LinkGroups
+          key={node.id}
+          links={links}
+          hint={(l) => (visible.has(l.other.id) ? 'on map' : l.code ? 'in code' : undefined)}
+          onPick={(l) => (visible.has(l.other.id) ? onFocus(l.other.id) : onAdd(l.other.id))}
+        />
         {!links.length ? (
           <div className="text-faint px-2 text-[12.5px]">No links found.</div>
         ) : null}
@@ -506,16 +441,7 @@ function TypeMenu({
   const types = (Object.keys(TYPES) as GraphNodeType[]).filter((t) => counts.get(t))
   const shown = types.filter((t) => !hidden.has(t)).length
 
-  useEffect(() => {
-    if (!open) return
-
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as globalThis.Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
+  useClickOutside([ref], () => setOpen(false), open)
 
   return (
     <div ref={ref} className="relative">
@@ -587,25 +513,13 @@ function TypeMenu({
 }
 
 export function MapPage() {
-  const { instances, signedIn, alias, setAlias, label, status, graph, error, build } =
-    useInstanceGraph()
+  const state = useInstanceGraph()
+  const { alias, label, status, graph, building } = state
   const [visible, setVisible] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<string>()
   const [hiddenTypes, setHiddenTypes] = useState<Set<GraphNodeType>>(new Set())
   const idx = useMemo(() => (graph ? index(graph) : undefined), [graph])
-
-  useEffect(() => {
-    setVisible(new Set())
-    setSelected(undefined)
-  }, [alias])
-
-  useEffect(() => {
-    const requestedFocus = localStorage.getItem(FOCUS_KEY)
-    if (!idx || !requestedFocus || !idx.byId.has(requestedFocus)) return
-
-    localStorage.removeItem(FOCUS_KEY)
-    focus(requestedFocus)
-  }, [idx])
+  const node = selected ? idx?.byId.get(selected) : undefined
 
   const neighbors = (id: string, have: Set<string>) =>
     (idx?.links.get(id) ?? [])
@@ -626,15 +540,22 @@ export function MapPage() {
     setSelected(id)
   }
 
-  const node = selected ? idx?.byId.get(selected) : undefined
-  const building = status?.state === 'building'
-  const loading = !error && (!status || (Boolean(status.builtAt) && !graph && !building))
-  const showSkeleton = useSkeleton(loading)
+  const clear = () => {
+    setVisible(new Set())
+    setSelected(undefined)
+  }
+
+  useEffect(clear, [alias])
+
+  useEffect(() => {
+    const requestedFocus = localStorage.getItem(FOCUS_KEY)
+    if (!idx || !requestedFocus || !idx.byId.has(requestedFocus)) return
+    localStorage.removeItem(FOCUS_KEY)
+    focus(requestedFocus)
+  }, [idx])
 
   const subtitle = building ? (
-    <span className="text-brand-strong inline-flex items-center gap-1.5">
-      <Spinner className="size-3" /> {status?.step ?? 'Building'}...
-    </span>
+    <BuildingNote step={status?.step} />
   ) : status?.builtAt ? (
     <span>
       {label ? `${label} - ` : ''}
@@ -645,31 +566,8 @@ export function MapPage() {
     <span>How the configuration of an instance fits together.</span>
   )
 
-  const actions = (
-    <>
-      <div className="w-[260px]">
-        <Select
-          className="w-full"
-          value={alias}
-          onChange={setAlias}
-          placeholder={instances ? 'No signed-in instance' : 'Loading...'}
-          options={signedIn.map((i) => ({
-            value: i.alias,
-            label: i.tenant ? `${i.host} / ${i.tenant}` : i.host,
-          }))}
-        />
-      </div>
-      {graph ? (
-        <Button variant="primary" disabled={!alias || building} onClick={() => void build()}>
-          {building ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
-          Refresh
-        </Button>
-      ) : null}
-    </>
-  )
-
   return (
-    <Page title="Instance map" subtitle={subtitle} actions={actions}>
+    <Page title="Instance map" subtitle={subtitle} actions={<GraphActions state={state} />}>
       <div className="flex h-full min-h-[480px]">
         <div className="bg-canvas/40 flex min-w-0 flex-1 flex-col">
           {graph && idx ? (
@@ -679,28 +577,14 @@ export function MapPage() {
                 <TypeMenu
                   graph={graph}
                   hidden={hiddenTypes}
-                  onToggle={(type) =>
-                    setHiddenTypes((h) => {
-                      const next = new Set(h)
-                      if (next.has(type)) next.delete(type)
-                      else next.add(type)
-                      return next
-                    })
-                  }
+                  onToggle={(type) => setHiddenTypes((h) => toggled(h, type))}
                   onReset={() => setHiddenTypes(new Set())}
                 />
                 <div className="flex-1" />
                 {visible.size ? (
                   <span className="text-muted text-[12.5px]">{visible.size} on the map</span>
                 ) : null}
-                <Button
-                  variant="secondary"
-                  disabled={!visible.size}
-                  onClick={() => {
-                    setVisible(new Set())
-                    setSelected(undefined)
-                  }}
-                >
+                <Button variant="secondary" disabled={!visible.size} onClick={clear}>
                   <ArrowUturnLeftIcon className="size-3.5" /> Clear map
                 </Button>
               </div>
@@ -722,18 +606,8 @@ export function MapPage() {
                 )}
               </div>
             </>
-          ) : showSkeleton ? (
-            <MapSkeleton />
-          ) : loading ? null : (
-            <div className="flex h-full items-center justify-center p-6">
-              <MapState
-                building={building}
-                step={status?.step}
-                error={error ?? status?.error}
-                canBuild={Boolean(alias)}
-                onBuild={() => void build()}
-              />
-            </div>
+          ) : (
+            <GraphPlaceholder state={state} skeleton={<MapSkeleton />} />
           )}
         </div>
         {graph && idx && node ? (

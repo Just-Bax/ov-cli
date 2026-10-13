@@ -15,6 +15,10 @@ const TOOLTIP_FLIP = 0.65
 const GRID_LINES = [0.25, 0.5, 0.75]
 const SPARK_WIDTH = 120
 const SPARK_HEIGHT = 28
+const BOTTOM_PAD = 4
+const BAR_GAP = 2
+const SPARK_PAD_RATIO = 0.15
+const SPARK_FLAT_PAD_RATIO = 0.1
 
 type Series = {
   label: string
@@ -26,20 +30,30 @@ type Series = {
 
 export type Lane = { label: string; color: string; items: { t: number; title: string }[] }
 
+function bucketOf(t: number, from: number, width: number): number | undefined {
+  const i = Math.floor((t - from) / width)
+  return i >= 0 && i < BUCKETS ? i : undefined
+}
+
 function bucketize(points: HealthPoint[], from: number, width: number, combine: Series['combine']) {
   const out: (number | null)[] = Array(BUCKETS).fill(null)
   for (const p of points) {
-    const i = Math.floor((p.t - from) / width)
-    if (i < 0 || i >= BUCKETS) continue
+    const i = bucketOf(p.t, from, width)
+    if (i === undefined) continue
+
     const prev = out[i] ?? 0
     out[i] = combine === 'sum' ? prev + p.v : Math.max(prev, p.v)
   }
+
   return out
+}
+
+function plotY(v: number, max: number): number {
+  return HEIGHT - BOTTOM_PAD - (v / max) * (HEIGHT - TOP_PAD - BOTTOM_PAD)
 }
 
 function linePath(values: (number | null)[], max: number) {
   const slot = WIDTH / BUCKETS
-  const y = (v: number) => HEIGHT - 4 - (v / max) * (HEIGHT - TOP_PAD - 4)
   let path = ''
   let pen = false
   values.forEach((v, i) => {
@@ -47,9 +61,10 @@ function linePath(values: (number | null)[], max: number) {
       pen = false
       return
     }
-    path += `${pen ? 'L' : 'M'}${(i * slot + slot / 2).toFixed(1)},${y(v).toFixed(1)} `
+    path += `${pen ? 'L' : 'M'}${(i * slot + slot / 2).toFixed(1)},${plotY(v, max).toFixed(1)} `
     pen = true
   })
+
   return path
 }
 
@@ -77,9 +92,10 @@ export function Timeline({
   const laneBuckets = lanes.map((lane) => {
     const buckets: Lane['items'][] = Array.from({ length: BUCKETS }, () => [])
     for (const item of lane.items) {
-      const i = Math.floor((item.t - from) / width)
-      if (i >= 0 && i < BUCKETS) buckets[i].push(item)
+      const i = bucketOf(item.t, from, width)
+      if (i !== undefined) buckets[i].push(item)
     }
+
     return buckets
   })
 
@@ -134,14 +150,14 @@ export function Timeline({
             ))}
             {bars
               ? barValues.map((v, i) => {
-                  const top = HEIGHT - 4 - ((v ?? 0) / barMax) * (HEIGHT - TOP_PAD - 4)
+                  const top = plotY(v ?? 0, barMax)
                   return (
                     <rect
                       key={i}
-                      x={i * slot + 2}
+                      x={i * slot + BAR_GAP}
                       y={top}
-                      width={slot - 4}
-                      height={Math.max(0, HEIGHT - 4 - top)}
+                      width={slot - BAR_GAP * 2}
+                      height={Math.max(0, HEIGHT - BOTTOM_PAD - top)}
                       rx={3}
                       fill={bars.color}
                       opacity={at === -1 || at === i ? 0.55 : 0.25}
@@ -266,7 +282,7 @@ export function Sparkline({
 
   const ys = points.map((p) => p.v)
   const [lo, hi] = [Math.min(...ys), Math.max(...ys)]
-  const pad = (hi - lo) * 0.15 || Math.abs(hi) * 0.1 || 1
+  const pad = (hi - lo) * SPARK_PAD_RATIO || Math.abs(hi) * SPARK_FLAT_PAD_RATIO || 1
   const [y0, y1] = [lo - pad, hi + pad]
   const x = (i: number) => (i / (points.length - 1)) * SPARK_WIDTH
   const y = (v: number) => SPARK_HEIGHT - ((v - y0) / (y1 - y0)) * SPARK_HEIGHT

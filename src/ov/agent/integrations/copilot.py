@@ -34,6 +34,7 @@ MAX_TOKENS = 32000
 CHAT_ATTEMPTS = 4
 COMPLETE_MAX_TOKENS = 200
 RETRY_BASE_SECONDS = 2
+RETRY_BACKOFF_FACTOR = 2
 ERROR_DETAIL_CHARS = 500
 PENDING_STATUSES = {"authorization_pending": "pending", "slow_down": "slow_down"}
 
@@ -273,6 +274,10 @@ def _retryable(response: httpx.Response) -> bool:
     return response.status_code == 429 or response.status_code >= 500
 
 
+def _backoff_seconds(attempt: int) -> float:
+    return RETRY_BASE_SECONDS * RETRY_BACKOFF_FACTOR**attempt
+
+
 def _send_with_retries(
     http: httpx.Client, url: str, headers: dict[str, str], payload: dict[str, Any], cancel: Cancel
 ) -> httpx.Response:
@@ -280,13 +285,13 @@ def _send_with_retries(
         try:
             response = _post(http, url, headers, payload, cancel)
         except httpx.TransportError:
-            cancel.wait(RETRY_BASE_SECONDS * 2**attempt)
+            cancel.wait(_backoff_seconds(attempt))
             continue
         if not _retryable(response):
             return response
 
         response.close()
-        cancel.wait(RETRY_BASE_SECONDS * 2**attempt)
+        cancel.wait(_backoff_seconds(attempt))
     return _post(http, url, headers, payload, cancel)
 
 
@@ -330,7 +335,7 @@ def stream_chat(
                 raise Cancelled from None
             if streamed or attempt == CHAT_ATTEMPTS - 1:
                 raise CopilotError(f"Lost the connection to Copilot: {exc}. Send a message to continue.") from exc
-            cancel.wait(RETRY_BASE_SECONDS * 2**attempt)
+            cancel.wait(_backoff_seconds(attempt))
     raise CopilotError("Copilot chat retries ran out.")
 
 

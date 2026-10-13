@@ -394,7 +394,6 @@ class _Refs:
         kind = id_kind(before)
         if kind:
             return next((n for n in candidates if n["type"] == kind), None)
-
         name = comment_name(after)
         return next((n for n in candidates if name and n["name"].lower() == name), None)
 
@@ -493,7 +492,6 @@ def _add_code_edges(b: _Builder, r: dict[str, list[dict[str, Any]]]) -> None:
     for table, kind, column in _CODE_SOURCES:
         for row in r[table]:
             refs.link(b, f"{kind}:{_num(row[column])}", _code_text(row))
-
     for row in r["package_code"]:
         refs.link(b, f"db_package:{_num(row['DB_PACKAGE_ID'])}", row["BODY"])
 

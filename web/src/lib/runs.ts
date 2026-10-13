@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from 'react'
-import type { RunList, RunSummary } from '@shared/types.ts'
-import { reportError } from '@/components/Toasts'
+import type { RunList, RunStatus, RunSummary } from '@shared/types.ts'
+import { reportError } from '@/components/common/Toasts'
 import { api } from '@/lib/api'
+import { MINUTE_MS } from '@/lib/time'
 import { remember } from '@/lib/undo'
 
-const FALLBACK_POLL_MS = 60_000
+const FALLBACK_POLL_MS = MINUTE_MS
 const REFRESH_DEBOUNCE_MS = 150
 const SETTLED_PAGE = 50
 
@@ -14,14 +15,16 @@ let settledLimit = SETTLED_PAGE
 let source: EventSource | undefined
 let poll: ReturnType<typeof setInterval> | undefined
 let pending: ReturnType<typeof setTimeout> | undefined
+let requested = 0
+let applied = 0
 const listeners = new Set<() => void>()
+
+export const WORKING = new Set<RunStatus>(['queued', 'running', 'waiting'])
 
 function publish(next: RunList) {
   list = next
   for (const listen of listeners) listen()
 }
-
-export const WORKING = new Set(['queued', 'running', 'waiting'])
 
 export function sidebarOrder(runs: RunSummary[]): RunSummary[] {
   const rest = runs.filter((r) => !r.pinned)
@@ -32,8 +35,9 @@ export function sidebarOrder(runs: RunSummary[]): RunSummary[] {
   ]
 }
 
-let requested = 0
-let applied = 0
+export function allRuns(runs: RunList | undefined): RunSummary[] {
+  return [...(runs?.active ?? []), ...(runs?.snoozed ?? []), ...(runs?.settled ?? [])]
+}
 
 export function refreshRuns(): Promise<void> {
   const ticket = ++requested
@@ -41,9 +45,11 @@ export function refreshRuns(): Promise<void> {
     .runs(settledLimit)
     .then((next) => {
       if (ticket < applied) return
+
       applied = ticket
       const text = JSON.stringify(next)
       if (text === raw) return
+
       raw = text
       publish(next)
     })
@@ -61,8 +67,9 @@ function onVisible() {
 
 function start() {
   if (source) return
+
   void refreshRuns()
-  source = new EventSource('/api/status-events')
+  source = new EventSource(api.statusEventsUrl())
   source.onopen = () => void refreshRuns()
   source.onmessage = scheduleRefresh
   poll = setInterval(onVisible, FALLBACK_POLL_MS)
@@ -71,6 +78,7 @@ function start() {
 
 function stopIfIdle() {
   if (listeners.size) return
+
   source?.close()
   source = undefined
   clearInterval(poll)
@@ -96,29 +104,34 @@ export function showMoreSettled(): Promise<void> {
   return refreshRuns()
 }
 
+function byNewest(a: RunSummary, b: RunSummary): number {
+  return b.createdAt - a.createdAt
+}
+
+function moveLocally(id: string, settled: boolean) {
+  const run = allRuns(list).find((r) => r.id === id)
+  if (!list || !run) return
+
+  const moved = { ...run, settled }
+  const active = list.active.filter((r) => r.id !== id)
+  const done = list.settled.filter((r) => r.id !== id)
+  publish({
+    ...list,
+    active: settled ? active : [...active, moved].sort(byNewest),
+    snoozed: list.snoozed.filter((r) => r.id !== id),
+    settled: settled ? [...done, moved].sort(byNewest) : done,
+    settledTotal: list.settledTotal + (settled ? 1 : -1),
+  })
+}
+
 export async function setSettled(id: string, settled: boolean, undoable = true): Promise<void> {
-  if (list) {
-    const run = [...list.active, ...list.snoozed, ...list.settled].find((r) => r.id === id)
-    if (run) {
-      const moved = { ...run, settled }
-      const active = list.active.filter((r) => r.id !== id)
-      const done = list.settled.filter((r) => r.id !== id)
-      const byNewest = (a: { createdAt: number }, b: { createdAt: number }) =>
-        b.createdAt - a.createdAt
-      publish({
-        ...list,
-        active: settled ? active : [...active, moved].sort(byNewest),
-        snoozed: list.snoozed.filter((r) => r.id !== id),
-        settled: settled ? [...done, moved].sort(byNewest) : done,
-        settledTotal: list.settledTotal + (settled ? 1 : -1),
-      })
-    }
-  }
+  moveLocally(id, settled)
   try {
     await api.settleRun(id, settled)
   } finally {
     await refreshRuns()
   }
+
   if (undoable)
     remember(settled ? 'Thread settled' : 'Thread moved back', () =>
       setSettled(id, !settled, false),

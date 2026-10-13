@@ -24,6 +24,7 @@ from ov.agent.tools.onevizion import entity_link
 
 READ_FILE_LINES = 500
 BINARY_SNIFF_BYTES = 4096
+TEXT_COPY_SUFFIX = ".txt"
 
 
 def attachment_names(ctx: ToolContext) -> list[str]:
@@ -31,7 +32,7 @@ def attachment_names(ctx: ToolContext) -> list[str]:
     if not directory.is_dir():
         return []
     names = {p.name for p in directory.iterdir()}
-    return sorted(n for n in names if not (n.endswith(".txt") and n[:-4] in names))
+    return sorted(n for n in names if not (n.endswith(TEXT_COPY_SUFFIX) and n.removesuffix(TEXT_COPY_SUFFIX) in names))
 
 
 def offered_skills() -> list[dict[str, Any]]:
@@ -53,7 +54,6 @@ def _read_skill(args: dict[str, Any], _ctx: ToolContext) -> str:
     if found is None:
         names = ", ".join(s["name"] for s in offered_skills())
         raise ToolError(f"No skill named {name}. Skills: {names}.")
-
     return f"# {found['title']}\n\n{found['content']}"
 
 
@@ -73,7 +73,6 @@ def _locate(rel: str, ctx: ToolContext) -> Path:
 def _read_image(path: Path, ctx: ToolContext) -> str:
     if not ctx.vision:
         return "This model cannot view images. Switch to a vision model to read screenshots."
-
     data = base64.b64encode(path.read_bytes()).decode("ascii")
     ctx.attach_image(path.name, f"data:{image_mime(path)};base64,{data}")
     return f"Image {path.name} is attached in the next message."
@@ -84,7 +83,7 @@ def _read_file(args: dict[str, Any], ctx: ToolContext) -> str:
     if path.suffix.lower() in IMAGE_EXTS:
         return _read_image(path, ctx)
 
-    expanded = Path(f"{path}.txt")
+    expanded = Path(f"{path}{TEXT_COPY_SUFFIX}")
     if path.suffix.lower() == ".eml" and expanded.exists():
         path = expanded
     raw = path.read_bytes()

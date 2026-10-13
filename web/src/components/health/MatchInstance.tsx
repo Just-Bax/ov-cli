@@ -1,8 +1,8 @@
 import { Sparkle as SparklesIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import type { DatadogDiscovery, DatadogStatus } from '@shared/types.ts'
-import { DatadogBadge, ServerChips } from '@/components/datadog/Datadog'
-import { Button, Card, Spinner } from '@/components/ui'
+import { DatadogBadge, ServerChips } from '@/components/integrations/Datadog'
+import { Button, Card, Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { hostsIn, roleOf, shortHost } from '@/lib/servers'
 

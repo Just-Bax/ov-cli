@@ -74,13 +74,19 @@ def _direct_url() -> dict:
     return json.loads(text)
 
 
+def _editable(info: dict) -> bool:
+    return bool(info.get("dir_info", {}).get("editable"))
+
+
+def _checkout_of(info: dict) -> Path:
+    return Path(url2pathname(unquote(urlsplit(info["url"]).path)))
+
+
 def _declared_requirements() -> list[str]:
     info = _direct_url()
-    if not info.get("dir_info", {}).get("editable"):
+    if not _editable(info):
         return metadata.requires(PACKAGE) or []
-
-    checkout = Path(url2pathname(unquote(urlsplit(info["url"]).path)))
-    with (checkout / "pyproject.toml").open("rb") as file:
+    with (_checkout_of(info) / "pyproject.toml").open("rb") as file:
         return tomllib.load(file)["project"]["dependencies"]
 
 
@@ -114,13 +120,17 @@ def _uv_tool() -> bool:
 
 def detect() -> Install:
     info = _direct_url()
-    if info.get("dir_info", {}).get("editable"):
-        checkout = Path(url2pathname(unquote(urlsplit(info["url"]).path)))
+    if _editable(info):
+        checkout = _checkout_of(info)
         if not (checkout / ".git").exists():
             raise OvError(f"ov runs from {checkout}, which is not a git checkout. Update it by hand.")
         return Install(checkout, _git(["rev-parse", "HEAD"], checkout), _uv_tool())
 
-    commit = info.get("vcs_info", {}).get("commit_id", "")
+    commit = info.get("vcs_info", {}).get("commit_id")
+    if not commit:
+        raise OvError(
+            f"{PACKAGE} was not installed from git, so its version is unknown. Reinstall it with the install script."
+        )
     return Install(None, commit, _uv_tool())
 
 

@@ -15,6 +15,7 @@ from ov.onevizion.login import SCREEN_PORT_ENV, SCREEN_SIZE_ENV
 
 CONNECT_WAIT_SECONDS = 600
 CONNECT_RETRY_SECONDS = 0.5
+LOOPBACK_HOST = "127.0.0.1"
 LOOP_MS = 15
 JPEG_QUALITY = 75
 MIN_SIDE = 320
@@ -45,7 +46,7 @@ def clamp_size(width: int, height: int) -> tuple[int, int]:
 
 def _free_port() -> int:
     with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
+        sock.bind((LOOPBACK_HOST, 0))
         return sock.getsockname()[1]
 
 
@@ -108,7 +109,7 @@ class Screen:
         deadline = time.monotonic() + CONNECT_WAIT_SECONDS
         while not self._stop.is_set() and time.monotonic() < deadline:
             try:
-                return p.chromium.connect_over_cdp(f"http://127.0.0.1:{self.port}")
+                return p.chromium.connect_over_cdp(f"http://{LOOPBACK_HOST}:{self.port}")
             except PlaywrightError:
                 time.sleep(CONNECT_RETRY_SECONDS)
         return None

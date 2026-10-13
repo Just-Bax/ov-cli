@@ -81,6 +81,7 @@ function markReplacedLines(lines: Line[]): void {
       lines[i + k].parts = o
       lines[d + k].parts = n
     }
+
     i = a
   }
 }
@@ -122,6 +123,7 @@ function buildRows(rawBefore: string, rawAfter: string): Row[] {
     } else {
       rows.push(...run)
     }
+
     i = j
   }
 

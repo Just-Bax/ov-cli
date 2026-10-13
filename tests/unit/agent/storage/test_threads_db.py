@@ -8,7 +8,6 @@ def test_a_restart_marks_running_runs_interrupted(ov_home):
     db.update_thread("rabc", status="running")
     db.append_event("rabc", 0, {"type": "status", "status": "running"})
     db.close()
-
     assert db.list_threads()[0]["status"] == "error"
     assert db.load_events("rabc")[-1]["event"]["status"] == "error"
 

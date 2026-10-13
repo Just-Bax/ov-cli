@@ -76,7 +76,6 @@ class Service:
         state = self.load_state()
         if self._marker not in state:
             return dict.fromkeys(areas, False)
-
         stored = self.stored(state, "permissions")
         return {area: bool(stored[area]) for area in areas}
 

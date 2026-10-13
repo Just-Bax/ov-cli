@@ -8,20 +8,19 @@ import {
 } from '@phosphor-icons/react'
 import { type ReactNode, useState } from 'react'
 import type { ChatMessage, MessageFile } from '@shared/types.ts'
-import { FilePreview } from '@/components/run/FilePreview'
-import { ReplyDraft } from '@/components/run/ReplyDraft'
-import { Spinner, Markdown } from '@/components/ui'
+import { reportError } from '@/components/common/Toasts'
+import { Markdown, Spinner, useCopy } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { reportError } from '@/components/Toasts'
+import { timeWithDay } from '@/lib/time'
+import { FilePreview } from './FilePreview'
+import { ReplyDraft } from './ReplyDraft'
 
-const COPIED_FEEDBACK_MS = 1200
+const LONG_MESSAGE_CHARS = 1200
+const LONG_MESSAGE_LINES = 14
 
 function formatTime(ts: number): string {
-  const d = new Date(ts)
-  const today = new Date().toDateString() === d.toDateString()
-  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return today ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`
+  return timeWithDay(ts, { month: 'short', day: 'numeric' })
 }
 
 function ActionButton({
@@ -47,22 +46,34 @@ function ActionButton({
 }
 
 function CopyAction({ text }: { text: string }) {
-  const [done, setDone] = useState(false)
+  const [copied, copy] = useCopy()
 
   return (
-    <ActionButton
-      label={done ? 'Copied' : 'Copy'}
-      onClick={() => {
-        void navigator.clipboard.writeText(text)
-        setDone(true)
-        setTimeout(() => setDone(false), COPIED_FEEDBACK_MS)
-      }}
-    >
-      {done ? (
+    <ActionButton label={copied ? 'Copied' : 'Copy'} onClick={() => copy(text)}>
+      {copied ? (
         <CheckIcon className="text-ok size-3.5" />
       ) : (
         <Square2StackIcon className="size-3.5" />
       )}
+    </ActionButton>
+  )
+}
+
+function RetryButton({ label, runId, itemId }: { label: string; runId: string; itemId: string }) {
+  const [retrying, setRetrying] = useState(false)
+
+  return (
+    <ActionButton
+      label={label}
+      onClick={() => {
+        setRetrying(true)
+        api
+          .retry(runId, itemId)
+          .catch(reportError)
+          .finally(() => setRetrying(false))
+      }}
+    >
+      {retrying ? <Spinner className="size-3.5" /> : <ArrowUturnLeftIcon className="size-3.5" />}
     </ActionButton>
   )
 }
@@ -135,9 +146,6 @@ function UserText({ text }: { text: string }) {
   )
 }
 
-const LONG_MESSAGE_CHARS = 1200
-const LONG_MESSAGE_LINES = 14
-
 export function UserMessage({
   runId,
   message,
@@ -147,8 +155,6 @@ export function UserMessage({
   message: ChatMessage
   canRetry: boolean
 }) {
-  const [retrying, setRetrying] = useState(false)
-
   return (
     <div className="group flex flex-col items-end gap-1.5">
       <FileChips runId={runId} files={message.files ?? []} />
@@ -156,19 +162,7 @@ export function UserMessage({
       <div className="flex h-7 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <span className="text-faint mr-1 text-[11.5px]">{formatTime(message.ts)}</span>
         {canRetry ? (
-          <ActionButton
-            label="Retry from here"
-            onClick={() => {
-              setRetrying(true)
-              void api.retry(runId, message.id).finally(() => setRetrying(false))
-            }}
-          >
-            {retrying ? (
-              <Spinner className="size-3.5" />
-            ) : (
-              <ArrowUturnLeftIcon className="size-3.5" />
-            )}
-          </ActionButton>
+          <RetryButton label="Retry from here" runId={runId} itemId={message.id} />
         ) : null}
         <CopyAction text={message.text} />
       </div>
@@ -201,7 +195,7 @@ export function QueuedMessage({ runId, message }: { runId: string; message: Chat
         <button
           type="button"
           title="Remove from queue"
-          onClick={() => void api.removeQueued(runId, message.id)}
+          onClick={() => void api.removeQueued(runId, message.id).catch(reportError)}
           className="hover:bg-raised hover:text-fg flex size-6 items-center justify-center rounded-full"
         >
           <XMarkIcon className="size-3.5" />
@@ -226,7 +220,6 @@ export function AssistantActions({
   ts?: number
   canRetry: boolean
 }) {
-  const [retrying, setRetrying] = useState(false)
   const [drafting, setDrafting] = useState(false)
 
   return (
@@ -240,21 +233,7 @@ export function AssistantActions({
       {drafting && replyFrom ? (
         <ReplyDraft runId={runId} messageId={replyFrom} onClose={() => setDrafting(false)} />
       ) : null}
-      {canRetry ? (
-        <ActionButton
-          label="Retry"
-          onClick={() => {
-            setRetrying(true)
-            void api.retry(runId, turnId).finally(() => setRetrying(false))
-          }}
-        >
-          {retrying ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <ArrowUturnLeftIcon className="size-3.5" />
-          )}
-        </ActionButton>
-      ) : null}
+      {canRetry ? <RetryButton label="Retry" runId={runId} itemId={turnId} /> : null}
       {ts ? <span className="text-faint ml-1.5 text-[11.5px]">{formatTime(ts)}</span> : null}
     </div>
   )

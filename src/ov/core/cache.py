@@ -8,13 +8,15 @@ from typing import Any
 
 from ov.core.paths import cache_dir, write_atomic
 
+CACHE_KEY_CHARS = 16
+
 
 class Cache:
     def __init__(self, ttl_seconds: int) -> None:
         self.ttl_seconds = ttl_seconds
 
     def _path(self, key: str) -> Path:
-        digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:CACHE_KEY_CHARS]
         return cache_dir() / f"{digest}.json"
 
     def get(self, key: str) -> Any | None:

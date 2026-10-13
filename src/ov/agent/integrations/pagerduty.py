@@ -33,8 +33,14 @@ ONCALL_WINDOW_MS = 60_000
 MAX_SNOOZE_MINUTES = 1440
 DIRECTORY_LIMIT = 200
 FIND_SHOWN = 8
+INCIDENT_WORKERS = 2
+KEY_TAIL_CHARS = 4
+ISO_MINUTES_CHARS = 16
+SECONDS_PER_MINUTE = 60
 
 REGIONS = {"us": "https://api.pagerduty.com", "eu": "https://api.eu.pagerduty.com"}
+ACCOUNT_URL = "https://{subdomain}{region}.pagerduty.com"
+APP_SUBDOMAIN = "app"
 DEFAULT_REGION = "us"
 NON_ACCOUNT_SUBDOMAINS = ("app", "www", "eu", "api")
 AREAS = ("incidents", "oncall")
@@ -82,7 +88,6 @@ def _key() -> str | None:
     secrets = credentials.get(CREDENTIAL_KEY)
     if secrets is None:
         return None
-
     if not secrets.get("api_key"):
         raise PagerDutyError("The stored PagerDuty key is empty. Reconnect PagerDuty in Settings > Integrations.")
     return str(secrets["api_key"])
@@ -99,7 +104,7 @@ def permissions() -> dict[str, bool]:
 def web_url(state: dict[str, Any]) -> str:
     sub = state.get("subdomain", "")
     eu = ".eu" if state.get("region") == "eu" else ""
-    return f"https://{sub}{eu}.pagerduty.com" if sub else f"https://app{eu}.pagerduty.com"
+    return ACCOUNT_URL.format(subdomain=sub or APP_SUBDOMAIN, region=eu)
 
 
 def _rate_limit_wait(_response: httpx.Response) -> float:
@@ -202,7 +207,7 @@ def connect(account: str, api_key: str) -> dict[str, Any]:
             "subdomain": sub,
             "user": _field(me, "name"),
             "email": me.get("email") or "",
-            "keyLast4": api_key[-4:],
+            "keyLast4": api_key[-KEY_TAIL_CHARS:],
             "permissions": found,
             "checkedAt": now_ms(),
             "error": None,
@@ -304,7 +309,6 @@ def forget_host(host: str) -> None:
     databases = state.get("databases", {})
     if _host_key(host) not in databases:
         return
-
     del databases[_host_key(host)]
     _save_state(state)
 
@@ -335,7 +339,6 @@ def _datadog_hosts(alias: str) -> list[tuple[str, bool]]:
     grouped = datadog.hosts_in(scope)
     if grouped is not None:
         return [(host.lower(), False) for host in grouped]
-
     tags = [tag.partition(":") for tag in scope.split()]
     return [(value.lower().rstrip("*"), value.endswith("*")) for name, _, value in tags if name == "host" and value]
 
@@ -366,7 +369,7 @@ def iso_utc(ms: int) -> str:
 
 
 def short_time(value: str) -> str:
-    return value[:16].replace("T", " ")
+    return value[:ISO_MINUTES_CHARS].replace("T", " ")
 
 
 def _incident(row: dict[str, Any]) -> dict[str, Any]:
@@ -490,7 +493,6 @@ def _alert_details(alert: dict[str, Any]) -> str:
     details = body.get("details") if isinstance(body, dict) else None
     if details is None:
         return ""
-
     text = details if isinstance(details, str) else json.dumps(details, indent=1)
     return text[:TEXT_CHARS]
 
@@ -521,7 +523,7 @@ def oncall(policy_ids: list[str], at: int | None = None) -> list[dict[str, Any]]
 def _add_incidents(report: dict[str, Any], alias: str, start: int, end: int) -> None:
     open_since = end - OPEN_LOOKBACK_DAYS * DAY_MS
     try:
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=INCIDENT_WORKERS) as pool:
             opened = pool.submit(incidents, open_since, end, OPEN_STATUSES)
             window = pool.submit(incidents, start, end)
             report["open"] = [public(r) for r in for_instance(opened.result(), alias)]
@@ -622,7 +624,6 @@ def escalate(ref: str, level: int) -> dict[str, Any]:
 def reassign(ref: str, policy_id: str | None, user_ids: list[str]) -> dict[str, Any]:
     if bool(policy_id) == bool(user_ids):
         raise PagerDutyError("Reassign to either an escalation policy or users, not both and not neither.")
-
     if policy_id:
         return _update(ref, {"escalation_policy": {"id": policy_id, "type": "escalation_policy_reference"}})
     assignments = [{"assignee": {"id": uid, "type": "user_reference"}} for uid in user_ids]
@@ -637,7 +638,7 @@ def snooze(ref: str, minutes: int) -> dict[str, Any]:
         found = _target(pd, ref)
         if found["status"] != "acknowledged":
             raise PagerDutyError("Only an acknowledged incident can be snoozed. Acknowledge it first.")
-        pd.write("POST", f"/incidents/{found['id']}/snooze", {"duration": minutes * 60}, _email())
+        pd.write("POST", f"/incidents/{found['id']}/snooze", {"duration": minutes * SECONDS_PER_MINUTE}, _email())
     _health_cache.clear()
     return found
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { reduce } from '@shared/reduce.ts'
 import type { RunState, RunWindow, StoredEvent } from '@shared/types.ts'
-import { reportError } from '@/components/Toasts'
+import { reportError } from '@/components/common/Toasts'
 import { api } from './api'
 import { prefetch, take } from './prefetch'
 
@@ -60,14 +60,13 @@ export function useRun(id: string): {
     }
 
     const connect = () => {
-      source = new EventSource(`/api/runs/${id}/events?after=${seq}`)
+      source = new EventSource(api.runEventsUrl(id, seq))
       source.onmessage = (msg) => {
         const event = JSON.parse(msg.data as string) as StoredEvent
-        if (!event.live) {
-          if (event.seq <= seq) return
-          seq = event.seq
-        }
+        if (!event.live && event.seq <= seq) return
+        if (!event.live) seq = event.seq
         if (!current.current) return
+
         current.current = reduce(current.current, event)
         frame ??= requestAnimationFrame(flush)
       }
@@ -103,12 +102,14 @@ export function useRun(id: string): {
       const starts = new Set(
         now.outline.filter((m) => until !== undefined && m.start >= until).map((m) => m.start),
       )
+
       loading.current = true
       setLoadingOlder(true)
       try {
         const older = await api.runHistory(id, now.start, Math.max(TURNS_PAGE, starts.size))
         const latest = current.current
         if (!latest || latest.summary.id !== id || latest.start !== now.start) return
+
         current.current = withOlder(latest, older)
         setState(current.current)
       } catch (e) {

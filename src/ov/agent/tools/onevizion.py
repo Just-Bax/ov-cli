@@ -38,6 +38,7 @@ MAP_LISTED_MATCHES = 20
 MAX_EXPORT_IDS = 20
 EXPORT_INLINE_CHARS = 200
 LABEL_ARGS = 4
+SIGN_IN_ATTEMPTS = 2
 APPLIED = "Applied.\n"
 IMPORT_FILE_PREFIX = "import-"
 
@@ -83,12 +84,14 @@ def _target(instance: str | None, ctx: ToolContext) -> str:
 
 def _alias_for(target: str, ctx: ToolContext) -> tuple[str, str, str]:
     found = find_instance(target)
+    if found is not None:
+        return found["alias"], found["host"], found["tenant"] or ""
+    if not ctx.require_login(host_of(target)):
+        raise ToolError(f"Not signed in to {target} and the user skipped sign-in.")
+
+    found = find_instance(target)
     if found is None:
-        if not ctx.require_login(host_of(target)):
-            raise ToolError(f"Not signed in to {target} and the user skipped sign-in.")
-        found = find_instance(target)
-        if found is None:
-            raise ToolError(f"Still no signed-in instance for {target}.")
+        raise ToolError(f"Still no signed-in instance for {target}.")
     return found["alias"], found["host"], found["tenant"] or ""
 
 
@@ -162,7 +165,7 @@ def run_ov_tool(
     cleaned = _confine_files(cleaned, ctx)
     target = _target(instance, ctx)
 
-    for attempt in range(2):
+    for attempt in range(SIGN_IN_ATTEMPTS):
         alias, host, tenant = _alias_for(target, ctx)
         result = run_ov(
             ["-i", alias, *cleaned],
@@ -170,7 +173,7 @@ def run_ov_tool(
             cancel=ctx.cancel,
             cwd=ctx.work_dir,
         )
-        if result.is_auth and attempt == 0:
+        if result.is_auth and attempt < SIGN_IN_ATTEMPTS - 1:
             if not ctx.require_login(host, tenant):
                 raise ToolError(f"Session for {target} expired and the user skipped sign-in.")
             continue

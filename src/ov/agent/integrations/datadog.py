@@ -39,6 +39,12 @@ HEALTH_LOG_SAMPLE = 300
 HEALTH_EVENTS = 15
 HEALTH_ENDPOINTS = 8
 CHART_POINTS = 60
+TOP_PATTERNS = 8
+SUMMARY_SAMPLES = 12
+SLOW_ENDPOINTS = 10
+KEY_TAIL_CHARS = 4
+ISO_SECONDS_CHARS = 19
+ISO_CLOCK = slice(11, 16)
 EPOCH_MS_THRESHOLD = 10**11
 NS_PER_MS = 1e6
 
@@ -120,7 +126,6 @@ def _keys() -> tuple[str, str] | None:
     secrets = credentials.get(CREDENTIAL_KEY)
     if secrets is None:
         return None
-
     if not secrets.get("api_key") or not secrets.get("app_key"):
         raise DatadogError("The stored Datadog keys are incomplete. Reconnect Datadog in Settings > Integrations.")
     return str(secrets["api_key"]), str(secrets["app_key"])
@@ -251,8 +256,8 @@ def connect(site: str, api_key: str, app_key: str) -> dict[str, Any]:
     state.update(
         {
             "site": site,
-            "apiKeyLast4": api_key[-4:],
-            "appKeyLast4": app_key[-4:],
+            "apiKeyLast4": api_key[-KEY_TAIL_CHARS:],
+            "appKeyLast4": app_key[-KEY_TAIL_CHARS:],
             "permissions": found,
             "checkedAt": now_ms(),
             "error": None,
@@ -350,7 +355,6 @@ def hosts_in(scope: str) -> list[str] | None:
     many = _HOSTS.match(text)
     if many:
         return [h.strip() for h in many.group(1).split(" OR ") if h.strip()]
-
     one = _ONE_HOST.match(text)
     return [one.group(1)] if one else None
 
@@ -480,7 +484,7 @@ def iso(ms: int | float | str | None) -> str:
     if ms is None or ms == "":
         return ""
     if isinstance(ms, str) and not ms.replace(".", "", 1).isdigit():
-        return ms[:19].replace("T", " ")
+        return ms[:ISO_SECONDS_CHARS].replace("T", " ")
     seconds = _epoch_ms(float(ms)) / 1000
     return datetime.fromtimestamp(seconds, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -538,7 +542,7 @@ def pattern_of(message: str) -> str:
     return re.sub(r"\s+", " ", text)[:PATTERN_CHARS]
 
 
-def top_patterns(rows: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
+def top_patterns(rows: list[dict[str, Any]], limit: int = TOP_PATTERNS) -> list[dict[str, Any]]:
     counts: Counter[str] = Counter()
     sample: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -576,7 +580,6 @@ def metric_scope(scope: str) -> str:
     hosts = hosts_in(scope)
     if hosts:
         return f"host:{hosts[0]}" if len(hosts) == 1 else f"host IN ({','.join(hosts)})"
-
     tags = [t for t in scope.split() if ":" in t and not t.startswith(("-", "("))]
     return ",".join(tags) or "*"
 
@@ -603,13 +606,13 @@ def _metric_series(series: dict[str, Any], query: str) -> dict[str, Any]:
     }
 
 
-def summarize_series(series: dict[str, Any], samples: int = 12) -> str:
+def summarize_series(series: dict[str, Any], samples: int = SUMMARY_SAMPLES) -> str:
     values = [p["v"] for p in series["points"]]
     if not values:
         return f"{series['name']} [{series['scope']}]: no data"
 
     step = max(1, len(series["points"]) // samples)
-    sampled = ", ".join(f"{iso(p['t'])[11:16]}={_num(p['v'])}" for p in series["points"][::step][:samples])
+    sampled = ", ".join(f"{iso(p['t'])[ISO_CLOCK]}={_num(p['v'])}" for p in series["points"][::step][:samples])
     unit = f" {series['unit']}" if series["unit"] else ""
 
     return (
@@ -645,7 +648,6 @@ def _needles(scope: str) -> list[str]:
     hosts = hosts_in(scope)
     if hosts:
         return [h.lower() for h in hosts]
-
     values = [t.split(":", 1)[1].rstrip("*").lower() for t in scope.split() if ":" in t]
     return [v for v in values if v]
 
@@ -657,7 +659,6 @@ def _monitor_groups(mon: dict[str, Any]) -> list[str]:
 def _mentions(mon: dict[str, Any], needles: list[str]) -> bool:
     if not needles:
         return True
-
     haystack = " ".join([str(mon.get("query", "")), *(mon.get("tags") or []), *_monitor_groups(mon)]).lower()
     return any(n in haystack for n in needles)
 
@@ -719,7 +720,7 @@ def _computes(attrs: dict[str, Any]) -> dict[str, Any]:
     return compute
 
 
-def slow_endpoints(query: str, start: int, end: int, limit: int = 10) -> list[dict[str, Any]]:
+def slow_endpoints(query: str, start: int, end: int, limit: int = SLOW_ENDPOINTS) -> list[dict[str, Any]]:
     by_p95 = {"aggregation": "pc95", "metric": "@duration", "order": "desc", "type": "measure"}
     body = {
         "data": {
@@ -791,7 +792,6 @@ class Unavailable(DatadogError):
 def window(range_key: str, end: int) -> tuple[int, str]:
     if range_key not in RANGES:
         raise DatadogError(f"Unknown range {range_key}. Use one of: {', '.join(RANGES)}.")
-
     seconds, interval = RANGES[range_key]
     return end - seconds * 1000, interval
 
@@ -900,7 +900,6 @@ def _server_metric(series: list[dict[str, Any]], host: str) -> dict[str, Any] | 
     mine = next((s for s in series if _host_of_series(s) == host and s["points"]), None)
     if mine is None:
         return None
-
     points = mine["points"]
     return {"latest": points[-1]["v"], "max": max(p["v"] for p in points), "points": downsample(points, SERVER_POINTS)}
 

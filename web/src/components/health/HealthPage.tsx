@@ -1,12 +1,11 @@
 import { ArrowsClockwise as ArrowPathIcon, Sparkle as SparklesIcon } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import type { Instance } from '@shared/types.ts'
-import { DatadogBadge, DatadogConnectModal, useDatadog } from '@/components/datadog/Datadog'
-import { useInstances } from '@/components/InstancePicker'
-import { Button, Card, EmptyState, Page, Select, Skeleton } from '@/components/ui'
-import { useSkeleton } from '@/components/skeletons'
+import { useSkeleton } from '@/components/common/skeletons'
+import { Button, Card, EmptyState, Page, Select, Skeleton } from '@/components/common/ui'
+import { DatadogBadge, DatadogConnectModal, useDatadog } from '@/components/integrations/Datadog'
 import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
+import { onePerHost, useInstances } from '@/lib/instances'
 import { href } from '@/lib/route'
 import { hostsIn } from '@/lib/servers'
 import {
@@ -25,6 +24,7 @@ import { RANGE_WORDS, RANGES, type Range, useHealth } from './data'
 import { MatchInstance } from './MatchInstance'
 
 const INSTANCE_KEY = 'ov-agent.health-instance'
+const STAT_TILES = 6
 
 function serverCount(scope: string): ReactNode {
   const hosts = hostsIn(scope)
@@ -44,7 +44,7 @@ function PageSkeleton() {
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          {Array.from({ length: 6 }, (_, i) => (
+          {Array.from({ length: STAT_TILES }, (_, i) => (
             <Skeleton key={i} className="h-[74px] rounded-2xl" />
           ))}
         </div>
@@ -59,21 +59,16 @@ function PageSkeleton() {
 export function HealthPage() {
   const { status, setStatus } = useDatadog()
   const { instances } = useInstances()
-  const signedIn = useMemo(() => {
-    const byHost = new Map<string, Instance>()
-    const valid = (instances ?? []).filter((i) => i.valid)
-    for (const i of [...valid].sort(
-      (a, b) => Number(Boolean(a.tenant)) - Number(Boolean(b.tenant)),
-    ))
-      if (!byHost.has(i.host)) byHost.set(i.host, i)
-
-    return [...byHost.values()].sort((a, b) => a.host.localeCompare(b.host))
-  }, [instances])
-
+  const signedIn = useMemo(() => onePerHost((instances ?? []).filter((i) => i.valid)), [instances])
   const [alias, setAlias] = useState(() => localStorage.getItem(INSTANCE_KEY) ?? '')
   const [range, setRange] = useState<Range>('24h')
   const [connecting, setConnecting] = useState(false)
   const [tick, setTick] = useState(0)
+  const label = signedIn.find((i) => i.alias === alias)?.host ?? ''
+  const enabled = Boolean(status?.connected)
+  const refresh = `${tick}|${JSON.stringify(status?.matches ?? {})}`
+  const { meta, metaError, slots, busy } = useHealth(alias, range, enabled, refresh)
+  const showSkeleton = useSkeleton(enabled && Boolean(alias) && !meta && !metaError)
 
   useEffect(() => {
     if (!instances || signedIn.some((i) => i.alias === alias)) return
@@ -84,12 +79,6 @@ export function HealthPage() {
   useEffect(() => {
     if (alias) localStorage.setItem(INSTANCE_KEY, alias)
   }, [alias])
-
-  const label = signedIn.find((i) => i.alias === alias)?.host ?? ''
-  const enabled = Boolean(status?.connected)
-  const refresh = `${tick}|${JSON.stringify(status?.matches ?? {})}`
-  const { meta, metaError, slots, busy } = useHealth(alias, range, enabled, refresh)
-  const showSkeleton = useSkeleton(enabled && Boolean(alias) && !meta && !metaError)
 
   const askAll = () =>
     openDraft({

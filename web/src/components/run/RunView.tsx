@@ -1,29 +1,39 @@
 import { ArrowSquareOut as ArrowTopRightOnSquareIcon } from '@phosphor-icons/react'
-import { Composer } from '@/components/Composer'
-import { EditableTitle } from '@/components/EditableTitle'
-import { WriteSwitch } from '@/components/WriteSwitch'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatMessage, FollowUp, RunState, ThreadItem, ToolActivity } from '@shared/types.ts'
-import { StatusIcon } from '@/components/Sidebar'
-import { Dot, Markdown, Page, Skeleton, SkeletonText, Spinner, type Tone } from '@/components/ui'
+import { EditableTitle } from '@/components/common/EditableTitle'
+import { useSkeleton } from '@/components/common/skeletons'
+import { reportError } from '@/components/common/Toasts'
+import {
+  Dot,
+  Markdown,
+  Page,
+  Skeleton,
+  SkeletonText,
+  Spinner,
+  type Tone,
+} from '@/components/common/ui'
+import { Composer } from '@/components/composer/Composer'
+import { WriteSwitch } from '@/components/composer/WriteSwitch'
+import { OPEN_FIND } from '@/components/layout/CommandPalette'
 import { api } from '@/lib/api'
-import { reportError } from '@/components/Toasts'
 import { cn } from '@/lib/cn'
+import { inCodeEditor } from '@/lib/dom'
+import { useWindowEvent } from '@/lib/hooks'
+import { layerOpen } from '@/lib/layers'
+import { allRuns, useRuns, WORKING } from '@/lib/runs'
 import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
-import { useSkeleton } from '@/components/skeletons'
-import { useRuns } from '@/lib/runs'
 import { ChangeCard } from './ChangeCard'
 import { CostPill } from './CostPill'
 import { FilesChanged } from './FilesChanged'
-import { FindBar } from './FindBar'
+import { FIND_LABEL, FindBar } from './FindBar'
 import { InstanceChip } from './InstanceChip'
-import { RunMenu } from '@/components/RunMenu'
-import { layerOpen } from '@/lib/layers'
-import { OPEN_FIND } from '@/components/CommandPalette'
-import { ThreadRail } from './ThreadRail'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
 import { Answer, LoginCard, QuestionCard } from './Panels'
+import { RunMenu } from './RunMenu'
+import { RUN_STATUS, StatusIcon } from './RunStatus'
+import { ThreadRail } from './ThreadRail'
 import { ToolGroup } from './ToolGroup'
 
 const FOLLOW_BOTTOM_PX = 80
@@ -45,14 +55,7 @@ const TONE_TEXT: Record<Tone, string> = {
   neutral: 'text-muted',
 }
 
-const STATUS: Record<RunState['summary']['status'], { text: string; tone: Tone }> = {
-  queued: { text: 'Starting', tone: 'brand' },
-  running: { text: 'Working', tone: 'brand' },
-  waiting: { text: 'Needs you', tone: 'warn' },
-  done: { text: 'Done', tone: 'ok' },
-  error: { text: 'Failed', tone: 'danger' },
-  cancelled: { text: 'Stopped', tone: 'neutral' },
-}
+const LIVE_QUESTION = new Set(['running', 'waiting'])
 
 type Block =
   | { kind: 'tools'; tools: ToolActivity[]; key: string }
@@ -103,6 +106,7 @@ function buildTurns(state: RunState): Turn[] {
     if (item.kind === 'tool') {
       const tool = tools.get(item.id)
       if (!tool) continue
+
       const last = turn.blocks.at(-1)
       if (last?.kind === 'tools') last.tools.push(tool)
       else turn.blocks.push({ kind: 'tools', tools: [tool], key: `t_${item.id}` })
@@ -118,6 +122,7 @@ function turnText(turn: Turn, state: RunState): string {
   const parts: string[] = []
   for (const b of turn.blocks) {
     if (b.kind !== 'item') continue
+
     if (b.item.kind === 'text') {
       const t = chatById(state).get(b.item.id)?.text.trim()
       if (t) parts.push(t)
@@ -150,6 +155,7 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
     case 'text': {
       const msg = chatById(state).get(item.id)
       if (!msg?.text.trim()) return null
+
       return (
         <div className="text-fg">
           <Markdown text={msg.text} links={msg.links} />
@@ -162,7 +168,7 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
     }
     case 'question': {
       const q = state.questions.find((x) => x.id === item.id)
-      const live = ['running', 'waiting'].includes(state.summary.status)
+      const live = LIVE_QUESTION.has(state.summary.status)
       return q ? <QuestionCard runId={id} question={q} live={live} /> : null
     }
     case 'login': {
@@ -173,6 +179,7 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
       if (item.id !== state.outcomeId || !state.outcome) {
         return <div className="text-faint text-[12px]">Earlier answer, updated below.</div>
       }
+
       return <MemoAnswer outcome={state.outcome} caseUrl={state.caseUrl} />
     default:
       return null
@@ -191,7 +198,6 @@ function Footer({
   onSend: () => void
 }) {
   const [error, setError] = useState<string>()
-
   const { settings } = useSettings()
   const other: FollowUp = settings.followUp === 'steer' ? 'queue' : 'steer'
   const describe = (mode: FollowUp) =>
@@ -223,7 +229,7 @@ function Footer({
               : 'Ask a follow-up or give direction'
           }
           busyHint={(alternate) => describe(alternate ? other : settings.followUp)}
-          onSend={(text, files, alternate) => send(text, files, alternate)}
+          onSend={send}
           draftKey={`run-${runId}`}
           onStop={() => void api.cancel(runId).catch(reportError)}
           extras={<WriteSwitch value={write} onChange={(v) => api.setWriteAccess(runId, v)} />}
@@ -291,28 +297,23 @@ export function RunView({ id }: { id: string }) {
   const restoreHeight = useRef<number | undefined>(undefined)
   const [finding, setFinding] = useState(false)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.code !== 'KeyF') return
-      const open = document.querySelector<HTMLInputElement>('input[aria-label="Find in thread"]')
-      if (open) {
-        e.preventDefault()
-        open.focus()
-        open.select()
-        return
-      }
-      if (layerOpen() || (e.target as HTMLElement | null)?.closest?.('.monaco-editor')) return
+  useWindowEvent(OPEN_FIND, () => setFinding(true))
+  useWindowEvent('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.code !== 'KeyF') return
+
+    const open = document.querySelector<HTMLInputElement>(`input[aria-label="${FIND_LABEL}"]`)
+    if (open) {
       e.preventDefault()
-      setFinding(true)
+      open.focus()
+      open.select()
+      return
     }
-    const onFind = () => setFinding(true)
-    window.addEventListener('keydown', onKey)
-    window.addEventListener(OPEN_FIND, onFind)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener(OPEN_FIND, onFind)
-    }
-  }, [])
+
+    if (layerOpen() || inCodeEditor(e.target)) return
+
+    e.preventDefault()
+    setFinding(true)
+  })
 
   const older = useCallback(
     (until?: number) => {
@@ -353,6 +354,7 @@ export function RunView({ id }: { id: string }) {
     scroller.addEventListener('scroll', onScroll, { passive: true })
     for (const name of USER_SCROLL_EVENTS)
       scroller.addEventListener(name, markUser, { passive: true })
+
     pinToBottom()
 
     return () => {
@@ -395,8 +397,8 @@ export function RunView({ id }: { id: string }) {
   }
 
   const { summary } = state
-  const busy = ['queued', 'running', 'waiting'].includes(summary.status)
-  const status = STATUS[summary.status]
+  const busy = WORKING.has(summary.status)
+  const status = RUN_STATUS[summary.status]
   const turns = toTurns(state)
   const lastBlock = turns.at(-1)?.blocks.at(-1)
   const showThinking =
@@ -438,9 +440,7 @@ export function RunView({ id }: { id: string }) {
     </>
   )
 
-  const listed = [...(list?.active ?? []), ...(list?.snoozed ?? []), ...(list?.settled ?? [])].find(
-    (r) => r.id === id,
-  )
+  const listed = allRuns(list).find((r) => r.id === id)
   const settled = list?.settled.some((r) => r.id === id) ?? Boolean(summary.settled)
   const actions = (
     <>
@@ -478,7 +478,7 @@ export function RunView({ id }: { id: string }) {
               runId={id}
               contentRef={scrollRef}
               start={state.start}
-              version={state.start * 100_000 + state.items.length}
+              version={`${state.start}:${state.items.length}`}
               onLoadUntil={older}
               onClose={() => setFinding(false)}
             />

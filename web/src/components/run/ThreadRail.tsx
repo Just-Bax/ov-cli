@@ -1,7 +1,7 @@
 import { CaretDown as ChevronDownIcon, CaretUp as ChevronUpIcon } from '@phosphor-icons/react'
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import type { OutlineMark } from '@shared/types.ts'
-import { Markdown } from '@/components/ui'
+import { Markdown } from '@/components/common/ui'
 import { cn } from '@/lib/cn'
 
 const MIN_MARKS = 4
@@ -34,6 +34,10 @@ function collect(content: HTMLElement): Mark[] {
       height: box.height,
     }
   })
+}
+
+function inView(mark: Mark, view: { top: number; bottom: number }): boolean {
+  return mark.el !== undefined && mark.top < view.bottom && mark.top + mark.height > view.top
 }
 
 function nextFrame(): Promise<void> {
@@ -110,9 +114,7 @@ export function ThreadRail({
   const gap = overflow ? MARK_GAP_PX : Math.min(MARK_GAP_PX, room / all.length)
   const capacity = overflow ? Math.max(1, Math.floor((room - ARROW_PX * 2) / gap)) : all.length
   const last = all.length - capacity
-  const visibleAt = all.findIndex(
-    (m) => m.el !== undefined && m.top < view.bottom && m.top + m.height > view.top,
-  )
+  const visibleAt = all.findIndex((m) => inView(m, view))
   const centered = visibleAt < 0 ? last : visibleAt - Math.floor(capacity / 2)
   const start = Math.max(0, Math.min(last, first ?? centered))
   const shown = all.slice(start, start + capacity)
@@ -144,7 +146,7 @@ export function ThreadRail({
       >
         {overflow ? <RailArrow up hidden={!above} onClick={() => move(-(capacity - 1))} /> : null}
         {shown.map((m, i) => {
-          const visible = m.el !== undefined && m.top < view.bottom && m.top + m.height > view.top
+          const visible = inView(m, view)
           return (
             <button
               key={`${m.kind}:${m.start}`}
@@ -202,6 +204,7 @@ function RailArrow({
   onClick: () => void
 }) {
   const Icon = up ? ChevronUpIcon : ChevronDownIcon
+
   return (
     <div className="flex shrink-0 items-center justify-center" style={{ height: ARROW_PX }}>
       {hidden ? null : (

@@ -1,11 +1,18 @@
 import {
-  ArrowsClockwise as ArrowPathIcon,
   CaretRight as ChevronRightIcon,
   Code as CodeBracketIcon,
   MagnifyingGlass as MagnifyingGlassIcon,
   X as XMarkIcon,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type {
   CodeHint,
   CodeSection,
@@ -14,36 +21,30 @@ import type {
   InstanceGraph,
   ObjectActivity,
 } from '@shared/types.ts'
+import { CodeSkeleton, ExplorerSkeleton } from '@/components/common/skeletons'
+import { Card, EmptyState, Page, SkeletonText } from '@/components/common/ui'
 import { CodeView } from '@/components/explorer/CodeView'
+import { BuildingNote, GraphActions, GraphPlaceholder } from '@/components/map/MapState'
 import {
   degree,
-  WITH_CODE,
+  fieldsOf,
   index,
   type Index,
-  LABELS,
-  type Link,
   ObjectRow,
+  statusOf,
   TypeDot,
   TYPES,
+  WITH_CODE,
 } from '@/components/map/meta'
-import {
-  Button,
-  Card,
-  EmptyState,
-  Page,
-  Select,
-  SkeletonText,
-  Spinner,
-  timeAgo,
-} from '@/components/ui'
+import { ObjectActions } from '@/components/map/ObjectActions'
+import { LinkGroups, ObjectFacts, ObjectTitle } from '@/components/map/ObjectDetails'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { refIndex } from '@/lib/references'
+import { groupBy, toggled } from '@/lib/collections'
 import { openDraft } from '@/lib/draft'
+import { refIndex } from '@/lib/references'
+import { timeAgo } from '@/lib/time'
 import { EXPLORE_KEY, useInstanceGraph } from '@/lib/useInstanceGraph'
-import { ObjectActions } from '@/components/map/ObjectActions'
-import { MapState } from '@/components/map/MapState'
-import { CodeSkeleton, ExplorerSkeleton, useSkeleton } from '@/components/skeletons'
 
 const TREE_ORDER: GraphNodeType[] = [
   'rule',
@@ -58,19 +59,16 @@ const TREE_ORDER: GraphNodeType[] = [
 ]
 const WITH_ACTIVITY = new Set<GraphNodeType>(['rule', 'import', 'report', 'module', 'automation'])
 const GROUP_LIMIT = 300
-const GROUP_PREVIEW_ROWS = 8
 const FIELD_ROWS = 200
 const TREE_INDENT = 14
+const ITEM_PAD_PX = 12
+const GROUP_PAD_PX = 6
+const MORE_PAD_PX = 26
 
 type Loaded<T> =
   { state: 'loading' } | { state: 'ready'; value: T } | { state: 'error'; error: string }
 
-function statusOf(node: GraphNode): { label: string; dot: string } | undefined {
-  if (node.invalid) return { label: 'Invalid code', dot: 'bg-danger' }
-  if (node.enabled === false) return { label: 'Disabled', dot: 'bg-warn' }
-  if (node.enabled) return { label: 'Enabled', dot: 'bg-ok' }
-  return undefined
-}
+type SetLoaded<T> = Dispatch<SetStateAction<Record<string, Loaded<T>>>>
 
 function TreeItem({
   node,
@@ -89,7 +87,7 @@ function TreeItem({
     <button
       type="button"
       onClick={() => onOpen(node.id)}
-      style={{ paddingLeft: 12 + depth * TREE_INDENT }}
+      style={{ paddingLeft: ITEM_PAD_PX + depth * TREE_INDENT }}
       className={cn(
         'flex h-8 w-full items-center gap-2 rounded-full pr-3 text-left text-[12.5px] transition-colors',
         active ? 'bg-brand-soft text-brand-strong font-medium' : 'text-text hover:bg-raised',
@@ -130,7 +128,7 @@ function GroupHeader({
     <button
       type="button"
       onClick={onToggle}
-      style={{ paddingLeft: 6 + depth * TREE_INDENT }}
+      style={{ paddingLeft: GROUP_PAD_PX + depth * TREE_INDENT }}
       className="text-text hover:bg-raised flex h-8 w-full items-center gap-2 rounded-full pr-3 text-left text-[12.5px] font-medium transition-colors"
     >
       <ChevronRightIcon
@@ -156,17 +154,10 @@ function Tree({
 }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set(['rule']))
-  const toggle = (key: string) =>
-    setOpen((o) => {
-      const next = new Set(o)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+  const toggle = (key: string) => setOpen((o) => toggled(o, key))
 
   const byType = useMemo(() => {
-    const groups = new Map<GraphNodeType, GraphNode[]>()
-    for (const n of graph.nodes) groups.set(n.type, [...(groups.get(n.type) ?? []), n])
+    const groups = groupBy(graph.nodes, (n) => n.type)
     for (const list of groups.values()) list.sort((a, b) => a.name.localeCompare(b.name))
     return groups
   }, [graph])
@@ -182,7 +173,7 @@ function Tree({
       {nodes.length > GROUP_LIMIT ? (
         <div
           className="text-faint py-1 text-[11.5px]"
-          style={{ paddingLeft: 26 + depth * TREE_INDENT }}
+          style={{ paddingLeft: MORE_PAD_PX + depth * TREE_INDENT }}
         >
           {nodes.length - GROUP_LIMIT} more; filter to narrow down
         </div>
@@ -229,7 +220,7 @@ function Tree({
               {!isOpen
                 ? null
                 : type === 'rule'
-                  ? [...groupBy(shown, (n) => n.trigger || 'Other')].map(([trigger, rules]) => {
+                  ? bySize(groupBy(shown, (n) => n.trigger || 'Other')).map(([trigger, rules]) => {
                       const key = `rule:${trigger}`
                       const subOpen = Boolean(q) || open.has(key)
 
@@ -249,10 +240,9 @@ function Tree({
                   : type === 'trackor_type'
                     ? shown.slice(0, GROUP_LIMIT).map((tt) => {
                         const key = `tt:${tt.id}`
-                        const fields = (idx.links.get(tt.id) ?? [])
-                          .filter((l) => l.kind === 'field_of' && !l.out)
-                          .map((l) => l.other)
-                          .sort((a, b) => a.name.localeCompare(b.name))
+                        const fields = fieldsOf(idx, tt.id).sort((a, b) =>
+                          a.name.localeCompare(b.name),
+                        )
                         const ttOpen = open.has(key)
 
                         return (
@@ -263,7 +253,7 @@ function Tree({
                                 aria-label={ttOpen ? 'Collapse' : 'Expand'}
                                 onClick={() => toggle(key)}
                                 className="text-faint hover:text-fg flex size-6 shrink-0 items-center justify-center rounded-full"
-                                style={{ marginLeft: 6 + TREE_INDENT }}
+                                style={{ marginLeft: GROUP_PAD_PX + TREE_INDENT }}
                               >
                                 <ChevronRightIcon
                                   className={cn(
@@ -294,17 +284,14 @@ function Tree({
   )
 }
 
-function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
-  const out = new Map<string, T[]>()
-  for (const item of items) out.set(key(item), [...(out.get(key(item)) ?? []), item])
-
-  return new Map([...out.entries()].sort((a, b) => b[1].length - a[1].length))
+function bySize<T>(groups: Map<string, T[]>): [string, T[]][] {
+  return [...groups.entries()].sort((a, b) => b[1].length - a[1].length)
 }
 
-const SEVERITY: Record<CodeHint['severity'], { dot: string; label: string }> = {
-  error: { dot: 'bg-danger', label: 'Problem' },
-  warn: { dot: 'bg-warn', label: 'Warning' },
-  info: { dot: 'bg-brand', label: 'Tip' },
+const SEVERITY_DOT: Record<CodeHint['severity'], string> = {
+  error: 'bg-danger',
+  warn: 'bg-warn',
+  info: 'bg-brand',
 }
 
 function Inspector({
@@ -326,17 +313,10 @@ function Inspector({
   onOpen: (id: string) => void
   onReveal: (section: number, line: number) => void
 }) {
-  const [openGroup, setOpenGroup] = useState<string>()
   const meta = TYPES[node.type]
-  const status = statusOf(node)
   const links = idx.links.get(node.id) ?? []
-  const groups = new Map<string, Link[]>()
-  for (const l of links) {
-    const [forward, back] = LABELS[l.kind] ?? [l.kind, l.kind]
-    const label = l.out ? forward : back
-    groups.set(label, [...(groups.get(label) ?? []), l])
-  }
-
+  const reviewable =
+    WITH_CODE.has(node.type) && !(sections?.state === 'ready' && !sections.value.length)
   const hints =
     sections?.state === 'ready'
       ? sections.value.flatMap((s, i) => s.hints.map((h) => ({ ...h, section: i })))
@@ -355,33 +335,8 @@ function Inspector({
 
   return (
     <aside className="border-line-strong/60 flex w-[340px] shrink-0 flex-col border-l bg-white">
-      <div className="flex items-start gap-3 px-4 pt-4 pb-3">
-        <TypeDot type={node.type} />
-        <div className="min-w-0 flex-1">
-          <div className="text-fg text-[14px] leading-snug font-semibold break-words">
-            {node.name}
-          </div>
-          <div className="text-muted mt-0.5 text-[12px]">
-            {meta.label} - id {node.ref}
-          </div>
-        </div>
-      </div>
-      <dl className="bg-raised mx-4 grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 rounded-2xl px-4 py-3 text-[12.5px]">
-        {status ? (
-          <>
-            <dt className="text-muted">Status</dt>
-            <dd className="text-fg flex items-center gap-2 font-medium">
-              <span className={cn('size-2 rounded-full', status.dot)} />
-              {status.label}
-            </dd>
-          </>
-        ) : null}
-        {node.trigger ? (
-          <>
-            <dt className="text-muted">Trigger</dt>
-            <dd className="text-fg">{node.trigger}</dd>
-          </>
-        ) : null}
+      <ObjectTitle node={node} />
+      <ObjectFacts node={node}>
         {node.type === 'rule' ? (
           <>
             <dt className="text-muted">Runs</dt>
@@ -392,23 +347,19 @@ function Inspector({
         ) : null}
         <dt className="text-muted">Links</dt>
         <dd className="text-fg">{links.length.toLocaleString()}</dd>
-      </dl>
+      </ObjectFacts>
       <div className="px-4 pt-3 pb-4">
         <ObjectActions
           node={node}
           host={host}
           alias={alias}
           page="explorer"
-          onReview={
-            WITH_CODE.has(node.type) && !(sections?.state === 'ready' && !sections.value.length)
-              ? review
-              : undefined
-          }
+          onReview={reviewable ? review : undefined}
         />
       </div>
 
       <div className="border-line min-h-0 flex-1 scrollbar-thin space-y-4 overflow-y-auto border-t px-3 py-3">
-        {WITH_CODE.has(node.type) && !(sections?.state === 'ready' && !sections.value.length) ? (
+        {reviewable ? (
           <section>
             <div className="text-faint flex items-center px-2 pb-1 text-[11.5px] font-medium">
               <span className="flex-1">Hints</span>
@@ -432,7 +383,7 @@ function Inspector({
                     <span
                       className={cn(
                         'mt-1.5 size-2 shrink-0 rounded-full',
-                        SEVERITY[h.severity].dot,
+                        SEVERITY_DOT[h.severity],
                       )}
                     />
                     <span className="min-w-0 flex-1">
@@ -499,40 +450,11 @@ function Inspector({
           </section>
         ) : null}
 
-        {[...groups.entries()]
-          .sort((a, b) => b[1].length - a[1].length)
-          .map(([label, items]) => {
-            const expanded = openGroup === label
-            const shown = expanded ? items : items.slice(0, GROUP_PREVIEW_ROWS)
-
-            return (
-              <section key={label}>
-                <div className="text-faint flex items-center px-2 pb-1 text-[11.5px] font-medium">
-                  <span className="flex-1">{label}</span>
-                  <span>{items.length}</span>
-                </div>
-                {shown
-                  .sort((a, b) => a.other.name.localeCompare(b.other.name))
-                  .map((l) => (
-                    <ObjectRow
-                      key={`${label}-${l.other.id}`}
-                      node={l.other}
-                      hint={l.code ? 'in code' : undefined}
-                      onClick={() => onOpen(l.other.id)}
-                    />
-                  ))}
-                {items.length > shown.length ? (
-                  <button
-                    type="button"
-                    onClick={() => setOpenGroup(label)}
-                    className="text-brand-strong hover:bg-raised h-8 w-full rounded-full px-3 text-left text-[12px] font-medium"
-                  >
-                    Show all {items.length}
-                  </button>
-                ) : null}
-              </section>
-            )
-          })}
+        <LinkGroups
+          links={links}
+          hint={(l) => (l.code ? 'in code' : undefined)}
+          onPick={(l) => onOpen(l.other.id)}
+        />
       </div>
     </aside>
   )
@@ -558,6 +480,7 @@ function Tabs({
         if (!node) return null
 
         const on = id === active
+        const Icon = TYPES[node.type].icon
 
         return (
           <div
@@ -576,10 +499,7 @@ function Tabs({
                 className="flex size-5 shrink-0 items-center justify-center rounded-full"
                 style={{ background: `${TYPES[node.type].color}1a`, color: TYPES[node.type].color }}
               >
-                {(() => {
-                  const Icon = TYPES[node.type].icon
-                  return <Icon className="size-3" />
-                })()}
+                <Icon className="size-3" />
               </span>
               <span className="truncate">{node.name}</span>
             </button>
@@ -610,10 +530,7 @@ function NoCode({
   idx: Index
   onOpen: (id: string) => void
 }) {
-  const fields = (idx.links.get(node.id) ?? [])
-    .filter((l) => l.kind === 'field_of' && !l.out)
-    .map((l) => l.other)
-    .sort((a, b) => degree(idx, b.id) - degree(idx, a.id))
+  const fields = fieldsOf(idx, node.id).sort((a, b) => degree(idx, b.id) - degree(idx, a.id))
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -647,8 +564,8 @@ function NoCode({
 }
 
 export function ExplorerPage() {
-  const { instances, signedIn, alias, setAlias, label, status, graph, error, build } =
-    useInstanceGraph()
+  const state = useInstanceGraph()
+  const { alias, label, status, graph, building } = state
   const idx = useMemo(() => (graph ? index(graph) : undefined), [graph])
   const [tabs, setTabs] = useState<string[]>([])
   const [active, setActive] = useState<string>()
@@ -656,6 +573,9 @@ export function ExplorerPage() {
   const [activity, setActivity] = useState<Record<string, Loaded<ObjectActivity[]>>>({})
   const [sectionOf, setSectionOf] = useState<Record<string, number>>({})
   const [reveal, setReveal] = useState<{ line: number; at: number }>()
+  const currentAlias = useRef(alias)
+  currentAlias.current = alias
+  const node = active ? idx?.byId.get(active) : undefined
 
   useEffect(() => {
     setTabs([])
@@ -680,35 +600,28 @@ export function ExplorerPage() {
   useEffect(() => {
     const requested = localStorage.getItem(EXPLORE_KEY)
     if (!idx || !requested || !idx.byId.has(requested)) return
-
     localStorage.removeItem(EXPLORE_KEY)
     open(requested)
   }, [idx])
 
-  const node = active ? idx?.byId.get(active) : undefined
-
   useEffect(() => {
     if (!node || !alias) return
 
-    if (WITH_CODE.has(node.type) && !code[node.id]) {
-      setCode((s) => ({ ...s, [node.id]: { state: 'loading' } }))
-      api
-        .source(alias, node.id)
-        .then((r) => setCode((s) => ({ ...s, [node.id]: { state: 'ready', value: r.sections } })))
-        .catch((e: Error) =>
-          setCode((s) => ({ ...s, [node.id]: { state: 'error', error: e.message } })),
-        )
+    const track = <T,>(set: SetLoaded<T>, load: () => Promise<T>) => {
+      const settle = (next: Loaded<T>) =>
+        currentAlias.current === alias && set((all) => ({ ...all, [node.id]: next }))
+      settle({ state: 'loading' })
+      load().then(
+        (value) => settle({ state: 'ready', value }),
+        (e: Error) => settle({ state: 'error', error: e.message }),
+      )
     }
 
-    if (WITH_ACTIVITY.has(node.type) && !activity[node.id]) {
-      setActivity((a) => ({ ...a, [node.id]: { state: 'loading' } }))
-      api
-        .activity(alias, node.id)
-        .then((r) => setActivity((a) => ({ ...a, [node.id]: { state: 'ready', value: r } })))
-        .catch((e: Error) =>
-          setActivity((a) => ({ ...a, [node.id]: { state: 'error', error: e.message } })),
-        )
-    }
+    if (WITH_CODE.has(node.type) && !code[node.id])
+      track(setCode, () => api.source(alias, node.id).then((r) => r.sections))
+
+    if (WITH_ACTIVITY.has(node.type) && !activity[node.id])
+      track(setActivity, () => api.activity(alias, node.id))
   }, [node?.id, alias])
 
   const refs = useMemo(() => refIndex(graph?.nodes ?? [], idx), [graph, idx])
@@ -738,37 +651,8 @@ export function ExplorerPage() {
   const section = node ? (sectionOf[node.id] ?? 0) : 0
   const current = sections?.state === 'ready' ? sections.value[section] : undefined
 
-  const building = status?.state === 'building'
-  const loading = !error && (!status || (Boolean(status.builtAt) && !graph && !building))
-  const showSkeleton = useSkeleton(loading)
-
-  const actions = (
-    <>
-      <div className="w-[260px]">
-        <Select
-          className="w-full"
-          value={alias}
-          onChange={setAlias}
-          placeholder={instances ? 'No signed-in instance' : 'Loading...'}
-          options={signedIn.map((i) => ({
-            value: i.alias,
-            label: i.tenant ? `${i.host} / ${i.tenant}` : i.host,
-          }))}
-        />
-      </div>
-      {graph ? (
-        <Button variant="primary" disabled={!alias || building} onClick={() => void build()}>
-          {building ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
-          Refresh
-        </Button>
-      ) : null}
-    </>
-  )
-
   const subtitle = building ? (
-    <span className="text-brand-strong inline-flex items-center gap-1.5">
-      <Spinner className="size-3" /> {status?.step ?? 'Building'}...
-    </span>
+    <BuildingNote step={status?.step} />
   ) : graph ? (
     <span>
       Code and configuration of {label || graph.host} - map built {timeAgo(graph.builtAt)}
@@ -778,7 +662,7 @@ export function ExplorerPage() {
   )
 
   return (
-    <Page title="Explorer" subtitle={subtitle} actions={actions}>
+    <Page title="Explorer" subtitle={subtitle} actions={<GraphActions state={state} />}>
       {graph && idx ? (
         <div className="flex h-full min-h-[480px]">
           <Tree graph={graph} idx={idx} active={active} onOpen={open} />
@@ -857,18 +741,8 @@ export function ExplorerPage() {
             />
           ) : null}
         </div>
-      ) : showSkeleton ? (
-        <ExplorerSkeleton />
-      ) : loading ? null : (
-        <div className="flex h-full items-center justify-center p-6">
-          <MapState
-            building={building}
-            step={status?.step}
-            error={error ?? status?.error}
-            canBuild={Boolean(alias)}
-            onBuild={() => void build()}
-          />
-        </div>
+      ) : (
+        <GraphPlaceholder state={state} skeleton={<ExplorerSkeleton />} />
       )}
     </Page>
   )

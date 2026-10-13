@@ -1,15 +1,15 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import type { Settings, Status } from '@shared/types.ts'
-import { CommandPalette } from '@/components/CommandPalette'
-import { DialogHost } from '@/components/Dialog'
-import { Home } from '@/components/Home'
+import { CommandPalette } from '@/components/layout/CommandPalette'
+import { DialogHost } from '@/components/common/Dialog'
+import { Home } from '@/components/home/Home'
 import { RunView } from '@/components/run/RunView'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
-import { Setup } from '@/components/Setup'
-import { isSidebarCollapsed, Sidebar } from '@/components/Sidebar'
-import { Toasts } from '@/components/Toasts'
-import { Skeleton } from '@/components/ui'
+import { Setup } from '@/components/settings/Setup'
+import { isSidebarCollapsed, Sidebar } from '@/components/layout/Sidebar'
+import { Toasts } from '@/components/common/Toasts'
+import { Skeleton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { useRoute } from '@/lib/route'
 import { SettingsContext } from '@/lib/settings'
@@ -25,7 +25,7 @@ const HealthPage = lazy(() =>
   import('@/components/health/HealthPage').then((m) => ({ default: m.HealthPage })),
 )
 const SettingsPage = lazy(() =>
-  import('@/components/Settings').then((m) => ({ default: m.SettingsPage })),
+  import('@/components/settings/Settings').then((m) => ({ default: m.SettingsPage })),
 )
 
 const PAGE_FALLBACK = (

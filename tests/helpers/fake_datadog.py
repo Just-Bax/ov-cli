@@ -94,7 +94,6 @@ class FakeDatadog:
         if "@span.kind:server" in body:
             points = [{"time": "2026-10-04T10:00:00Z", "value": 2_000_000_000}]
             return {"data": [{"attributes": {"compute": {"c0": points, "c1": points}}}]}
-
         bucket = {"by": {"resource_name": "GET /trackor"}, "compute": {"c0": 2_500_000_000, "c1": 40}}
         return {"data": [{"type": "bucket", "attributes": bucket}]}
 

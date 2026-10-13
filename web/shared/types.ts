@@ -260,7 +260,7 @@ export interface SkillInfo {
   enabled: boolean
 }
 
-export interface WorkspaceEntry {
+interface WorkspaceEntry {
   name: string
   path: string
   dir: boolean

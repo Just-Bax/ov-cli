@@ -1,11 +1,19 @@
 import { Key as KeyIcon, PaperPlaneTilt as PaperAirplaneIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import type { LoginPrompt, Outcome, Question, Verdict } from '@shared/types.ts'
-import { Button, Chip, CopyButton, Input, Markdown, Spinner, type Tone } from '@/components/ui'
+import {
+  Button,
+  Chip,
+  CopyButton,
+  Input,
+  Markdown,
+  Spinner,
+  type Tone,
+} from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { reportError } from '@/components/Toasts'
-import { SignInModal, type SignInTarget } from '@/components/SignInModal'
+import { reportError } from '@/components/common/Toasts'
+import { SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 
 const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   fix: { label: 'Fix needed', tone: 'warn' },
@@ -128,6 +136,20 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
 
 const STOPPED = '(not answered: the run stopped)'
 
+function useAnswer(runId: string, questionId: string) {
+  const [sending, setSending] = useState(false)
+
+  const send = (answer: string) => {
+    setSending(true)
+    api.answer(runId, questionId, answer).catch((e: unknown) => {
+      setSending(false)
+      reportError(e)
+    })
+  }
+
+  return { sending, send }
+}
+
 function ApprovalCard({
   runId,
   question,
@@ -137,18 +159,10 @@ function ApprovalCard({
   question: Question
   live: boolean
 }) {
-  const [sending, setSending] = useState(false)
+  const { sending, send } = useAnswer(runId, question.id)
   const stopped = question.answer === STOPPED || (question.answer === undefined && !live)
   const answered = question.answer !== undefined || stopped
   const approved = question.answer === 'Approve'
-
-  const send = async (answer: string) => {
-    setSending(true)
-    await api.answer(runId, question.id, answer).catch((e: Error) => {
-      setSending(false)
-      reportError(e)
-    })
-  }
 
   return (
     <div
@@ -176,10 +190,10 @@ function ApprovalCard({
       </pre>
       {!answered ? (
         <div className="flex justify-end gap-1.5 px-4 pb-3">
-          <Button variant="ghost" disabled={sending} onClick={() => void send('Reject')}>
+          <Button variant="ghost" disabled={sending} onClick={() => send('Reject')}>
             Reject
           </Button>
-          <Button variant="primary" disabled={sending} onClick={() => void send('Approve')}>
+          <Button variant="primary" disabled={sending} onClick={() => send('Approve')}>
             {sending ? <Spinner className="size-3.5" /> : null} Approve
           </Button>
         </div>
@@ -199,7 +213,7 @@ export function QuestionCard({
 }) {
   const [picked, setPicked] = useState<string[]>([])
   const [other, setOther] = useState('')
-  const [sending, setSending] = useState(false)
+  const { sending, send } = useAnswer(runId, question.id)
 
   if (question.detail) return <ApprovalCard runId={runId} question={question} live={live} />
 
@@ -213,14 +227,6 @@ export function QuestionCard({
         </span>
       </div>
     )
-  }
-
-  const send = async (answer: string) => {
-    setSending(true)
-    await api.answer(runId, question.id, answer).catch((e: Error) => {
-      setSending(false)
-      reportError(e)
-    })
   }
 
   return (
@@ -238,7 +244,7 @@ export function QuestionCard({
               onClick={() =>
                 question.multiple
                   ? setPicked(on ? picked.filter((p) => p !== o) : [...picked, o])
-                  : void send(o)
+                  : send(o)
               }
               className={cn(
                 'h-8 rounded-full border px-3.5 text-[12.5px] transition-colors',
@@ -257,7 +263,7 @@ export function QuestionCard({
         onSubmit={(e) => {
           e.preventDefault()
           const answer = [...picked, other.trim()].filter(Boolean).join('; ')
-          if (answer) void send(answer)
+          if (answer) send(answer)
         }}
       >
         <Input
