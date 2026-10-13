@@ -51,7 +51,7 @@ const OPEN_SIDEBAR_LABEL = 'Open sidebar (Ctrl+B)'
 const CLOSE_SIDEBAR_LABEL = 'Close sidebar (Ctrl+B)'
 const HEADER_BUTTON =
   'text-faint hover:bg-canvas hover:text-brand-strong flex size-8 items-center justify-center rounded-full transition-colors'
-const BODY_INSET = 'pr-0.5 pl-3'
+const BODY_INSET = 'px-3'
 const CONTENT_INSET = 'px-2'
 const ROW_INSET = 'pr-2 pl-2'
 const GROUP_GAP = 'mt-4'
@@ -730,7 +730,7 @@ export function Sidebar({
             ) : null}
           </div>
         ) : (
-          <div className={cn('min-h-0 flex-1 scrollbar-thin overflow-y-auto', BODY_INSET)}>
+          <div className={cn('min-h-0 flex-1 overflow-y-auto', BODY_INSET)}>
             <div className="flex min-h-full flex-col pt-2 pb-3">
               {!list ? (
                 <div className={cn('space-y-4 pt-3', CONTENT_INSET)}>
