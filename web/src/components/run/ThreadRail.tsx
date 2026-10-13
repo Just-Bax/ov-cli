@@ -6,7 +6,7 @@ import { cn } from '@/lib/cn'
 
 const MIN_MARKS = 4
 const MARK_GAP_PX = 9
-const MIN_GAP_PX = 6
+const MIN_GAP_PX = 4
 const ARROW_PX = 30
 const WHEEL_STEP = 3
 const RAIL_PADDING_PX = 24
