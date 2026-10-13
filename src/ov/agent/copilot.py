@@ -277,9 +277,14 @@ def _send_with_retries(
     http: httpx.Client, url: str, headers: dict[str, str], payload: dict[str, Any], cancel: Cancel
 ) -> httpx.Response:
     for attempt in range(CHAT_ATTEMPTS - 1):
-        response = _post(http, url, headers, payload, cancel)
+        try:
+            response = _post(http, url, headers, payload, cancel)
+        except httpx.TransportError:
+            cancel.wait(RETRY_BASE_SECONDS * 2**attempt)
+            continue
         if not _retryable(response):
             return response
+
         response.close()
         cancel.wait(RETRY_BASE_SECONDS * 2**attempt)
     return _post(http, url, headers, payload, cancel)
@@ -310,6 +315,32 @@ def stream_chat(
         **({"reasoning_effort": reasoning} if reasoning else {}),
     }
 
+    streamed = False
+
+    def forward(text: str) -> None:
+        nonlocal streamed
+        streamed = True
+        on_text(text)
+
+    for attempt in range(CHAT_ATTEMPTS):
+        try:
+            return _stream_once(api, headers, payload, cancel, forward)
+        except httpx.TransportError as exc:
+            if cancel.is_set():
+                raise Cancelled from None
+            if streamed or attempt == CHAT_ATTEMPTS - 1:
+                raise CopilotError(f"Lost the connection to Copilot: {exc}. Send a message to continue.") from exc
+            cancel.wait(RETRY_BASE_SECONDS * 2**attempt)
+    raise CopilotError("Copilot chat retries ran out.")
+
+
+def _stream_once(
+    api: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    cancel: Cancel,
+    on_text: Callable[[str], None],
+) -> StreamResult:
     with httpx.Client(timeout=httpx.Timeout(HTTP_TIMEOUT_SECONDS, read=CHAT_READ_TIMEOUT_SECONDS)) as http:
         response = _send_with_retries(http, f"{api}/chat/completions", headers, payload, cancel)
         with cancel.hook(response.close):

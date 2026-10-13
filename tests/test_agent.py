@@ -1348,3 +1348,37 @@ def test_restart_closes_tools_left_running():
 
     assert [(t["id"], t["status"]) for t in tools][-1] == ("a", "error")
     assert sum(t["status"] == "error" for t in tools) == 1
+
+
+def test_chat_retries_a_dropped_connection_before_any_text(monkeypatch):
+    from ov.agent import copilot
+    from ov.agent.cancel import Cancel
+
+    calls = []
+
+    def flaky(api, headers, payload, cancel, on_text):
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ReadError("connection reset")
+        on_text("hi")
+        return "ok"
+
+    monkeypatch.setattr(copilot, "_headers", lambda **_: ("https://api", {}))
+    monkeypatch.setattr(copilot, "_stream_once", flaky)
+    monkeypatch.setattr(copilot, "RETRY_BASE_SECONDS", 0)
+    assert copilot.stream_chat("m", [], [], "agent", cancel=Cancel(), on_text=lambda _: None) == "ok"
+    assert len(calls) == 2
+
+
+def test_chat_does_not_retry_after_text_streamed(monkeypatch):
+    from ov.agent import copilot
+    from ov.agent.cancel import Cancel
+
+    def dropped(api, headers, payload, cancel, on_text):
+        on_text("partial")
+        raise httpx.ReadError("connection reset")
+
+    monkeypatch.setattr(copilot, "_headers", lambda **_: ("https://api", {}))
+    monkeypatch.setattr(copilot, "_stream_once", dropped)
+    with pytest.raises(copilot.CopilotError, match="Lost the connection"):
+        copilot.stream_chat("m", [], [], "agent", cancel=Cancel(), on_text=lambda _: None)
