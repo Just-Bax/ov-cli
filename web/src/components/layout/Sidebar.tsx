@@ -56,8 +56,8 @@ const BODY_INSET = 'px-3'
 const SHELF_PREVIEW = 5
 const SHELF_STEP = 10
 const SCROLL_EDGE_PX = 2
-const CONTENT_INSET = 'px-2'
-const ROW_INSET = 'pr-2 pl-2'
+const CONTENT_INSET = 'px-3'
+const ROW_INSET = 'pr-3 pl-3'
 const GROUP_GAP = 'mt-4'
 const FOOTER_INSET = 'pr-[9px] pl-3'
 const ACCOUNT_INSET = 'pr-3 pl-2'
@@ -392,12 +392,10 @@ type FlyoutAt = { left: number; top: number }
 function MoreFlyout({
   at,
   anchor,
-  route,
   onClose,
 }: {
   at: FlyoutAt
   anchor: RefObject<HTMLElement | null>
-  route: Route
   onClose: () => void
 }) {
   const menu = useRef<HTMLDivElement>(null)
@@ -428,14 +426,11 @@ function MoreFlyout({
             role="menuitem"
             href={href(tool.route)}
             onClick={onClose}
-            className={cn(
-              'flex h-9 items-center gap-2.5 rounded-xl px-2.5 text-[12.5px] font-medium transition-colors',
-              route.page === tool.route.page
-                ? 'bg-brand-soft text-brand-strong'
-                : 'text-fg hover:bg-raised',
-            )}
+            className="text-fg hover:bg-raised flex h-8 items-center gap-2.5 rounded-xl px-2.5 text-left text-[12.5px] transition-colors"
           >
-            <tool.icon className="size-4 shrink-0" />
+            <span className="text-muted">
+              <tool.icon className="size-4 shrink-0" />
+            </span>
             <span className="min-w-0 flex-1 truncate">{tool.label}</span>
           </a>
         ))
@@ -759,12 +754,7 @@ export function Sidebar({
             onClick={toggleMore}
           />
           {moreAt ? (
-            <MoreFlyout
-              at={moreAt}
-              anchor={moreAnchor}
-              route={route}
-              onClose={() => setMoreAt(undefined)}
-            />
+            <MoreFlyout at={moreAt} anchor={moreAnchor} onClose={() => setMoreAt(undefined)} />
           ) : null}
         </nav>
 

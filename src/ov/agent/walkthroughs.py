@@ -21,6 +21,8 @@ from ov.onevizion import session as session_store
 VIEWPORT = (1280, 800)
 RUN_ID_PREFIX = "wr"
 GUARD_MAX_TOKENS = 200
+DRIVER_MAX_TOKENS = 500
+PLAN_MAX_TOKENS_OUT = 1500
 PLAN_MAX_STEPS = 20
 PLAN_PROMPT = (
     "You write a browser test plan for a OneVizion instance, as steps a real user would follow. "
@@ -74,7 +76,7 @@ class ModelDriver:
                 "page_text": context["text"],
             }
         )
-        reply, _ = copilot.complete(self._model, DRIVER_PROMPT, body)
+        reply, _ = copilot.complete(self._model, DRIVER_PROMPT, body, DRIVER_MAX_TOKENS)
         return parse_action(_only_json(reply))
 
 
@@ -223,11 +225,13 @@ def draft_plan(instance: str, describe: str) -> dict[str, Any]:
     if not model:
         raise BrowserError("Pick a model first (Settings).")
 
-    reply, _ = copilot.complete(model, PLAN_PROMPT, describe)
+    reply, _ = copilot.complete(model, PLAN_PROMPT, describe, PLAN_MAX_TOKENS_OUT)
     try:
         plan = json.loads(_only_json(reply))
     except json.JSONDecodeError:
-        raise BrowserError("The model did not return a plan. Try describing it again.") from None
+        raise BrowserError(f"The model did not return a usable plan. Reply was: {reply[:200]}") from None
+    if not isinstance(plan, dict):
+        raise BrowserError("The model did not return a plan. Try describing it again.")
     steps = [str(s).strip() for s in plan.get("steps") or [] if str(s).strip()][:PLAN_MAX_STEPS]
     return {
         "instance": instance,

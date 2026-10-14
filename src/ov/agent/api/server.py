@@ -827,7 +827,10 @@ def draft_walkthrough(h: Handler) -> dict[str, Any]:
     described = str(data.get("describe") or "").strip()
     if not described:
         raise HttpError(400, "Describe the test in a sentence.")
-    return draft_plan(str(data.get("instance") or ""), described)
+    try:
+        return draft_plan(str(data.get("instance") or ""), described)
+    except BrowserError as exc:
+        raise HttpError(400, str(exc)) from None
 
 
 @route("POST", "/api/walkthroughs")
