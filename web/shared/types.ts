@@ -115,6 +115,7 @@ type RunEvent =
   | { type: 'outcome'; outcome: Outcome }
   | { type: 'question'; question: Question }
   | { type: 'login'; login: LoginPrompt }
+  | { type: 'walkthrough'; walkthrough: Walkthrough }
   | { type: 'access'; write: boolean }
   | { type: 'queued'; message: ChatMessage }
   | { type: 'unqueue'; id: string }
@@ -173,6 +174,7 @@ export interface RunWindow {
   changes: Change[]
   questions: Question[]
   logins: LoginPrompt[]
+  walkthroughs: Walkthrough[]
   outline: OutlineMark[]
 }
 
@@ -188,6 +190,7 @@ export type ThreadItem =
   | { kind: 'change'; id: string }
   | { kind: 'question'; id: string }
   | { kind: 'login'; id: string }
+  | { kind: 'walkthrough'; id: string }
   | { kind: 'outcome'; id: string }
 
 export interface Upload {

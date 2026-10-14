@@ -35,6 +35,7 @@ import { RunMenu } from './RunMenu'
 import { RUN_STATUS, StatusIcon } from './RunStatus'
 import { ThreadRail } from './ThreadRail'
 import { ToolGroup } from './ToolGroup'
+import { WalkthroughCard } from './WalkthroughCard'
 
 const FOLLOW_BOTTOM_PX = 80
 const USER_SCROLL_MS = 600
@@ -175,6 +176,10 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
     case 'login': {
       const l = state.logins.find((x) => x.id === item.id)
       return l ? <LoginCard runId={id} login={l} /> : null
+    }
+    case 'walkthrough': {
+      const walk = state.walkthroughs.find((w) => w.id === item.id)
+      return walk ? <WalkthroughCard walkthrough={walk} /> : null
     }
     case 'outcome':
       if (item.id !== state.outcomeId || !state.outcome) {

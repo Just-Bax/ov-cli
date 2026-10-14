@@ -36,6 +36,7 @@ class EventType(StrEnum):
     UNQUEUE = "unqueue"
     REWIND = "rewind"
     ACCESS = "access"
+    WALKTHROUGH = "walkthrough"
 
 
 class MessageRole(StrEnum):

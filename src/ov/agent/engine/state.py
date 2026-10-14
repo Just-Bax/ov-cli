@@ -7,7 +7,7 @@ State = dict[str, Any]
 Stored = dict[str, Any]
 
 MARK_LABEL_CHARS = 160
-WINDOWED = ("items", "chat", "tools", "changes", "questions", "logins", "edits")
+WINDOWED = ("items", "chat", "tools", "changes", "questions", "logins", "edits", "walkthroughs")
 TOOL_DETAIL = ("input", "output")
 EDIT_DETAIL = ("before", "after")
 
@@ -24,6 +24,7 @@ def empty_state(summary: dict[str, Any], write: bool) -> State:
         "chat": [],
         "writeAccess": write,
         "queued": [],
+        "walkthroughs": [],
     }
 
 
@@ -162,6 +163,7 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "outcome": _on_outcome,
     "question": _upserter("question", "questions"),
     "login": _upserter("login", "logins"),
+    "walkthrough": _upserter("walkthrough", "walkthroughs"),
     "queued": _on_queued,
     "unqueue": _on_unqueue,
     "rewind": _on_rewind,
@@ -225,6 +227,7 @@ def window(state: State, end: int, turns: int) -> State:
         "changes": [c for c in state["changes"] if ("change", c["id"]) in keys],
         "questions": [q for q in state["questions"] if ("question", q["id"]) in keys],
         "logins": [x for x in state["logins"] if ("login", x["id"]) in keys],
+        "walkthroughs": [w for w in state["walkthroughs"] if ("walkthrough", w["id"]) in keys],
         "outline": outline(state, start),
     }
 
