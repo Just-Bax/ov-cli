@@ -250,6 +250,9 @@
   .-right-1\.5 {
     right: calc(var(--spacing) * -1.5);
   }
+  .-right-\[5px\] {
+    right: calc(5px * -1);
+  }
   .right-0 {
     right: 0px;
   }

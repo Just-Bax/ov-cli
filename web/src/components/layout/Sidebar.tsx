@@ -181,7 +181,7 @@ function RunItem({
         <span className="group-focus-within/run:invisible group-hover/run:invisible">
           <RunMeta run={run} />
         </span>
-        <span className="absolute inset-y-0 right-0 flex items-center">
+        <span className="absolute inset-y-0 -right-[5px] flex items-center">
           <RunMenu run={run} settled={Boolean(settled)} inRow />
         </span>
       </span>
