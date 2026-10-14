@@ -71,6 +71,16 @@ class SkillSource(StrEnum):
     CUSTOM = "custom"
 
 
+class RunStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    PASSED = "passed"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    ERROR = "error"
+    STOPPED = "stopped"
+
+
 def one_of(column: str, values: type[StrEnum], nullable: bool = False) -> CheckConstraint:
     allowed = ", ".join(f"'{v.value}'" for v in values)
     condition = f"{column} IN ({allowed})"
@@ -209,3 +219,36 @@ class Skill(Base):
     enabled: Mapped[bool] = mapped_column(Integer)
     created_at: Mapped[int] = mapped_column(Integer)
     updated_at: Mapped[int] = mapped_column(Integer)
+
+
+class Walkthrough(Base):
+    __tablename__ = "walkthrough"
+    __table_args__ = (Index("walkthrough_by_created", "created_at"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    instance: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    goal: Mapped[str] = mapped_column(Text)
+    steps: Mapped[list[str]] = mapped_column(JsonText)
+    created_at: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[int] = mapped_column(Integer)
+
+
+class WalkthroughRun(Base):
+    __tablename__ = "walkthrough_run"
+    __table_args__ = (
+        one_of("status", RunStatus),
+        Index("walkthrough_run_by_walkthrough", "walkthrough_id"),
+        Index("walkthrough_run_by_created", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    walkthrough_id: Mapped[str | None] = mapped_column(Text, ForeignKey("walkthrough.id", ondelete="SET NULL"))
+    instance: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    goal: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(JsonText)
+    created_at: Mapped[int] = mapped_column(Integer)
+    finished_at: Mapped[int | None] = mapped_column(Integer)
