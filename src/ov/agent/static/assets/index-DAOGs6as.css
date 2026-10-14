@@ -1481,9 +1481,6 @@
   .bg-brand-strong {
     background-color: #1e88e5;
   }
-  .bg-brand\/20 {
-    background-color: color-mix(in oklab, #42a5f5 20%, transparent);
-  }
   .bg-brand\/30 {
     background-color: color-mix(in oklab, #42a5f5 30%, transparent);
   }
@@ -1667,6 +1664,9 @@
   .px-20 {
     padding-inline: calc(var(--spacing) * 20);
   }
+  .px-\[11px\] {
+    padding-inline: 11px;
+  }
   .py-0\.5 {
     padding-block: calc(var(--spacing) * 0.5);
   }
@@ -1754,6 +1754,9 @@
   .pr-\[9px\] {
     padding-right: 9px;
   }
+  .pr-\[11px\] {
+    padding-right: 11px;
+  }
   .pb-1 {
     padding-bottom: var(--spacing);
   }
@@ -1810,6 +1813,9 @@
   }
   .pl-20 {
     padding-left: calc(var(--spacing) * 20);
+  }
+  .pl-\[11px\] {
+    padding-left: 11px;
   }
   .text-center {
     text-align: center;
@@ -2240,9 +2246,6 @@
     }
     .group-hover\/rail\:bg-brand-soft:is(:where(.group\/rail):hover *) {
       background-color: #e1f5fe;
-    }
-    .group-hover\/rail\:bg-brand\/20:is(:where(.group\/rail):hover *) {
-      background-color: color-mix(in oklab, #42a5f5 20%, transparent);
     }
     .group-hover\/rail\:text-brand-strong:is(:where(.group\/rail):hover *) {
       color: #1e88e5;

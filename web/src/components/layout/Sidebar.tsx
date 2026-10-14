@@ -1,18 +1,17 @@
 import {
-  DotsThree as MoreIcon,
   Checks as DoubleCheckIcon,
   Code as CodeBracketIcon,
   GearSix as Cog6ToothIcon,
   Heartbeat as HeartIcon,
   MagnifyingGlass as SearchIcon,
   MapTrifold as MapIcon,
+  Path as WalkIcon,
   Plus as PlusIcon,
   CaretUp as ChevronUpIcon,
   PushPin as BookmarkIcon,
   SidebarSimple as SidebarIcon,
-  TestTube as WalkIcon,
 } from '@phosphor-icons/react'
-import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
@@ -24,7 +23,7 @@ import { RunMenu, snoozeLabel } from '@/components/run/RunMenu'
 import { RUN_STATUS, StatusIcon } from '@/components/run/RunStatus'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { useClickOutside, useWindowEvent } from '@/lib/hooks'
+import { useWindowEvent } from '@/lib/hooks'
 import { useLayer } from '@/lib/layers'
 import { go, href, type Route } from '@/lib/route'
 import { refreshRuns, showMoreSettled, sidebarOrder, useRuns, WORKING } from '@/lib/runs'
@@ -44,20 +43,17 @@ const SETTLED_OPEN_KEY = 'ov-agent.settled-open'
 const COLLAPSED_KEY = 'ov-agent.sidebar-collapsed'
 const DOCK_QUERY = '(min-width: 1200px)'
 const EXPANDED_WIDTH = 'w-[332px]'
-const FLYOUT_GAP_PX = 8
-const FLYOUT_WIDTH_PX = 220
-const EDGE_PX = 8
 const SEARCH_LABEL = 'Search (Ctrl+K)'
 const OPEN_SIDEBAR_LABEL = 'Open sidebar (Ctrl+B)'
 const CLOSE_SIDEBAR_LABEL = 'Close sidebar (Ctrl+B)'
 const HEADER_BUTTON =
   'text-faint hover:bg-canvas hover:text-brand-strong flex size-8 items-center justify-center rounded-full transition-colors'
-const BODY_INSET = 'px-3'
+const BODY_INSET = 'px-[11px]'
 const SHELF_PREVIEW = 5
 const SHELF_STEP = 10
 const SCROLL_EDGE_PX = 2
-const CONTENT_INSET = 'px-3'
-const ROW_INSET = 'pr-3 pl-3'
+const CONTENT_INSET = 'px-[11px]'
+const ROW_INSET = 'pr-[11px] pl-[11px]'
 const GROUP_GAP = 'mt-4'
 const FOOTER_INSET = 'pr-[9px] pl-3'
 const ACCOUNT_INSET = 'pr-3 pl-2'
@@ -68,9 +64,6 @@ const TOOLS: NavTool[] = [
   { route: { page: 'map' }, label: 'Instance map', icon: MapIcon },
   { route: { page: 'explorer' }, label: 'Code explorer', icon: CodeBracketIcon },
   { route: { page: 'health' }, label: 'Instance health', icon: HeartIcon },
-]
-
-const MORE_TOOLS: NavTool[] = [
   { route: { page: 'walkthroughs' }, label: 'Walkthroughs', icon: WalkIcon },
 ]
 
@@ -327,7 +320,6 @@ function NavRow({
   label,
   active,
   collapsed,
-  expanded,
 }: {
   to?: string
   onClick?: (e: React.MouseEvent<HTMLElement>) => void
@@ -335,7 +327,6 @@ function NavRow({
   label: string
   active: boolean
   collapsed: boolean
-  expanded?: boolean
 }) {
   const tip = useRailTip()
   const Element = to ? 'a' : 'button'
@@ -348,97 +339,35 @@ function NavRow({
         tip.hide()
         onClick?.(e)
       }}
-      aria-haspopup={expanded === undefined ? undefined : 'menu'}
-      aria-expanded={expanded}
       aria-label={collapsed ? label : undefined}
-      onMouseEnter={collapsed && !expanded ? tip.show : undefined}
+      onMouseEnter={collapsed ? tip.show : undefined}
       onMouseLeave={tip.hide}
       className={cn(
-        'group/rail relative flex h-9 items-center rounded-full text-[13px] font-medium transition-colors',
-        collapsed ? 'mx-auto w-9 justify-center' : 'w-full gap-2.5 pr-3 pl-1',
-        active && 'bg-brand-soft text-brand-strong',
-        !active &&
-          !collapsed &&
-          (expanded
-            ? 'bg-canvas text-brand-strong'
-            : 'text-text hover:bg-canvas hover:text-brand-strong'),
+        'group/rail relative flex items-center text-[13px] font-medium transition-colors',
+        collapsed
+          ? cn(
+              'mx-auto size-11 justify-center rounded-xl',
+              active ? 'bg-brand-soft' : 'hover:bg-raised',
+            )
+          : cn(
+              'h-9 w-full gap-3 rounded-full pr-3 pl-3',
+              active ? 'text-brand-strong' : 'text-text hover:bg-canvas hover:text-brand-strong',
+            ),
       )}
     >
-      <span
+      <Icon
+        weight={active ? 'bold' : 'regular'}
         className={cn(
-          'flex shrink-0 items-center justify-center rounded-full transition-colors',
-          collapsed && !active ? 'size-9' : 'size-7',
-          active
-            ? 'bg-brand text-white'
-            : collapsed && expanded
-              ? 'bg-brand/20 text-brand-strong'
-              : 'bg-brand-soft text-brand-strong',
-          !active && collapsed && !expanded && 'group-hover/rail:bg-brand/20',
+          'size-[18px] shrink-0 transition-colors',
+          active ? 'text-brand-strong' : 'text-muted group-hover/rail:text-brand-strong',
         )}
-      >
-        <Icon className="size-3.5" />
-      </span>
+      />
       {collapsed ? (
         <RailTip at={tip.at}>{label}</RailTip>
       ) : (
         <span className="min-w-0 flex-1 truncate text-left">{label}</span>
       )}
     </Element>
-  )
-}
-
-type FlyoutAt = { left: number; top: number }
-
-function MoreFlyout({
-  at,
-  anchor,
-  onClose,
-}: {
-  at: FlyoutAt
-  anchor: RefObject<HTMLElement | null>
-  onClose: () => void
-}) {
-  const menu = useRef<HTMLDivElement>(null)
-  const [top, setTop] = useState(at.top)
-
-  useLayoutEffect(() => {
-    if (!menu.current) return
-
-    const height = menu.current.getBoundingClientRect().height
-    setTop(Math.max(EDGE_PX, Math.min(at.top, window.innerHeight - height - EDGE_PX)))
-  }, [at.top])
-
-  useClickOutside([menu, anchor], onClose, true)
-  useLayer(onClose)
-
-  return createPortal(
-    <div
-      ref={menu}
-      role="menu"
-      aria-label="More"
-      style={{ left: at.left, top, width: FLYOUT_WIDTH_PX }}
-      className="border-line-strong/70 animate-pop fixed z-[200] rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]"
-    >
-      {MORE_TOOLS.length ? (
-        MORE_TOOLS.map((tool) => (
-          <a
-            key={tool.label}
-            role="menuitem"
-            href={href(tool.route)}
-            onClick={onClose}
-            className="text-fg hover:bg-raised flex h-8 items-center gap-2.5 rounded-xl px-2.5 text-left text-[12.5px] transition-colors"
-          >
-            <span className="text-muted">
-              <tool.icon className="size-4 shrink-0" />
-            </span>
-            <span className="min-w-0 flex-1 truncate">{tool.label}</span>
-          </a>
-        ))
-      ) : (
-        <div className="text-faint px-2.5 py-2 text-[12.5px]">Nothing here yet</div>
-      )}
-    </div>,
-    document.body,
   )
 }
 
@@ -583,7 +512,6 @@ export function Sidebar({
   const [pinnedCollapsed, setCollapsed] = useState(storedCollapsed)
   const [drawer, setDrawer] = useState(false)
   const [snoozedOpen, setSnoozedOpen] = useState(false)
-  const [moreAt, setMoreAt] = useState<FlyoutAt>()
   const [settledOpen, setSettledOpen] = useState(
     () => localStorage.getItem(SETTLED_OPEN_KEY) === '1',
   )
@@ -595,10 +523,8 @@ export function Sidebar({
   const collapsed = docked ? pinnedCollapsed : !drawer
   const overlay = !docked && drawer
   const routeKey = JSON.stringify(route)
-  const moreAnchor = useRef<HTMLElement | null>(null)
 
   useEffect(() => setDrawer(false), [routeKey, docked])
-  useEffect(() => setMoreAt(undefined), [routeKey, collapsed])
   useLayer(() => setDrawer(false), overlay)
 
   const active = list?.active ?? []
@@ -637,14 +563,6 @@ export function Sidebar({
   const openSettled = () => {
     expand()
     toggleSettled(true)
-  }
-
-  const toggleMore = (e: React.MouseEvent<HTMLElement>) => {
-    if (moreAt) return setMoreAt(undefined)
-
-    const box = e.currentTarget.getBoundingClientRect()
-    moreAnchor.current = e.currentTarget
-    setMoreAt({ left: box.right + FLYOUT_GAP_PX, top: box.top })
   }
 
   const openPalette = () => {
@@ -745,17 +663,6 @@ export function Sidebar({
             collapsed={collapsed}
           />
           <ToolRows tools={TOOLS} route={route} collapsed={collapsed} />
-          <NavRow
-            icon={MoreIcon}
-            label="More"
-            active={false}
-            collapsed={collapsed}
-            expanded={Boolean(moreAt)}
-            onClick={toggleMore}
-          />
-          {moreAt ? (
-            <MoreFlyout at={moreAt} anchor={moreAnchor} onClose={() => setMoreAt(undefined)} />
-          ) : null}
         </nav>
 
         {collapsed ? (
