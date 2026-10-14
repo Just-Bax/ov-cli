@@ -5,7 +5,6 @@ import {
   Heartbeat as HeartIcon,
   MagnifyingGlass as SearchIcon,
   MapTrifold as MapIcon,
-  Path as WalkIcon,
   Plus as PlusIcon,
   CaretUp as ChevronUpIcon,
   PushPin as BookmarkIcon,
@@ -64,7 +63,6 @@ const TOOLS: NavTool[] = [
   { route: { page: 'map' }, label: 'Instance map', icon: MapIcon },
   { route: { page: 'explorer' }, label: 'Code explorer', icon: CodeBracketIcon },
   { route: { page: 'health' }, label: 'Instance health', icon: HeartIcon },
-  { route: { page: 'walkthroughs' }, label: 'Walkthroughs', icon: WalkIcon },
 ]
 
 function dayLabel(ts: number): string {

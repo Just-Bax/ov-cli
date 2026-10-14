@@ -9,9 +9,6 @@ import type {
   DatadogStatus,
   GraphStatus,
   Instance,
-  Walkthrough,
-  WalkRun,
-  WalkPlanDraft,
   InstanceGraph,
   HealthMeta,
   HealthSection,
@@ -90,25 +87,6 @@ export const api = {
   runEventsUrl: (id: string, after: number) => `${API_ROOT}/runs/${id}/events?after=${after}`,
   statusEventsUrl: () => `${API_ROOT}/status-events`,
   models: () => request<ModelInfo[]>('/models'),
-  walkthroughs: () => request<{ walkthroughs: Walkthrough[]; runs: WalkRun[] }>('/walkthroughs'),
-  draftWalkthrough: (instance: string, describe: string) =>
-    post<WalkPlanDraft>('/walkthroughs/draft', { instance, describe }),
-  createWalkthrough: (plan: WalkPlanDraft) => post<Walkthrough>('/walkthroughs', plan),
-  updateWalkthrough: (id: string, plan: WalkPlanDraft) =>
-    put<Walkthrough>(`/walkthroughs/${seg(id)}`, plan),
-  deleteWalkthrough: (id: string) => del(`/walkthroughs/${seg(id)}`),
-  startWalkRun: (body: { walkthroughId?: string } & Partial<WalkPlanDraft>) =>
-    post<WalkRun>('/walkthroughs/runs', body),
-  walkRuns: (walkthrough?: string) =>
-    request<{ runs: WalkRun[] }>(
-      `/walkthroughs/runs${walkthrough ? `?walkthrough=${seg(walkthrough)}` : ''}`,
-    ),
-  walkRun: (id: string) => request<WalkRun>(`/walkthroughs/runs/${seg(id)}`),
-  stopWalkRun: (id: string) => post(`/walkthroughs/runs/${seg(id)}/stop`, {}),
-  deleteWalkRun: (id: string) => del(`/walkthroughs/runs/${seg(id)}`),
-  walkRunEventsUrl: (id: string) => `${API_ROOT}/walkthroughs/runs/${seg(id)}/events`,
-  walkShotUrl: (id: string, name: string) =>
-    `${API_ROOT}/walkthroughs/runs/${seg(id)}/shots/${seg(name)}`,
   instances: () => request<Instance[]>('/instances'),
   loginInstance: (
     url: string,

@@ -103,12 +103,6 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
         logins: upsert(state.logins, event.login),
         items: withItem(state.items, { kind: 'login', id: event.login.id }),
       }
-    case 'walkthrough':
-      return {
-        ...state,
-        walkthroughs: upsert(state.walkthroughs, event.walkthrough),
-        items: withItem(state.items, { kind: 'walkthrough', id: event.walkthrough.id }),
-      }
     case 'queued':
       return {
         ...state,

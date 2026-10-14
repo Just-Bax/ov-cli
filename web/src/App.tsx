@@ -19,11 +19,6 @@ const MapPage = lazy(() => import('@/components/map/MapPage').then((m) => ({ def
 const HealthPage = lazy(() =>
   import('@/components/health/HealthPage').then((m) => ({ default: m.HealthPage })),
 )
-const WalkthroughsPage = lazy(() =>
-  import('@/components/walkthroughs/WalkthroughsPage').then((m) => ({
-    default: m.WalkthroughsPage,
-  })),
-)
 const SettingsPage = lazy(() =>
   import('@/components/settings/Settings').then((m) => ({ default: m.SettingsPage })),
 )
@@ -97,7 +92,6 @@ export function App() {
             {route.page === 'settings' && <SettingsPage onChange={refresh} />}
             {route.page === 'map' && <MapPage />}
             {route.page === 'health' && <HealthPage />}
-            {route.page === 'walkthroughs' && <WalkthroughsPage />}
             {route.page === 'explorer' && <ExplorerPage />}
             {route.page === 'thread' && <RunView key={route.id} id={route.id} />}
           </Suspense>
