@@ -494,3 +494,45 @@ interface PagerDutyHealth {
   incidents?: PagerDutyIncident[]
   oncall?: { user: string; level: number; policy: string; schedule: string; until: string }[]
 }
+
+export type WalkStepStatus =
+  'pending' | 'running' | 'passed' | 'failed' | 'blocked' | 'error' | 'stopped'
+
+export interface WalkStep {
+  index: number
+  text: string
+  status: WalkStepStatus
+  detail: string
+  action: string
+  screenshot: string
+}
+
+export interface Walkthrough {
+  id: string
+  instance: string
+  title: string
+  goal: string
+  steps: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface WalkRun {
+  id: string
+  walkthroughId: string | null
+  instance: string
+  title: string
+  goal: string
+  model: string
+  status: WalkStepStatus
+  steps: WalkStep[]
+  createdAt: number
+  finishedAt: number | null
+}
+
+export interface WalkPlanDraft {
+  instance: string
+  title: string
+  goal: string
+  steps: string[]
+}

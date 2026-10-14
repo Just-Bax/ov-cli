@@ -695,6 +695,9 @@
   .max-h-48 {
     max-height: calc(var(--spacing) * 48);
   }
+  .max-h-56 {
+    max-height: calc(var(--spacing) * 56);
+  }
   .max-h-60 {
     max-height: calc(var(--spacing) * 60);
   }
@@ -734,11 +737,17 @@
   .min-h-0 {
     min-height: 0px;
   }
+  .min-h-10 {
+    min-height: calc(var(--spacing) * 10);
+  }
   .min-h-16 {
     min-height: calc(var(--spacing) * 16);
   }
   .min-h-24 {
     min-height: calc(var(--spacing) * 24);
+  }
+  .min-h-48 {
+    min-height: calc(var(--spacing) * 48);
   }
   .min-h-\[60px\] {
     min-height: 60px;
@@ -875,6 +884,9 @@
   .w-\[220px\] {
     width: 220px;
   }
+  .w-\[240px\] {
+    width: 240px;
+  }
   .w-\[260px\] {
     width: 260px;
   }
@@ -964,6 +976,9 @@
   }
   .max-w-\[1040px\] {
     max-width: 1040px;
+  }
+  .max-w-\[1100px\] {
+    max-width: 1100px;
   }
   .max-w-\[1240px\] {
     max-width: 1240px;
@@ -1567,6 +1582,9 @@
   }
   .object-cover {
     object-fit: cover;
+  }
+  .object-top {
+    object-position: top;
   }
   .p-0 {
     padding: 0px;
@@ -2224,6 +2242,9 @@
       opacity: 100%;
     }
     .group-hover\/thumb\:opacity-100:is(:where(.group\/thumb):hover *) {
+      opacity: 100%;
+    }
+    .group-hover\/w\:opacity-100:is(:where(.group\/w):hover *) {
       opacity: 100%;
     }
   }

@@ -10,6 +10,7 @@ import {
   CaretUp as ChevronUpIcon,
   PushPin as BookmarkIcon,
   SidebarSimple as SidebarIcon,
+  TestTube as WalkIcon,
 } from '@phosphor-icons/react'
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -69,7 +70,9 @@ const TOOLS: NavTool[] = [
   { route: { page: 'health' }, label: 'Instance health', icon: HeartIcon },
 ]
 
-const MORE_TOOLS: NavTool[] = []
+const MORE_TOOLS: NavTool[] = [
+  { route: { page: 'walkthroughs' }, label: 'Walkthroughs', icon: WalkIcon },
+]
 
 function dayLabel(ts: number): string {
   const day = new Date(ts).setHours(0, 0, 0, 0)

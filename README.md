@@ -547,6 +547,17 @@ page writes to Datadog, PagerDuty or the instance.
 Your Datadog admins can see application keys and may audit their use, and logs the
 agent reads in a thread go to GitHub Copilot like any other tool result.
 
+**Walkthroughs** (under More) are browser tests a real user would run on an instance:
+clicking, typing and checking pages, not API calls. Describe a test in a sentence and the
+agent drafts the steps, or write them yourself, one per line; edit, save and run. A run
+reuses that instance's signed-in browser session, so it acts as you, and the fast model
+checks every step before it happens. Anything that would delete or change data the test did
+not ask for (deleting records, mass or bulk actions, admin changes) is stopped and the run
+reports which step and why. Each step shows pass, fail or blocked with a screenshot. A
+saved walkthrough reruns on demand, and runs are kept as history. Pick instances you are
+allowed to test; validating that is yours to do. The run is headless; the page shows each
+step's screenshot as it goes.
+
 **PagerDuty** (optional) adds incidents and on-call. In Settings > Integrations, connect it
 with your account address (e.g. `yourcompany.pagerduty.com`, which also picks the US or EU
 region) and a personal **API user token** from My Profile > User Settings > Create API User
