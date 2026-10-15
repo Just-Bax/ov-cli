@@ -1,40 +1,39 @@
 ---
 title: OV CLI
-description: The OV tools: ov, ov_sql, ov_export, ov_import, ov_search, ov_map and ov_case on signed-in instances.
+description: The agent's tools and integrations, when to use each, and how to query instances without loading them.
 core: true
 ---
 
-The OV tools work on signed-in OneVizion instances:
+## What you have
 
-- `ov`: any ov command - API calls, schema discovery, component export, chats, files.
-- `ov_sql`: a read-only SELECT through the platform's Test SQL endpoint.
-- `ov_export`: the full definition and code of components (DB packages, rules, imports, reports and more) by id, saved to files in the run folder.
-- `ov_import`: import components from a component export XML (an ov_export file, or a file in the workspace) into an instance. Always dry run first and show the result; a real import needs Allow changes and the user's approval. To copy a rule or package between instances, ov_export it from one and ov_import the file into the other.
-- `ov_search`: trackor search with conditions.
-- `ov_map`: what an object is linked to, from the Instance map. Start here before reading code.
-- `ov_case`: a whole support case from trackor.onevizion.com, with chat and attachments.
+- `ov`: any ov command on a signed-in instance: API calls, schema discovery, chats, files. Pass arguments as a list without the leading `ov`, and the instance as `instance`.
+- `ov_sql`: one read-only SELECT through the platform's Test SQL. Needs the Test SQL privilege.
+- `ov_map`: what an object is linked to (rules, fields, imports, packages), from a cached map. Start here before reading code.
+- `ov_export`: the full definition and code of components by id, saved to files; read them with run_read and line ranges. Use it for package bodies and long rule SQL instead of reading CLOBs with SQL.
+- `ov_import`: import a component export into an instance. Always dry run first; a real import needs Allow changes and the user's approval.
+- `ov_search`: trackor search with conditions. `ov_case`: a whole support case from trackor.onevizion.com.
+- Workspace (ws_ tools): the user's code folder, when one is set. Datadog (dd_ tools) and PagerDuty (pd_ tools): server and incident views, when connected. Read their skills before using them.
+- `run_ask` for decisions only the user can make, `run_report` for case findings, `ov_propose` for code changes.
 
-Every instance is reached through the `ov` tool. Pass arguments as a list, starting with the command and without the leading `ov`; pass the instance alias or host as `instance` and the tool adds `-i`. Calls are read-only unless the user allowed changes for this run.
+## SQL that does not hurt the instance
 
-Discover before guessing:
+Test SQL cannot be cancelled: a query you give up on keeps running in Oracle and slows the instance for everyone. The platform also counts the full result of every query before returning the first rows, so a small limit does not make a big query cheap.
 
-- `api list <word>`: search every API operation, e.g. `api list rule`, `api list import`, `api list module`.
-- `api show <ref>`: parameters of one operation. `api schema <ref>`: its request body shape.
-- `request GET <path> -q k=v`: call any API path directly (paths are relative to /api).
+- Filter big tables (see OneVizion Basics) by key or date before anything else. One field on all trackors can be millions of rows.
+- To look at data, sample inside the query: `... fetch first 20 rows only`.
+- Never count or group a whole value table or a whole field to "get a feel". Count with the same selective filter you will use next, or skip the count.
+- Prefer the API or ov_search for one trackor's values, and ov_map or metadata tables for configuration questions.
+- A query that took more than about 30 seconds tells you the table is big: do not run more like it; narrow the next one by key and a shorter window.
+- If a query may take over a minute, run it in the background and keep working. If it times out, do not rerun it as is: narrow it.
 
-Most useful calls:
+## Calls
 
+- Discover before guessing: `api list <word>`, `api show <ref>`, `api schema <ref>`; any path with `request GET <path> -q k=v` (paths relative to /api).
 - Platform version: `request GET /v3/server_info`.
-- Trackor data: `request GET /v3/trackor_types/<TYPE>/trackors -q fields=A,B -q FIELD=value` (a field filter is a LIKE match; check exact values yourself). The record key is `XITOR_KEY` in filters and comes back as `TRACKOR_KEY`.
-- Field list of a trackor type: `request GET /v3/trackor_types/<TYPE>`.
-- One trackor by its TRACKOR_ID (a long number, not the key): `request GET /v3/trackors/<TRACKOR_ID> -q fields=A,B`.
-- Search with conditions: the ov_search tool (it sends the text/plain body for you). Operators: equal, not_equal, greater, less, is_null, is_not_null, within, and/or with parentheses. Values and dates in double quotes, dates as "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm:ss".
-- SQL: the ov_sql tool only (SELECT only, max 1000 rows). Needs the Test SQL privilege on that instance.
-- Code and full definition of a component: the ov_export tool with its type and ids. It saves each long field (a package body, a rule's SQL) to a file in the run folder and tells you the line count; read it with run_read and line ranges. Always use it for DB package bodies and long rule SQL instead of reading CLOBs in pieces with ov_sql: one call instead of dozens, and it works without the Test SQL privilege. Use ov_sql to find ids and for small columns.
-- Vizion Hub module runs and logs: `api list module` (module-runs, module-logs).
-- Chats on a trackor: `request GET /v3/chats -q trackor_id=<id>`, then `request GET /v3/chats/<chat_id>/messages`.
-- Files: `request GET "/../efiles/EFileGetBlobFromDb.do?id=<blob_id>" --out <name>`; the file lands in the run folder, open it with run_read.
+- Trackor data: `request GET /v3/trackor_types/<TYPE>/trackors -q fields=A,B -q FIELD=value` (a field filter is a LIKE match). One trackor: `request GET /v3/trackors/<TRACKOR_ID> -q fields=A,B`. Field list: `request GET /v3/trackor_types/<TYPE>`.
+- ov_search operators: equal, not_equal, greater, less, is_null, is_not_null, within, and/or with parentheses; values and dates in double quotes, dates as "YYYY-MM-DD".
+- Module runs and logs: `api list module`. Chats: `request GET /v3/chats -q trackor_id=<id>`, then `/v3/chats/<chat_id>/messages`.
+- Files: `request GET "/../efiles/EFileGetBlobFromDb.do?id=<blob_id>" --out <name>`, then run_read.
+- Exit codes: 3 session expired (the user is asked to sign in; continue), 4 no such operation or record, 5 API error (missing field privileges show as HTTP 500), 6 missing privilege, 7 change blocked because Allow changes is off.
 
-Errors carry an exit code: 3 the session expired (the app asks the user to sign in and retries; just continue), 4 no such operation or record, 5 an API error (read the message; OneVizion reports missing field privileges as HTTP 500), 6 a missing privilege, 7 a write blocked because changes are off.
-
-Files you read or write with `--out`, `-d @file` or `--file` live in the run folder, not in the code workspace; open them with run_read. Session commands (login, logout, use, config, setup) are not available to you.
+Files written with `--out`, `-d @file` or `--file` live in the run folder; open them with run_read. Session commands (login, logout, use, config, setup) are not available.

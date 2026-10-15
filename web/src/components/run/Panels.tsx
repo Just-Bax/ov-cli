@@ -134,9 +134,9 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
   )
 }
 
-const STOPPED = '(not answered: the run stopped)'
+export const STOPPED = '(not answered: the run stopped)'
 
-function useAnswer(runId: string, questionId: string) {
+export function useAnswer(runId: string, questionId: string) {
   const [sending, setSending] = useState(false)
 
   const send = (answer: string) => {
@@ -288,10 +288,11 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
   const [open, setOpen] = useState(false)
   const target: SignInTarget = { url: login.url, host: login.instance, tenant: login.tenant }
 
-  if (login.state === 'done') {
+  if (login.state === 'done' || login.state === 'skipped') {
     return (
-      <div className="text-muted text-[12.5px]">
-        Signed in to {login.instance}
+      <div className="text-muted flex items-center gap-1.5 text-[12.5px]">
+        <KeyIcon className="text-faint size-3.5" />
+        {login.state === 'done' ? 'Signed in to' : 'Skipped sign-in to'} {login.instance}
         {login.tenant ? `, tenant ${login.tenant}` : ''}.
       </div>
     )

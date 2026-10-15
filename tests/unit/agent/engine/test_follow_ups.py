@@ -7,6 +7,9 @@ from helpers.agent import wait_done
 
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult
+from ov.agent.storage.models import Provider
+
+BREAK = chr(10) * 2
 
 
 def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(logged_in, monkeypatch):
@@ -21,7 +24,7 @@ def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(l
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
+    run = runs.create({"prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
     call = {"id": "c9", "type": "function", "function": {"name": "ov_sql", "arguments": "{}"}}
     run._messages.append({"role": "assistant", "content": None, "tool_calls": [call]})
@@ -52,7 +55,7 @@ def test_the_system_prompt_follows_write_access(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "hi", "instance": "acme"}, "test-model")
+    run = runs.create({"prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
     run.set_write_access(True)
     run.follow_up("go", [])
@@ -84,7 +87,7 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "start", "instance": "acme"}, "test-model")
+    run = runs.create({"prompt": "start", "instance": "acme"}, Provider.COPILOT, "test-model")
     for _ in range(100):
         if seen:
             break
@@ -97,6 +100,6 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
             break
         time.sleep(0.05)
 
-    assert seen[1][-1] == "now" and "later" not in seen[1]
-    assert seen[2][-1] == "later"
+    assert seen[1][-1].endswith(BREAK + "now") and not any(m.endswith("later") for m in seen[1])
+    assert seen[2][-1].startswith("[Sent ") and seen[2][-1].endswith(BREAK + "later")
     assert not run.state["queued"]

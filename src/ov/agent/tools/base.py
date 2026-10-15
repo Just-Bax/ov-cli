@@ -6,14 +6,23 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ov.agent.engine.cancel import Cancel
+from ov.agent.engine.guard import Verdict
+
+if TYPE_CHECKING:
+    from ov.agent.engine.browsing import BrowserSlot
 
 MAX_OUTPUT = 24_000
 SECRET_MASK = "***"
 LABEL_CHARS = 60
 APPROVE = "Approve"
+UI_ONLY = (
+    "Not done: the browser is open, so changes happen in the UI the way a user makes them. Do this step in the "
+    "browser with the browser_ tools; ov, SQL and commands only read while it is open. If the UI cannot do it, "
+    "stop and tell the user."
+)
 REJECT = "Reject"
 
 SECRET_JSON = re.compile(
@@ -25,6 +34,12 @@ _SECRET_ASSIGN = re.compile(
     r"""\s*[=:]\s*)(["']?)([^\s"',;]{4,})\2""",
     re.IGNORECASE,
 )
+
+BACKGROUND_PARAM = {
+    "type": "boolean",
+    "description": "Run in the background for calls that may take over a minute; the result arrives later "
+    "as a message while you continue or end your turn",
+}
 
 _serials = itertools.count(1)
 
@@ -39,6 +54,7 @@ class ToolContext(Protocol):
     vision: bool
     instance: str
     opened: set[str]
+    browser: BrowserSlot
 
     def emit(self, event: dict[str, Any]) -> None: ...
     def has_outcome(self) -> bool: ...
@@ -49,6 +65,9 @@ class ToolContext(Protocol):
     def finish(self, outcome: dict[str, Any]) -> None: ...
     def can_write(self) -> bool: ...
     def load_case(self, ref: str) -> str: ...
+    def judge_command(self, command: str, folder: str) -> Verdict: ...
+    def judge_page_action(self, action: str) -> Verdict: ...
+    def drive_browser(self, goal: str, cancel: Cancel) -> str: ...
 
 
 Handler = Callable[[dict[str, Any], ToolContext], str]
@@ -66,6 +85,7 @@ class Tool:
 
     @property
     def spec(self) -> dict[str, Any]:
+        properties = self.properties if self.silent else {**self.properties, "background": BACKGROUND_PARAM}
         return {
             "type": "function",
             "function": {
@@ -73,7 +93,7 @@ class Tool:
                 "description": self.description,
                 "parameters": {
                     "type": "object",
-                    "properties": self.properties,
+                    "properties": properties,
                     "required": self.required,
                     "additionalProperties": False,
                 },

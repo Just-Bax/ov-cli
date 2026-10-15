@@ -26,6 +26,19 @@ READ_FILE_LINES = 500
 BINARY_SNIFF_BYTES = 4096
 TEXT_COPY_SUFFIX = ".txt"
 
+ENTITY_TYPES = (
+    "rule",
+    "automation",
+    "workflow",
+    "report",
+    "import",
+    "db package",
+    "notification",
+    "field formula",
+    "module file",
+    "data fix",
+)
+
 
 def attachment_names(ctx: ToolContext) -> list[str]:
     directory = ctx.work_dir / "attachments"
@@ -113,7 +126,9 @@ def _text_arg(args: dict[str, Any], key: str, ctx: ToolContext) -> str:
 
 
 def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
-    entity_type = str(args["entity_type"])
+    entity_type = str(args["entity_type"]).strip().lower()
+    if entity_type not in ENTITY_TYPES:
+        raise ToolError(f"entity_type must be one of: {', '.join(ENTITY_TYPES)}. Put details in the title or what.")
     entity_id = str(args["entity_id"]) if args.get("entity_id") else None
     instance = str(args.get("instance") or ctx.instance) or None
     change = {
@@ -211,8 +226,8 @@ TOOLS = [
         "for long code write it to a file and pass after_file. Never "
         "use it for record deletes, value edits, cleanup or UI steps; say those in chat.",
         {
-            "title": string_param("Short title"),
-            "entity_type": string_param("rule, automation, workflow, report, module file, field formula, data fix"),
+            "title": string_param("Short title of the fix, at most 8 words"),
+            "entity_type": {"type": "string", "enum": list(ENTITY_TYPES), "description": "Kind of object changed"},
             "entity_id": string_param("ID if known"),
             "entity_name": string_param("Name as shown in the admin UI"),
             "instance": string_param("Instance host"),

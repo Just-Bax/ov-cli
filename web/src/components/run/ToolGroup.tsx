@@ -25,9 +25,18 @@ import {
   ArrowsLeftRight as ArrowsRightLeftIcon,
   Moon as MoonIcon,
   X as XMarkIcon,
+  Stop as StopIcon,
+  ArrowSquareDownRight as BackgroundIcon,
+  Browser as BrowserIcon,
+  Eye as EyeIcon,
+  Cursor as CursorIcon,
+  HandGrabbing as HandIcon,
+  Keyboard as KeyboardIcon,
+  ListChecks as ListChecksIcon,
+  ArrowsDownUp as ScrollIcon,
 } from '@phosphor-icons/react'
-import { memo, useEffect, useState } from 'react'
-import type { ToolActivity } from '@shared/types.ts'
+import { memo, type ReactNode, useEffect, useState } from 'react'
+import type { CommandVerdict, ToolActivity } from '@shared/types.ts'
 import { useSkeleton } from '@/components/common/skeletons'
 import { reportError } from '@/components/common/Toasts'
 import { CopyButton, type Icon, Skeleton, Spinner } from '@/components/common/ui'
@@ -67,6 +76,18 @@ const ICONS: Record<string, Icon> = {
   pd_escalate: ArrowUpCircleIcon,
   pd_reassign: ArrowsRightLeftIcon,
   pd_snooze: MoonIcon,
+  browser_open: BrowserIcon,
+  browser_snapshot: EyeIcon,
+  browser_click: CursorIcon,
+  browser_hover: CursorIcon,
+  browser_mouse: CursorIcon,
+  browser_drag: HandIcon,
+  browser_type: KeyboardIcon,
+  browser_select: ListChecksIcon,
+  browser_press: KeyboardIcon,
+  browser_scroll: ScrollIcon,
+  browser_wait: ClockIcon,
+  browser_close: XMarkIcon,
 }
 
 const NOUNS: Record<string, [string, string]> = {
@@ -99,6 +120,18 @@ const NOUNS: Record<string, [string, string]> = {
   pd_escalate: ['escalation', 'escalations'],
   pd_reassign: ['reassignment', 'reassignments'],
   pd_snooze: ['snooze', 'snoozes'],
+  browser_open: ['page opened', 'pages opened'],
+  browser_snapshot: ['look at the page', 'looks at the page'],
+  browser_click: ['click', 'clicks'],
+  browser_hover: ['hover', 'hovers'],
+  browser_mouse: ['mouse press', 'mouse presses'],
+  browser_drag: ['drag', 'drags'],
+  browser_wait: ['wait', 'waits'],
+  browser_type: ['text entry', 'text entries'],
+  browser_select: ['choice', 'choices'],
+  browser_press: ['key press', 'key presses'],
+  browser_scroll: ['scroll', 'scrolls'],
+  browser_close: ['browser close', 'browser closes'],
 }
 
 function summarize(tools: ToolActivity[]): string {
@@ -176,6 +209,48 @@ function Block({ title, text, error }: { title: string; text: string; error?: bo
 }
 
 const DETAIL_SLOT = 'tool'
+const TICK_MS = 1000
+
+const VERDICT_TONE: Record<CommandVerdict['effect'], string> = {
+  read: 'text-faint',
+  change: 'text-warn',
+  outside: 'text-danger',
+  write: 'text-danger',
+}
+
+function useElapsed(startedAt: number | undefined, running: boolean): number | undefined {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!running || startedAt === undefined) return
+    const timer = setInterval(() => setNow(Date.now()), TICK_MS)
+    return () => clearInterval(timer)
+  }, [running, startedAt])
+
+  return running && startedAt !== undefined ? Math.max(0, now - startedAt) : undefined
+}
+
+function RowAction({
+  label,
+  onClick,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className="text-faint hover:bg-raised hover:text-fg flex size-6 shrink-0 items-center justify-center rounded-full"
+    >
+      {children}
+    </button>
+  )
+}
 
 function DetailSkeleton() {
   return (
@@ -195,6 +270,8 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
   const full = lazy ? { ...tool, ...detail } : tool
   const Icon = ICONS[tool.name] ?? CommandLineIcon
   const input = readableInput(full)
+  const running = tool.status === 'running'
+  const elapsed = useElapsed(tool.startedAt, running)
 
   useEffect(() => {
     if (!open || !lazy || detail) return
@@ -210,37 +287,76 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
 
   return (
     <div>
-      <button
-        type="button"
-        onMouseEnter={() => {
-          if (lazy && !detail)
-            prefetch(DETAIL_SLOT, key, () => api.runDetails(runId, [tool.id], []))
-        }}
-        onClick={() => setOpen(!open)}
-        className="hover:bg-raised flex w-full items-center gap-2 rounded-full px-2.5 py-1 text-left"
-      >
-        <ChevronRightIcon
-          className={cn('text-faint size-3 shrink-0 transition-transform', open && 'rotate-90')}
-        />
-        {tool.status === 'running' ? (
-          <Spinner className="text-brand size-3.5 shrink-0" />
-        ) : tool.status === 'error' ? (
-          <XMarkIcon className="text-danger size-3.5 shrink-0" />
-        ) : (
-          <Icon className="text-muted size-3.5 shrink-0" />
-        )}
-        <span
-          className={cn(
-            'min-w-0 flex-1 truncate text-[12.5px]',
-            tool.status === 'error' ? 'text-danger' : 'text-text',
-          )}
+      <div className="flex items-center gap-0.5">
+        <button
+          type="button"
+          onMouseEnter={() => {
+            if (lazy && !detail)
+              prefetch(DETAIL_SLOT, key, () => api.runDetails(runId, [tool.id], []))
+          }}
+          onClick={() => setOpen(!open)}
+          className="hover:bg-raised flex min-w-0 flex-1 items-center gap-2 rounded-full px-2.5 py-1 text-left"
         >
-          {tool.label}
-        </span>
-        {tool.ms !== undefined ? (
-          <span className="text-faint shrink-0 text-[11px]">{seconds(tool.ms)}</span>
+          <ChevronRightIcon
+            className={cn('text-faint size-3 shrink-0 transition-transform', open && 'rotate-90')}
+          />
+          {tool.status === 'running' ? (
+            <Spinner className="text-brand size-3.5 shrink-0" />
+          ) : tool.status === 'error' ? (
+            <XMarkIcon className="text-danger size-3.5 shrink-0" />
+          ) : (
+            <Icon className="text-muted size-3.5 shrink-0" />
+          )}
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-[12.5px]',
+              tool.status === 'error' ? 'text-danger' : 'text-text',
+            )}
+          >
+            {tool.label}
+          </span>
+          {tool.verdict ? (
+            <span
+              title={tool.verdict.reason}
+              className={cn(
+                'max-w-56 shrink-0 truncate text-[11px]',
+                VERDICT_TONE[tool.verdict.effect],
+              )}
+            >
+              {tool.verdict.effect}: {tool.verdict.reason}
+            </span>
+          ) : null}
+          {tool.backgroundedAt !== undefined && running ? (
+            <span className="bg-brand-soft text-brand-strong shrink-0 rounded-full px-1.5 text-[10.5px]">
+              background
+            </span>
+          ) : null}
+          {tool.stoppedAt !== undefined ? (
+            <span className="text-faint shrink-0 text-[11px]">stopped</span>
+          ) : null}
+          {tool.ms !== undefined ? (
+            <span className="text-faint shrink-0 text-[11px]">{seconds(tool.ms)}</span>
+          ) : elapsed !== undefined ? (
+            <span className="text-faint shrink-0 text-[11px] tabular-nums">{seconds(elapsed)}</span>
+          ) : null}
+        </button>
+        {running && tool.backgroundedAt === undefined ? (
+          <RowAction
+            label="Move to background"
+            onClick={() => void api.backgroundTool(runId, tool.id).catch(reportError)}
+          >
+            <BackgroundIcon className="size-3.5" />
+          </RowAction>
         ) : null}
-      </button>
+        {running && tool.stoppedAt === undefined ? (
+          <RowAction
+            label="Stop"
+            onClick={() => void api.stopTool(runId, tool.id).catch(reportError)}
+          >
+            <StopIcon className="size-3.5" />
+          </RowAction>
+        ) : null}
+      </div>
       {open ? (
         <div className="animate-fade-in mt-1 mb-2 ml-7 space-y-2">
           {lazy && !detail ? (
@@ -283,7 +399,10 @@ export const ToolGroup = memo(function ToolGroup({
   runId: string
   tools: ToolActivity[]
 }) {
-  const running = tools.find((t) => t.status === 'running')
+  const running = tools.find((t) => t.status === 'running' && t.backgroundedAt === undefined)
+  const background = tools.filter(
+    (t) => t.status === 'running' && t.backgroundedAt !== undefined,
+  ).length
   const failed = tools.filter((t) => t.status === 'error').length
   const { expandTools } = useSettings().settings
   const [open, setOpen] = useState(expandTools)
@@ -313,6 +432,9 @@ export const ToolGroup = memo(function ToolGroup({
             </span>
           )}
         </span>
+        {background ? (
+          <span className="text-brand-strong shrink-0 text-[11px]">{background} in background</span>
+        ) : null}
         {failed ? <span className="text-danger shrink-0 text-[11px]">{failed} failed</span> : null}
         {!running && total ? (
           <span className="text-faint shrink-0 text-[11px]">{seconds(total)}</span>

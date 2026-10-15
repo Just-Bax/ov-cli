@@ -5,7 +5,7 @@ import { DialogHost } from '@/components/common/Dialog'
 import { Home } from '@/components/home/Home'
 import { RunView } from '@/components/run/RunView'
 import { Setup } from '@/components/settings/Setup'
-import { Sidebar } from '@/components/layout/Sidebar'
+import { Sidebar, type SidebarAccount } from '@/components/layout/Sidebar'
 import { Toasts } from '@/components/common/Toasts'
 import { HomeSkeleton } from '@/components/common/skeletons'
 import { api } from '@/lib/api'
@@ -22,6 +22,23 @@ const HealthPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('@/components/settings/Settings').then((m) => ({ default: m.SettingsPage })),
 )
+
+function sidebarAccount(status: Status): SidebarAccount {
+  if (status.provider === 'claude')
+    return {
+      provider: 'claude',
+      name: status.claude.email || undefined,
+      detail: status.claude.plan
+        ? `Claude ${status.claude.plan[0].toUpperCase()}${status.claude.plan.slice(1)}`
+        : 'Claude',
+    }
+  return {
+    provider: 'copilot',
+    name: status.copilot.user,
+    detail: 'GitHub Copilot',
+    githubUser: status.copilot.user,
+  }
+}
 
 export function App() {
   const route = useRoute()
@@ -82,7 +99,7 @@ export function App() {
   return (
     <SettingsContext.Provider value={{ settings: status.settings, update }}>
       <div className="flex h-full">
-        <Sidebar route={route} user={status.copilot.user} />
+        <Sidebar route={route} account={sidebarAccount(status)} />
         <main
           key={route.page === 'thread' ? `run-${route.id}` : route.page}
           className="animate-fade-in min-w-0 flex-1 bg-white"

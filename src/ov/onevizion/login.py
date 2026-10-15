@@ -384,11 +384,11 @@ def _screen_options(size: str) -> dict[str, Any]:
         "headless": True,
         "channel": SCREEN_CHANNEL,
         "viewport": {"width": width, "height": height},
-        "user_agent": _desktop_user_agent(),
+        "user_agent": desktop_user_agent(),
     }
 
 
-def _desktop_user_agent() -> str:
+def desktop_user_agent() -> str:
     major = _pinned_version().split(".")[0]
     platform = UA_PLATFORMS["linux" if sys.platform.startswith("linux") else sys.platform]
     return f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"

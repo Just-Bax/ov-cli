@@ -21,20 +21,24 @@ def _when(ms: int) -> str:
     return datetime.fromtimestamp(ms / MS_PER_SECOND).strftime("%Y-%m-%d %H:%M")
 
 
-def _credits(value: float) -> str:
-    return f"{value:,.2f} credits"
+def _cost(cost: dict[str, Any]) -> str:
+    if not cost["requests"]:
+        return "not tracked"
+    if cost["usd"]:
+        return f"about ${cost['usd']:,.2f} of Claude plan usage"
+    return f"{cost['credits']:,.2f} credits"
 
 
 def _header(state: dict[str, Any]) -> list[str]:
     summary = state["summary"]
-    facts = [f"Model: {summary['model']}"]
+    facts = [f"Model: {summary['model']} ({summary['provider']})"]
     if summary.get("instance"):
         facts.append(f"Instance: {summary['instance']}")
     facts.append(f"Started: {_when(summary['createdAt'])}")
     facts.append(f"Updated: {_when(summary['updatedAt'])}")
     facts.append(f"Status: {summary['status']}")
     cost = db.thread_cost(summary["id"])
-    facts.append(f"Cost: {_credits(cost['credits'])}" if cost["requests"] else "Cost: not tracked")
+    facts.append(f"Cost: {_cost(cost)}")
     return [f"# {summary['title']}", "", " | ".join(facts)]
 
 

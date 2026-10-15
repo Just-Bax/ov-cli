@@ -18,6 +18,7 @@ CONNECT_RETRY_SECONDS = 0.5
 LOOPBACK_HOST = "127.0.0.1"
 LOOP_MS = 15
 JPEG_QUALITY = 75
+FRAME_INTERVAL_SECONDS = 1 / 15
 MIN_SIDE = 320
 MAX_WIDTH = 1600
 MAX_HEIGHT = 1200
@@ -115,42 +116,58 @@ class Screen:
         return None
 
     def _mirror(self, context: Any) -> None:
-        page: Any = None
+        feed = _Feed(self._publish)
         cdp: Any = None
-        acks: list[int] = []
-
-        def on_frame(event: dict[str, Any]) -> None:
-            acks.append(event["sessionId"])
-            meta = event["metadata"]
-            self._publish(
-                {
-                    "data": event["data"],
-                    "url": page.url,
-                    "width": meta["deviceWidth"],
-                    "height": meta["deviceHeight"],
-                }
-            )
-
         while not self._stop.is_set():
             pages = [pg for pg in context.pages if not pg.is_closed()]
             if not pages:
                 return
-            if pages[-1] is not page:
-                if cdp is not None:
-                    with contextlib.suppress(PlaywrightError):
-                        cdp.detach()
-                page = pages[-1]
-                cdp = context.new_cdp_session(page)
-                cdp.on("Page.screencastFrame", on_frame)
-                cdp.send("Page.startScreencast", {"format": "jpeg", "quality": JPEG_QUALITY})
-                acks.clear()
+            if pages[-1] is not feed.page:
+                cdp = feed.watch(context, pages[-1], cdp)
 
             with contextlib.suppress(PlaywrightError):
-                while acks:
-                    cdp.send("Page.screencastFrameAck", {"sessionId": acks.pop(0)})
+                feed.flush(cdp)
                 while not self._input.empty():
                     _apply(cdp, self._input.get())
-                page.wait_for_timeout(LOOP_MS)
+                feed.page.wait_for_timeout(LOOP_MS)
+
+
+class _Feed:
+    def __init__(self, publish: Any) -> None:
+        self.page: Any = None
+        self._publish = publish
+        self._acks: list[int] = []
+        self._latest: dict[str, Any] | None = None
+        self._shown_at = 0.0
+
+    def watch(self, context: Any, page: Any, old: Any) -> Any:
+        if old is not None:
+            with contextlib.suppress(PlaywrightError):
+                old.detach()
+        self.page = page
+        self._acks.clear()
+        cdp = context.new_cdp_session(page)
+        cdp.on("Page.screencastFrame", self._on_frame)
+        cdp.send("Page.startScreencast", {"format": "jpeg", "quality": JPEG_QUALITY})
+        return cdp
+
+    def _on_frame(self, event: dict[str, Any]) -> None:
+        self._acks.append(event["sessionId"])
+        meta = event["metadata"]
+        self._latest = {
+            "data": event["data"],
+            "url": self.page.url,
+            "width": meta["deviceWidth"],
+            "height": meta["deviceHeight"],
+        }
+
+    def flush(self, cdp: Any) -> None:
+        while self._acks:
+            cdp.send("Page.screencastFrameAck", {"sessionId": self._acks.pop(0)})
+        if self._latest is not None and time.monotonic() - self._shown_at >= FRAME_INTERVAL_SECONDS:
+            self._publish(self._latest)
+            self._latest = None
+            self._shown_at = time.monotonic()
 
 
 def _number(event: dict[str, Any], key: str, kind: type = float) -> Any:

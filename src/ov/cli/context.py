@@ -13,10 +13,12 @@ from ov.onevizion.session import Session
 from ov.onevizion.session import load as load_session
 
 INSTANCE_ENV = "OV_INSTANCE"
+TIMEOUT_ENV = "OV_TIMEOUT_SECONDS"
 
 
 def build_client(config: Config, session: Session) -> Client:
-    return Client(session, timeout=float(config.timeout_seconds), verify=config.verify_tls)
+    timeout = float(os.environ.get(TIMEOUT_ENV) or config.timeout_seconds)
+    return Client(session, timeout=timeout, verify=config.verify_tls)
 
 
 def instance_ref(args: argparse.Namespace) -> str | None:

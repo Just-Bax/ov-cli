@@ -34,50 +34,6 @@ _ENV_PATH = re.compile(
     r"\$env:\w+|%\w+%|\$\{?(HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP)\b|(^|\s)~[\\/]", re.IGNORECASE
 )
 
-RISKY_COMMANDS = [
-    (re.compile(r"\b(rm|rmdir|rd|del|erase|Remove-Item|ri)\b", re.IGNORECASE), "deletes files"),
-    (re.compile(r"\bgit\s+push\b", re.IGNORECASE), "pushes to a remote"),
-    (
-        re.compile(r"\bgit\s+(reset\s+--hard|clean|rebase|filter-branch|stash\s+(drop|clear))\b", re.IGNORECASE),
-        "rewrites git history or drops work",
-    ),
-    (re.compile(r"\bgit\s+(checkout|restore)\s+(--\s|\.\s*$|-f\b)", re.IGNORECASE), "discards local changes"),
-    (
-        re.compile(r"\bgit\s+branch\s+-D\b|\bgit\s+commit\b.*--amend\b|\bgit\b.*\s--force\b", re.IGNORECASE),
-        "rewrites git history",
-    ),
-    (
-        re.compile(r"\b(format|shutdown|Restart-Computer|Stop-Computer|diskpart|reg\s+delete)\b", re.IGNORECASE),
-        "changes the system",
-    ),
-    (re.compile(r"\b(kill|taskkill|Stop-Process|pkill)\b", re.IGNORECASE), "stops processes"),
-    (
-        re.compile(r"\b(npm|pnpm|yarn|twine|uv)\s+publish\b|\bdocker\s+(push|rm|rmi|system\s+prune)\b", re.IGNORECASE),
-        "publishes or removes artifacts",
-    ),
-    (
-        re.compile(r"\b(Invoke-Expression|iex)\b|\|\s*(sh|bash|pwsh|powershell)\b", re.IGNORECASE),
-        "runs downloaded code",
-    ),
-    (
-        re.compile(
-            r"\bgh\s+(pr\s+(merge|close|create|comment|review|edit|ready|reopen)"
-            r"|issue\s+(create|close|comment|edit|delete|reopen|transfer)"
-            r"|release\s+(create|delete|edit|upload)|repo\s+(create|delete|fork|edit|rename|archive)"
-            r"|workflow\s+(run|enable|disable)|run\s+(cancel|rerun|delete)"
-            r"|(secret|variable|label)\s+(set|create|delete|edit))\b",
-            re.IGNORECASE,
-        ),
-        "changes something on GitHub",
-    ),
-    (
-        re.compile(
-            r"\bgh\s+api\b.*(-X\s*|--method[\s=]+)(POST|PUT|PATCH|DELETE)|\bgh\s+api\b.*\s-[fF]\s", re.IGNORECASE
-        ),
-        "changes something on GitHub",
-    ),
-    (re.compile(r"\bmklink\b|\bNew-Item\b.*-ItemType\s+(Junction|SymbolicLink)", re.IGNORECASE), "creates links"),
-]
 _WINDOWS_PATH = r"[A-Za-z]:[\\/][^\s\"'|;&]*|~[\\/][^\s\"'|;&]*"
 _POSIX_PATH = r"/[^\s\"'|;&]+|~/[^\s\"'|;&]*"
 _ABSOLUTE = re.compile(rf"(?<![\w:./-])({_WINDOWS_PATH if sys.platform == 'win32' else _POSIX_PATH})")
@@ -151,7 +107,7 @@ def listing(rel: str, pattern: str) -> str:
         more = f"\n... {len(rows) - MAX_LIST_ENTRIES} more" if len(rows) > MAX_LIST_ENTRIES else ""
         return f"{relative(folder) or '.'}:\n" + "\n".join(lines) + more
 
-    found = []
+    found: list[str] = []
     for path in _files(folder):
         rel_path = relative(path)
         if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(path.name, pattern):
@@ -364,8 +320,8 @@ def edit(rel: str, old: str, new: str, replace_all: bool) -> str:
     return f"Edited {rel}: {count if replace_all else 1} replacement(s)."
 
 
-def risks(command: str, cwd: Path) -> list[str]:
-    found = [why for pattern, why in RISKY_COMMANDS if pattern.search(command)]
+def escapes(command: str, cwd: Path) -> list[str]:
+    found: list[str] = []
     base = root()
     for match in _ABSOLUTE.finditer(command):
         target = Path(match.group(1)).expanduser().resolve()
@@ -378,6 +334,10 @@ def risks(command: str, cwd: Path) -> list[str]:
     if _ENV_PATH.search(command):
         found.append("uses a path from an environment variable")
     return list(dict.fromkeys(found))
+
+
+def shell_name() -> str:
+    return "PowerShell" if sys.platform == "win32" else "bash"
 
 
 def _shell(command: str) -> list[str]:

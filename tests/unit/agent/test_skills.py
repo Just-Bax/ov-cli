@@ -7,14 +7,18 @@ from ov.agent import skills
 
 def test_bundled_skills_are_read_only_and_clone_into_custom_ones():
     names = [s["name"] for s in skills.list_skills()]
-    assert names[:7] == [
-        "onevizion",
+    assert names[:11] == [
         "working-style",
+        "onevizion-basics",
         "ov-cli",
         "workspace",
+        "onevizion-reference",
+        "plsql-best-practices",
+        "oneteam-basics",
+        "issue-lifecycle",
+        "tce-best-practices",
         "datadog",
         "pagerduty",
-        "tce-best-practices",
     ]
 
     with pytest.raises(skills.SkillError, match="Clone it"):
@@ -49,5 +53,14 @@ def test_skills_are_read_on_demand(logged_in):
 
     skill = tool_named("skill_read")
     assert skill.handler({"name": "ov-cli"}, None).startswith("# OV CLI\n\n")
-    with pytest.raises(ToolError, match="Skills: onevizion"):
+    with pytest.raises(ToolError, match="Skills: working-style, onevizion-basics"):
         skill.handler({"name": "datadog"}, None)
+
+
+def test_bundled_skills_are_ascii_with_trigger_descriptions():
+    for skill in skills.bundled():
+        text = f"{skill['title']}\n{skill['description']}\n{skill['content']}"
+        assert text.isascii(), skill["name"]
+        assert skill["description"], skill["name"]
+    on_demand = [s for s in skills.bundled() if not s["core"]]
+    assert all(s["description"].startswith("Use ") for s in on_demand)

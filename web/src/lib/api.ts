@@ -1,5 +1,6 @@
 import type {
   CodeSection,
+  ClaudeAccount,
   CopilotAccount,
   CostRange,
   CostReport,
@@ -15,6 +16,7 @@ import type {
   SectionResult,
   PagerDutyIncidentDetail,
   ModelInfo,
+  Provider,
   ObjectActivity,
   PagerDutyStatus,
   RunInput,
@@ -74,10 +76,9 @@ export const api = {
     ),
   copilotLogout: () => post('/copilot/logout'),
   copilotAccount: () => request<CopilotAccount>('/copilot/account'),
-  cost: (range: CostRange) => request<CostReport>(`/cost?range=${range}`),
+  cost: (range: CostRange, provider: Provider) =>
+    request<CostReport>(`/cost?range=${range}&provider=${provider}`),
   retitleRun: (id: string) => post<{ title: string }>(`/runs/${id}/retitle`),
-  draftReply: (id: string, messageId: string) =>
-    post<{ text: string }>(`/runs/${id}/reply`, { messageId }),
   pinRun: (id: string, pinned: boolean) => post(`/runs/${id}/pin`, { pinned }),
   snoozeRun: (id: string, until: number | null) => post(`/runs/${id}/snooze`, { until }),
   searchRun: (id: string, q: string, signal?: AbortSignal) =>
@@ -86,7 +87,8 @@ export const api = {
   exportUrl: (id: string) => `${API_ROOT}/runs/${id}/export`,
   runEventsUrl: (id: string, after: number) => `${API_ROOT}/runs/${id}/events?after=${after}`,
   statusEventsUrl: () => `${API_ROOT}/status-events`,
-  models: () => request<ModelInfo[]>('/models'),
+  models: (provider: Provider) => request<ModelInfo[]>(`/models?provider=${provider}`),
+  claudeAccount: () => request<ClaudeAccount>('/claude/account'),
   instances: () => request<Instance[]>('/instances'),
   loginInstance: (
     url: string,
@@ -97,7 +99,7 @@ export const api = {
   cancelSignIn: (url: string, tenant?: string) =>
     post(`/signin/cancel?${signInQuery(url, tenant)}`),
   signInInput: (url: string, tenant: string | undefined, events: unknown[]) =>
-    post(`/signin/input?${signInQuery(url, tenant)}`, { events }),
+    post<{ open: boolean }>(`/signin/input?${signInQuery(url, tenant)}`, { events }),
   signInScreenUrl: (url: string, tenant?: string) =>
     `${API_ROOT}/signin/screen?${signInQuery(url, tenant)}`,
   datadog: () => request<DatadogStatus>('/datadog'),
@@ -191,6 +193,16 @@ export const api = {
   fileUrl: (id: string, name: string) => `${API_ROOT}/runs/${id}/files/${seg(name)}`,
   setWriteAccess: (id: string, write: boolean) => post(`/runs/${id}/access`, { write }),
   cancel: (id: string) => post(`/runs/${id}/cancel`),
+  browserScreenUrl: (id: string) => `${API_ROOT}/runs/${id}/browser/screen`,
+  browserInput: (id: string, events: unknown[]) =>
+    post<{ open: boolean }>(`/runs/${id}/browser/input`, { events }),
+  closeBrowser: (id: string) => post(`/runs/${id}/browser/close`),
+  resizeBrowser: (id: string, size: { width: number; height: number }) =>
+    post(`/runs/${id}/browser/size`, size),
+  openBrowser: (id: string, instance: string) => post(`/runs/${id}/browser/open`, { instance }),
+  backgroundTool: (id: string, toolId: string) =>
+    post(`/runs/${id}/tools/${seg(toolId)}/background`, {}),
+  stopTool: (id: string, toolId: string) => post(`/runs/${id}/tools/${seg(toolId)}/stop`, {}),
   settleRun: (id: string, settled: boolean) => post(`/runs/${id}/settle`, { settled }),
   deleteRun: (id: string) => del<{ ok: boolean }>(`/runs/${id}`),
 }

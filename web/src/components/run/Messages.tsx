@@ -2,7 +2,6 @@ import {
   ArrowUUpLeft as ArrowUturnLeftIcon,
   Check as CheckIcon,
   FileText as DocumentTextIcon,
-  EnvelopeSimple as EnvelopeIcon,
   Copy as Square2StackIcon,
   X as XMarkIcon,
 } from '@phosphor-icons/react'
@@ -14,7 +13,6 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { timeWithDay } from '@/lib/time'
 import { FilePreview } from './FilePreview'
-import { ReplyDraft } from './ReplyDraft'
 
 const LONG_MESSAGE_CHARS = 1200
 const LONG_MESSAGE_LINES = 14
@@ -211,28 +209,16 @@ export function AssistantActions({
   text,
   ts,
   canRetry,
-  replyFrom,
 }: {
   runId: string
   turnId: string
-  replyFrom?: string
   text: string
   ts?: number
   canRetry: boolean
 }) {
-  const [drafting, setDrafting] = useState(false)
-
   return (
     <div className="flex flex-wrap items-center gap-0.5">
       <CopyAction text={text} />
-      {replyFrom ? (
-        <ActionButton label="Write as a case reply" onClick={() => setDrafting(true)}>
-          <EnvelopeIcon className="size-3.5" />
-        </ActionButton>
-      ) : null}
-      {drafting && replyFrom ? (
-        <ReplyDraft runId={runId} messageId={replyFrom} onClose={() => setDrafting(false)} />
-      ) : null}
       {canRetry ? <RetryButton label="Retry" runId={runId} itemId={turnId} /> : null}
       {ts ? <span className="text-faint ml-1.5 text-[11.5px]">{formatTime(ts)}</span> : null}
     </div>

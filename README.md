@@ -395,32 +395,51 @@ the evidence it checked.
 
 The first screen walks you through setup:
 
-1. Sign in to GitHub. The agent runs on GitHub Copilot, so the account needs a Copilot
-   subscription; you pick the model.
+1. Pick who runs the agent:
+   - **Claude**: your Claude Pro or Max plan. OV Agent drives your installed, unmodified
+     Claude Code (through Anthropic's Agent SDK), which keeps its own sign-in: run `claude`
+     once and sign in with `/login`. OV Agent never reads or stores your Claude credentials,
+     and requests count against your plan's usage limits.
+   - **GitHub Copilot**: sign in to GitHub; the account needs a Copilot subscription, and
+     each request costs Copilot credits.
 2. Sign in to at least one instance (the same browser sign-in as `ov login`).
 3. Pick a main model. It can be changed per thread. In Settings you can also pick a fast
    model (Haiku, for example) for small chores such as naming threads.
 
-Setup stays open until the last step, so signing in to GitHub does not skip the others.
+Setup stays open until the last step, so signing in does not skip the others. Switch the
+provider any time in Settings > Provider: new threads use it, and existing threads keep the
+provider they started with. With Claude, everything runs on Claude, including thread titles
+and the command judge.
 
-Read-only by default: every call runs with `OV_READONLY=1`. Turn on **Allow changes** for
-a thread and the agent may apply changes, but each one shows you the exact `ov` command and
-waits for your **Approve**.
+Read-only by default: every call runs with `OV_READONLY=1`, and anything that changes
+something is behind **Allow changes**: instance writes and imports, PagerDuty changes,
+workspace edits and workspace commands that change anything. With it on, instance and
+PagerDuty changes, pushes and other outside effects still show you the exact command and
+wait for your **Approve**. The agent agrees a plan with you before it changes anything.
+
+Slow tool calls can run in the background: the agent passes `background`, or you click
+**Move to background** on a running call. The thread keeps working (or ends its turn) and
+the result arrives as a message that wakes the agent. **Stop** on a running call stops just
+that call; the thread's Stop stops everything. Test SQL gives up after 300 seconds, but
+Oracle may still run a query the agent gave up on, so the agent is told to keep queries
+narrow.
 
 In **Settings**:
 
-- **Skills** are guides for the agent. Core skills (OneVizion Basics, Working Style, OV
-  CLI and Workspace) are always in the system prompt, so the first query already uses the right tables
-  and tools. The rest are listed by name and when to read them, and the agent loads one
-  with `skill_read` when a task needs it, so reviewing an incident reads PagerDuty and
-  Datadog first. A skill becomes core with `core: true` in its front matter. Seven ship with
-  `ov`: OneVizion Basics
-  (where rules, automations, notifications, imports, reports, modules and workflows live,
-  and how their runs and errors are logged), Working Style, one skill per tool group (OV
-  CLI, Workspace, Datadog, PagerDuty; the last three only while set up), and TCE Best
-  Practices (trackor cases, the troubleshooting workflow, the case reply style). These
-  bundled skills are read-only and update with `ov`; switch any off, or **Clone to edit**
-  one (the copy is yours to change and the original turns off), or write your own.
+- **Skills** are guides for the agent. Core skills (Working Style, OneVizion Basics, OV
+  CLI and Workspace) are always in the system prompt and kept short. The rest are listed
+  by name and when to read them, and the agent loads one with `skill_read` when a task
+  needs it, so reviewing an incident reads PagerDuty and Datadog first. A skill becomes
+  core with `core: true` in its front matter. Eleven ship with `ov`: Working Style (plan,
+  ask, verify, time zones, changes), OneVizion Basics (the data model), OV CLI (the tools
+  and how to query without loading an instance), Workspace, OneVizion Reference (tables,
+  logs, forms and grids), PL/SQL Best Practices (platform APIs instead of raw DML, naming,
+  layout), OneTeam Basics (cases, issues and error reports on trackor.onevizion.com),
+  Issue Life Cycle (statuses, issue tasks, versions and backports), TCE Best Practices
+  (working a case and the case reply style), Datadog and PagerDuty (the last three tool
+  skills only while set up). These bundled skills are read-only and update with `ov`;
+  switch any off, or **Clone to edit** one (the copy is yours to change and the original
+  turns off), or write your own.
 - **Workspace** is one folder with your code (for example the platform repo and your
   Vizion Hub modules side by side). The agent searches, reads, edits and creates files and
   runs commands (git, builds, tests) only inside it. Add notes so it knows where things
@@ -428,7 +447,8 @@ In **Settings**:
 - **Instances** lists your `ov` sign-ins and signs in to new ones, on the instance's own
   login page shown inside the app (or in a separate window), or with an API token (access
   key and secret key from Admin > Auth Tokens).
-- **Cost** shows what the agent costs in Copilot credits: your Copilot plan and the credits
+- **Cost** shows Claude usage as an estimated dollar value from Claude Code (not billed per
+  request), and Copilot usage in credits: your Copilot plan and the credits
   used this billing cycle across all your Copilot use, then OV Agent's own credits, requests
   and tokens per day, per model and per thread. The numbers are the credits Copilot reports
   for each request; threads from before usage was recorded show "Not tracked".
@@ -444,7 +464,6 @@ In a thread:
   state and to check its platform version and response time.
 - Mentions like "rule 123" link to their page on the instance when that ID appeared in the
   agent's tool results; links to IDs it never looked up get a warning.
-- The envelope under an answer writes it as a case reply in your reply style.
 - Ctrl+F finds text anywhere in the thread, including turns not loaded yet.
 
 Each sidebar thread has the same **...** menu. Snooze offers in 1 hour, in 3 hours, tomorrow,
@@ -463,9 +482,10 @@ The agent's tools come in groups, and the system prompt lists the ones a thread 
 | Skills | `skill_read` |
 | Run | `run_read` (attachments, exports and long output in the run folder), `run_ask`, `run_report` |
 
-Nothing leaves your machine except calls to your instances and to GitHub Copilot. The
-server listens on 127.0.0.1 only. History and uploads live in `~/.ov/agent`; the
-GitHub token is kept in the vault with your other credentials.
+Nothing leaves your machine except calls to your instances and to the provider that runs
+the agent (Claude through Claude Code, or GitHub Copilot). The server listens on 127.0.0.1
+only. History and uploads live in `~/.ov/agent`; the GitHub token is kept in the vault with
+your other credentials. Claude Code keeps its own sign-in and transcripts under `~/.claude`.
 
 ### Coding in the workspace
 
@@ -477,17 +497,21 @@ GitHub token is kept in the vault with your other credentials.
    package and run its tests". The agent finds files with `ws_search`, reads them with
    `ws_read`, changes them with `ws_edit` and `ws_write`, and runs `git`, builds and tests
    with `ws_run`. Every step shows up in the thread.
-3. Commands run straight away, except ones that delete files, push, rewrite git history,
-   stop processes, publish packages, run downloaded code or touch paths outside the
-   workspace. Those wait for your Approve, showing the exact command and folder.
+3. Every command is judged by the fast model before it runs. Commands that only read run
+   straight away. Commands that change anything (commits, installs, builds, tests) need
+   Allow changes. Pushes, pull request actions, remote writes, deletes, scripts it cannot
+   see into and paths outside the workspace also wait for your Approve, showing the exact
+   command, folder and reason. The judgement shows on the command's row. Edits with
+   `ws_edit` and `ws_write` need Allow changes too.
 
 GitHub work (pull requests, their diffs, review comments, checks, issues) goes through the
 `gh` CLI in the workspace: install it and run `gh auth login` once. Reading is free; posting
 a comment or review, creating, merging or closing anything, or `gh api` writes wait for
 your approval.
 
-The agent commits only when you ask and never pushes on its own. Paths in the `ws_` tools
-cannot leave the workspace; a shell command could, which is why those need your approval.
+The agent commits only when you ask and never pushes without your approval. Paths in the
+`ws_` tools cannot leave the workspace; a shell command could, which is why those need your
+approval.
 
 **Instance map** shows how an instance's configuration fits together: trackor types and
 their relations, fields, rules and what triggers them, automations, imports, reports,
@@ -545,7 +569,7 @@ example failed runs on an instance where you lack the Test SQL privilege. Nothin
 page writes to Datadog, PagerDuty or the instance.
 
 Your Datadog admins can see application keys and may audit their use, and logs the
-agent reads in a thread go to GitHub Copilot like any other tool result.
+agent reads in a thread go to the agent's provider like any other tool result.
 
 **Walkthroughs** (under More) are browser tests a real user would run on an instance:
 clicking, typing and checking pages, not API calls. Describe a test in a sentence and the

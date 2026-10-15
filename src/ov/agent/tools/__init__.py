@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from ov.agent.tools import datadog, onevizion, pagerduty, thread, workspace
+from ov.agent.tools import browser, datadog, onevizion, pagerduty, thread, workspace
 from ov.agent.tools.base import Tool
 
 CORE_TOOLS = [*onevizion.TOOLS, *thread.TOOLS]
-TOOLS = [*CORE_TOOLS, *workspace.TOOLS, *datadog.TOOLS, *pagerduty.READ_TOOLS, *pagerduty.WRITE_TOOLS]
-TOOLS_BY_NAME = {t.name: t for t in TOOLS}
+TOOLS = [*CORE_TOOLS, *browser.MAIN, *workspace.TOOLS, *datadog.TOOLS, *pagerduty.READ_TOOLS, *pagerduty.WRITE_TOOLS]
+TOOLS_BY_NAME = {t.name: t for t in [*TOOLS, *browser.HANDS]}
 
 
 def _names(tools: list[Tool]) -> list[str]:
@@ -19,6 +19,11 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
         "OV CLI",
         "signed-in OneVizion instances",
         ["ov", "ov_sql", "ov_export", "ov_import", "ov_search", "ov_map", "ov_case", "ov_propose"],
+    ),
+    (
+        "Browser",
+        "the OneVizion web UI in a live browser the user watches: snapshot, then mouse and keyboard like a person",
+        _names(browser.MAIN),
     ),
     ("Workspace", "the user's code folder: files, search, edits and commands", _names(workspace.TOOLS)),
     ("Datadog", "logs, metrics, monitors, events and APM", _names(datadog.TOOLS)),
@@ -35,6 +40,7 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
 def tool_specs(write: bool = False) -> list[dict[str, Any]]:
     offered = [
         *CORE_TOOLS,
+        *browser.MAIN,
         *pagerduty.offered_writers(write),
         *workspace.offered(),
         *datadog.offered(),

@@ -3,6 +3,7 @@ from __future__ import annotations
 from helpers.sessions import BASE_URL
 
 from ov.agent.storage import db
+from ov.agent.storage.models import Provider
 
 
 def test_forgetting_an_instance_removes_its_local_data_but_keeps_runs(logged_in):
@@ -13,8 +14,8 @@ def test_forgetting_an_instance_removes_its_local_data_but_keeps_runs(logged_in)
 
     for alias in ("acme", "gone"):
         graph.graph_file(alias).write_text("{}", encoding="utf-8")
-        db.create_thread(f"r{alias}", "t", "m", prompt="x", instance=alias, allow_write=False)
-    db.create_thread("rcase", "t", "m", prompt="x", instance="acme.onevizion.test", allow_write=False)
+        db.create_thread(f"r{alias}", "t", Provider.COPILOT, "m", prompt="x", instance=alias, allow_write=False)
+    db.create_thread("rcase", "t", Provider.COPILOT, "m", prompt="x", instance="acme.onevizion.test", allow_write=False)
     datadog.save_matches({"acme": "host:a", "gone": "host:b"})
 
     prune()

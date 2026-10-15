@@ -16,6 +16,7 @@ from ov.agent.tools.base import (
     LABEL_CHARS,
     SECRET_JSON,
     SECRET_MASK,
+    UI_ONLY,
     Tool,
     ToolContext,
     ToolError,
@@ -28,7 +29,12 @@ from ov.agent.tools.base import (
 from ov.core.errors import EXIT_READ_ONLY
 
 OV_TIMEOUT_SECONDS = 180
-MAX_SQL_TIMEOUT_SECONDS = 600
+SQL_TIMEOUT_SECONDS = 300
+SQL_TIMED_OUT = (
+    "Test SQL gave no answer in {limit}s (ran {took:.1f}s). Oracle may still be running the query and ov "
+    "cannot cancel it. Do not rerun it as is: narrow it with selective key or date filters, or sample inside "
+    "the query with fetch first."
+)
 DEFAULT_SQL_ROWS = 100
 MAX_SQL_ROWS = 1000
 DEFAULT_SEARCH_LIMIT = 50
@@ -49,6 +55,9 @@ EDIT_FORMS = (
     (re.compile(r"rule", re.IGNORECASE), "/admin/rules/Form.do?id="),
     (re.compile(r"report", re.IGNORECASE), "/admin/reports/Form.do?id="),
     (re.compile(r"automation", re.IGNORECASE), "/admin/automation/Form.do?id="),
+    (re.compile(r"db package", re.IGNORECASE), "/admin/dbpackage/Form.do?id="),
+    (re.compile(r"import", re.IGNORECASE), "/admin/configimport/Form.do?id="),
+    (re.compile(r"notification", re.IGNORECASE), "/admin/notifications/Form.do?id="),
     (re.compile(r"trackor|record", re.IGNORECASE), "/form/ConfigAppForm.do?id="),
 )
 
@@ -192,6 +201,8 @@ def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
     )
     if not ctx.can_write():
         raise blocked
+    if ctx.browser.live:
+        raise ToolError(UI_ONLY)
 
     command = f"ov -i {host} {_quoted(args)}"
     if not approved(ctx, f"Apply this change on {host}?", command):
@@ -262,7 +273,6 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
         )
 
     rows = min(max(int(args.get("limit") or DEFAULT_SQL_ROWS), 1), MAX_SQL_ROWS)
-    timeout = min(max(int(args.get("timeout") or OV_TIMEOUT_SECONDS), 1), MAX_SQL_TIMEOUT_SECONDS)
     started = time.monotonic()
     try:
         raw = run_ov_tool(
@@ -278,15 +288,13 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
             ctx,
             allow_sql=True,
             raw=True,
-            timeout=timeout,
+            timeout=SQL_TIMEOUT_SECONDS,
         )
-    except ToolError as exc:
-        if "timed out" not in str(exc):
+    except ToolError:
+        took = time.monotonic() - started
+        if took < SQL_TIMEOUT_SECONDS:
             raise
-        raise ToolError(
-            f"The query did not finish in {timeout}s and may still be running on the database. Do not retry "
-            "it unchanged: narrow it with selective key or date filters, or sample with fetch first."
-        ) from None
+        raise ToolError(SQL_TIMED_OUT.format(limit=SQL_TIMEOUT_SECONDS, took=took)) from None
     took = time.monotonic() - started
     return clip(f"{_format_sql(raw)}\n[took {took:.1f}s including the ov call]", ctx, "result")
 
@@ -462,12 +470,12 @@ TOOLS = [
     Tool(
         "ov_sql",
         "Run a read-only SELECT (or WITH) on an instance database through the platform's Test "
-        "SQL endpoint. Max 1000 rows. Secret-looking values are masked in the result.",
+        f"SQL endpoint. Max 1000 rows, and it gives up after {SQL_TIMEOUT_SECONDS}s. Secret-looking values are "
+        "masked in the result.",
         {
             "instance": INSTANCE,
             "query": string_param("A single SELECT statement, no trailing semicolon"),
             "limit": int_param("Row limit, default 100, max 1000"),
-            "timeout": int_param(f"Seconds, default {OV_TIMEOUT_SECONDS}, max {MAX_SQL_TIMEOUT_SECONDS}"),
         },
         ["query"],
         lambda a: (

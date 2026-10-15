@@ -61,3 +61,31 @@ def test_models_match_the_migrations():
     with db._begin() as conn:
         diffs = compare_metadata(MigrationContext.configure(conn), models.Base.metadata)
     assert diffs == []
+
+
+def test_old_case_reply_usage_is_kept_as_naming_cost(ov_home, monkeypatch):
+    from alembic import command
+
+    home = ov_home / "reply"
+    monkeypatch.setenv("OV_HOME", str(home))
+    path = home / "agent" / "agent.db"
+    path.parent.mkdir(parents=True)
+    engine = db._new_engine(path)
+    config = db._alembic_config()
+    with engine.begin() as conn:
+        config.attributes["connection"] = conn
+        command.upgrade(config, "0006")
+        conn.exec_driver_sql(
+            "INSERT INTO thread (id, title, status, model, prompt, allow_write, created_at, updated_at) "
+            "VALUES ('r1', 'Old', 'done', 'm', '', 0, 1, 1)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO usage (thread_id, model, kind, input_tokens, cached_tokens, cache_write_tokens, "
+            "output_tokens, cost_nano, created_at) VALUES ('r1', 'm', 'reply', 1, 0, 0, 2, 7, 1)"
+        )
+    engine.dispose()
+
+    assert db.migrate() is True
+    with db._begin() as conn:
+        rows = conn.exec_driver_sql("SELECT kind, cost_nano FROM usage").all()
+    assert [tuple(r) for r in rows] == [("naming", 7)]

@@ -27,6 +27,7 @@ dependencies = [
     "playwright>=1.45.0,<1.63",
     "sqlalchemy>=2.0.30",
     "alembic>=1.13",
+    "claude-agent-sdk>=0.2.167",
 ]
 
 [project.optional-dependencies]

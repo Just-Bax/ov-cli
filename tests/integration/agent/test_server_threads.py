@@ -10,13 +10,14 @@ from sqlalchemy import update
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult
 from ov.agent.storage import db, models
+from ov.agent.storage.models import Provider
 
 
 def test_a_run_can_be_renamed(agent_server, monkeypatch):
     from ov.agent.engine.run import runs
 
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
-    run = runs.create({"prompt": "x"}, "m")
+    run = runs.create({"prompt": "x"}, Provider.COPILOT, "m")
     ok = httpx.post(f"{agent_server}/api/runs/{run.id}/title", json={"title": "  NORAD   report "})
     assert ok.status_code == 200
     assert db.list_threads()[0]["title"] == "NORAD report"
@@ -52,7 +53,7 @@ def test_a_thread_exports_as_markdown(agent_server, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "what tags?", "instance": "acme"}, "test-model")
+    run = runs.create({"prompt": "what tags?", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
     run.rename("Tags: on acme?")
 
@@ -60,7 +61,7 @@ def test_a_thread_exports_as_markdown(agent_server, monkeypatch):
     assert res.status_code == 200
     assert res.headers["content-disposition"] == "attachment; filename*=UTF-8''Tags%20on%20acme.md"
     text = res.text
-    assert text.startswith("# Tags: on acme?\n\nModel: test-model | Instance: acme")
+    assert text.startswith("# Tags: on acme?\n\nModel: test-model (copilot) | Instance: acme")
     assert "Cost: not tracked" in text
     assert "\n## You, " in text and "\nwhat tags?\n" in text
     assert "\n## Agent\n\nChecking the tags.\n\n- " in text
@@ -75,8 +76,8 @@ def test_cost_routes_answer(agent_server):
 
 
 def test_pinned_and_snoozed_threads(agent_server):
-    db.create_thread("rpin", "Pinned", "m", prompt="x", instance=None, allow_write=False)
-    db.create_thread("rnap", "Napping", "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rpin", "Pinned", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rnap", "Napping", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
     J = {"Content-Type": "application/json"}
     assert httpx.post(f"{agent_server}/api/runs/rpin/pin", json={"pinned": True}, headers=J).status_code == 200
     later = db.now_ms() + 3_600_000
@@ -93,10 +94,10 @@ def test_pinned_and_snoozed_threads(agent_server):
 
 
 def test_deleting_a_thread_removes_everything_it_owns(agent_server):
-    db.create_thread("rdel", "Gone", "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rdel", "Gone", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
     db.append_event("rdel", 0, {"type": "status", "status": "done"})
     db.save_messages("rdel", 0, [{"role": "user", "content": "x"}], {0: "u_start"})
-    db.add_usage("rdel", "m", "turn", {"input": 1}, 5)
+    db.add_usage("rdel", Provider.COPILOT, "m", "turn", tokens={"input": 1}, nano=5)
     db.add_attachments("rdel", "u_start", ["a.txt"])
     from ov.agent.engine.files import run_dir
 
@@ -126,7 +127,7 @@ def _working_thread(monkeypatch):
 
     monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", endless_chat)
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
-    run = runs.create({"prompt": "hi"}, "test-model")
+    run = runs.create({"prompt": "hi"}, Provider.COPILOT, "test-model")
     assert started.wait(STOP_SECONDS)
     return run
 
@@ -174,7 +175,7 @@ def test_an_open_working_thread_is_stopped_and_deleted(logged_in, agent_server, 
 def test_snooze_and_settle_wait_for_an_answer_and_a_waiting_thread_wakes(agent_server):
     from ov.agent.engine.run import runs
 
-    db.create_thread("rwake", "Wake", "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rwake", "Wake", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
     later = db.now_ms() + 3_600_000
     db.set_snoozed("rwake", later)
     db.set_settled("rwake", True)
@@ -194,3 +195,20 @@ def test_snooze_and_settle_wait_for_an_answer_and_a_waiting_thread_wakes(agent_s
     assert httpx.post(f"{agent_server}/api/runs/rwake/snooze", json={"until": later}, headers=J).status_code == 200
     run.emit({"type": "status", "status": "done"})
     assert "snoozedUntil" not in db.get_thread("rwake")
+
+
+def test_tool_routes_refuse_a_tool_that_is_not_running(agent_server, monkeypatch):
+    from ov.agent.engine.run import runs
+
+    monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
+    run = runs.create({"prompt": "x"}, Provider.COPILOT, "m")
+    for action in ("background", "stop"):
+        response = httpx.post(f"{agent_server}/api/runs/{run.id}/tools/call_x1/{action}", json={})
+        assert response.status_code == 400
+        assert "no longer running" in response.json()["error"]
+
+
+def test_input_for_a_closed_sign_in_screen_is_not_an_error(agent_server):
+    url = f"{agent_server}/api/signin/input?url=https://acme.example&tenant="
+    response = httpx.post(url, json={"events": [{"type": "back"}]})
+    assert response.status_code == 200 and response.json() == {"open": False}

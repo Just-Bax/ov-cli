@@ -14,7 +14,6 @@ import {
 } from 'react'
 import { reportError } from '@/components/common/Toasts'
 import { Spinner } from '@/components/common/ui'
-import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 
 export const SCREEN_BAR_PX = 52
@@ -24,9 +23,12 @@ const MAX_SCREEN_HEIGHT = 900
 
 const MODIFIER = { alt: 1, ctrl: 2, meta: 4, shift: 8 }
 const BUTTON_NAMES = ['left', 'middle', 'right'] as const
+const RESIZE_SETTLE_MS = 200
 
 type Frame = { data: string; url: string; width: number; height: number }
-type ScreenEvent = Record<string, unknown> & { type: string }
+export type FrameSize = { width: number; height: number }
+export type ScreenEvent = Record<string, unknown> & { type: string }
+export type SendScreen = (events: ScreenEvent[]) => Promise<{ open: boolean }>
 type Phase = 'starting' | 'live' | 'gone'
 
 function splitAddress(address: string): { host: string; path: string; secure: boolean } {
@@ -41,7 +43,7 @@ function splitAddress(address: string): { host: string; path: string; secure: bo
   }
 }
 
-export function screenSize(): { width: number; height: number } {
+export function screenSize(): FrameSize {
   return {
     width: Math.min(MAX_SCREEN_WIDTH, window.innerWidth - SCREEN_MARGIN_PX),
     height: Math.min(MAX_SCREEN_HEIGHT, window.innerHeight - SCREEN_MARGIN_PX - SCREEN_BAR_PX),
@@ -57,23 +59,25 @@ function modifiers(e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shi
   )
 }
 
-function useSender(url: string, tenant?: string) {
+function useSender(deliver: SendScreen) {
   const pending = useRef<ScreenEvent[]>([])
   const busy = useRef(false)
+  const closed = useRef(false)
 
   const flush = async () => {
-    if (busy.current || !pending.current.length) return
+    if (busy.current || closed.current || !pending.current.length) return
 
     busy.current = true
     const events = pending.current
     pending.current = []
-    await api.signInInput(url, tenant, events).catch(reportError)
+    const sent = await deliver(events).catch(reportError)
+    if (sent && !sent.open) closed.current = true
     busy.current = false
     void flush()
   }
 
   return (event: ScreenEvent, live: boolean) => {
-    if (!live) return
+    if (!live || closed.current) return
     const last = pending.current.at(-1)
     if (event.event === 'mouseMoved' && last?.event === 'mouseMoved') pending.current.pop()
     pending.current.push(event)
@@ -81,18 +85,30 @@ function useSender(url: string, tenant?: string) {
   }
 }
 
-export function RemoteScreen({
-  url,
-  host,
-  tenant,
+export function LiveScreen({
+  streamUrl,
+  send: deliver,
+  address: startAddress,
+  label,
+  starting,
   status,
-  onCancel,
+  closeLabel,
+  onClose,
+  overlay,
+  focusOnStart = true,
+  onStageResize,
 }: {
-  url: string
-  host: string
-  tenant?: string
-  status: ReactNode
-  onCancel: () => void
+  streamUrl: string
+  send: SendScreen
+  address: string
+  label: string
+  starting: ReactNode
+  status?: ReactNode
+  closeLabel: string
+  onClose: () => void
+  overlay?: (size: FrameSize) => ReactNode
+  focusOnStart?: boolean
+  onStageResize?: (size: FrameSize) => void
 }) {
   const [frame, setFrame] = useState<Frame>()
   const [phase, setPhase] = useState<Phase>('starting')
@@ -100,12 +116,15 @@ export function RemoteScreen({
   const [failure, setFailure] = useState<string | null>(null)
   const keys = useRef<HTMLTextAreaElement>(null)
   const surface = useRef<HTMLImageElement>(null)
-  const sendTo = useSender(url, tenant)
+  const stage = useRef<HTMLDivElement>(null)
+  const resized = useRef(onStageResize)
+  resized.current = onStageResize
+  const sendTo = useSender(deliver)
   const send = (event: ScreenEvent) => sendTo(event, phase === 'live')
   const size = frame ?? screenSize()
 
   useEffect(() => {
-    const source = new EventSource(api.signInScreenUrl(url, tenant))
+    const source = new EventSource(streamUrl)
     source.onmessage = (e) => {
       setFrame(JSON.parse(e.data as string) as Frame)
       setPhase('live')
@@ -119,11 +138,36 @@ export function RemoteScreen({
       if (source.readyState === EventSource.CLOSED) setPhase('gone')
     }
     return () => source.close()
-  }, [url, tenant])
+  }, [streamUrl])
 
   useEffect(() => {
-    if (phase === 'live') keys.current?.focus()
-  }, [phase])
+    if (phase === 'live' && focusOnStart) keys.current?.focus()
+  }, [phase, focusOnStart])
+
+  useEffect(() => {
+    const el = stage.current
+    if (!el || !resized.current) return
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let last = ''
+    const observer = new ResizeObserver(([entry]) => {
+      const width = Math.round(entry.contentRect.width)
+      const height = Math.round(entry.contentRect.height)
+      const key = `${width}x${height}`
+      if (key === last || !width || !height) return
+
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        last = key
+        resized.current?.({ width, height })
+      }, RESIZE_SETTLE_MS)
+    })
+    observer.observe(el)
+    return () => {
+      clearTimeout(timer)
+      observer.disconnect()
+    }
+  }, [])
 
   useEffect(() => {
     const el = surface.current
@@ -191,7 +235,7 @@ export function RemoteScreen({
     })
   }
 
-  const address = frame?.url ?? url
+  const address = frame?.url ?? startAddress
   const shown = splitAddress(address)
 
   return (
@@ -224,9 +268,9 @@ export function RemoteScreen({
         {status}
         <button
           type="button"
-          aria-label="Cancel sign-in"
-          title="Cancel sign-in"
-          onClick={onCancel}
+          aria-label={closeLabel}
+          title={closeLabel}
+          onClick={onClose}
           className="text-faint hover:text-fg hover:bg-raised flex size-8 shrink-0 items-center justify-center rounded-full transition-colors"
         >
           <XMarkIcon className="size-4" />
@@ -234,56 +278,66 @@ export function RemoteScreen({
       </div>
 
       <div
-        className="bg-raised relative min-h-0 flex-1 overflow-hidden"
-        style={{ aspectRatio: `${size.width} / ${size.height}`, maxWidth: size.width }}
+        ref={stage}
+        className="bg-raised flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+        style={{ containerType: 'size' }}
       >
-        {frame ? (
-          <img
-            ref={surface}
-            src={`data:image/jpeg;base64,${frame.data}`}
-            alt={`Sign-in page for ${host}`}
-            draggable={false}
-            onMouseDown={mouse('mousePressed')}
-            onMouseUp={mouse('mouseReleased')}
-            onMouseMove={mouse('mouseMoved')}
-            onContextMenu={(e) => e.preventDefault()}
-            className={cn(
-              'block size-full cursor-default select-none',
-              phase === 'gone' && 'opacity-60',
-            )}
-          />
-        ) : null}
-        {phase !== 'live' ? (
-          <div className="text-muted absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px]">
-            {phase === 'starting' ? (
-              <>
-                <Spinner className="text-brand size-6" />
-                Opening {host}
-              </>
-            ) : frame ? null : (
-              (failure ?? 'The sign-in page is not shown here.')
-            )}
-          </div>
-        ) : null}
-        {phase === 'live' && !focused ? (
-          <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-[#263238]/75 px-3 py-1 text-[11.5px] text-white">
-            Click the page to type
-          </div>
-        ) : null}
-        <textarea
-          ref={keys}
-          aria-label="Type into the sign-in page"
-          onKeyDown={key('down')}
-          onKeyUp={key('up')}
-          onPaste={(e) => {
-            e.preventDefault()
-            const text = e.clipboardData.getData('text')
-            if (text) send({ type: 'text', text })
+        <div
+          className="relative overflow-hidden bg-white"
+          style={{
+            aspectRatio: `${size.width} / ${size.height}`,
+            width: `min(100cqw, ${size.width}px, calc(100cqh * ${size.width} / ${size.height}))`,
           }}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          className="pointer-events-none absolute top-0 left-0 size-px resize-none opacity-0"
-        />
+        >
+          {frame ? (
+            <img
+              ref={surface}
+              src={`data:image/jpeg;base64,${frame.data}`}
+              alt={label}
+              draggable={false}
+              onMouseDown={mouse('mousePressed')}
+              onMouseUp={mouse('mouseReleased')}
+              onMouseMove={mouse('mouseMoved')}
+              onContextMenu={(e) => e.preventDefault()}
+              className={cn(
+                'block size-full cursor-default select-none',
+                phase === 'gone' && 'opacity-60',
+              )}
+            />
+          ) : null}
+          {phase !== 'live' ? (
+            <div className="text-muted absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px]">
+              {phase === 'starting' ? (
+                <>
+                  <Spinner className="text-brand size-6" />
+                  {starting}
+                </>
+              ) : frame ? null : (
+                (failure ?? 'The page is not shown here.')
+              )}
+            </div>
+          ) : null}
+          {phase === 'live' && focusOnStart && !focused ? (
+            <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-[#263238]/75 px-3 py-1 text-[11.5px] text-white">
+              Click the page to type
+            </div>
+          ) : null}
+          {overlay?.(size)}
+          <textarea
+            ref={keys}
+            aria-label={`Type into ${label}`}
+            onKeyDown={key('down')}
+            onKeyUp={key('up')}
+            onPaste={(e) => {
+              e.preventDefault()
+              const text = e.clipboardData.getData('text')
+              if (text) send({ type: 'text', text })
+            }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            className="pointer-events-none absolute top-0 left-0 size-px resize-none opacity-0"
+          />
+        </div>
       </div>
     </div>
   )

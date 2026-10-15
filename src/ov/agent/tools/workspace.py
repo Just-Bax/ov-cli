@@ -5,8 +5,10 @@ import threading
 from typing import Any
 
 from ov.agent import workspace as project
+from ov.agent.engine.guard import Effect
 from ov.agent.tools.base import (
     LABEL_CHARS,
+    UI_ONLY,
     Handler,
     Tool,
     ToolContext,
@@ -19,6 +21,14 @@ from ov.agent.tools.base import (
 )
 
 _NO_OP_COMMAND = re.compile(r"^(echo|write-host|write-output)\b[^|;&>]*$|^\s*$", re.IGNORECASE)
+EDITS_OFF = (
+    "Not changed: Allow changes is off for this run. Show the user the change you would make and why; they "
+    "can turn on Allow changes below the chat."
+)
+COMMAND_OFF = (
+    "Not run: {reason}. It changes something and Allow changes is off for this run. Tell the user what you "
+    "would run and why; they can turn on Allow changes below the chat."
+)
 
 _file_locks: dict[str, threading.Lock] = {}
 _file_locks_guard = threading.Lock()
@@ -53,7 +63,13 @@ def _file_lock(rel: str) -> threading.Lock:
         return _file_locks.setdefault(key, threading.Lock())
 
 
+def _require_write(ctx: ToolContext) -> None:
+    if not ctx.can_write():
+        raise ToolError(EDITS_OFF)
+
+
 def _ws_edit(args: dict[str, Any], ctx: ToolContext) -> str:
+    _require_write(ctx)
     path, old, new = str(args["path"]), str(args["old"]), str(args["new"])
     with _file_lock(path):
         result = project.edit(path, old, new, bool(args.get("replace_all")))
@@ -62,6 +78,7 @@ def _ws_edit(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 def _ws_write(args: dict[str, Any], ctx: ToolContext) -> str:
+    _require_write(ctx)
     path, content = str(args["path"]), str(args["content"])
     with _file_lock(path):
         existed = project.resolve(path).is_file()
@@ -75,11 +92,19 @@ def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
     command = str(args["command"]).strip()
     if _NO_OP_COMMAND.match(command):
         raise ToolError("Nothing to run. To just answer, reply without a tool call.")
+
     folder = str(args.get("cwd") or "")
-    risky = project.risks(command, project.resolve(folder))
-    if risky:
+    escapes = project.escapes(command, project.resolve(folder))
+    verdict = ctx.judge_command(command, folder)
+    if verdict.effect != Effect.READ and not ctx.can_write():
+        raise ToolError(COMMAND_OFF.format(reason=verdict.reason))
+    if verdict.effect != Effect.READ and ctx.browser.live:
+        raise ToolError(UI_ONLY)
+
+    if verdict.effect == Effect.OUTSIDE or escapes:
+        reasons = "; ".join([verdict.reason, *escapes])
         where = folder or "the workspace root"
-        if not approved(ctx, f"Run this command? It {', and '.join(risky)}.", f"{where}> {command}"):
+        if not approved(ctx, f"Run this command? {reasons}.", f"{where}> {command}"):
             raise ToolError("The user rejected this command. Do not retry it; ask what they want instead.")
 
     timeout = int(args.get("timeout") or project.DEFAULT_TIMEOUT_SECONDS)
@@ -126,7 +151,8 @@ TOOLS = [
     ),
     Tool(
         "ws_edit",
-        "Edit a workspace file by replacing exact text. old must match the file exactly, including "
+        "Edit a workspace file by replacing exact text; needs Allow changes. old must match the file exactly, "
+        "including "
         "indentation, and be unique unless replace_all is set. Read the file first.",
         {
             "path": string_param("File path relative to the workspace root"),
@@ -140,7 +166,8 @@ TOOLS = [
     ),
     Tool(
         "ws_write",
-        "Create a workspace file, or overwrite it completely. Prefer ws_edit for changes to existing files.",
+        "Create a workspace file, or overwrite it completely. Prefer ws_edit for changes to existing files. "
+        "Needs Allow changes.",
         {
             "path": string_param("File path relative to the workspace root"),
             "content": string_param("Full file content"),
@@ -152,8 +179,9 @@ TOOLS = [
     Tool(
         "ws_run",
         "Run a shell command (PowerShell on Windows, bash elsewhere) in a workspace folder: git, "
-        "builds, tests, scripts. Deleting files, git push, history rewrites and anything outside the "
-        "workspace wait for the user's approval.",
+        "builds, tests, scripts. Each command is judged first: commands that only read always run; "
+        "commands that change anything need Allow changes; pushes, remote writes, deletes, unknown scripts "
+        "and paths outside the workspace also wait for the user's approval.",
         {
             "command": string_param("The command line"),
             "cwd": string_param("Folder relative to the workspace root; default the root"),

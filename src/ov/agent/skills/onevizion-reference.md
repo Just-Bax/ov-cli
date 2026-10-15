@@ -1,18 +1,13 @@
 ---
-title: OneVizion Basics
-description: What OneVizion is, where every object lives in the database, how runs and errors are logged, and how to link to things.
-core: true
+title: OneVizion Reference
+description: Use when a task needs OneVizion tables, logs, forms or grids: rules, automations, notifications, imports, reports, modules, workflows, PROCESS, audit and error logs.
 ---
 
-OneVizion is a configurable platform for tracking projects, assets and processes. Each customer has its own instance (a host such as acme.onevizion.com), sometimes with several tenants. Almost everything is configuration stored in an Oracle schema: trackor types and fields, rules, automations, notifications, imports, reports, workflows, Vizion Hub modules. Find things by their real definition, never by memory. If a column is not listed here, check it first: `select column_name, data_type from user_tab_columns where table_name = 'RULE'`. If the platform repo is in the workspace, table DDL is at `db/ddl/tables/<table>.sql` inside it and packages under `db/`; search it with ws_search for error text and class names from stack traces.
+Read OneVizion Basics first; this is the table and log reference behind it.
 
 ## The instance map
 
 Call ov_map first when you need to know what is connected to an object: which rules are triggered by or use a field, what loads a trackor type, which workflow runs a rule, which rules call a DB package and what the package uses. It answers from a cached map of the whole configuration without SQL; links marked "in code" come from rule, import, report and DB package code, counting only quoted names, config ids, `id.*` object references and `PACKAGE.procedure` calls, so dynamic SQL can be missed. Confirm anything important on the instance before you rely on it.
-
-## Object references (the ID package)
-
-Code can name config objects without hard-coded ids through the generated `ID` package (PKG_OBJREF): `id.<trackor_type>.tt`, `id.<trackor_type>.cf.<field>`, `id.<trackor_type>.rel.<child_type>`, `id.<trackor_type>.class.<class>`, `id.vt.<vtable>.<value>`, `id.vtable.<vtable>`, `id.imp.<import>`, `id.rpt.<report>`, `id.wf.<workflow_template>`, `id.wp_template.<template>`, `id.wp.datepair.<abbr>`. Names are lowercase with spaces as underscores. PL/SQL uses them directly (`util.SetValByID(v_id, id.issue.cf.estim_hours, 200)`); plain SQL wraps them: `id.get('id.site.tt')`. ENTITY_OBJREF_DEPENDENCY (ENTITY_COMPONENT_ID, ENTITY_ID, TABLE_NAME, COLUMN_NAME, OBJREF, OBJECT_COMPONENT_ID, OBJECT_ID) lists which entity code uses which reference. Prefer object references over hard-coded ids in fixes: they survive renumbering and copies between instances.
 
 ## PROCESS: the run log behind reports, imports, exports, modules, rules and automations
 
@@ -90,19 +85,14 @@ select q.rule_queue_id, q.rule_id, q.created_ts, q.processed_ts, dbms_lob.substr
 - Instances: WF_WORKFLOW (WF_WORKFLOW_ID, WF_TEMPLATE_ID, WORKFLOW_NAME, WF_STATE_ID 1 running/3 suspended/4 finished/5 abandoned, START_DATE, FINISH_DATE), WF_STEP (WF_WORKFLOW_ID, STEP_NAME, PLSQL_BLOCK, START_DATE, FINISH_DATE, KEY_VALUE = trackor id).
 - Forms: template `/admin/wftemplate/Form.do?id=`, step `/admin/wftemplate/FormStep.do?id=`, running workflow `/admin/wf/Form.do?id=`.
 
-## Trackor types, fields, trackors and values
-
-- XITOR_TYPE (XITOR_TYPE_ID, XITOR_TYPE name, KEY_FIELD, IS_AUTOKEY), RELATION_TYPE (PARENT_TYPE_ID, CHILD_TYPE_ID, CARDINALITY_ID), RELATION (RELATION_TYPE_ID, PARENT_ID, CHILD_ID).
-- CONFIG_FIELD: CONFIG_FIELD_ID, CONFIG_FIELD_NAME, XITOR_TYPE_ID, DATA_TYPE, IS_READ_ONLY, IS_MANDATORY, SQL_QUERY (calculated/DB fields), DEFAULT_VALUE_SQL, LOG_CHANGES. Data types: 0 Text, 1 Number, 2 Date, 3 Checkbox, 4 Drop-Down, 5 Memo, 7 Wiki, 8 DB Drop-Down, 9 DB Selector, 10 Selector, 15 Electronic File, 16 Multiple EFiles, 20 Trackor Selector, 21 Trackor Drop-Down, 22 Trackor MultiSelector, 25 Calculated, 30 Hyperlink, 50 Rollup, 80 MultiSelector, 90 Date/Time.
-- XITOR (XITOR_ID, XITOR_KEY, XITOR_TYPE_ID, IS_TEMPLATE). Values keyed by (KEY_VALUE = XITOR_ID, CONFIG_FIELD_ID): CONFIG_VALUE_CHAR (VALUE_CHAR, VALUE_CLOB) for text/memo/wiki/hyperlink, CONFIG_VALUE_NUMBER (VALUE_NUMBER) for numbers, checkboxes, drop-down value ids and file BLOB_DATA_ID, CONFIG_VALUE_DATE (VALUE_DATE), CONFIG_VALUE_MULT for multi-selects. Easiest read: `pkg_config_field_rpt.getValStrByID(xitor_id, config_field_id)`.
-- Forms: trackor type `/admin/trackortypes/Form.do?id=`, field `/admin/configfields/Form.do?id=`, trackor `/form/ConfigAppForm.do?id=<TRACKOR_ID>`.
-
 ## Audit and error logs
 
 - AUDIT_LOG: TABLE_NAME, COLUMN_NAME (CONFIG_FIELD_ID for fields), PK, ACTION (U/I/D), FROM_/TO_CHAR, FROM_/TO_NUMBER, FROM_/TO_DATE, TS, USER_ID, XITOR_ID. AUDIT_CALL_STACK (AUDIT_LOG_ID, ROUTINE_TYPE_ID, ROUTINE_ID, ROUTINE_TEXT) tells which rule, import or routine made the change.
 - ERROR_LOG (ERROR_LOG_ID, ERROR_REPORT_ID = the GUID users see, USER_ID, TS, ERROR_MESSAGE CLOB). USER_ERROR (UN, URL, TS, ERROR_TEXT); never select its HTTP_COOKIE or FORMS columns.
 - INVALID_OBJECT (COMPONENT_ID, ENTITY_ID, ENTITY_NAME, ERROR_MESSAGE, INVALID_SINCE): config objects whose SQL no longer compiles. COMPONENT_ID: 1 import, 3 report, 4 rule, 5 field, 17 workflow, 22 notification, 27 DB package, 42 module, 50 automation.
 - DB_PACKAGE (DB_PACKAGE_ID, DB_PACKAGE_NAME, DB_PACKAGE_SPEC, DB_PACKAGE_BODY). Form `/admin/dbpackage/Form.do?id=`.
+- Where a message a user saw comes from: friendly texts are labels (LABEL_SYSTEM: LABEL_SYSTEM_ID, APP_LANG_ID, LABEL_SYSTEM_TEXT; LABEL_PROGRAM for tenant labels). ERROR_TRANSLATION (ERROR_MSG, TRANSLATION_LABEL_ID) maps an Oracle error, usually a constraint name such as UN1_PROCESS_TYPE, to the label shown instead. Search the label text in LABEL_SYSTEM and LABEL_PROGRAM, then find which rule, package or translation uses that label id.
+- An "Error Report ID" in a screenshot is ERROR_LOG.ERROR_REPORT_ID on that instance. Identical errors in a short period are reported once, so the id the user saw may not be the first one; look around the same time and user.
 - Users: USERS (USER_ID, UN, EMAIL, IS_DISABLED, LAST_LOGIN_DATE; never PWD), SEC_ROLE (ROLE_TYPE), USER_SEC_ROLE. Files: BLOB_DATA (BLOB_DATA_ID, FILENAME, BLOB_DATA_LEN, KEY_VALUE, CONFIG_FIELD_ID, CREATED_TS).
 
 ```sql
@@ -125,3 +115,7 @@ Give the user a link for every object you mention, using the form URLs above on 
 - A report is slow or wrong: REPORT_RUN -> PROCESS RUNTIME and errors, the REPORT_SQL, and the data it reads.
 - An email was not sent: NOTIF_QUEUE status and NOTIF_QUEUE_ATTEMPT errors for that notification.
 - Something broke after a change: INVALID_OBJECT, then AUDIT_LOG of the config tables.
+
+## Trackor and field forms
+
+Trackor type `/admin/trackortypes/Form.do?id=`, field `/admin/configfields/Form.do?id=`, trackor `/form/ConfigAppForm.do?id=<TRACKOR_ID>`.

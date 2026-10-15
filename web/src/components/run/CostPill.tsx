@@ -1,15 +1,36 @@
 import { useState } from 'react'
-import type { CostTotal, RunCost } from '@shared/types.ts'
+import type { CostTotal, Provider, RunCost } from '@shared/types.ts'
+import { ProviderLogo } from '@/components/common/ProviderLogo'
 import { reportError } from '@/components/common/Toasts'
 import { Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
-import { formatCredits, formatTokens, orderedTokens, tokenLabel } from '@/lib/cost'
+import {
+  formatAmount,
+  formatCost,
+  formatTokens,
+  orderedTokens,
+  tokenLabel,
+  unitFor,
+} from '@/lib/cost'
 import { modelName, useModels } from '@/lib/models'
 
-export function CostPill({ runId, cost }: { runId: string; cost?: CostTotal }) {
+const USAGE_TITLES: Record<Provider, string> = {
+  copilot: 'Copilot usage',
+  claude: 'Claude plan usage, estimated',
+}
+
+export function CostPill({
+  runId,
+  provider,
+  cost,
+}: {
+  runId: string
+  provider: Provider
+  cost?: CostTotal
+}) {
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState<RunCost>()
-  const models = useModels()
+  const models = useModels(provider)
 
   if (!cost) {
     return (
@@ -29,14 +50,15 @@ export function CostPill({ runId, cost }: { runId: string; cost?: CostTotal }) {
 
   return (
     <span className="relative" onMouseEnter={show} onMouseLeave={() => setOpen(false)}>
-      <span className="bg-raised text-text inline-flex h-8 cursor-default items-center rounded-full px-3 text-[12px] font-medium tabular-nums">
-        {formatCredits(cost.credits)} credits
+      <span className="bg-raised text-text inline-flex h-8 cursor-default items-center gap-1.5 rounded-full px-3 text-[12px] font-medium tabular-nums">
+        <ProviderLogo provider={provider} className="size-3.5" />
+        {formatCost(cost)}
       </span>
       {open ? (
         <div className="border-line animate-pop absolute top-full right-0 z-30 mt-1.5 w-[280px] rounded-2xl border bg-white p-3.5 text-[12px] shadow-[0_6px_20px_rgba(38,50,56,0.14)]">
           <div className="text-fg flex items-baseline justify-between font-semibold">
-            <span>Copilot usage</span>
-            <span className="tabular-nums">{formatCredits(cost.credits)} credits</span>
+            <span>{USAGE_TITLES[provider]}</span>
+            <span className="tabular-nums">{formatCost(cost)}</span>
           </div>
           <div className="text-muted mt-0.5">
             {cost.requests} request{cost.requests === 1 ? '' : 's'}
@@ -54,10 +76,13 @@ export function CostPill({ runId, cost }: { runId: string; cost?: CostTotal }) {
               {detail.models.length > 1 ? (
                 <div className="border-line mt-3 space-y-1 border-t pt-3">
                   {detail.models.map((m) => (
-                    <div key={m.model} className="flex justify-between gap-3">
+                    <div key={`${m.provider}:${m.model}`} className="flex justify-between gap-3">
                       <span className="text-muted truncate">{modelName(models, m.model)}</span>
                       <span className="text-text shrink-0 tabular-nums">
-                        {formatCredits(m.credits)}
+                        {formatAmount(
+                          unitFor(m.provider) === 'usd' ? m.usd : m.credits,
+                          unitFor(m.provider),
+                        )}
                       </span>
                     </div>
                   ))}

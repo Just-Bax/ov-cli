@@ -23,7 +23,8 @@ import httpx
 from ov import __version__
 from ov.agent import skills
 from ov.agent import workspace as project
-from ov.agent.api.screen import ScreenError, find_screen, screen_key
+from ov.agent.api.screen import Screen, ScreenError, find_screen, screen_key
+from ov.agent.engine.browsing import browser_key
 from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.export import to_markdown
 from ov.agent.engine.files import attachments_dir, uploads_dir, within
@@ -31,12 +32,15 @@ from ov.agent.engine.run import STREAM_END, RunError, runs, status_feed
 from ov.agent.instances import explorer, graph
 from ov.agent.instances.explorer import ExplorerError
 from ov.agent.instances.ovproc import find_instance, instances, login, run_ov, url_for, version
-from ov.agent.integrations import copilot, datadog, pagerduty
+from ov.agent.integrations import claude, copilot, datadog, pagerduty, providers
+from ov.agent.integrations.claude import ClaudeError
 from ov.agent.integrations.copilot import CopilotError
 from ov.agent.integrations.datadog import DatadogError
 from ov.agent.integrations.pagerduty import PagerDutyError
 from ov.agent.skills import SkillError
 from ov.agent.storage import db
+from ov.agent.storage.models import Provider
+from ov.browser.pilot import BrowserError
 from ov.core.errors import OvError
 from ov.onevizion.auth import LOGIN_PATH
 
@@ -101,10 +105,12 @@ CLIENT_ERRORS = (
     SkillError,
     project.ProjectError,
     CopilotError,
+    ClaudeError,
     ExplorerError,
     DatadogError,
     PagerDutyError,
     ScreenError,
+    BrowserError,
     OvError,
     ValueError,
 )
@@ -310,15 +316,25 @@ def health(_: Handler) -> dict[str, Any]:
 @route("GET", "/api/status")
 def status(_: Handler) -> dict[str, Any]:
     user = copilot.user()
+    account = claude.account()
     rows = instances()
     settings = db.get_preferences()
+    signed_in = account["signedIn"] if settings["provider"] == Provider.CLAUDE else bool(user)
     return {
+        "provider": settings["provider"],
         "copilot": {"signedIn": bool(user), "user": user},
+        "claude": account,
         "ov": {"version": version()},
         "instances": {"total": len(rows), "valid": sum(1 for r in rows if r["valid"])},
         "settings": settings,
-        "ready": bool(user and rows and settings["defaultModel"]),
+        "ready": bool(signed_in and rows and settings["defaultModel"]),
     }
+
+
+@route("GET", "/api/claude/account")
+def claude_account(_: Handler) -> dict[str, Any]:
+    claude.forget_account()
+    return claude.account()
 
 
 @route("POST", "/api/copilot/device")
@@ -344,7 +360,10 @@ def copilot_account(_: Handler) -> dict[str, Any]:
 
 @route("GET", "/api/cost")
 def cost(h: Handler) -> dict[str, Any]:
-    return db.cost_report(_cost_since(h.query.get("range", "month")))
+    provider = h.query.get("provider") or db.get_preferences()["provider"]
+    if provider not in db.PROVIDERS:
+        raise HttpError(400, f"Unknown provider: {provider}")
+    return db.cost_report(_cost_since(h.query.get("range", "month")), Provider(provider))
 
 
 def _cost_since(range_name: str) -> int:
@@ -357,8 +376,11 @@ def _cost_since(range_name: str) -> int:
 
 
 @route("GET", "/api/models")
-def models(_: Handler) -> list[dict[str, Any]]:
-    return copilot.list_models()
+def models(h: Handler) -> list[dict[str, Any]]:
+    provider = h.query.get("provider") or db.get_preferences()["provider"]
+    if provider not in db.PROVIDERS:
+        raise HttpError(400, f"Unknown provider: {provider}")
+    return providers.list_models(Provider(provider))
 
 
 @route("GET", "/api/instances")
@@ -420,7 +442,11 @@ def get_settings(_: Handler) -> dict[str, Any]:
 
 @route("PUT", "/api/settings")
 def put_settings(h: Handler) -> dict[str, Any]:
-    return db.save_preferences(h.json())
+    patch = h.json()
+    switching = patch.get("provider") and patch["provider"] != db.get_preferences()["provider"]
+    if switching and "defaultModel" not in patch and patch["provider"] in db.PROVIDERS:
+        patch["defaultModel"], patch["fastModel"] = providers.default_models(Provider(patch["provider"]))
+    return db.save_preferences(patch)
 
 
 @route("GET", "/api/skills")
@@ -658,6 +684,7 @@ def start_run(h: Handler) -> dict[str, str]:
     model = settings["defaultModel"]
     if not model:
         raise HttpError(400, "Pick a model first (Settings).")
+    provider = Provider(settings["provider"])
 
     instance = str(data.get("instance") or "").strip()
     run = runs.create(
@@ -667,6 +694,7 @@ def start_run(h: Handler) -> dict[str, str]:
             "attachments": attachments,
             "allowWrite": bool(data.get("allowWrite")),
         },
+        provider,
         model,
     )
     return {"id": run.id}
@@ -710,11 +738,6 @@ def run_details(h: Handler, run_id: str) -> str:
 @route("POST", "/api/runs/([a-z0-9]+)/retitle")
 def retitle(_: Handler, run_id: str) -> dict[str, str]:
     return {"title": _run(run_id).retitle()}
-
-
-@route("POST", "/api/runs/([a-z0-9]+)/reply")
-def draft_reply(h: Handler, run_id: str) -> dict[str, str]:
-    return {"text": _run(run_id).draft_reply(_required(h.json(), "messageId"))}
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/pin")
@@ -807,9 +830,7 @@ def _screen_of(h: Handler) -> Any:
     return screen
 
 
-@route("GET", "/api/signin/screen")
-def signin_screen(h: Handler) -> None:
-    screen = _screen_of(h)
+def _stream_screen(h: Handler, screen: Screen) -> None:
     _open_stream(h)
     seen = -1
     try:
@@ -825,13 +846,25 @@ def signin_screen(h: Handler) -> None:
         pass
 
 
-@route("POST", "/api/signin/input")
-def signin_input(h: Handler) -> dict[str, bool]:
+def _push_input(h: Handler, screen: Screen | None) -> dict[str, bool]:
     events = h.json().get("events")
     if not isinstance(events, list):
         raise HttpError(400, "Give a list of events.")
-    _screen_of(h).push(events)
-    return {"ok": True}
+    if screen is None or screen.closed:
+        return {"open": False}
+
+    screen.push(events)
+    return {"open": True}
+
+
+@route("GET", "/api/signin/screen")
+def signin_screen(h: Handler) -> None:
+    _stream_screen(h, _screen_of(h))
+
+
+@route("POST", "/api/signin/input")
+def signin_input(h: Handler) -> dict[str, bool]:
+    return _push_input(h, find_screen(screen_key(_required(h.query, "url"), h.query.get("tenant", ""))))
 
 
 @route("POST", "/api/signin/cancel")
@@ -961,9 +994,55 @@ def access(h: Handler, run_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
+@route("GET", "/api/runs/([a-z0-9]+)/browser/screen")
+def browser_screen(h: Handler, run_id: str) -> None:
+    _known(run_id)
+    screen = find_screen(browser_key(run_id))
+    if screen is None:
+        raise HttpError(404, "No browser is open in this thread.")
+    _stream_screen(h, screen)
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/browser/input")
+def browser_input(h: Handler, run_id: str) -> dict[str, bool]:
+    _known(run_id)
+    return _push_input(h, find_screen(browser_key(run_id)))
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/browser/open")
+def browser_open(h: Handler, run_id: str) -> dict[str, bool]:
+    _run(run_id).open_browser(str(h.json().get("instance") or ""))
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/browser/size")
+def browser_size(h: Handler, run_id: str) -> dict[str, bool]:
+    data = h.json()
+    _run(run_id).browser.resize(int(data["width"]), int(data["height"]))
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/browser/close")
+def browser_close(_: Handler, run_id: str) -> dict[str, bool]:
+    _run(run_id).close_browser()
+    return {"ok": True}
+
+
 @route("POST", "/api/runs/([a-z0-9]+)/cancel")
 def cancel(_: Handler, run_id: str) -> dict[str, bool]:
     _run(run_id).stop()
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/tools/([A-Za-z0-9_\\-]+)/background")
+def background_tool(_: Handler, run_id: str, tool_id: str) -> dict[str, bool]:
+    _run(run_id).move_to_background(tool_id)
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/tools/([A-Za-z0-9_\\-]+)/stop")
+def stop_tool(_: Handler, run_id: str, tool_id: str) -> dict[str, bool]:
+    _run(run_id).stop_tool(tool_id)
     return {"ok": True}
 
 

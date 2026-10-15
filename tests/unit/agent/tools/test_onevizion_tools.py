@@ -116,12 +116,45 @@ def test_sql_results_mask_secrets_without_refusing_the_query(logged_in, tmp_path
     assert "[took " in out
 
 
-def test_sql_timeout_explains_what_to_do(logged_in, tmp_path, monkeypatch):
+def test_sql_timeout_reports_the_limit_and_the_measured_time(logged_in, tmp_path, monkeypatch):
     from ov.agent.tools import tool_named
 
-    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(1, "", "", timed_out=True))
-    with pytest.raises(ToolError, match="may still be running"):
-        tool_named("ov_sql").handler({"query": "select 1 from dual", "timeout": 30}, FakeContext(tmp_path))
+    clock = iter([0.0, 300.4])
+    monkeypatch.setattr("ov.agent.tools.onevizion.time.monotonic", lambda: next(clock))
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(5, "", "timed out"))
+    with pytest.raises(ToolError, match=r"no answer in 300s \(ran 300\.4s\).*may still be running"):
+        tool_named("ov_sql").handler({"query": "select 1 from dual"}, FakeContext(tmp_path))
+
+
+def test_sql_errors_before_the_limit_keep_their_own_message(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools import tool_named
+
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(5, "", "ORA-00942"))
+    with pytest.raises(ToolError, match="ORA-00942"):
+        tool_named("ov_sql").handler({"query": "select 1 from dual"}, FakeContext(tmp_path))
+
+
+def test_the_ov_subprocess_gets_the_call_timeout_and_a_grace_period(monkeypatch):
+    from ov.agent.instances import ovproc
+
+    seen = {}
+
+    class FakeProcess:
+        returncode = 0
+
+    def fake_popen(args, env, **_):
+        seen["env"] = env
+        return FakeProcess()
+
+    def fake_wait(process, timeout, cancel, held):
+        seen["limit"] = timeout
+        return False
+
+    monkeypatch.setattr(ovproc.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(ovproc, "_wait", fake_wait)
+    ovproc.run_ov(["sql"], timeout=300)
+    assert seen["env"]["OV_TIMEOUT_SECONDS"] == "300"
+    assert seen["limit"] == 300 + ovproc.TIMEOUT_GRACE_SECONDS
 
 
 IMPORT_RESULT = json.dumps(

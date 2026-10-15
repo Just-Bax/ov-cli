@@ -24,6 +24,7 @@ def empty_state(summary: dict[str, Any], write: bool) -> State:
         "chat": [],
         "writeAccess": write,
         "queued": [],
+        "claude": {"session": None, "turns": {}, "spent": 0.0},
     }
 
 
@@ -58,6 +59,15 @@ def _on_meta(state: State, stored: Stored) -> None:
             state["summary"][key] = event[key]
     if event.get("caseUrl"):
         state["caseUrl"] = event["caseUrl"]
+    anchor = event.get("claude")
+    if anchor:
+        if anchor["session"] != state["claude"]["session"]:
+            state["claude"]["spent"] = 0.0
+        state["claude"]["session"] = anchor["session"]
+        if anchor.get("turn"):
+            state["claude"]["turns"][anchor["turn"]] = anchor
+        if anchor.get("spent") is not None:
+            state["claude"]["spent"] = anchor["spent"]
 
 
 def _on_tool(state: State, stored: Stored) -> None:
@@ -150,6 +160,10 @@ def _on_access(state: State, stored: Stored) -> None:
     state["writeAccess"] = stored["event"]["write"]
 
 
+def _on_browser(state: State, stored: Stored) -> None:
+    state["browser"] = {**state.get("browser", {}), **stored["event"]["browser"]}
+
+
 _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "status": _on_status,
     "meta": _on_meta,
@@ -166,6 +180,7 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "unqueue": _on_unqueue,
     "rewind": _on_rewind,
     "access": _on_access,
+    "browser": _on_browser,
 }
 
 
@@ -231,7 +246,7 @@ def window(state: State, end: int, turns: int) -> State:
 
 def snapshot(state: State, turns: int) -> State:
     return {
-        **{k: v for k, v in state.items() if k not in WINDOWED},
+        **{k: v for k, v in state.items() if k not in WINDOWED and k != "claude"},
         **window(state, len(state["items"]), turns),
         "edits": [_brief(e, EDIT_DETAIL) for e in state["edits"]],
     }

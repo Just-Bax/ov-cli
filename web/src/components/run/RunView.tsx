@@ -1,6 +1,17 @@
-import { ArrowSquareOut as ArrowTopRightOnSquareIcon } from '@phosphor-icons/react'
+import {
+  ArrowSquareOut as ArrowTopRightOnSquareIcon,
+  ShieldWarning as ShieldWarningIcon,
+} from '@phosphor-icons/react'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ChatMessage, FollowUp, RunState, ThreadItem, ToolActivity } from '@shared/types.ts'
+import { createPortal } from 'react-dom'
+import type {
+  ChatMessage,
+  FollowUp,
+  Question,
+  RunState,
+  ThreadItem,
+  ToolActivity,
+} from '@shared/types.ts'
 import { EditableTitle } from '@/components/common/EditableTitle'
 import { ActionsSkeleton, ComposerSkeleton, useSkeleton } from '@/components/common/skeletons'
 import { reportError } from '@/components/common/Toasts'
@@ -29,6 +40,15 @@ import { CostPill } from './CostPill'
 import { FilesChanged } from './FilesChanged'
 import { FIND_LABEL, FindBar } from './FindBar'
 import { InstanceChip } from './InstanceChip'
+import {
+  BrowserBackdrop,
+  BrowserPane,
+  CARD_CLASS,
+  CHAT_CARD_STYLE,
+  isBrowserTool,
+  OpenBrowserButton,
+  ShowBrowserButton,
+} from './BrowserPane'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
 import { Answer, LoginCard, QuestionCard } from './Panels'
 import { RunMenu } from './RunMenu'
@@ -147,6 +167,20 @@ function turnTime(turn: Turn, state: RunState): number | undefined {
   return undefined
 }
 
+function browserQuestion(state: RunState): Question | undefined {
+  if (!state.browser?.open || !LIVE_QUESTION.has(state.summary.status)) return undefined
+
+  const tools = new Map(state.tools.map((t) => [t.id, t.name]))
+  return state.questions.find(
+    (q) => q.answer === undefined && q.toolId && isBrowserTool(tools.get(q.toolId)),
+  )
+}
+
+function browserShown(state: RunState | undefined, hiddenSession: number | undefined): boolean {
+  if (!state?.browser?.open) return false
+  return state.browser.session !== hiddenSession || Boolean(browserQuestion(state))
+}
+
 function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
   if (block.kind === 'tools') return <ToolGroup runId={state.summary.id} tools={block.tools} />
 
@@ -170,6 +204,14 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
     case 'question': {
       const q = state.questions.find((x) => x.id === item.id)
       const live = LIVE_QUESTION.has(state.summary.status)
+      if (q && q.id === browserQuestion(state)?.id) {
+        return (
+          <div className="text-warn flex items-center gap-2 text-[12.5px] font-medium">
+            <ShieldWarningIcon className="size-4" /> Waiting for your approval in the browser
+          </div>
+        )
+      }
+
       return q ? <QuestionCard runId={id} question={q} live={live} /> : null
     }
     case 'login': {
@@ -295,8 +337,18 @@ export function RunView({ id }: { id: string }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const followBottom = useRef(true)
   const ready = Boolean(state)
+  const [hiddenSession, setHiddenSession] = useState<number>()
+  const browsing = browserShown(state, hiddenSession)
+  const wasOpen = useRef(false)
   const restoreHeight = useRef<number | undefined>(undefined)
   const [finding, setFinding] = useState(false)
+
+  useEffect(() => {
+    const open = Boolean(state?.browser?.open)
+    if (wasOpen.current && !open && state?.browser?.error)
+      reportError(new Error(state.browser.error))
+    wasOpen.current = open
+  }, [state?.browser?.open, state?.browser?.error])
 
   useWindowEvent(OPEN_FIND, () => setFinding(true))
   useWindowEvent('keydown', (e) => {
@@ -363,7 +415,7 @@ export function RunView({ id }: { id: string }) {
       scroller.removeEventListener('scroll', onScroll)
       for (const name of USER_SCROLL_EVENTS) scroller.removeEventListener(name, markUser)
     }
-  }, [ready])
+  }, [ready, browsing])
 
   if (error)
     return (
@@ -445,14 +497,27 @@ export function RunView({ id }: { id: string }) {
 
   const listed = allRuns(list).find((r) => r.id === id)
   const settled = list?.settled.some((r) => r.id === id) ?? Boolean(summary.settled)
+  const browser = state.browser?.open ? state.browser : undefined
   const actions = (
     <>
-      {busy && !summary.cost ? null : <CostPill runId={id} cost={summary.cost} />}
+      {browser && !browsing ? (
+        <ShowBrowserButton
+          instance={browser.instance ?? ''}
+          driving={isBrowserTool(state.tools.findLast((t) => t.status === 'running')?.name)}
+          onShow={() => setHiddenSession(undefined)}
+        />
+      ) : null}
+      {summary.instance && !browser ? (
+        <OpenBrowserButton runId={id} instance={summary.instance} />
+      ) : null}
+      {busy && !summary.cost ? null : (
+        <CostPill runId={id} provider={summary.provider} cost={summary.cost} />
+      )}
       <RunMenu run={listed ?? summary} settled={settled} />
     </>
   )
 
-  return (
+  const page = (
     <Page
       title={
         <EditableTitle
@@ -550,12 +615,6 @@ export function RunView({ id }: { id: string }) {
                 <AssistantActions
                   runId={id}
                   turnId={turnId}
-                  replyFrom={
-                    turn.blocks.findLast(
-                      (b): b is Extract<Block, { kind: 'item' }> =>
-                        b.kind === 'item' && b.item.kind === 'text',
-                    )?.item.id
-                  }
                   text={text}
                   ts={turnTime(turn, state)}
                   canRetry={!busy}
@@ -583,5 +642,25 @@ export function RunView({ id }: { id: string }) {
         ) : null}
       </div>
     </Page>
+  )
+
+  if (!browser || !browsing) return page
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90]">
+      <BrowserBackdrop />
+      <BrowserPane
+        runId={id}
+        browser={browser}
+        tools={state.tools}
+        question={browserQuestion(state)}
+        write={state.writeAccess}
+        onHide={() => setHiddenSession(browser.session)}
+      />
+      <div className={CARD_CLASS} style={CHAT_CARD_STYLE}>
+        {page}
+      </div>
+    </div>,
+    document.body,
   )
 }

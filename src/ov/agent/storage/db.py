@@ -13,7 +13,21 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Connection, Engine, create_engine, delete, desc, event, exists, func, inspect, select, update
+from sqlalchemy import (
+    Connection,
+    Engine,
+    and_,
+    case,
+    create_engine,
+    delete,
+    desc,
+    event,
+    exists,
+    func,
+    inspect,
+    select,
+    update,
+)
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import aliased
 
@@ -24,6 +38,7 @@ from ov.agent.storage.models import (
     FollowUp,
     Message,
     Preference,
+    Provider,
     Reasoning,
     Skill,
     SkillSource,
@@ -42,6 +57,7 @@ PREFERENCE_ROW = 1
 DEFAULT_MAX_STEPS = 80
 MAX_STEPS_LIMIT = 500
 PREFERENCE_COLUMNS = {
+    "provider": "provider",
     "defaultModel": "default_model",
     "fastModel": "fast_model",
     "reasoning": "reasoning",
@@ -53,6 +69,8 @@ PREFERENCE_COLUMNS = {
 }
 TEXT_PREFERENCES = ("defaultModel", "fastModel", "workspace", "workspaceNotes")
 REASONING_LEVELS = tuple(level.value for level in Reasoning)
+PROVIDERS = tuple(provider.value for provider in Provider)
+NANO_PER_USD = 1_000_000_000
 FOLLOW_UPS = tuple(mode.value for mode in FollowUp)
 NANO_PER_CREDIT = 1_000_000_000
 TOP_THREADS = 5
@@ -230,7 +248,12 @@ def _close_open_tools(conn: Connection) -> None:
 
 
 def _ensure_preferences(conn: Connection) -> None:
-    values = {"max_steps": DEFAULT_MAX_STEPS, "follow_up": FollowUp.STEER, "expand_tools": False}
+    values = {
+        "provider": Provider.COPILOT,
+        "max_steps": DEFAULT_MAX_STEPS,
+        "follow_up": FollowUp.STEER,
+        "expand_tools": False,
+    }
     statement = insert(Preference).values(id=PREFERENCE_ROW, updated_at=now_ms(), **values)
     conn.execute(statement.on_conflict_do_nothing(index_elements=[Preference.id]))
 
@@ -262,6 +285,8 @@ def _check_preferences(patch: dict[str, Any]) -> None:
         raise ValueError(f"Unknown reasoning level: {patch['reasoning']}")
     if "followUp" in patch and patch["followUp"] not in FOLLOW_UPS:
         raise ValueError(f"followUp must be one of {', '.join(FOLLOW_UPS)}.")
+    if "provider" in patch and patch["provider"] not in PROVIDERS:
+        raise ValueError(f"provider must be one of {', '.join(PROVIDERS)}.")
 
 
 def _preference_values(patch: dict[str, Any]) -> dict[str, Any]:
@@ -288,20 +313,26 @@ def save_preferences(patch: dict[str, Any]) -> dict[str, Any]:
     return get_preferences()
 
 
+def _nano_of(provider: Provider) -> Any:
+    return func.sum(case((Usage.provider == provider, Usage.cost_nano), else_=0))
+
+
 def _thread_query() -> Any:
     usage_of_thread = Usage.thread_id == Thread.id
     return select(
         Thread,
-        select(func.sum(Usage.cost_nano)).where(usage_of_thread).scalar_subquery().label("nano"),
+        select(_nano_of(Provider.COPILOT)).where(usage_of_thread).scalar_subquery().label("copilot"),
+        select(_nano_of(Provider.CLAUDE)).where(usage_of_thread).scalar_subquery().label("claude"),
         select(func.count()).where(usage_of_thread).scalar_subquery().label("requests"),
     )
 
 
-def _summary(thread: Thread, nano: int | None, requests: int) -> dict[str, Any]:
+def _summary(thread: Thread, copilot: int | None, claude: int | None, requests: int) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "id": thread.id,
         "title": thread.title,
         "status": thread.status,
+        "provider": thread.provider,
         "model": thread.model,
         "createdAt": thread.created_at,
         "updatedAt": thread.updated_at,
@@ -315,7 +346,7 @@ def _summary(thread: Thread, nano: int | None, requests: int) -> dict[str, Any]:
     if thread.snoozed_until and thread.snoozed_until > now_ms():
         summary["snoozedUntil"] = thread.snoozed_until
     if requests:
-        summary["cost"] = _credits(nano, requests)
+        summary["cost"] = _amounts(copilot, claude, requests)
     return summary
 
 
@@ -323,14 +354,28 @@ def _rows(query: Any) -> list[dict[str, Any]]:
     from sqlalchemy.orm import Session
 
     with _begin() as conn, Session(bind=conn) as session:
-        return [_summary(thread, nano, requests) for thread, nano, requests in session.execute(query).all()]
+        return [_summary(*row) for row in session.execute(query).all()]
 
 
 def create_thread(
-    thread_id: str, title: str, model: str, *, prompt: str, instance: str | None, allow_write: bool
+    thread_id: str,
+    title: str,
+    provider: Provider,
+    model: str,
+    *,
+    prompt: str,
+    instance: str | None,
+    allow_write: bool,
 ) -> dict[str, Any]:
     now = now_ms()
-    values = {"title": title, "model": model, "prompt": prompt, "instance": instance, "allow_write": allow_write}
+    values = {
+        "title": title,
+        "provider": provider,
+        "model": model,
+        "prompt": prompt,
+        "instance": instance,
+        "allow_write": allow_write,
+    }
     with _begin() as conn:
         conn.execute(
             insert(Thread).values(id=thread_id, status=ThreadStatus.QUEUED, created_at=now, updated_at=now, **values)
@@ -513,78 +558,112 @@ def delete_skill(name: str) -> None:
         conn.execute(delete(Skill).where(Skill.name == name, Skill.source == SkillSource.CUSTOM))
 
 
-def _credits(nano: int | None, requests: int) -> dict[str, Any]:
-    return {"credits": (nano or 0) / NANO_PER_CREDIT, "requests": requests}
+def _amounts(copilot: int | None, claude: int | None, requests: int) -> dict[str, Any]:
+    return {
+        "credits": (copilot or 0) / NANO_PER_CREDIT,
+        "usd": (claude or 0) / NANO_PER_USD,
+        "requests": requests,
+    }
 
 
-def add_usage(thread_id: str, model: str, kind: str, tokens: dict[str, int], nano: int) -> dict[str, Any]:
+def add_usage(
+    thread_id: str, provider: Provider, model: str, kind: str, *, tokens: dict[str, int], nano: int
+) -> dict[str, Any]:
     unknown = set(tokens) - set(TOKEN_COLUMNS)
     if unknown:
-        raise ValueError(f"Copilot reported token types this version cannot store: {', '.join(sorted(unknown))}.")
+        raise ValueError(f"The model reported token types this version cannot store: {', '.join(sorted(unknown))}.")
     counts = {column: int(tokens.get(key, 0)) for key, column in TOKEN_COLUMNS.items()}
     with _begin() as conn:
         conn.execute(
             insert(Usage).values(
-                thread_id=thread_id, model=model, kind=kind, cost_nano=nano, created_at=now_ms(), **counts
+                thread_id=thread_id,
+                provider=provider,
+                model=model,
+                kind=kind,
+                cost_nano=nano,
+                created_at=now_ms(),
+                **counts,
             )
         )
-        total, requests = conn.execute(
-            select(func.sum(Usage.cost_nano), func.count()).where(Usage.thread_id == thread_id)
+        copilot, claude, requests = conn.execute(
+            select(_nano_of(Provider.COPILOT), _nano_of(Provider.CLAUDE), func.count()).where(
+                Usage.thread_id == thread_id
+            )
         ).one()
-    return _credits(total, requests)
+    return _amounts(copilot, claude, requests)
 
 
 def _summarize(where: Any) -> dict[str, Any]:
     token_sums = [func.coalesce(func.sum(getattr(Usage, column)), 0) for column in TOKEN_COLUMNS.values()]
     with _begin() as conn:
-        total, requests, *tokens = conn.execute(
-            select(func.sum(Usage.cost_nano), func.count(), *token_sums).where(where)
+        copilot, claude, requests, *tokens = conn.execute(
+            select(_nano_of(Provider.COPILOT), _nano_of(Provider.CLAUDE), func.count(), *token_sums).where(where)
         ).one()
         models = conn.execute(
-            select(Usage.model, func.sum(Usage.cost_nano).label("nano"), func.count().label("requests"))
+            select(
+                Usage.provider,
+                Usage.model,
+                func.sum(Usage.cost_nano).label("nano"),
+                func.count().label("requests"),
+            )
             .where(where)
-            .group_by(Usage.model)
+            .group_by(Usage.provider, Usage.model)
             .order_by(desc("nano"))
         ).all()
     return {
-        **_credits(total, requests),
+        **_amounts(copilot, claude, requests),
         "tokens": {kind: count for kind, count in zip(TOKEN_COLUMNS, tokens, strict=True) if count},
-        "models": [{"model": m.model, **_credits(m.nano, m.requests)} for m in models],
+        "models": [
+            {"model": m.model, "provider": m.provider, **_model_amount(m.provider, m.nano, m.requests)} for m in models
+        ],
     }
+
+
+def _model_amount(provider: str, nano: int | None, requests: int) -> dict[str, Any]:
+    if provider == Provider.CLAUDE:
+        return _amounts(0, nano, requests)
+    return _amounts(nano, 0, requests)
 
 
 def thread_cost(thread_id: str) -> dict[str, Any]:
     return _summarize(Usage.thread_id == thread_id)
 
 
-def _daily_nano(since: int) -> dict[str, int]:
-    days: dict[str, int] = {}
+def _daily(since: int, scope: Any) -> dict[str, tuple[int, int]]:
+    days: dict[str, tuple[int, int]] = {}
     day = datetime.fromtimestamp(since / 1000).date()
     while day <= datetime.now().date():
-        days[day.isoformat()] = 0
+        days[day.isoformat()] = (0, 0)
         day += timedelta(days=1)
 
     label = func.date(Usage.created_at // 1000, "unixepoch", "localtime").label("day")
     with _begin() as conn:
         rows = conn.execute(
-            select(label, func.sum(Usage.cost_nano)).where(Usage.created_at >= since).group_by(label)
+            select(label, _nano_of(Provider.COPILOT), _nano_of(Provider.CLAUDE)).where(scope).group_by(label)
         ).all()
-    return {**days, **dict(rows)}
+    return {**days, **{day: (copilot or 0, claude or 0) for day, copilot, claude in rows}}
 
 
-def cost_report(since: int) -> dict[str, Any]:
+def cost_report(since: int, provider: Provider) -> dict[str, Any]:
+    scope = and_(Usage.created_at >= since, Usage.provider == provider)
     threads = (
-        select(Usage.thread_id, Thread.title, func.sum(Usage.cost_nano).label("nano"))
+        select(
+            Usage.thread_id,
+            Thread.title,
+            _nano_of(Provider.COPILOT).label("copilot"),
+            _nano_of(Provider.CLAUDE).label("claude"),
+            func.count().label("requests"),
+        )
         .join(Thread, Thread.id == Usage.thread_id)
-        .where(Usage.created_at >= since)
+        .where(scope)
         .group_by(Usage.thread_id)
-        .order_by(desc("nano"))
+        .order_by(desc(func.sum(Usage.cost_nano)))
         .limit(TOP_THREADS)
     )
     with _begin() as conn:
         top = conn.execute(threads).all()
     return {
-        **_summarize(Usage.created_at >= since),
-        "days": [{"day": d, "credits": nano / NANO_PER_CREDIT} for d, nano in _daily_nano(since).items()],
-        "threads": [{"id": t.thread_id, "title": t.title, "credits": t.nano / NANO_PER_CREDIT} for t in top],
+        **_summarize(scope),
+        "days": [{"day": d, **_amounts(*nano, 0)} for d, nano in _daily(since, scope).items()],
+        "threads": [{"id": t.thread_id, "title": t.title, **_amounts(t.copilot, t.claude, t.requests)} for t in top],
     }

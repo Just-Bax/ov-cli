@@ -1,5 +1,25 @@
 export type RunStatus = 'queued' | 'running' | 'waiting' | 'done' | 'error' | 'cancelled'
 
+export interface CommandVerdict {
+  effect: 'read' | 'change' | 'outside' | 'write'
+  reason: string
+}
+
+export interface BrowserPointer {
+  x: number
+  y: number
+  step: number
+  press?: boolean
+}
+
+export interface BrowserState {
+  open: boolean
+  instance?: string
+  session?: number
+  pointer?: BrowserPointer | null
+  error?: string | null
+}
+
 export interface ToolActivity {
   id: string
   name: string
@@ -8,6 +28,10 @@ export interface ToolActivity {
   input?: string
   output?: string
   ms?: number
+  startedAt?: number
+  backgroundedAt?: number
+  stoppedAt?: number
+  verdict?: CommandVerdict
   lazy?: boolean
 }
 
@@ -72,6 +96,7 @@ export interface Question {
   multiple: boolean
   answer?: string
   detail?: string
+  toolId?: string
 }
 
 export interface LoginPrompt {
@@ -79,7 +104,7 @@ export interface LoginPrompt {
   instance: string
   url: string
   tenant?: string
-  state: 'needed' | 'running' | 'done' | 'failed'
+  state: 'needed' | 'running' | 'done' | 'failed' | 'skipped'
   message?: string
 }
 
@@ -116,18 +141,23 @@ type RunEvent =
   | { type: 'question'; question: Question }
   | { type: 'login'; login: LoginPrompt }
   | { type: 'access'; write: boolean }
+  | { type: 'browser'; browser: Partial<BrowserState> }
   | { type: 'queued'; message: ChatMessage }
   | { type: 'unqueue'; id: string }
   | { type: 'rewind'; itemId: string }
   | { type: 'cost'; cost: CostTotal }
 
+export type Provider = 'copilot' | 'claude'
+
 export interface CostTotal {
   credits: number
+  usd: number
   requests: number
 }
 
 interface ModelCost extends CostTotal {
   model: string
+  provider: Provider
 }
 
 export interface RunCost extends CostTotal {
@@ -138,8 +168,8 @@ export interface RunCost extends CostTotal {
 export type CostRange = 'month' | '7d' | '30d'
 
 export interface CostReport extends RunCost {
-  days: { day: string; credits: number }[]
-  threads: { id: string; title: string; credits: number }[]
+  days: ({ day: string } & CostTotal)[]
+  threads: ({ id: string; title: string } & CostTotal)[]
 }
 
 export interface CopilotAccount {
@@ -150,6 +180,14 @@ export interface CopilotAccount {
   unlimited: boolean
   entitlement: number | null
   remaining: number | null
+}
+
+export interface ClaudeAccount {
+  installed: boolean
+  signedIn: boolean
+  email?: string
+  plan?: string
+  method?: string
 }
 
 export interface StoredEvent {
@@ -208,6 +246,7 @@ export interface RunSummary {
   caseKey?: string
   instance?: string
   status: RunStatus
+  provider: Provider
   model: string
   createdAt: number
   updatedAt: number
@@ -234,11 +273,13 @@ export interface RunState extends RunWindow {
   error?: string
   writeAccess: boolean
   queued: ChatMessage[]
+  browser?: BrowserState
 }
 
 export type RunSnapshot = RunState & { seq: number }
 
 export interface Settings {
+  provider: Provider
   defaultModel: string
   fastModel: string
   workspace: string
@@ -266,6 +307,7 @@ export interface ModelInfo {
   vision: boolean
   premium?: number
   reasoning: ReasoningLevel[]
+  description?: string
 }
 
 export type FollowUp = 'steer' | 'queue'
@@ -284,7 +326,9 @@ export interface Instance {
 }
 
 export interface Status {
+  provider: Provider
   copilot: { signedIn: boolean; user?: string }
+  claude: ClaudeAccount
   ov: { version: string }
   instances: { total: number; valid: number }
   settings: Settings

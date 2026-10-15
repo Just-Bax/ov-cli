@@ -1,22 +1,26 @@
 import {
   SlidersHorizontal as AdjustmentsHorizontalIcon,
   ArrowRight as ArrowRightIcon,
-  ArrowSquareOut as ArrowTopRightOnSquareIcon,
   Check as CheckIcon,
   HardDrives as ServerIcon,
-  Copy as Square2StackIcon,
 } from '@phosphor-icons/react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
-import type { ModelInfo, Status } from '@shared/types.ts'
+import { type ReactNode, useEffect, useState } from 'react'
+import type { ModelInfo, Provider, Status } from '@shared/types.ts'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
+import { PROVIDER_NAMES, ProviderLogo } from '@/components/common/ProviderLogo'
+import {
+  ProviderSelect,
+  ProviderSetup,
+  providerReady,
+  providerSummary,
+} from '@/components/settings/Providers'
 import { AddInstanceForm, SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Card, GithubMark, Label, Select, Spinner, useCopy } from '@/components/common/ui'
+import { Button, Card, Label, Select, Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { SECOND_MS } from '@/lib/time'
+import { loadModels } from '@/lib/models'
 
-const SLOW_DOWN_STEP_MS = 5000
 const STEPS = [1, 2, 3]
 
 function Step({
@@ -81,95 +85,8 @@ function Step({
   )
 }
 
-function CopilotSignIn({ onDone }: { onDone: () => void }) {
-  const [code, setCode] = useState<{ userCode: string; verificationUri: string }>()
-  const [error, setError] = useState<string>()
-  const [starting, setStarting] = useState(false)
-  const [copied, copy] = useCopy()
-  const mounted = useRef(false)
-
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
-
-  const poll = async (deviceCode: string, seconds: number) => {
-    let interval = seconds * SECOND_MS
-    while (mounted.current) {
-      await new Promise((r) => setTimeout(r, interval))
-      const res = await api.devicePoll(deviceCode)
-      if (res.status === 'ok') return onDone()
-      if (res.status === 'error') throw new Error(res.message)
-      if (res.status === 'slow_down') interval += SLOW_DOWN_STEP_MS
-    }
-  }
-
-  const start = async () => {
-    setError(undefined)
-    setStarting(true)
-    try {
-      const flow = await api.deviceStart()
-      setCode(flow)
-      setStarting(false)
-      await poll(flow.deviceCode, flow.interval)
-    } catch (e) {
-      setError((e as Error).message)
-      setCode(undefined)
-      setStarting(false)
-    }
-  }
-
-  if (!code)
-    return (
-      <div>
-        <Button variant="primary" size="lg" disabled={starting} onClick={() => void start()}>
-          {starting ? <Spinner className="size-4" /> : <GithubMark className="size-4" />} Sign in
-          with GitHub
-        </Button>
-        {error ? <div className="text-danger mt-2 text-[12.5px]">{error}</div> : null}
-      </div>
-    )
-
-  return (
-    <div className="bg-raised rounded-2xl p-4">
-      <div className="text-muted text-[12px]">Enter this code on GitHub</div>
-      <div className="mt-1.5 flex items-center gap-2">
-        <span className="text-fg font-mono text-[26px] font-semibold tracking-[0.16em] select-all">
-          {code.userCode}
-        </span>
-        <button
-          type="button"
-          aria-label="Copy code"
-          onClick={() => copy(code.userCode)}
-          className={cn(
-            'flex size-9 items-center justify-center rounded-full transition-colors',
-            copied ? 'bg-ok-soft text-ok' : 'text-muted hover:text-fg bg-white',
-          )}
-        >
-          {copied ? <CheckIcon className="size-4" /> : <Square2StackIcon className="size-4" />}
-        </button>
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <Button
-          variant="primary"
-          onClick={() => {
-            copy(code.userCode)
-            window.open(code.verificationUri, '_blank', 'noopener')
-          }}
-        >
-          Copy code and open GitHub <ArrowTopRightOnSquareIcon className="size-3.5" />
-        </Button>
-        <span className="text-muted inline-flex items-center gap-2 text-[12.5px]">
-          <Spinner className="text-brand size-3.5" /> Waiting for you to approve
-        </span>
-      </div>
-    </div>
-  )
-}
-
 function pickModel(models: ModelInfo[]): string {
+  if (models.some((m) => m.id === 'opus')) return 'opus'
   const version = (id: string) => Number(/(\d+(?:\.\d+)?)/.exec(id)?.[1] ?? 0)
   const opus = models
     .filter((m) => /claude-opus/.test(m.id) && !/fast/.test(m.id))
@@ -215,24 +132,27 @@ export function Setup({
   const [saving, setSaving] = useState(false)
   const [adding, setAdding] = useState(false)
 
-  const copilotOk = status.copilot.signedIn
+  const providerOk = providerReady(status, status.provider)
   const instancesOk = status.instances.total > 0
 
   useEffect(() => {
-    if (!copilotOk) return
+    if (!providerOk) return
 
-    api
-      .models()
+    loadModels(status.provider)
       .then((m) => {
         setModels(m)
         if (!model || !m.some((x) => x.id === model)) setModel(pickModel(m))
       })
       .catch(reportError)
-  }, [copilotOk])
+  }, [providerOk, status.provider])
+
+  const pickProvider = (provider: Provider) => {
+    api.saveSettings({ provider }).then(onDone, reportError)
+  }
 
   useEffect(() => setAdding(false), [status.instances.total])
 
-  const current = !copilotOk ? 1 : !instancesOk ? 2 : 3
+  const current = !providerOk ? 1 : !instancesOk ? 2 : 3
 
   const finish = async () => {
     setSaving(true)
@@ -282,17 +202,27 @@ export function Setup({
           <div className="mt-7">
             <Step
               n={1}
-              done={copilotOk}
+              done={providerOk}
               active={current === 1}
-              icon={<GithubMark className="size-5" />}
-              title="Sign in to GitHub Copilot"
+              icon={<ProviderLogo provider={status.provider} className="size-5" />}
+              title="Pick who runs the agent"
               subtitle={
-                copilotOk
-                  ? `Signed in as ${status.copilot.user}.`
-                  : 'Copilot runs the agent. You approve this computer once on GitHub.'
+                providerOk
+                  ? `${PROVIDER_NAMES[status.provider]} runs the agent.`
+                  : 'Your Claude subscription through Claude Code, or GitHub Copilot.'
               }
             >
-              {current === 1 ? <CopilotSignIn onDone={onDone} /> : null}
+              {current === 1 ? (
+                <div className="space-y-3">
+                  <ProviderSelect
+                    className="w-[260px]"
+                    value={status.provider}
+                    onChange={pickProvider}
+                  />
+                  <div className="text-muted text-[12px]">{providerSummary(status)}</div>
+                  <ProviderSetup status={status} onRefresh={onDone} />
+                </div>
+              ) : null}
             </Step>
             <Step
               n={2}
@@ -306,7 +236,7 @@ export function Setup({
                   : 'Where the agent reads data, with your own account and permissions.'
               }
               action={
-                instancesOk && copilotOk ? (
+                instancesOk && providerOk ? (
                   <Button size="sm" variant="ghost" onClick={() => setAdding((a) => !a)}>
                     {adding ? 'Cancel' : 'Add another'}
                   </Button>

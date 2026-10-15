@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 from ov.agent.engine.cancel import Cancel
+from ov.agent.engine.guard import Effect, Verdict
 from ov.agent.engine.run import runs
 from ov.agent.storage import db
 
@@ -11,8 +12,14 @@ RUN_POLLS = 100
 RUN_POLL_SECONDS = 0.05
 
 
+class ClosedBrowser:
+    live = False
+
+
 class FakeContext:
-    def __init__(self, work_dir: Path, write: bool = False, approve: str = "Approve") -> None:
+    def __init__(
+        self, work_dir: Path, write: bool = False, approve: str = "Approve", effects: dict[str, Effect] | None = None
+    ) -> None:
         self.work_dir = work_dir
         self.cancel = Cancel()
         self.vision = True
@@ -23,6 +30,9 @@ class FakeContext:
         self.edits: list[tuple] = []
         self.write = write
         self.approve = approve
+        self.effects = effects or {}
+        self.judged: list[str] = []
+        self.browser = ClosedBrowser()
 
     def emit(self, event):
         self.events.append(event)
@@ -48,6 +58,11 @@ class FakeContext:
 
     def can_write(self):
         return self.write
+
+    def judge_command(self, command, folder):
+        self.judged.append(command)
+        effect = self.effects.get(command, Effect.READ)
+        return Verdict(effect, f"it is {effect.value}")
 
 
 def wait_done(run):

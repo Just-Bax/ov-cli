@@ -1,9 +1,9 @@
 ---
 title: Datadog
-description: Read before using any dd_ tool: instance servers and roles, which tool answers what, and UTC times.
+description: Use before any dd_ tool, or when a question is about slowness, outages, server errors, memory or a change after a release.
 ---
 
-The Datadog tools (dd_logs, dd_metrics, dd_monitors, dd_events, dd_apm) are available only when the user connected Datadog in Settings. Each takes an instance and applies that instance's servers, listed in the prompt with their roles (for example web and app), so pass the instance, not raw host tags. Add role to look at one kind of server only, such as role=app for background jobs or role=web for page requests. Times are UTC; OneVizion dates are usually the instance's local time, so state which one you mean.
+The Datadog tools (dd_logs, dd_metrics, dd_monitors, dd_events, dd_apm) are available only when the user connected Datadog in Settings. Each takes an instance and applies that instance's servers, listed in the prompt with their roles (for example web and app), so pass the instance, not raw host tags. Add role to look at one kind of server only, such as role=app for background jobs or role=web for page requests. Times are UTC, while OneVizion timestamps are in the instance's time zone (OneVizion Basics); convert before lining them up and state the zone you quote.
 
 Use Datadog when the question is about the server rather than the configuration: slowness, timeouts, errors users see in the browser, outages, out-of-memory, a spike after a release, "it worked yesterday". For configuration questions (a rule, a field, an import mapping) the instance itself is the source of truth; Datadog only adds the server-side view.
 

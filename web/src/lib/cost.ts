@@ -1,3 +1,5 @@
+import type { CostTotal, Provider } from '@shared/types.ts'
+
 const THOUSAND = 1000
 const MILLION = 1_000_000
 const SMALL_CREDITS = 10
@@ -37,4 +39,26 @@ export function orderedTokens(tokens: Record<string, number>): [string, number][
       const ib = known.indexOf(b)
       return (ia < 0 ? known.length : ia) - (ib < 0 ? known.length : ib)
     })
+}
+
+export type CostUnit = 'credits' | 'usd'
+
+export function unitFor(provider: Provider): CostUnit {
+  return provider === 'claude' ? 'usd' : 'credits'
+}
+
+export function formatUsd(usd: number): string {
+  return `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+export function formatAmount(value: number, unit: CostUnit): string {
+  return unit === 'usd' ? formatUsd(value) : `${formatCredits(value)} credits`
+}
+
+export function formatCost(cost: CostTotal): string {
+  const parts = [
+    cost.credits ? formatAmount(cost.credits, 'credits') : '',
+    cost.usd ? formatAmount(cost.usd, 'usd') : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' + ') : formatAmount(0, 'credits')
 }

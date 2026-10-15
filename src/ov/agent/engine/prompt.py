@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime
+import re
+from typing import Any
 
 from ov.agent import workspace as project
 from ov.agent.instances.ovproc import instances
@@ -9,6 +11,7 @@ from ov.agent.storage import db
 from ov.agent.tools import TOOL_GROUPS, tool_specs
 from ov.agent.tools.thread import offered_skills
 
+_SENT = re.compile(r"^\[Sent [^\]]*\]\n\n")
 EXPIRED = " (session expired: use it anyway, the user is asked to sign in on the first call)"
 NO_INSTANCE = (
     "not chosen. Work it out from context (a case's C_WEBSITE, a host or name in the "
@@ -48,8 +51,25 @@ def _pagerduty_text() -> str:
     return "connected. Incidents are tied to instances by the website in their alert."
 
 
+def now_text() -> str:
+    local = datetime.datetime.now().astimezone()
+    utc = local.astimezone(datetime.UTC)
+    offset = local.strftime("%z")
+    return (
+        f"{local:%Y-%m-%d %H:%M} on the user's computer ({local.tzname()}, UTC{offset[:3]}:{offset[3:]}), "
+        f"{utc:%Y-%m-%d %H:%M} UTC"
+    )
+
+
+def stamped(content: Any) -> Any:
+    stamp = f"[Sent {now_text()}]"
+    if isinstance(content, str):
+        return f"{stamp}\n\n{_SENT.sub('', content)}"
+    first, *rest = content
+    return [{**first, "text": f"{stamp}\n\n{_SENT.sub('', first['text'])}"}, *rest]
+
+
 def system_prompt(write_access: bool, instance: str) -> str:
-    today = datetime.date.today().isoformat()
     signed_in = "\n".join(f"- {i['alias']}: {i['url']}{EXPIRED if not i['valid'] else ''}" for i in instances())
     skills = offered_skills()
     core = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in skills if s["core"])
@@ -63,16 +83,27 @@ def system_prompt(write_access: bool, instance: str) -> str:
 
     return f"""You are OV Agent, a senior OneVizion Tier 3 engineer (TCE). You troubleshoot \
 support cases and answer questions about OneVizion instances by investigating them yourself \
-through the ov CLI. Today is {today}.
+through the ov CLI. Each user message starts with the time it was sent, on the user's computer and \
+in UTC. Instances, their databases and Datadog may each run in another time zone; check before \
+comparing times.
 
 Rules that always apply:
+- When the request names no concrete symptom or outcome ("fix X", "clean up Y", "check Z"), ask with \
+run_ask what is wrong or wanted before investigating; you may first list the objects it could mean with \
+one or two cheap lookups.
 - Every claim is backed by something you looked at with a tool. If you could not verify it, say so. \
 Label general knowledge you did not check on the instance or in the code as unverified.
 - An empty result is not proof that something does not exist or never happened. Say where you looked \
 ("no rows in X") and try another source before concluding.
 - Never call a tool as a placeholder (echo, where 1=0). To just answer, reply without tools.
-- Changes are blocked unless the user turned on write access for this run; then each change \
-waits for their approval. Write access is currently {"ON" if write_access else "OFF"}.
+- Changes are blocked unless the user turned on Allow changes for this run; even then you change \
+only what the user agreed to. Allow changes is currently {"ON" if write_access else "OFF"}.
+- When the user wants to see, show, open, check, navigate or test something in the OneVizion web UI, use the \
+browser: the user watches it beside the chat. Open it with browser_open, plan the test, then hand each part to \
+browser_run as a concrete goal with the expected result; a fast assistant drives the mouse and keyboard and \
+reports back with a screenshot. Read every report and its Result line before the next goal. While the browser \
+is open, every change happens in the UI; ov, SQL and commands only read, to check results. If the UI cannot \
+do a step, such as a read-only field or a missing button, stop and tell the user instead of doing it another way.
 - Never read or print stored credentials, passwords or tokens.
 - ASCII only. No em dashes.
 

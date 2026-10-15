@@ -19,7 +19,7 @@ import type { MessageLinks } from '@shared/types.ts'
 import type { Sparkle as SparklesIcon } from '@phosphor-icons/react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Dropdown } from '@/components/common/Dropdown'
+import { Dropdown, type DropdownOption } from '@/components/common/Dropdown'
 import { reportError } from '@/components/common/Toasts'
 import { cn } from '@/lib/cn'
 
@@ -291,7 +291,7 @@ export function Select({
 }: {
   value: string
   onChange: (v: string) => void
-  options: { value: string; label: string; hint?: string }[]
+  options: DropdownOption[]
   className?: string
   placeholder?: string
 }) {

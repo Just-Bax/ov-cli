@@ -10,7 +10,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { reportError } from '@/components/common/Toasts'
 import { Button, Input, Spinner } from '@/components/common/ui'
-import { RemoteScreen, SCREEN_BAR_PX, screenSize } from '@/components/signin/RemoteScreen'
+import { LiveScreen, SCREEN_BAR_PX, screenSize } from '@/components/screen/LiveScreen'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useEnterTransition } from '@/lib/hooks'
@@ -203,13 +203,16 @@ export function SignInModal({
           aria-modal="true"
           aria-label={`Sign in to ${host}`}
           className="animate-pop overflow-hidden rounded-2xl bg-white shadow-[0_20px_60px_rgba(38,50,56,0.3)]"
-          style={{ width: size.width, maxHeight: size.height + SCREEN_BAR_PX }}
+          style={{ width: size.width, height: size.height + SCREEN_BAR_PX }}
         >
-          <RemoteScreen
-            url={target.url}
-            host={host}
-            tenant={tenant}
-            onCancel={dismiss}
+          <LiveScreen
+            streamUrl={api.signInScreenUrl(target.url, tenant)}
+            send={(events) => api.signInInput(target.url, tenant, events)}
+            address={target.url}
+            label={`Sign-in page for ${host}`}
+            starting={`Opening ${host}`}
+            closeLabel="Cancel sign-in"
+            onClose={dismiss}
             status={
               <span className="bg-brand-soft text-brand-strong hidden h-8 shrink-0 items-center gap-2 rounded-full px-3 text-[12px] font-medium sm:inline-flex">
                 <Spinner className="size-3" />

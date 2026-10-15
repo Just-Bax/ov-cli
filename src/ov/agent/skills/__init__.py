@@ -10,13 +10,17 @@ from ov.agent.storage.models import SkillSource
 BUILTIN_DIR = Path(__file__).parent
 
 ORDER = (
-    "onevizion",
     "working-style",
+    "onevizion-basics",
     "ov-cli",
     "workspace",
+    "onevizion-reference",
+    "plsql-best-practices",
+    "oneteam-basics",
+    "issue-lifecycle",
+    "tce-best-practices",
     "datadog",
     "pagerduty",
-    "tce-best-practices",
 )
 
 _FRONT_MATTER = re.compile(r"^---\n([\s\S]*?)\n---\n?([\s\S]*)$")
@@ -75,25 +79,6 @@ def list_skills() -> list[dict[str, Any]]:
         }
         for row in rows
     ]
-
-
-REPLY_SKILL = "tce-best-practices"
-REPLY_SECTION = "Reply style"
-REPLY_HEADING = f"## {REPLY_SECTION}"
-
-
-def reply_style() -> str:
-    enabled = [s for s in list_skills() if s["enabled"]]
-    preferred = [s for s in enabled if s["source"] == SkillSource.CUSTOM] + [
-        s for s in enabled if s["source"] != SkillSource.CUSTOM
-    ]
-    skill = next((s for s in preferred if REPLY_HEADING in s["content"]), None)
-    if skill is None:
-        raise SkillError(f'No enabled skill has a "{REPLY_SECTION}" section; turn on {REPLY_SKILL}.')
-    content = skill["content"]
-    start = content.find(REPLY_HEADING)
-    end = content.find("\n## ", start + len(REPLY_HEADING))
-    return content[start : end if end > 0 else len(content)].strip()
 
 
 def enabled_skills() -> list[dict[str, Any]]:

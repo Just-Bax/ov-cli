@@ -12,10 +12,11 @@ import {
 } from '@phosphor-icons/react'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { RunSummary } from '@shared/types.ts'
+import type { Provider, RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { EditableTitle } from '@/components/common/EditableTitle'
+import { ProviderLogo } from '@/components/common/ProviderLogo'
 import { type Icon, Skeleton, Spinner } from '@/components/common/ui'
 import { OPEN_PALETTE, TOGGLE_SIDEBAR } from '@/components/layout/CommandPalette'
 import { RunMenu, snoozeLabel } from '@/components/run/RunMenu'
@@ -93,9 +94,23 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
   return pinned.length ? [['Pinned', pinned], ...rest] : rest
 }
 
-function Avatar({ user, loading }: { user?: string; loading?: boolean }) {
+export type SidebarAccount = {
+  provider: Provider
+  name?: string
+  detail: string
+  githubUser?: string
+}
+
+function Avatar({ account, loading }: { account?: SidebarAccount; loading?: boolean }) {
   const [broken, setBroken] = useState(false)
+  const user = account?.githubUser
   if (loading) return <Skeleton className="size-8 rounded-full" />
+  if (account?.provider === 'claude')
+    return (
+      <span className="flex size-8 items-center justify-center rounded-full bg-[#F5E6DF]">
+        <ProviderLogo provider="claude" className="size-[18px]" />
+      </span>
+    )
   if (!user || broken)
     return (
       <span className="bg-brand-soft text-brand-strong flex size-8 items-center justify-center rounded-full text-[13px] font-semibold">
@@ -496,11 +511,11 @@ function Shelf({
 
 export function Sidebar({
   route,
-  user,
+  account,
   loading,
 }: {
   route: Route
-  user?: string
+  account?: SidebarAccount
   loading?: boolean
 }) {
   const list = useRuns()
@@ -781,7 +796,7 @@ export function Sidebar({
                 onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
               )}
             >
-              <Avatar user={user} loading={loading} />
+              <Avatar account={account} loading={loading} />
               <RailTip at={settingsTip.at}>Settings</RailTip>
             </a>
           </div>
@@ -800,7 +815,7 @@ export function Sidebar({
                 onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
               )}
             >
-              <Avatar user={user} loading={loading} />
+              <Avatar account={account} loading={loading} />
               {loading ? (
                 <span className="space-y-1.5">
                   <Skeleton className="h-3 w-20" />
@@ -809,9 +824,9 @@ export function Sidebar({
               ) : (
                 <span className="min-w-0">
                   <span className="text-fg block truncate text-[13px] font-medium">
-                    {user ?? 'Not signed in'}
+                    {account?.name ?? 'Not signed in'}
                   </span>
-                  <span className="text-faint block text-[11.5px]">GitHub Copilot</span>
+                  <span className="text-faint block text-[11.5px]">{account?.detail}</span>
                 </span>
               )}
             </a>

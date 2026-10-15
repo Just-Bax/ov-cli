@@ -1,6 +1,6 @@
 ---
 title: PagerDuty
-description: Read before reviewing an incident, an alert or who is on call: how incidents tie to instances and what to check next.
+description: Use before any pd_ tool, or when a case or question mentions an incident, an alert, an outage or who is on call.
 ---
 
 The PagerDuty tools (pd_incidents, pd_incident, pd_oncall, pd_directory) are available only when the user connected PagerDuty in Settings. PagerDuty services are usually shared by many instances, so incidents are tied to an instance by what their alert names: a website field, a database, or a Datadog host. pd_incidents takes an instance; all_instances=true lists everything. Times are UTC.

@@ -8,10 +8,11 @@ import { createPortal } from 'react-dom'
 import { cn } from '@/lib/cn'
 import { useActiveIntoView, useClickOutside } from '@/lib/hooks'
 
-interface Option {
+export interface DropdownOption {
   value: string
   label: string
   hint?: string
+  icon?: ReactNode
 }
 
 type Variant = 'chip' | 'field' | 'plain'
@@ -41,7 +42,7 @@ export function Dropdown({
 }: {
   value: string
   onChange: (value: string) => void
-  options: Option[]
+  options: DropdownOption[]
   placeholder?: string
   variant?: Variant
   className?: string
@@ -103,7 +104,7 @@ export function Dropdown({
 
   useActiveIntoView(menuRef, active)
 
-  const pick = (o: Option) => {
+  const pick = (o: DropdownOption) => {
     onChange(o.value)
     setOpen(false)
     setQuery('')
@@ -150,6 +151,7 @@ export function Dropdown({
         )}
       >
         {prefix ? <span className="shrink-0">{prefix}</span> : null}
+        {current?.icon ? <span className="flex shrink-0 items-center">{current.icon}</span> : null}
         <span
           className={cn('min-w-0 flex-1 truncate', !current && variant === 'field' && 'text-faint')}
         >
@@ -200,10 +202,11 @@ export function Dropdown({
                       i === active ? 'bg-brand-soft text-brand-strong' : 'text-fg',
                     )}
                   >
-                    <span className="min-w-0 flex-1 truncate">{o.label}</span>
-                    {o.hint ? (
-                      <span className="text-faint shrink-0 text-[11px]">{o.hint}</span>
-                    ) : null}
+                    {o.icon ? <span className="flex shrink-0 items-center">{o.icon}</span> : null}
+                    <span className="shrink-0">{o.label}</span>
+                    <span className="text-faint min-w-0 flex-1 truncate text-right text-[11px]">
+                      {o.hint}
+                    </span>
                     <CheckIcon
                       className={cn(
                         'text-brand size-3.5 shrink-0',

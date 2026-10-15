@@ -9,8 +9,9 @@ import {
   Trash as TrashIcon,
 } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
-import type { ModelInfo, ReasoningLevel, SkillInfo } from '@shared/types.ts'
+import type { ModelInfo, Provider, ReasoningLevel, SkillInfo, Status } from '@shared/types.ts'
 import { dialog } from '@/components/common/Dialog'
+import { ProviderLogo } from '@/components/common/ProviderLogo'
 import { reportError } from '@/components/common/Toasts'
 import {
   Button,
@@ -38,6 +39,12 @@ import {
 } from '@/components/integrations/PagerDuty'
 import { AccountRow } from '@/components/integrations/parts'
 import { CostSettings } from '@/components/settings/CostSettings'
+import {
+  ProviderSelect,
+  ProviderSetup,
+  providerReady,
+  providerSummary,
+} from '@/components/settings/Providers'
 import {
   AddInstanceForm,
   SignInModal,
@@ -94,7 +101,7 @@ function reasoningHint(levels: ReasoningLevel[] | undefined, wanted: ReasoningLe
 }
 
 function modelOption(m: ModelInfo) {
-  return { value: m.id, label: m.name, hint: m.premium ? `x${m.premium}` : m.vendor }
+  return { value: m.id, label: m.name }
 }
 
 function Row({
@@ -117,12 +124,27 @@ function Row({
   )
 }
 
-function Preferences() {
+function Preferences({ status, onChange }: { status?: Status; onChange: () => void }) {
   const { settings, update } = useSettings()
-  const models = useModels()
+  const models = useModels(settings.provider)
+
+  const pickProvider = (provider: Provider) => {
+    update({ provider }).then(onChange, reportError)
+  }
 
   return (
     <Card className="divide-line divide-y">
+      <Row
+        title="Provider"
+        hint={`${status ? providerSummary(status) : 'Who runs the agent.'} Existing threads keep theirs.`}
+      >
+        <ProviderSelect className="w-[260px]" value={settings.provider} onChange={pickProvider} />
+      </Row>
+      {status && !providerReady(status, status.provider) ? (
+        <div className="px-5 py-4">
+          <ProviderSetup status={status} onRefresh={onChange} />
+        </div>
+      ) : null}
       <Row title="Main model" hint="Used for every new thread.">
         <Select
           className="w-[260px]"
@@ -148,17 +170,14 @@ function Preferences() {
       </Row>
       <Row
         title="Fast model"
-        hint="Writes thread titles and case replies. A quick, cheap model fits, such as Haiku. Without one, the thread's own model does it."
+        hint="Writes thread titles and judges what each workspace command would do before it runs. A quick model fits, such as Haiku. Without one, the thread's own model does it."
       >
         <Select
           className="w-[260px]"
           value={settings.fastModel}
           onChange={(v) => void update({ fastModel: v })}
           placeholder={models.length ? 'Main model' : 'Loading models...'}
-          options={[
-            { value: '', label: 'Main model', hint: 'same as the thread' },
-            ...models.map(modelOption),
-          ]}
+          options={[{ value: '', label: 'Main model' }, ...models.map(modelOption)]}
         />
       </Row>
       <Row
@@ -643,14 +662,20 @@ function Workspace() {
 }
 
 export function SettingsPage({ onChange }: { onChange: () => void }) {
-  const user = useLoad(api.status, []).value?.copilot.user
+  const { value: status, reload } = useLoad(api.status, [])
+  const user = status?.copilot.user
   const datadog = useDatadog()
   const pd = usePagerDuty()
+
+  const changed = () => {
+    reload()
+    onChange()
+  }
 
   const signOut = async () => {
     await api.copilotLogout()
     go({ page: 'home' })
-    onChange()
+    changed()
   }
 
   return (
@@ -668,7 +693,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           title="Preferences"
           hint="How threads start and what you see. Saved as you change them."
         >
-          <Preferences />
+          <Preferences status={status} onChange={changed} />
         </Section>
         <Section
           title="Instances"
@@ -699,7 +724,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
         </Section>
         <Section
           title="Cost"
-          hint="What the agent costs in Copilot credits. Each thread shows its own total in its header."
+          hint="What the agent used, per provider. Each thread shows its own total in its header."
         >
           <CostSettings />
         </Section>
@@ -708,7 +733,11 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
             <AccountRow
               badge={<GithubBadge />}
               title="GitHub Copilot"
-              detail={user ? `Signed in as ${user}. Runs the agent.` : 'Not signed in'}
+              detail={
+                user
+                  ? `Signed in as ${user}.${status?.provider === 'copilot' ? ' Runs the agent.' : ''}`
+                  : 'Not signed in'
+              }
               action={
                 user ? (
                   <Button
@@ -719,6 +748,19 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
                     <ArrowRightStartOnRectangleIcon className="size-3.5" /> Sign out
                   </Button>
                 ) : null
+              }
+            />
+            <AccountRow
+              badge={
+                <span className="bg-raised flex size-10 items-center justify-center rounded-xl">
+                  <ProviderLogo provider="claude" className="size-5" />
+                </span>
+              }
+              title="Claude"
+              detail={
+                status?.claude.signedIn
+                  ? `Signed in to Claude Code as ${status.claude.email}.${status.provider === 'claude' ? ' Runs the agent.' : ''} Sign out with /logout in Claude Code.`
+                  : 'Not signed in to Claude Code'
               }
             />
             <DatadogAccountRow status={datadog.status} setStatus={datadog.setStatus} />

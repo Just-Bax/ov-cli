@@ -4,6 +4,7 @@ import time
 
 from ov.agent.integrations.copilot import StreamResult, Usage
 from ov.agent.storage import db
+from ov.agent.storage.models import Provider
 
 
 def test_titles_are_cleaned_and_kept_short():
@@ -28,7 +29,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
     def fake_chat(*args, cancel, on_text, **_):
         return StreamResult(text="Done.")
 
-    def fake_complete(model, system, user_text):
+    def fake_complete(model, system, user_text, max_tokens=200):
         seen.append(model)
         return '"Tag listing question."', Usage(tokens={"input": 50, "output": 4}, nano=30_000_000)
 
@@ -38,7 +39,9 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "what tags are there on this instance?", "instance": "acme"}, "main-model")
+    run = runs.create(
+        {"prompt": "what tags are there on this instance?", "instance": "acme"}, Provider.COPILOT, "main-model"
+    )
     for _ in range(100):
         if run.state["summary"]["title"] == "Tag listing question":
             break
@@ -46,7 +49,13 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
 
     assert run.state["summary"]["title"] == "Tag listing question"
     assert seen == ["fast-model"]
-    assert db.thread_cost(run.id)["models"][0] == {"model": "fast-model", "credits": 0.03, "requests": 1}
+    assert db.thread_cost(run.id)["models"][0] == {
+        "model": "fast-model",
+        "provider": "copilot",
+        "credits": 0.03,
+        "usd": 0.0,
+        "requests": 1,
+    }
 
 
 def test_a_thread_is_named_with_the_main_model_without_a_fast_model(logged_in, monkeypatch):
@@ -64,7 +73,9 @@ def test_a_thread_is_named_with_the_main_model_without_a_fast_model(logged_in, m
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "why is the rule queue so long today on acme?", "instance": "acme"}, "main-model")
+    run = runs.create(
+        {"prompt": "why is the rule queue so long today on acme?", "instance": "acme"}, Provider.COPILOT, "main-model"
+    )
     for _ in range(100):
         if run.state["summary"]["title"] == "Rule queue backlog":
             break

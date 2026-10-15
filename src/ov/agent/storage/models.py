@@ -12,6 +12,11 @@ def thread_fk() -> ForeignKey:
     return ForeignKey("thread.id", ondelete="CASCADE")
 
 
+class Provider(StrEnum):
+    COPILOT = "copilot"
+    CLAUDE = "claude"
+
+
 class ThreadStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -36,6 +41,7 @@ class EventType(StrEnum):
     UNQUEUE = "unqueue"
     REWIND = "rewind"
     ACCESS = "access"
+    BROWSER = "browser"
 
 
 class MessageRole(StrEnum):
@@ -49,7 +55,7 @@ class UsageKind(StrEnum):
     TURN = "turn"
     STEP = "step"
     NAMING = "naming"
-    REPLY = "reply"
+    GUARD = "guard"
 
 
 class Reasoning(StrEnum):
@@ -96,6 +102,7 @@ class Thread(Base):
     __tablename__ = "thread"
     __table_args__ = (
         one_of("status", ThreadStatus),
+        one_of("provider", Provider),
         CheckConstraint("allow_write IN (0, 1)", name="allow_write_valid"),
         Index("thread_by_created", "created_at"),
         Index("thread_by_settled", "settled_at"),
@@ -106,6 +113,7 @@ class Thread(Base):
     title: Mapped[str] = mapped_column(Text)
     instance: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(Text)
     prompt: Mapped[str] = mapped_column(Text)
     allow_write: Mapped[bool] = mapped_column(Integer)
@@ -156,12 +164,14 @@ class Usage(Base):
     __tablename__ = "usage"
     __table_args__ = (
         one_of("kind", UsageKind),
+        one_of("provider", Provider),
         Index("usage_by_thread", "thread_id"),
         Index("usage_by_created", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     thread_id: Mapped[str] = mapped_column(Text, thread_fk())
+    provider: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(Text)
     input_tokens: Mapped[int] = mapped_column(Integer)
@@ -177,12 +187,14 @@ class Preference(Base):
     __table_args__ = (
         CheckConstraint("id = 1", name="single_row"),
         one_of("reasoning", Reasoning, nullable=True),
+        one_of("provider", Provider),
         one_of("follow_up", FollowUp),
         CheckConstraint("max_steps BETWEEN 1 AND 500", name="max_steps_valid"),
         CheckConstraint("expand_tools IN (0, 1)", name="expand_tools_valid"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    provider: Mapped[str] = mapped_column(Text)
     default_model: Mapped[str | None] = mapped_column(Text)
     fast_model: Mapped[str | None] = mapped_column(Text)
     reasoning: Mapped[str | None] = mapped_column(Text)

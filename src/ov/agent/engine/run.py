@@ -15,7 +15,9 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from ov.agent.engine import cases
+from ov.agent import workspace as project
+from ov.agent.engine import browser_runner, cases, claude_loop, guard
+from ov.agent.engine.browsing import BrowserSlot
 from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.files import (
     IMAGE_EXTS,
@@ -28,13 +30,14 @@ from ov.agent.engine.files import (
     within,
 )
 from ov.agent.engine.links import links_for, seen_ids
-from ov.agent.engine.prompt import system_prompt
+from ov.agent.engine.prompt import stamped, system_prompt
 from ov.agent.engine.state import details, empty_state, reduce, search, snapshot, window
-from ov.agent.instances.ovproc import find_instance, url_for
+from ov.agent.engine.tasks import Task, TaskContext
+from ov.agent.instances.ovproc import find_instance, url_for, web_cookies
 from ov.agent.instances.ovproc import login as ov_login
-from ov.agent.integrations import copilot
-from ov.agent.skills import reply_style
+from ov.agent.integrations import claude, copilot, providers
 from ov.agent.storage import db
+from ov.agent.storage.models import Provider, UsageKind
 from ov.agent.tools import tool_named, tool_specs
 from ov.agent.tools.base import Tool, ToolError
 
@@ -44,6 +47,7 @@ KEEP_RECENT_MESSAGES = 12
 PINNED_MESSAGES = 2
 TRIMMED_TOOL_OUTPUT = 1200
 TOOL_WORKERS = 8
+MAX_BACKGROUND_TASKS = TOOL_WORKERS
 TOOL_INPUT_CHARS = 8000
 TOOL_OUTPUT_CHARS = 12000
 TOOL_ERROR_CHARS = 4000
@@ -52,6 +56,7 @@ LOGIN_MESSAGE_CHARS = 300
 TITLE_CHARS = 72
 PROMPT_TITLE_CHARS = 60
 NAMING_INPUT_CHARS = 2000
+NAMING_MAX_TOKENS = 200
 NAMING_PROMPT = (
     "You write titles for a list of conversations. You never answer or act on the request. "
     "Given the user's first message between <message> tags, reply with a 3 to 7 word title "
@@ -74,20 +79,30 @@ STREAM_END = object()
 WAKE_STATUSES = ("waiting", "error", "done")
 SHUTDOWN_POLL_SECONDS = 0.05
 
-REPLY_PROMPT = (
-    "Rewrite the engineer's findings below as the comment they will post to the customer on the support "
-    "case. Use only facts in the findings; never add new ones. Output only the comment text."
-)
-REPLY_CONTEXT_CHARS = 2000
-REPLY_MAX_TOKENS = 1500
 EMPTY_REPLY_NOTE = "Your last reply was empty. Answer the user's last message."
 WRITE_ON_NOTE = (
-    "The user turned ON write access for this run. You may now apply changes with ov and the PagerDuty change "
-    "tools (pd_note, pd_ack, pd_resolve, pd_escalate, pd_reassign, pd_snooze); each change still "
-    "waits for their approval. Only apply what is needed."
+    "The user turned ON Allow changes for this run. Changes through ov, ov_import, the PagerDuty change tools, "
+    "workspace edits and commands that change something are now possible; instance and PagerDuty changes, "
+    "pushes and other outside effects still wait for their approval. Apply only what the agreed plan needs."
 )
-WRITE_OFF_NOTE = "The user turned OFF write access for this run. Do not attempt changes; propose them instead."
+WRITE_OFF_NOTE = "The user turned OFF Allow changes for this run. Make no changes; propose them instead."
+BROWSER_OPENED_NOTE = (
+    "The user opened {alias} in the browser beside the chat. You both see it and the user may click in it too. "
+    "Questions about what is on screen and requests to go somewhere or do something there are about this browser: "
+    "hand them to browser_run as goals; ov only reads while it is open."
+)
+BROWSER_CLOSED_NOTE = "The user closed the browser."
+BACKGROUND_STARTED = (
+    "Running in the background as {label}. Its result arrives as a message when it finishes. Continue with "
+    "checks that do not depend on it, or end your turn and you will be woken with the result. Do not guess "
+    "its result."
+)
+BACKGROUND_FULL = "{count} tasks already run in the background. Wait for one to finish first."
+TASK_FINISHED = "[Background task finished: {label}]\n{result}"
+TASK_STOPPED_NOTE = "The user stopped the background task {label}; it gave no result."
+STOPPED_BY_USER = "Stopped by the user."
 
+CLOSED_LOGINS = ("done", "failed", "skipped")
 STOPPED_ANSWER = "(not answered: the run stopped)"
 EDIT_CHARS = 60_000
 CUT_OFF_ARGUMENTS = (
@@ -136,6 +151,10 @@ status_feed = StatusFeed()
 class Run:
     _turns: dict[str, int]
     _saved: list[str]
+    _tasks: dict[str, Task]
+    _finished_tasks: list[Task]
+    _verdicts: dict[tuple[str, ...], guard.Verdict]
+    _claude_fork: dict[str, Any] | None
 
     def __init__(self, run_id: str, state: dict[str, Any], seq: int) -> None:
         self.id = run_id
@@ -158,11 +177,11 @@ class Run:
         self._held: set[str] = set()
         self._questions: dict[str, tuple[threading.Event, list[str]]] = {}
         self._logins: dict[str, tuple[threading.Event, list[bool]]] = {}
-        self._busy = False
-        self._finished = False
+        self._busy, self._finished = False, False
         self._streaming: str | None = None
         self._background = 0
-        self.touched = db.now_ms()
+        self._tasks, self._finished_tasks, self._verdicts, self._claude_fork = {}, [], {}, None
+        self.browser, self.touched = BrowserSlot(run_id, self.emit), db.now_ms()
 
     @property
     def _messages(self) -> list[dict[str, Any]]:
@@ -191,6 +210,10 @@ class Run:
     @property
     def instance(self) -> str:
         return self.state["summary"].get("instance") or ""
+
+    @property
+    def provider(self) -> Provider:
+        return Provider(self.state["summary"]["provider"])
 
     def working(self) -> bool:
         with self._lock:
@@ -242,7 +265,7 @@ class Run:
 
         return channel, unsubscribe, backlog
 
-    def _stream_text(self, message_id: str, delta: str) -> None:
+    def stream_text(self, message_id: str, delta: str) -> None:
         with self._lock:
             self._streaming = message_id
             live = {
@@ -255,7 +278,7 @@ class Run:
             for channel in self._listeners:
                 channel.put(live)
 
-    def _commit_text(self, message_id: str) -> None:
+    def commit_text(self, message_id: str) -> None:
         with self._lock:
             self._streaming = None
             message = next((m for m in self.state["chat"] if m["id"] == message_id), None)
@@ -278,7 +301,7 @@ class Run:
     def _record_usage(self, model: str, kind: str, usage: copilot.Usage | None) -> None:
         if usage is None:
             return
-        cost = db.add_usage(self.id, model, kind, usage.tokens, usage.nano)
+        cost = db.add_usage(self.id, self.provider, model, kind, tokens=usage.tokens, nano=usage.nano)
         with self._lock:
             self.state["summary"]["cost"] = cost
             live = {"seq": self.seq, "ts": db.now_ms(), "live": True, "event": {"type": "cost", "cost": cost}}
@@ -311,6 +334,7 @@ class Run:
 
     def shut_down(self) -> None:
         self.stop()
+        self.browser.close()
         deadline = time.monotonic() + SHUTDOWN_SECONDS
         while self.working():
             if time.monotonic() > deadline:
@@ -322,13 +346,15 @@ class Run:
         for channel in listeners:
             channel.put(STREAM_END)
 
-    def _set_status(self, status: str, error: str | None = None) -> None:
+    def _set_status(self, status: str, error: str | None = None, woken_by: str | None = None) -> None:
         with self._lock:
-            if self.state["summary"]["status"] == status and not error:
+            if self.state["summary"]["status"] == status and not error and not woken_by:
                 return
             event: dict[str, Any] = {"type": "status", "status": status}
             if error:
                 event["error"] = error
+            if woken_by:
+                event["wokenBy"] = woken_by
             self.emit(event)
         status_feed.publish(
             {"kind": "status", "id": self.id, "status": status, "title": self.state["summary"]["title"]}
@@ -355,6 +381,24 @@ class Run:
 
         threading.Thread(target=work, daemon=True, name=f"run-{self.id}").start()
 
+    def open_browser(self, ref: str) -> None:
+        wanted = ref or self.instance
+        if not wanted:
+            raise RunError("This thread has no instance yet.")
+
+        found = find_instance(wanted)
+        if found is None:
+            raise RunError(f"{wanted} is not a signed-in instance.")
+
+        pilot = self.browser.start(found["alias"], found["url"], web_cookies(found["alias"]))
+        self._notes.append(BROWSER_OPENED_NOTE.format(alias=found["alias"]))
+        pilot.goto(pilot.url_of(""))
+
+    def close_browser(self) -> None:
+        if self.browser.live:
+            self._notes.append(BROWSER_CLOSED_NOTE)
+        self.browser.close()
+
     def set_write_access(self, write: bool) -> None:
         if self.state["writeAccess"] == write:
             return
@@ -367,8 +411,10 @@ class Run:
             dropped, self._queue = self._queue, []
             questions, self._questions = self._questions, {}
             logins, self._logins = self._logins, {}
-
+            self._finished_tasks = []
             self._held.clear()
+            idle = not self._busy
+        self._stop_tasks()
         for message, _ in dropped:
             self.emit({"type": "unqueue", "id": message["id"]})
         for question_id, (event, answer) in questions.items():
@@ -378,6 +424,51 @@ class Run:
         for event, ok in logins.values():
             ok.append(False)
             event.set()
+        if idle and self.state["summary"]["status"] == "running":
+            self._set_status("cancelled")
+
+    def _stop_tasks(self) -> None:
+        with self._lock:
+            live = list(self._tasks.values())
+        for task in live:
+            self._stop_task(task)
+
+    def _stop_task(self, task: Task) -> None:
+        with self._lock:
+            if task.finished or task.stopped_at is not None:
+                return
+            task.stopped_at = db.now_ms()
+        task.cancel.set()
+        self.emit({"type": "tool", "tool": {"id": task.id, "stoppedAt": task.stopped_at}})
+
+    def stop_tool(self, tool_id: str) -> None:
+        with self._lock:
+            task = self._tasks.get(tool_id)
+        if task is None:
+            raise RunError("That tool is no longer running.")
+
+        self._stop_task(task)
+        if task.backgrounded_at is not None:
+            self._notes.append(TASK_STOPPED_NOTE.format(label=task.label))
+
+    def move_to_background(self, tool_id: str) -> None:
+        with self._lock:
+            task = self._tasks.get(tool_id)
+            if task is None or task.finished:
+                raise RunError("That tool is no longer running.")
+            if task.backgrounded_at is not None:
+                return
+            if self._questions or self._logins:
+                raise RunError("Answer the open question first.")
+            self._check_background_room()
+            task.backgrounded_at = db.now_ms()
+        self.emit({"type": "tool", "tool": {"id": task.id, "backgroundedAt": task.backgrounded_at}})
+        task.settled.set()
+
+    def _check_background_room(self) -> None:
+        count = len(self._background_tasks())
+        if count >= MAX_BACKGROUND_TASKS:
+            raise RunError(BACKGROUND_FULL.format(count=count))
 
     def answer(self, question_id: str, answer: str) -> None:
         question = next((q for q in self.state["questions"] if q["id"] == question_id), None)
@@ -407,6 +498,9 @@ class Run:
         }
         if detail:
             entry["detail"] = detail
+        tool_id = getattr(self._local, "tool", "")
+        if tool_id:
+            entry["toolId"] = tool_id
 
         event, holder = threading.Event(), []
         with self._lock:
@@ -441,7 +535,7 @@ class Run:
                     for item in self.state["logins"]
                     if item["instance"] == host
                     and (item.get("tenant") or "") == tenant
-                    and item["state"] not in ("done", "failed")
+                    and item["state"] not in CLOSED_LOGINS
                 ),
                 None,
             )
@@ -468,7 +562,7 @@ class Run:
         if prompt is None:
             raise RunError("No such login prompt.")
         if skip:
-            self.emit({"type": "login", "login": {**prompt, "state": "failed", "message": "Skipped"}})
+            self.emit({"type": "login", "login": {**prompt, "state": "skipped"}})
             self._resolve_login(login_id, False)
             return {"ok": False, "message": "Skipped"}
 
@@ -516,6 +610,36 @@ class Run:
     def can_write(self) -> bool:
         return bool(self.state["writeAccess"])
 
+    def judge_command(self, command: str, folder: str) -> guard.Verdict:
+        return self._judged(
+            (command, folder),
+            lambda model: guard.judge(self.provider, model, command, folder, project.shell_name()),
+        )
+
+    def drive_browser(self, goal: str, cancel: Cancel) -> str:
+        return browser_runner.drive(self, self._helper_model(), goal, cancel)
+
+    def record_step_usage(self, model: str, usage: copilot.Usage | None) -> None:
+        self._record_usage(model, UsageKind.STEP, usage)
+
+    def judge_page_action(self, action: str) -> guard.Verdict:
+        return self._judged(("page", action), lambda model: guard.judge_page_action(self.provider, model, action))
+
+    def _judged(
+        self, key: tuple[str, ...], ask: Callable[[str], tuple[guard.Verdict, providers.Usage | None]]
+    ) -> guard.Verdict:
+        with self._lock:
+            verdict = self._verdicts.get(key)
+        if verdict is None:
+            model = self._helper_model()
+            verdict, usage = ask(model)
+            self._record_usage(model, UsageKind.GUARD, usage)
+            with self._lock:
+                self._verdicts[key] = verdict
+
+        self.emit({"type": "tool", "tool": {"id": self._local.tool, "verdict": verdict.as_dict()}})
+        return verdict
+
     def finish(self, outcome: dict[str, Any]) -> None:
         self._finished = True
         self.emit({"type": "outcome", "outcome": outcome})
@@ -530,7 +654,7 @@ class Run:
             uploaded = self._copy_uploads(data.get("attachments") or [], START_TURN)
             text = (data.get("prompt") or "").strip()
             self.emit({"type": "user", "message": self._message(START_TURN, text, uploaded)})
-            self.vision = copilot.supports_vision(self.state["summary"]["model"])
+            self.vision = providers.supports_vision(self.provider, self.state["summary"]["model"])
 
             ref = None if uploaded else cases.case_ref(text)
             if not ref and text:
@@ -558,9 +682,12 @@ class Run:
         return f"Troubleshoot this case.\n\n{text}"
 
     def load_case(self, ref: str) -> str:
+        return self.read_case(ref, self.cancel)
+
+    def read_case(self, ref: str, cancel: Cancel) -> str:
         for attempt in range(LOGIN_ATTEMPTS):
             try:
-                bundle = cases.load_case(ref, self.work_dir, self.cancel)
+                bundle = cases.load_case(ref, self.work_dir, cancel)
                 break
             except cases.NeedsLogin as exc:
                 if attempt or not self.require_login(exc.host):
@@ -613,12 +740,16 @@ class Run:
 
     def _pick_up_queue(self) -> None:
         with self._lock:
-            waiting = bool(self._queue)
+            waiting = bool(self._queue or self._finished_tasks)
+            woken_by = self._finished_tasks[0].id if self._finished_tasks and not self._queue else None
         if waiting and self._claim():
-            self._spawn(self._run_turn)
+            self._spawn(self._run_turn, woken_by)
 
     def _helper_model(self) -> str:
-        return db.get_preferences()["fastModel"] or self.state["summary"]["model"]
+        preferences = db.get_preferences()
+        if preferences["provider"] == self.provider and preferences["fastModel"]:
+            return preferences["fastModel"]
+        return self.state["summary"]["model"]
 
     def _name_later(self, text: str) -> None:
         self._spawn(self._name, self.state["summary"]["title"], text)
@@ -630,7 +761,7 @@ class Run:
 
     def _ask_title(self, body: str) -> str:
         model = self._helper_model()
-        reply, usage = copilot.complete(model, NAMING_PROMPT, body)
+        reply, usage = providers.complete(self.provider, model, NAMING_PROMPT, body, NAMING_MAX_TOKENS)
         self._record_usage(model, "naming", usage)
         title = clean_title(reply)
         if not title:
@@ -646,19 +777,6 @@ class Run:
         title = self._ask_title(body)
         self.rename(title)
         return title
-
-    def draft_reply(self, message_id: str) -> str:
-        answer = next((m for m in self.state["chat"] if m["id"] == message_id and m["role"] == "assistant"), None)
-        if answer is None:
-            raise RunError("No such agent message.")
-        asked = next((m["text"] for m in self.state["chat"] if m["role"] == "user"), "")
-        model = self._helper_model()
-        prompt = f"{REPLY_PROMPT}\n\n{reply_style()}"
-        case = f"{self.state['summary']['title']}\n{asked[:REPLY_CONTEXT_CHARS]}"
-        body = f"<case>\n{case}\n</case>\n\n<findings>\n{answer['text']}\n</findings>"
-        text, usage = copilot.complete(model, prompt, body, REPLY_MAX_TOKENS)
-        self._record_usage(model, "reply", usage)
-        return text
 
     def rename(self, title: str) -> None:
         cleaned = short_title(title, TITLE_CHARS)
@@ -684,13 +802,25 @@ class Run:
         with self._lock:
             return any(q[0]["id"] not in self._held for q in self._queue)
 
+    def _has_news(self) -> bool:
+        with self._lock:
+            return self._steering() or bool(self._finished_tasks)
+
     def retry(self, item_id: str) -> None:
         index = self._turns.get(item_id) if self._messages else None
         message = next((m for m in self.state["chat"] if m["id"] == item_id and m["role"] == "user"), None)
         if index is None or message is None:
             raise RunError("This message cannot be retried.")
+        anchor = self.state["claude"]["turns"].get(item_id)
+        if self.provider == Provider.CLAUDE and anchor is None:
+            raise RunError("This message never reached Claude, so it cannot be retried.")
         if not self._claim():
             raise RunError("Wait for the agent to finish, or stop it, before retrying.")
+
+        self._stop_tasks()
+        with self._lock:
+            self._finished_tasks = []
+        self._claude_fork = anchor
 
         content = self._messages[index]["content"]
         self._messages = self._messages[:index]
@@ -700,11 +830,11 @@ class Run:
         self._push_turn(item_id, content)
         self._spawn(self._run_turn)
 
-    def _run_turn(self) -> None:
+    def _run_turn(self, woken_by: str | None = None) -> None:
         try:
-            self._set_status("running")
+            self._set_status("running", woken_by=woken_by)
             self._deliver_queued(everything=True)
-            self._loop("user")
+            self._loop("agent" if woken_by else "user")
         except Exception as exc:
             self._fail(exc)
         finally:
@@ -722,7 +852,7 @@ class Run:
 
     def _push_turn(self, turn_id: str, content: Any) -> None:
         self._turns[turn_id] = len(self._messages)
-        self._messages.append({"role": "user", "content": content})
+        self._messages.append({"role": "user", "content": stamped(content)})
         self._persist()
 
     def _deliver_queued(self, everything: bool = False) -> None:
@@ -776,7 +906,9 @@ class Run:
         return parts
 
     def _fail(self, exc: Exception) -> None:
-        for tool in [t for t in self.state["tools"] if t["status"] == "running"]:
+        with self._lock:
+            live = set(self._tasks)
+        for tool in [t for t in self.state["tools"] if t["status"] == "running" and t["id"] not in live]:
             self.emit({"type": "tool", "tool": {"id": tool["id"], "status": "error", "output": "Interrupted."}})
         if self.cancel.is_set():
             self._set_status("cancelled")
@@ -784,6 +916,14 @@ class Run:
         self._set_status("error", str(exc) or type(exc).__name__)
 
     def _loop(self, initiator: str) -> None:
+        if self.provider == Provider.CLAUDE:
+            self.cancel.check()
+            claude_loop.run_turn(self)
+        else:
+            self._copilot_loop(initiator)
+        self._set_status("running" if self._background_live() else "done")
+
+    def _copilot_loop(self, initiator: str) -> None:
         model = self.state["summary"]["model"]
         max_steps = int(db.get_preferences()["maxSteps"])
         self.vision = copilot.supports_vision(model)
@@ -795,28 +935,73 @@ class Run:
             calls = self._ask_model(model, specs, initiator if step == 0 else "agent")
             if calls:
                 self._run_tools(calls)
-                if self._finished and not self._steering():
+                if self._finished and not self._has_news():
                     break
             elif not self._messages[-1].get("content") and not nudged:
                 nudged = True
                 self._notes.append(EMPTY_REPLY_NOTE)
-            elif not self._steering():
+            elif not self._has_news():
                 break
 
-        self._set_status("done")
+    def _background_live(self) -> bool:
+        with self._lock:
+            return bool(self._background_tasks())
 
     def _prepare_step(self) -> None:
         self.cancel.check()
         if self._messages and self._messages[0]["role"] == "system":
             self._messages[0] = {"role": "system", "content": system_prompt(self.can_write(), self.instance)}
         self._compact()
+        self._take_input()
+
+    def _take_input(self) -> None:
         with self._lock:
             notes, self._notes = self._notes, []
         if notes:
             self._messages.append({"role": "user", "content": f"[{' '.join(notes)}]"})
+
+        with self._lock:
+            finished, self._finished_tasks = self._finished_tasks, []
+        for task in finished:
+            result = TASK_FINISHED.format(label=task.label, result=task.result)
+            self._messages.append({"role": "user", "content": result})
         if self._steering():
             self._deliver_queued()
             self._finished = False
+
+    def claude_input(self) -> tuple[str | None, list[Any]]:
+        self._take_input()
+        last_reply = max((i for i, m in enumerate(self._messages) if m["role"] == "assistant"), default=-1)
+        pending = range(last_reply + 1, len(self._messages))
+        turn = next((t for t, i in self._turns.items() if i in pending), None)
+        contents = [self._messages[i]["content"] for i in pending if self._messages[i]["role"] == "user"]
+        if contents:
+            self._messages.append({"role": "assistant", "content": None})
+            self._persist()
+        return turn, contents
+
+    def take_claude_fork(self) -> dict[str, Any] | None:
+        fork, self._claude_fork = self._claude_fork, None
+        return fork
+
+    def has_news(self) -> bool:
+        return self._has_news()
+
+    def new_message_id(self) -> str:
+        return _uid("a")
+
+    def record_claude_usage(self, session: str, result: Any) -> None:
+        spent = self.state["claude"]["spent"]
+        usage = claude.usage_of(result, spent)
+        self._record_usage(self.state["summary"]["model"], UsageKind.TURN, usage)
+        self.emit({"type": "meta", "claude": {"session": session, "spent": result.total_cost_usd or spent}})
+
+    def call_tool_named(self, name: str, args: dict[str, Any]) -> tuple[str, list[tuple[str, str]]]:
+        call = {"id": _uid("c"), "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
+        output = self._call_tool(call)
+        with self._lock:
+            images, self._pending_images = self._pending_images, []
+        return output, images
 
     def _ask_model(self, model: str, specs: list[dict[str, Any]], initiator: str) -> list[dict[str, Any]]:
         message_id = _uid("a")
@@ -831,11 +1016,11 @@ class Run:
                 specs,
                 initiator,
                 cancel=self.cancel,
-                on_text=lambda delta: self._stream_text(message_id, delta),
+                on_text=lambda delta: self.stream_text(message_id, delta),
                 reasoning=copilot.reasoning_for(model, db.get_preferences()["reasoning"]),
             )
         finally:
-            self._commit_text(message_id)
+            self.commit_text(message_id)
         self._record_usage(model, "turn" if initiator == "user" else "step", result.usage)
 
         reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
@@ -861,38 +1046,102 @@ class Run:
 
     def _call_tool(self, call: dict[str, Any]) -> str:
         self._local.tool = call["id"]
+        try:
+            tool, args = self._parsed_call(call)
+        except ToolError as exc:
+            return f"Error: {exc}"
+        if tool.silent:
+            return self._call_silent(tool, args)
+
+        try:
+            task = self._start_task(call["id"], tool, args)
+        except RunError as exc:
+            return f"Error: {exc}"
+
+        task.settled.wait()
+        with self._lock:
+            if task.backgrounded_at is not None:
+                return BACKGROUND_STARTED.format(label=task.label)
+            return task.result
+
+    def _parsed_call(self, call: dict[str, Any]) -> tuple[Tool, dict[str, Any]]:
         if call["id"] in self._cut_off:
-            return f"Error: {CUT_OFF_ARGUMENTS}"
+            raise ToolError(CUT_OFF_ARGUMENTS)
 
         name = call["function"]["name"]
         tool = tool_named(name)
         if tool is None:
-            return f"Error: unknown tool {name}"
-        try:
-            args = _tool_args(tool, call["function"]["arguments"])
-        except ToolError as exc:
-            return f"Error: {exc}"
+            raise ToolError(f"unknown tool {name}")
+        return tool, _tool_args(tool, call["function"]["arguments"])
 
-        started = db.now_ms()
+    def _call_silent(self, tool: Tool, args: dict[str, Any]) -> str:
+        try:
+            return tool.handler(args, self)
+        except Exception as exc:
+            return f"Error: {str(exc) or type(exc).__name__}"
+
+    def _start_task(self, call_id: str, tool: Tool, args: dict[str, Any]) -> Task:
+        background = args.pop("background", False) is True
         base = {
-            "id": call["id"],
-            "name": name,
+            "id": call_id,
+            "name": tool.name,
             "label": tool.label(args),
             "input": json.dumps(args, indent=2)[:TOOL_INPUT_CHARS],
         }
-        if not tool.silent:
-            self.emit({"type": "tool", "tool": {**base, "status": "running"}})
+        task = Task(base, db.now_ms())
+        with self._lock:
+            if background:
+                self._check_background_room()
+                task.backgrounded_at = task.started_at
+                task.settled.set()
+            self._tasks[task.id] = task
+
+        running = {**base, "status": "running", "startedAt": task.started_at}
+        if task.backgrounded_at is not None:
+            running["backgroundedAt"] = task.backgrounded_at
+        self.emit({"type": "tool", "tool": running})
+        self._spawn(self._work, tool, args, task)
+        return task
+
+    def _work(self, tool: Tool, args: dict[str, Any], task: Task) -> None:
+        self._local.tool = task.id
         try:
-            content = tool.handler(args, self)
+            output = tool.handler(args, TaskContext(self, task))
         except Exception as exc:
             message = str(exc) or type(exc).__name__
-            if not tool.silent:
-                self._tool_done(base, "error", started, message[:TOOL_ERROR_CHARS])
-            return f"Error: {message}"
+            self._finish_task(task, "error", message, f"Error: {message}")
+            return
+        self._finish_task(task, "ok", output, output)
 
-        if not tool.silent:
-            self._tool_done(base, "ok", started, content[:TOOL_OUTPUT_CHARS])
-        return content
+    def _finish_task(self, task: Task, status: str, output: str, result: str) -> None:
+        if task.stopped_at is not None:
+            status, output, result = "error", STOPPED_BY_USER, f"Error: {STOPPED_BY_USER}"
+        limit = TOOL_OUTPUT_CHARS if status == "ok" else TOOL_ERROR_CHARS
+        done = {**task.tool, "status": status, "ms": db.now_ms() - task.started_at, "output": output[:limit]}
+        if task.stopped_at is not None:
+            done["stoppedAt"] = task.stopped_at
+        self.emit({"type": "tool", "tool": done})
+
+        with self._lock:
+            task.result, task.finished = result, True
+            del self._tasks[task.id]
+            deliver = task.backgrounded_at is not None and task.stopped_at is None
+            if deliver:
+                self._finished_tasks.append(task)
+        task.settled.set()
+        if deliver:
+            self._pick_up_queue()
+        else:
+            self._settle_if_quiet()
+
+    def _settle_if_quiet(self) -> None:
+        with self._lock:
+            quiet = not (self._busy or self._finished_tasks or self._background_tasks())
+        if quiet and self.state["summary"]["status"] == "running":
+            self._set_status("done")
+
+    def _background_tasks(self) -> list[Task]:
+        return [t for t in self._tasks.values() if t.backgrounded_at is not None]
 
     def _tool_done(self, base: dict[str, Any], status: str, started: int, output: str) -> None:
         tool = {**base, "status": status, "ms": db.now_ms() - started, "output": output}
@@ -990,14 +1239,14 @@ class RunManager:
         self._lock = threading.Lock()
         self._deleting: set[str] = set()
 
-    def create(self, data: dict[str, Any], model: str) -> Run:
+    def create(self, data: dict[str, Any], provider: Provider, model: str) -> Run:
         suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=RUN_ID_SUFFIX_CHARS))
         run_id = f"r{_base36(db.now_ms())}{suffix}"
         prompt = (data.get("prompt") or "").strip()
         title = short_title(prompt.split("\n", 1)[0], PROMPT_TITLE_CHARS) or "Attached files"
         write = bool(data.get("allowWrite"))
         summary = db.create_thread(
-            run_id, title, model, prompt=prompt, instance=data.get("instance"), allow_write=write
+            run_id, title, provider, model, prompt=prompt, instance=data.get("instance"), allow_write=write
         )
 
         run = Run(run_id, empty_state(summary, write), -1)
@@ -1026,6 +1275,7 @@ class RunManager:
             for event in events:
                 reduce(state, event)
             state["summary"] = {**state["summary"], **summary}
+            state.pop("browser", None)
             run = Run(run_id, state, events[-1]["seq"] if events else -1)
             self._evict()
             self._runs[run_id] = run
@@ -1041,11 +1291,13 @@ class RunManager:
         try:
             if live is not None:
                 live.shut_down()
+            sessions = claude_loop.sessions_of(db.load_events(run_id))
             db.delete_thread(run_id)
         finally:
             with self._lock:
                 self._deleting.discard(run_id)
         folder = run_dir(run_id)
+        claude_loop.forget_sessions(sessions, str(folder))
         if folder.exists():
             shutil.rmtree(folder)
         status_feed.publish({"kind": "list"})
@@ -1064,6 +1316,7 @@ class RunManager:
         )
         for run in idle:
             if now - run.touched > IDLE_EVICT_MS or len(self._runs) > MAX_CACHED_RUNS:
+                run.browser.close()
                 del self._runs[run.id]
 
 

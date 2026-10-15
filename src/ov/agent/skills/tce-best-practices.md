@@ -1,51 +1,32 @@
 ---
 title: TCE Best Practices
-description: Read before working a support case or writing a case reply: trackor, the workflow and the reply format.
+description: Use when working a support case, troubleshooting a customer problem end to end, or writing a reply for the case chat.
 ---
 
-## Trackor ticketing
-
-trackor.onevizion.com is the ticket system. Pass `instance: "trackor.onevizion.com"` for anything on it. To read a whole case use ov_case; a bare case number or case link from the user is loaded for you before you start.
-
-Cases (trackor type `Cases`, plural): the support ticket. The case number is XITOR_KEY (comes back as TRACKOR_KEY); TRACKOR_ID is a different, long internal id.
-
-- C_TITLE, C_DESCRIPTION_MEMO, C_PROBLEM, C_TYPE (Event, Change Request, Config Event, NOC Event, Question, ...), C_STATUS, C_SEVERITY.
-- C_WEBSITE: the customer instance host the case is about. C_SERVER_URL sometimes too.
-- C_ICC_LOG_WIKI: internal comment log. C_COMMENT_LOG_WIKI: public comments.
-- C_OWNER: Tier 1 owner (CSM). C_DEV_OWNER: Tier 3 owner (TCE).
-- C_RELATED_ISSUE, C_RELATED_ISSUE_TASKS_: linked development work.
-- C_RESOLUTION, C_ROOT_CAUSE_DETAILS: filled on past solved cases; useful for similar-case search.
-
-Issues (trackor type `Issue`): development work. VQS_IT_XITOR_NAME (summary), VQS_IT_STATUS, XITOR_CLASS_ID (Bug, New Feature, Improvement), I_PLANNED_VERSION, VQS_IT_RELEASE_NOTES, I_ROADMAP_EPIC.
-
-Issue Tasks (trackor type `Issue_Task`): IT_DESCRIPTION, IT_TASK_TYPE ("Inquiry" for enhancement requests).
-
-Similar past cases: ov_search on Cases with a distinctive phrase, e.g. `equal(C_TITLE, "copy-blobs-to-public-s3")` or a module/rule name, then read C_RESOLUTION and the chat of the closest ones. Say which past case matched and what fixed it.
-
-Link to a trackor record: `https://trackor.onevizion.com/form/ConfigAppForm.do?id=<TRACKOR_ID>`.
+Read OneTeam Basics for the case and issue fields; this skill is how to work the case.
 
 ## Working a case
 
-Read the case, find the affected instance (C_WEBSITE, or from the text), and investigate there. Read every attachment (screenshots, .eml, logs) with run_read, not just the case text.
-
-Before proposing any enhancement, check trackor for existing work: search Issue (VQS_IT_XITOR_NAME) and Issue_Task (IT_DESCRIPTION, with IT_TASK_TYPE = "Inquiry"), and check whether the case already has C_RELATED_ISSUE or C_RELATED_ISSUE_TASKS_. Name the closest matches in finish (existing) and say plainly whether they cover the request.
-
-For each issue in the case: find the root cause with evidence, check whether it is still happening, and decide whether it needs a fix, a user action, or nothing (expected behavior).
-
-Working order:
-
-1. Understand what is actually being asked, which instance, which objects.
-2. Investigate on the instance: current config, logs, data. Prefer facts over guesses.
-3. Search Issue / Issue_Task when an enhancement or bug is involved.
-4. Root cause with the evidence that proves it, and whether it is still happening now.
+1. Understand what is actually asked: which instance (C_WEBSITE, or from the text), which objects, what the customer expects. Read every attachment (screenshots, .eml, logs) with run_read, not just the case text.
+2. Investigate on the instance: current configuration, logs with timestamps, the actual data. Confirm the problem is real and whether it still happens now, in the instance's time zone.
+3. For each problem find the root cause with evidence, then decide: a fix, a user action, or expected behavior.
+4. When an enhancement or bug is involved, search Issue and Issue_Task for existing work and check the case's related issue fields; say whether a match covers the request. For a platform bug, check whether a fix exists and has reached the customer's version (Issue Life Cycle).
 5. ov_propose for every concrete code or component change, with the current code as before.
 6. run_report with the findings, existing matches, unrelated problems and the reply.
 
-Deliver: a short summary per issue that answers the question actually asked (unrelated problems go to the unrelated list, never mixed in); for a fix, where it is (object name, ID, link) and the fixed code as ov_propose; and one comment for the case chat as `reply`.
+Deliver a short summary per problem that answers the question asked (unrelated problems go to the unrelated list); for a fix, where it is (object name, id, link) and the fixed code as ov_propose; and one comment for the case chat as `reply`.
 
-## Reply style (the case chat comment)
+## Troubleshooting playbooks
 
-Write it as a few short paragraphs separated by a blank line, always in this order:
+- An error message or Error Report ID from a user: find it in ERROR_LOG on the instance around that time and user, read the full stack, then look for the Err-* issue on trackor.onevizion.com (OneTeam Basics).
+- A rule, import, report, notification or module fails: its run in PROCESS and the matching log table (OneVizion Reference), then its code with ov_export, then the data it touched.
+- Something slow or down: PagerDuty and Datadog for that window, then PROCESS runtimes and the queries involved. Never run heavy SQL on an instance that is already struggling.
+- Something changed: AUDIT_LOG of the objects involved and INVALID_OBJECT, with timestamps in one zone.
+- Configuration behaving unexpectedly: compare with how the platform documents the feature before calling it a bug; say which source you used.
+
+## Reply style
+
+Write the case chat comment as a few short paragraphs separated by a blank line, always in this order:
 
 1. Update: one short line with where the case stands. "Fixed.", "Not fixed yet, I need a few details.", "This works as designed.", "The fix is ready and waiting for your OK." Add "There were two problems." when there were.
 2. What the problem was: plain-language cause, one paragraph per problem. Name the object the customer knows (the rule, report or field by its name), never table names, IDs or code.
@@ -59,8 +40,7 @@ Rules:
 - Plain language. Cut every sentence that does not change what the customer does next; do not explain how you investigated.
 - Only cover what the case asked. Extra findings go in the comment only if the user asks for them.
 - Skip a part that does not apply (no "What I did" when nothing was changed), but keep the order.
-- If a PROD change is needed and not yet applied, say what it is in one sentence and ask if it is ok to apply.
-- ASCII only, no em dashes.
+- If a production change is needed and not yet applied, say what it is in one sentence and ask if it is ok to apply.
 
 Example:
 

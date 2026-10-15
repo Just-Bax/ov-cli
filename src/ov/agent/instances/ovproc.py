@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from ov import __version__
 from ov.agent.api.screen import Screen, close_screen, open_screen, screen_key
 from ov.agent.engine.cancel import Cancel
+from ov.cli.context import TIMEOUT_ENV
 from ov.core.errors import EXIT_AUTH
 from ov.core.paths import agent_dir
 from ov.core.procs import kill_tree, spawn_options, wait_or_stop
@@ -25,6 +26,7 @@ DEFAULT_TIMEOUT_SECONDS = 120
 LOGIN_TIMEOUT_SECONDS = 300
 BROWSER_LOGIN_TIMEOUT_SECONDS = 280
 STOP_GRACE_SECONDS = 10
+TIMEOUT_GRACE_SECONDS = 15
 SIGN_IN_CANCELLED = "Sign-in cancelled."
 CONSOLE_COLUMNS = "200"
 
@@ -68,6 +70,7 @@ def run_ov(
         "PYTHONUTF8": "1",
         "NO_COLOR": "1",
         "COLUMNS": CONSOLE_COLUMNS,
+        TIMEOUT_ENV: str(timeout),
     }
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         process = subprocess.Popen(
@@ -83,7 +86,7 @@ def run_ov(
             process.stdin.write(stdin.encode())
             process.stdin.close()
 
-        timed_out = _wait(process, timeout, cancel, hold_stdin)
+        timed_out = _wait(process, timeout + TIMEOUT_GRACE_SECONDS, cancel, hold_stdin)
         out.seek(0)
         err.seek(0)
         return OvResult(
@@ -140,6 +143,10 @@ def instances() -> list[dict[str, Any]]:
 def url_for(host: str) -> str:
     known = next((i["url"] for i in instances() if i["host"] == host_of(host)), None)
     return known or f"https://{host}"
+
+
+def web_cookies(alias: str) -> dict[str, str]:
+    return dict(session_store.load(alias).cookies)
 
 
 def find_instance(ref: str) -> dict[str, Any] | None:
