@@ -61,7 +61,7 @@ def _tool_reply(text: str, images: list[tuple[str, str]]) -> dict[str, Any]:
 
 def tool_handler(run: Run, name: str) -> Any:
     async def handle(args: dict[str, Any]) -> dict[str, Any]:
-        text, images = await asyncio.to_thread(run.call_tool_named, name, args)
+        text, images = await asyncio.to_thread(run.call_tool_with_steering, name, args)
         return _tool_reply(text, images)
 
     return handle
@@ -88,7 +88,7 @@ def _options(run: Run) -> tuple[Any, str, dict[str, Any] | None]:
     model = run.state["summary"]["model"]
     options = claude.base_options(
         model,
-        system_prompt(run.can_write(), run.instance),
+        system_prompt(run.access, run.instance),
         run.work_dir,
         claude.effort_for(model, db.get_preferences()["reasoning"]),
     )

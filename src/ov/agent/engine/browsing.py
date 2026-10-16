@@ -59,14 +59,23 @@ class BrowserSlot:
         self.close()
         screen = open_screen(self._key, BROWSER_WIDTH, BROWSER_HEIGHT)
         try:
-            pilot = Pilot(base_url, cookies, screen.port, (screen.width, screen.height), self._exited)
+            pilot = Pilot(base_url, cookies, screen.port, (screen.width, screen.height), self)
         except BrowserError:
             close_screen(self._key, screen)
             raise
 
+        screen.follow = lambda: pilot.active_target
         with self._lock:
             self._open = _Open(alias, pilot, screen)
-        opened = {"open": True, "instance": alias, "session": next(_sessions), "pointer": None, "error": None}
+        opened = {
+            "open": True,
+            "instance": alias,
+            "session": next(_sessions),
+            "pointer": None,
+            "error": None,
+            "loading": None,
+            "dialog": None,
+        }
         self._emit({"type": "browser", "browser": opened})
         return pilot
 
@@ -77,9 +86,26 @@ class BrowserSlot:
             raise BrowserError(NOT_OPEN)
         return current.pilot
 
+    def navigate(self, url: str) -> None:
+        pilot = self.pilot()
+        self._emit({"type": "browser", "browser": {"loading": url}})
+        try:
+            pilot.goto(url)
+        finally:
+            self._emit({"type": "browser", "browser": {"loading": None}})
+
     def pointer(self, point: Point, press: bool) -> None:
         pointer = {"x": point.x, "y": point.y, "step": next(_steps), "press": press}
         self._emit({"type": "browser", "browser": {"pointer": pointer}})
+
+    def answer_dialog(self, accept: bool, text: str) -> None:
+        self.pilot().answer(accept, text)
+
+    def switch_tab(self, index: int) -> None:
+        self.pilot().switch(index)
+
+    def close_tab(self, index: int) -> None:
+        self.pilot().close_tab(index)
 
     def resize(self, width: int, height: int) -> None:
         self.pilot().resize(_clamp(width, MAX_WIDTH), _clamp(height, MAX_HEIGHT))
@@ -90,14 +116,22 @@ class BrowserSlot:
             return
         current.pilot.close()
         close_screen(self._key, current.screen)
-        self._emit({"type": "browser", "browser": {"open": False}})
+        self._emit({"type": "browser", "browser": {"open": False, "dialog": None, "tabs": []}})
 
-    def _exited(self, pilot: Pilot) -> None:
+    def changed(self, change: dict[str, Any]) -> None:
+        self._emit({"type": "browser", "browser": change})
+
+    def exited(self, pilot: Pilot) -> None:
         current = self._take(pilot)
         if current is None:
             return
         close_screen(self._key, current.screen)
-        self._emit({"type": "browser", "browser": {"open": False, "error": pilot.failure or CLOSED_ITSELF}})
+        self._emit(
+            {
+                "type": "browser",
+                "browser": {"open": False, "dialog": None, "tabs": [], "error": pilot.failure or CLOSED_ITSELF},
+            }
+        )
 
     def _take(self, pilot: Pilot | None) -> _Open | None:
         with self._lock:

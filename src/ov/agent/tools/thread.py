@@ -23,8 +23,13 @@ from ov.agent.tools.base import (
 from ov.agent.tools.onevizion import entity_link
 
 READ_FILE_LINES = 500
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 BINARY_SNIFF_BYTES = 4096
 TEXT_COPY_SUFFIX = ".txt"
+MAX_QUESTIONS = 5
+MIN_OPTIONS = 2
+MAX_OPTIONS = 5
+HEADER_CHARS = 12
 
 ENTITY_TYPES = (
     "rule",
@@ -86,7 +91,15 @@ def _locate(rel: str, ctx: ToolContext) -> Path:
 def _read_image(path: Path, ctx: ToolContext) -> str:
     if not ctx.vision:
         return "This model cannot view images. Switch to a vision model to read screenshots."
-    data = base64.b64encode(path.read_bytes()).decode("ascii")
+
+    raw = path.read_bytes()
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise ToolError(
+            f"{path.name} is {len(raw) / 1024 / 1024:.1f} MB; images over {MAX_IMAGE_BYTES // 1024 // 1024} MB "
+            "cannot be sent to the model. Ask the user for a smaller screenshot."
+        )
+
+    data = base64.b64encode(raw).decode("ascii")
     ctx.attach_image(path.name, f"data:{image_mime(path)};base64,{data}")
     return f"Image {path.name} is attached in the next message."
 
@@ -153,9 +166,48 @@ def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
     return f"Change card shown ({change['id']})."
 
 
+def _option(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict) or not str(raw.get("label") or "").strip():
+        raise ToolError("Every option needs a label.")
+    option = {"label": str(raw["label"]).strip()}
+    if str(raw.get("description") or "").strip():
+        option["description"] = str(raw["description"]).strip()
+    return option
+
+
+def _question_item(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict) or not str(raw.get("question") or "").strip():
+        raise ToolError("Every question needs question text.")
+
+    options = [_option(o) for o in raw.get("options") or []]
+    if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
+        raise ToolError(f"Give {MIN_OPTIONS}-{MAX_OPTIONS} options per question; the user can also type their own.")
+
+    return {
+        "header": str(raw.get("header") or "").strip()[:HEADER_CHARS],
+        "question": str(raw["question"]).strip(),
+        "options": options,
+        "multiple": raw.get("multiple") is True,
+    }
+
+
+def _ask_label(args: dict[str, Any]) -> str:
+    questions = args.get("questions") or [{}]
+    first = questions[0] if isinstance(questions[0], dict) else {}
+    more = f" (+{len(questions) - 1})" if len(questions) > 1 else ""
+    return f"ask: {str(first.get('question', ''))[:LABEL_CHARS]}{more}"
+
+
 def _ask_user(args: dict[str, Any], ctx: ToolContext) -> str:
-    options = [str(o) for o in args["options"]]
-    return f"User answered: {ctx.ask_user(str(args['question']), options, bool(args.get('multiple')))}"
+    raw = args.get("questions") or []
+    if not 1 <= len(raw) <= MAX_QUESTIONS:
+        raise ToolError(f"Ask 1-{MAX_QUESTIONS} questions at once.")
+
+    items = [_question_item(q) for q in raw]
+    answers = ctx.ask_user(items)
+    pairs = enumerate(zip(items, answers, strict=True), 1)
+    lines = [f"{i}. {item['header'] or item['question']}: {answer}" for i, (item, answer) in pairs]
+    return "User answered:\n" + "\n".join(lines)
 
 
 def _existing(entries: list[Any]) -> list[dict[str, str]]:
@@ -271,15 +323,43 @@ TOOLS = [
     ),
     Tool(
         "run_ask",
-        "Ask the user a multiple-choice question when you truly cannot proceed (which "
-        "instance, which of several objects, missing access). Blocks until answered.",
+        "Ask the user before working when an input you need is missing or ambiguous: which instance, which "
+        "object, the scope, or the outcome wanted. Put related questions in one call; they are answered "
+        "together. Do not ask about facts you can look up. Blocks until answered.",
         {
-            "question": string_param("One short question"),
-            "options": strings_param("2-5 short options; the user can also type their own"),
-            "multiple": {"type": "boolean"},
+            "questions": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_QUESTIONS,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "header": string_param(f"Topic chip, at most {HEADER_CHARS} chars, e.g. Instance"),
+                        "question": string_param("One short question"),
+                        "options": {
+                            "type": "array",
+                            "minItems": MIN_OPTIONS,
+                            "maxItems": MAX_OPTIONS,
+                            "description": "Distinct choices; the user can also type their own",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label": string_param("The choice, 1-5 words"),
+                                    "description": string_param("What picking it means, one short line"),
+                                },
+                                "required": ["label"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        "multiple": {"type": "boolean", "description": "Allow picking several options"},
+                    },
+                    "required": ["header", "question", "options"],
+                    "additionalProperties": False,
+                },
+            },
         },
-        ["question", "options"],
-        lambda a: f"ask: {str(a.get('question', ''))[:LABEL_CHARS]}",
+        ["questions"],
+        _ask_label,
         _ask_user,
         silent=True,
     ),

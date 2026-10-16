@@ -4,7 +4,7 @@ description: The OneVizion data model and words everyone working on an instance 
 core: true
 ---
 
-OneVizion is a configurable platform: almost everything is configuration stored in one Oracle schema per instance (a host such as acme.onevizion.com). Find things by their real definition on the instance, never by memory. For a column you are unsure of: `select column_name, data_type from user_tab_columns where table_name = 'X'`. Legacy names live on in tables: XITOR means trackor, CONFIG_GROUP means tab.
+OneVizion is a configurable platform: almost everything is configuration stored in one Oracle schema per instance (a host such as acme.onevizion.com). Find things by their real definition on the instance, never by memory. Never guess a table or column name: look it up in the data dictionary first, `select table_name, column_name, data_type from all_tab_columns where table_name like '%X%'` (user_tab_columns can be empty because the tables belong to another schema). Legacy names live on in tables: XITOR means trackor.
 
 ## Core objects
 

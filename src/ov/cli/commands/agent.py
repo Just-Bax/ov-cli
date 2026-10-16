@@ -20,6 +20,11 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     agent.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"default {DEFAULT_PORT}")
     agent.add_argument("--no-open", action="store_true", help="do not open a browser window")
     agent.add_argument("--migrate", action="store_true", help="upgrade the agent database and exit")
+    agent.add_argument(
+        "--full-access",
+        action="store_true",
+        help="offer Full access: threads set to it make every change without asking",
+    )
     agent.set_defaults(func=cmd_agent)
 
 
@@ -35,4 +40,4 @@ def cmd_agent(ctx: Context) -> int:
         return 0
 
     prune()
-    return serve(ctx.args.port, open_browser=not ctx.args.no_open)
+    return serve(ctx.args.port, open_browser=not ctx.args.no_open, full_access=ctx.args.full_access)

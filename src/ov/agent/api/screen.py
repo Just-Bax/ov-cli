@@ -5,6 +5,7 @@ import queue
 import socket
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 from playwright.sync_api import Error as PlaywrightError
@@ -31,6 +32,7 @@ BUTTONS = {"none", "left", "middle", "right"}
 COMMANDS = {"selectAll", "undo", "redo"}
 
 Key = tuple[str, str]
+Follow = Callable[[], str | None]
 
 
 class ScreenError(Exception):
@@ -60,6 +62,7 @@ class Screen:
         self.closed = False
         self.failure: str | None = None
         self.cancel = Cancel()
+        self.follow: Follow | None = None
         self._changed = threading.Condition()
         self._input: queue.SimpleQueue[dict[str, Any]] = queue.SimpleQueue()
         self._stop = threading.Event()
@@ -116,20 +119,47 @@ class Screen:
         return None
 
     def _mirror(self, context: Any) -> None:
+        context.on("dialog", _leave_to_owner)
         feed = _Feed(self._publish)
+        targets: dict[Any, str] = {}
         cdp: Any = None
         while not self._stop.is_set():
             pages = [pg for pg in context.pages if not pg.is_closed()]
             if not pages:
                 return
-            if pages[-1] is not feed.page:
-                cdp = feed.watch(context, pages[-1], cdp)
+            shown = self._shown(context, pages, targets, feed.page)
+            if shown is not feed.page:
+                cdp = feed.watch(context, shown, cdp)
 
             with contextlib.suppress(PlaywrightError):
                 feed.flush(cdp)
                 while not self._input.empty():
                     _apply(cdp, self._input.get())
                 feed.page.wait_for_timeout(LOOP_MS)
+
+    def _shown(self, context: Any, pages: list[Any], targets: dict[Any, str], current: Any) -> Any:
+        if self.follow is None:
+            return pages[-1]
+
+        wanted = self.follow()
+        for page in pages:
+            if page not in targets:
+                targets[page] = _target_id(context, page)
+            if targets[page] == wanted:
+                return page
+
+        return current if current in pages else pages[-1]
+
+
+def _target_id(context: Any, page: Any) -> str:
+    session = context.new_cdp_session(page)
+    target = session.send("Target.getTargetInfo")["targetInfo"]["targetId"]
+    session.detach()
+    return target
+
+
+def _leave_to_owner(_: Any) -> None:
+    return None
 
 
 class _Feed:

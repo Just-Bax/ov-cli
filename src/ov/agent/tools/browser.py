@@ -2,16 +2,26 @@ from __future__ import annotations
 
 import base64
 import time
+from dataclasses import replace
 from typing import Any
 from urllib.parse import urlsplit
 
 from ov.agent.engine.guard import Effect
 from ov.agent.instances.ovproc import find_instance, web_cookies
-from ov.agent.tools.base import Tool, ToolContext, ToolError, approved, int_param, serial, string_param
-from ov.browser.pilot import BUTTONS, MODIFIERS, Pilot, Point, Target, View
+from ov.agent.tools.base import (
+    Handler,
+    Tool,
+    ToolContext,
+    ToolError,
+    approved,
+    int_param,
+    serial,
+    string_param,
+)
+from ov.browser.pilot import BUTTONS, MODIFIERS, NO_DIALOG, DialogOpen, Pilot, Point, Target, View
 from ov.onevizion.login import PENDING_PATHS
 
-POINTER_LEAD_SECONDS = 0.3
+POINTER_LEAD_SECONDS = 0.5
 SCROLL_PIXELS = 600
 MAX_SCROLL_PIXELS = 5_000
 SNAPSHOT_TEXT_CHARS = 6_000
@@ -41,14 +51,24 @@ SAFE_KEYS = frozenset(
     }
 )
 SCROLLS = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}
+ANSWERS = ("accept", "dismiss")
+TAB_ACTIONS = ("switch", "close")
+CHANGING_DIALOGS = frozenset({"confirm", "prompt", "beforeunload"})
 
 BLOCKED = (
-    "Blocked: {reason}. This would change something and Allow changes is off. Do not try another way to do it; "
-    "report that it needs Allow changes."
+    "Blocked: {reason}. This would change something and the thread is Read-only. Do not try another way to do it; "
+    "report that it needs changes allowed (Ask first or Auto, not Read-only)."
 )
 REJECTED = "The user rejected this: {say}. Do not retry it."
 NOT_SIGNED_IN = "{host} still shows its sign-in page after signing in. Ask the user to check the account."
 OFF_INSTANCE = "Stayed on this page: the browser only opens this instance, so it did not go to {urls}."
+FRAMES_NOTE = (
+    "Frames: parts of this page load inside them. To work on one as a full page, open its path with browser_open."
+)
+TABS_NOTE = "Tabs: the page opened more windows. You see the shown one; switch or close them with browser_tab."
+DIALOG_OPEN = (
+    'The page is showing a {kind}: "{message}". It waits until the {kind} is answered: answer it with browser_dialog.'
+)
 SCREENSHOT_NOTE = "Screenshot attached: {width}x{height}; its pixels are the x and y the browser tools take."
 FINAL_SCREENSHOT = "Now: {title} | {url}\nThe final screenshot is attached."
 
@@ -82,19 +102,31 @@ def _target(args: dict[str, Any], prefix: str = "") -> Target:
 
 
 def _elements(view: View) -> str:
-    lines = []
-    for e in view.elements:
-        offscreen = not (0 <= e.center.x < view.width and 0 <= e.center.y < view.height)
-        lines.append(f"[{e.ref}] {e.describe()} @ {e.center.x},{e.center.y}{' (off screen)' if offscreen else ''}")
-    return "\n".join(lines) or "none"
+    return "\n".join(f"[{e.ref}] {e.describe()} @ {e.point.x},{e.point.y}" for e in view.elements) or "none"
+
+
+def _frames(view: View) -> str:
+    if not view.frames:
+        return ""
+    lines = [
+        f"- {urlsplit(f.url).path}?{urlsplit(f.url).query} @ {f.x},{f.y} {f.width}x{f.height}" for f in view.frames
+    ]
+    return f"\n\n{FRAMES_NOTE}\n" + "\n".join(lines)
+
+
+def _tabs(view: View) -> str:
+    if len(view.tabs) < 2:
+        return ""
+    lines = [f"[{t.index}] {t.title or '(untitled)'} | {t.url}{' (shown)' if t.active else ''}" for t in view.tabs]
+    return f"\n\n{TABS_NOTE}\n" + "\n".join(lines)
 
 
 def render(view: View, text_chars: int) -> str:
     text = view.text[:text_chars] or "(empty)"
     more = f"\n[{len(view.text) - text_chars} more chars in the next snapshot]" if len(view.text) > text_chars else ""
     return (
-        f"{view.title}\n{view.url}\nScreen {view.width}x{view.height}\n\n"
-        f"Elements (ref, what, center x,y):\n{_elements(view)}\n\nPage text:\n{text}{more}"
+        f"{view.title}\n{view.url}\nScreen {view.width}x{view.height}{_tabs(view)}{_frames(view)}\n\n"
+        f"Visible elements (ref, what, click point x,y):\n{_elements(view)}\n\nPage text:\n{text}{more}"
     )
 
 
@@ -114,18 +146,23 @@ def _sign_in(ctx: ToolContext, found: dict[str, Any]) -> None:
         raise ToolError(f"{found['host']} is not signed in.")
 
 
-def _check(ctx: ToolContext, pilot: Pilot, action: str, say: str) -> None:
+def _place(pilot: Pilot) -> str:
     title, url = pilot.where()
-    verdict = ctx.judge_page_action(
-        f"<action>{action}</action>\n<page>{title} | {urlsplit(url).path}</page>\n<intent>{say}</intent>"
-    )
+    return f"{title} | {urlsplit(url).path}"
+
+
+def _check(ctx: ToolContext, place: str, action: str, say: str) -> None:
+    if ctx.full_access():
+        return
+
+    verdict = ctx.judge_page_action(f"<action>{action}</action>\n<page>{place}</page>\n<intent>{say}</intent>")
     if verdict.effect != Effect.WRITE:
         return
 
     if not ctx.can_write():
         raise ToolError(BLOCKED.format(reason=verdict.reason))
 
-    detail = f"{action}\non {title or url}\n\nCounts as a change: {verdict.reason}"
+    detail = f"{action}\non {place}\n\nCounts as a change: {verdict.reason}"
     if not approved(ctx, say, detail):
         raise ToolError(REJECTED.format(say=say))
 
@@ -149,6 +186,8 @@ def _result(ctx: ToolContext, pilot: Pilot, done: str) -> str:
     blocked = pilot.take_blocked()
     if blocked:
         lines.append(OFF_INSTANCE.format(urls=", ".join(blocked)))
+    if len(view.tabs) > 1:
+        lines.append(_tabs(view).strip())
 
     if _attach(ctx, pilot):
         return "\n".join([*lines, SCREENSHOT_NOTE.format(width=view.width, height=view.height)])
@@ -171,15 +210,15 @@ def _open(args: dict[str, Any], ctx: ToolContext) -> str:
     pilot = ctx.browser.start(found["alias"], found["url"], web_cookies(found["alias"]))
     target = pilot.url_of(str(args.get("path") or ""))
     if urlsplit(target).query:
-        _check(ctx, pilot, f"go to {target}", str(args["say"]))
+        _check(ctx, _place(pilot), f"go to {target}", str(args["say"]))
 
-    pilot.goto(target)
+    ctx.browser.navigate(target)
     if not _signed_out(pilot.where()[1]):
         return _full(ctx, pilot)
 
     _sign_in(ctx, found)
     pilot.add_cookies(web_cookies(found["alias"]))
-    pilot.goto(target)
+    ctx.browser.navigate(target)
     if _signed_out(pilot.where()[1]):
         raise ToolError(NOT_SIGNED_IN.format(host=found["host"]))
     return _full(ctx, pilot)
@@ -196,7 +235,7 @@ def _click(args: dict[str, Any], ctx: ToolContext) -> str:
     count = DOUBLE_CLICK if args.get("double") is True else SINGLE_CLICK
     modifiers = [m for m in args.get("modifiers") or [] if m in MODIFIERS]
     verb = "".join(f"{m}+" for m in modifiers) + ("double-" if count == DOUBLE_CLICK else "") + f"{button}-click"
-    _check(ctx, pilot, f"{verb} {aim.label}", str(args["say"]))
+    _check(ctx, _place(pilot), f"{verb} {aim.label}", str(args["say"]))
 
     _show(ctx, aim.point, press=True)
     pilot.click(aim.point, button, count, modifiers)
@@ -217,7 +256,7 @@ def _mouse(args: dict[str, Any], ctx: ToolContext) -> str:
     button = str(args.get("button") or DEFAULT_BUTTON)
     down = args["action"] == "down"
     if not down:
-        _check(ctx, pilot, f"release the {button} mouse button on {aim.label}", str(args["say"]))
+        _check(ctx, _place(pilot), f"release the {button} mouse button on {aim.label}", str(args["say"]))
 
     _show(ctx, aim.point, press=True)
     pilot.press_mouse(aim.point, button, down)
@@ -228,7 +267,7 @@ def _drag(args: dict[str, Any], ctx: ToolContext) -> str:
     pilot = ctx.browser.pilot()
     start = pilot.aim(_target(args, "from_"))
     end = pilot.aim(_target(args, "to_"))
-    _check(ctx, pilot, f"drag {start.label} and drop it on {end.label}", str(args["say"]))
+    _check(ctx, _place(pilot), f"drag {start.label} and drop it on {end.label}", str(args["say"]))
 
     _show(ctx, start.point, press=True)
     _show(ctx, end.point, press=True)
@@ -261,7 +300,12 @@ def _type(args: dict[str, Any], ctx: ToolContext) -> str:
     aim = pilot.aim(_target(args)) if _aimed(args) else None
     into = aim.label if aim else "the focused field"
     if submit:
-        _check(ctx, pilot, f'type "{text[:GUARD_TEXT_CHARS]}" into {into}, then press {SUBMIT_KEY}', str(args["say"]))
+        _check(
+            ctx,
+            _place(pilot),
+            f'type "{text[:GUARD_TEXT_CHARS]}" into {into}, then press {SUBMIT_KEY}',
+            str(args["say"]),
+        )
 
     if aim is not None:
         _show(ctx, aim.point, press=True)
@@ -277,7 +321,7 @@ def _press(args: dict[str, Any], ctx: ToolContext) -> str:
     pilot = ctx.browser.pilot()
     key = str(args["key"]).strip()
     if key not in SAFE_KEYS:
-        _check(ctx, pilot, f"press {key} on the focused element", str(args["say"]))
+        _check(ctx, _place(pilot), f"press {key} on the focused element", str(args["say"]))
     pilot.press(key)
     return _result(ctx, pilot, f"Pressed {key}.")
 
@@ -286,7 +330,7 @@ def _select(args: dict[str, Any], ctx: ToolContext) -> str:
     pilot = ctx.browser.pilot()
     aim = pilot.aim(_target(args))
     option = str(args["option"])
-    _check(ctx, pilot, f'choose "{option}" in {aim.label}', str(args["say"]))
+    _check(ctx, _place(pilot), f'choose "{option}" in {aim.label}', str(args["say"]))
 
     _show(ctx, aim.point, press=True)
     pilot.select(int(args["ref"]), option)
@@ -296,10 +340,39 @@ def _select(args: dict[str, Any], ctx: ToolContext) -> str:
 def _wait(args: dict[str, Any], ctx: ToolContext) -> str:
     pilot = ctx.browser.pilot()
     text, locator, url = (str(args.get(k) or "") for k in ("text", "locator", "url_contains"))
+    seconds = float(args.get("seconds") or DEFAULT_WAIT_SECONDS)
     if not (text or locator or url):
-        raise ToolError("Say what to wait for: text, locator or url_contains.")
-    pilot.wait_for(text, locator, url, float(args.get("seconds") or DEFAULT_WAIT_SECONDS))
+        pilot.pause(seconds)
+        return _result(ctx, pilot, f"Waited {seconds:g}s.")
+
+    pilot.wait_for(text, locator, url, seconds)
     return _result(ctx, pilot, "The page shows it.")
+
+
+def _dialog(args: dict[str, Any], ctx: ToolContext) -> str:
+    pilot = ctx.browser.pilot()
+    dialog = pilot.dialog
+    if dialog is None:
+        raise ToolError(NO_DIALOG)
+
+    accept = args["action"] == "accept"
+    if accept and dialog.kind in CHANGING_DIALOGS:
+        action = f'press OK on the {dialog.kind} "{dialog.message[:GUARD_TEXT_CHARS]}"'
+        _check(ctx, f"a {dialog.kind} dialog over the page", action, str(args["say"]))
+
+    ctx.browser.answer_dialog(accept, str(args.get("text") or dialog.default))
+    return _result(ctx, pilot, f"{'Accepted' if accept else 'Dismissed'} the {dialog.kind}.")
+
+
+def _tab(args: dict[str, Any], ctx: ToolContext) -> str:
+    pilot = ctx.browser.pilot()
+    index = int(args["index"])
+    if args["action"] == "close":
+        ctx.browser.close_tab(index)
+        return _result(ctx, pilot, f"Closed tab {index}.")
+
+    ctx.browser.switch_tab(index)
+    return _result(ctx, pilot, f"Switched to tab {index}.")
 
 
 def _run(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -318,6 +391,16 @@ def _close(_: dict[str, Any], ctx: ToolContext) -> str:
 
 def _said(fallback: str) -> Any:
     return lambda args: str(args.get("say") or fallback)
+
+
+def _dialog_aware(handler: Handler) -> Handler:
+    def wrapped(args: dict[str, Any], ctx: ToolContext) -> str:
+        try:
+            return handler(args, ctx)
+        except DialogOpen as exc:
+            return DIALOG_OPEN.format(kind=exc.dialog.kind, message=exc.dialog.message)
+
+    return wrapped
 
 
 OPEN = Tool(
@@ -362,8 +445,8 @@ HANDS = [
     OPEN,
     Tool(
         "browser_snapshot",
-        "Look at the browser: title, URL, screen size, numbered elements with their center x,y, page text and a "
-        "screenshot. Element numbers change with every snapshot.",
+        "Look at the browser: title, URL, screen size, numbered visible elements with a click point x,y, page "
+        "text and a screenshot. Element numbers change with every snapshot.",
         {},
         [],
         lambda _: "Looking at the page",
@@ -455,8 +538,8 @@ HANDS = [
     ),
     Tool(
         "browser_select",
-        "Choose an option of a standard dropdown (combobox) by its visible text. For custom dropdowns click to "
-        "open them, then click the option. Checked like a click.",
+        "Choose an option of a standard dropdown (combobox) by its visible text. Clicking a dropdown also opens "
+        "its list on screen as options to click. Checked like a click.",
         {"ref": AIM["ref"], "option": string_param("Visible text of the option"), "say": SAY},
         ["ref", "option", "say"],
         _said("Choosing an option"),
@@ -465,7 +548,7 @@ HANDS = [
     Tool(
         "browser_wait",
         "Wait until the page shows a text, matches a Playwright locator, or its URL contains a part. Use it after "
-        "starting something slow instead of looking again and again.",
+        "starting something slow instead of looking again and again. With only seconds it just pauses.",
         {
             "text": string_param("Text that must appear"),
             "locator": string_param("Playwright selector that must match"),
@@ -477,6 +560,30 @@ HANDS = [
         _said("Waiting for the page"),
         _wait,
     ),
+    Tool(
+        "browser_dialog",
+        "Answer the alert, confirm, prompt or leave-page dialog the page is showing; the page waits until it is "
+        "answered. action=accept presses OK, dismiss presses Cancel. text fills a prompt. Accepting a confirm, "
+        "prompt or leave-page dialog is checked like a click.",
+        {
+            "action": {"type": "string", "enum": list(ANSWERS)},
+            "text": string_param("Answer for a prompt"),
+            "say": SAY,
+        },
+        ["action", "say"],
+        _said("Answering the dialog"),
+        _dialog,
+    ),
+    Tool(
+        "browser_tab",
+        "Show another tab of the browser, or close one. Pages that open a new window get their own tab; the "
+        "snapshot lists the tabs by number.",
+        {"action": {"type": "string", "enum": list(TAB_ACTIONS)}, "index": int_param("Tab number"), "say": SAY},
+        ["action", "index", "say"],
+        _said("Switching tabs"),
+        _tab,
+    ),
 ]
+HANDS = [replace(t, handler=_dialog_aware(t.handler)) for t in HANDS]
 
 MAIN = [OPEN, RUN, CLOSE]

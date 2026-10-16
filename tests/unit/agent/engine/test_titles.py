@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from ov.agent.integrations.copilot import StreamResult, Usage
 from ov.agent.storage import db
 from ov.agent.storage.models import Provider
@@ -40,7 +42,9 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
     from ov.agent.engine.run import runs
 
     run = runs.create(
-        {"prompt": "what tags are there on this instance?", "instance": "acme"}, Provider.COPILOT, "main-model"
+        {"access": "read", "prompt": "what tags are there on this instance?", "instance": "acme"},
+        Provider.COPILOT,
+        "main-model",
     )
     for _ in range(100):
         if run.state["summary"]["title"] == "Tag listing question":
@@ -58,28 +62,31 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
     }
 
 
-def test_a_thread_is_named_with_the_main_model_without_a_fast_model(logged_in, monkeypatch):
-    seen: list[str] = []
+def test_a_copilot_thread_needs_a_fast_model(logged_in, monkeypatch):
+    from ov.agent.engine.run import NO_FAST_MODEL, RunError, runs
 
-    def fake_complete(model, system, user_text, max_tokens=200):
-        seen.append(model)
-        return "Rule queue backlog", None
-
-    monkeypatch.setattr("ov.agent.integrations.copilot.complete", fake_complete)
-    monkeypatch.setattr(
-        "ov.agent.integrations.copilot.stream_chat", lambda *a, cancel, on_text, **_: StreamResult(text="ok")
-    )
-    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
-
-    from ov.agent.engine.run import runs
-
+    db.save_preferences({"fastModel": ""})
+    monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     run = runs.create(
-        {"prompt": "why is the rule queue so long today on acme?", "instance": "acme"}, Provider.COPILOT, "main-model"
+        {"access": "read", "prompt": "why is the queue long?", "instance": "acme"}, Provider.COPILOT, "main-model"
     )
-    for _ in range(100):
-        if run.state["summary"]["title"] == "Rule queue backlog":
-            break
-        time.sleep(0.05)
-    assert run.state["summary"]["title"] == "Rule queue backlog"
-    assert seen == ["main-model"]
-    assert run.retitle() == "Rule queue backlog" and seen == ["main-model", "main-model"]
+    with pytest.raises(RunError, match=NO_FAST_MODEL):
+        run.retitle()
+
+
+def test_only_the_preloaded_case_names_the_thread(logged_in, monkeypatch):
+    from ov.agent.engine.run import runs
+    from ov.agent.storage.models import Access
+
+    bundles = {
+        ref: {"key": ref, "title": f"Case {ref} title", "url": f"https://t/{ref}", "website": "acme"}
+        for ref in ("C1", "C2")
+    }
+    monkeypatch.setattr("ov.agent.engine.cases.load_case", lambda ref, work_dir, cancel: bundles[ref])
+    monkeypatch.setattr("ov.agent.engine.cases.render", lambda bundle, work_dir: bundle["title"])
+    db.create_thread("rcase", "Kafka sync", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    run = runs.get("rcase")
+
+    run.read_case("C1", run.cancel)
+    run.read_case("C2", run.cancel)
+    assert run.state["summary"]["title"] == "Kafka sync" and run.state["summary"]["caseKey"] == "C1"

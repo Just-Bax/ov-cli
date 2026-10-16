@@ -9,7 +9,7 @@ from sqlalchemy import select
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult, Usage
 from ov.agent.storage import db, models
-from ov.agent.storage.models import Provider
+from ov.agent.storage.models import Access, Provider
 
 
 def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
@@ -40,7 +40,7 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "what tags?", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, Provider.COPILOT, "test-model")
     for _ in range(100):
         if run.state["summary"]["status"] in ("done", "error"):
             break
@@ -88,7 +88,7 @@ def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "build it", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "build it", "instance": "acme"}, Provider.COPILOT, "test-model")
     for _ in range(100):
         if run.state["summary"]["status"] in ("done", "error"):
             break
@@ -105,7 +105,7 @@ def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch
 def test_status_changes_reach_the_status_feed(logged_in):
     from ov.agent.engine.run import runs, status_feed
 
-    db.create_thread("rfeed", "Feed run", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rfeed", "Feed run", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rfeed")
     channel, unsubscribe = status_feed.subscribe()
     try:
@@ -133,7 +133,7 @@ def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypat
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     for _ in range(100):
         if run.state["summary"]["status"] in ("done", "error"):
             break
@@ -149,7 +149,7 @@ def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypat
 def test_resuming_a_stream_sends_the_partial_message(logged_in):
     from ov.agent.engine.run import runs
 
-    db.create_thread("rlive", "t", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rlive", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rlive")
     run.stream_text("a1", "Hel")
     channel, unsubscribe, backlog = run.resume(run.seq)
@@ -172,7 +172,7 @@ def test_idle_runs_are_dropped_from_memory_but_never_while_in_use(logged_in):
     runs._runs.clear()
     held = []
     for n in range(MAX_CACHED_RUNS + 3):
-        db.create_thread(f"revict{n}", "t", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
+        db.create_thread(f"revict{n}", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
         held.append(runs.get(f"revict{n}"))
     assert all(runs.get(f"revict{n}") is held[n] for n in range(MAX_CACHED_RUNS + 3))
 
@@ -201,7 +201,7 @@ def test_a_run_records_what_each_request_cost(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
 
     assert run.state["summary"]["cost"] == {"credits": 3.0, "usd": 0.0, "requests": 2}
@@ -222,7 +222,7 @@ def test_an_empty_reply_is_asked_for_once(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
     assert run._messages[-2]["content"].startswith("[Your last reply was empty")
     assert run._messages[-1]["content"] == "Here it is."

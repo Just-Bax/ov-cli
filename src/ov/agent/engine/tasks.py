@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ov.agent.engine.cancel import Cancel
-from ov.agent.tools.base import ToolError
+from ov.agent.tools.base import Approval, ToolError
 
 if TYPE_CHECKING:
     from ov.agent.engine.run import Run
@@ -47,9 +47,13 @@ class TaskContext:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._run, name)
 
-    def ask_user(self, question: str, options: list[str], multiple: bool, detail: str | None = None) -> str:
+    def ask_user(self, items: list[dict[str, Any]]) -> list[str]:
         self._require_foreground()
-        return self._run.ask_user(question, options, multiple, detail)
+        return self._run.ask_user(items)
+
+    def ask_approval(self, question: str, detail: str, reason: str = "") -> Approval:
+        self._require_foreground()
+        return self._run.ask_approval(question, detail, reason)
 
     def require_login(self, host: str, tenant: str = "") -> bool:
         self._require_foreground()

@@ -6,29 +6,34 @@ from helpers.agent import FakeContext
 from ov.agent.engine.guard import Effect, Verdict
 from ov.agent.tools import browser, tool_named
 from ov.agent.tools.base import ToolError
-from ov.browser.pilot import Aim, BrowserError, Element, Point, Target, View
+from ov.browser.pilot import Aim, BrowserError, Dialog, DialogOpen, Element, Point, Tab, Target, View
 
-SAVE = Element("button", "Save", "", "Edit Work Order", False, 100, 200, 60, 20, ref=2)
-SEARCH = Element("textbox", "Search", "", "", False, 10, 10, 200, 20, ref=1)
+SAVE = Element("button", "Save", "", "Edit Work Order", False, 130, 210, ref=2)
+SEARCH = Element("textbox", "Search", "", "", False, 110, 20, ref=1)
+CONFIRM = Dialog("confirm", "Delete record 42?", "")
 
 
 class FakePilot:
     def __init__(self) -> None:
         self.done: list[str] = []
         self.url = "https://acme.onevizion.com/Dashboard.do"
+        self.dialog: Dialog | None = None
+        self.tabs = [Tab(1, "Work Order", self.url, True)]
 
     def where(self):
         return "Work Order", self.url
 
     def aim(self, target):
         if target.ref == 2:
-            return Aim(SAVE.center, 'button "Save" at (130, 210)')
+            return Aim(SAVE.point, 'button "Save" at (130, 210)')
         if target.point is not None:
             return Aim(target.point, f"clickable at ({target.point.x}, {target.point.y})")
-        return Aim(SEARCH.center, 'textbox "Search" at (110, 20)')
+        return Aim(SEARCH.point, 'textbox "Search" at (110, 20)')
 
     def click(self, point, button, count, modifiers):
         self.done.append(f"click {point.x},{point.y} {button} x{count} {'+'.join(modifiers)}".strip())
+        if self.dialog is not None:
+            raise DialogOpen(self.dialog)
 
     def move(self, point):
         self.done.append(f"move {point.x},{point.y}")
@@ -49,7 +54,7 @@ class FakePilot:
         self.done.append(f"press {key}")
 
     def snapshot(self):
-        return View(self.url, "Work Order", 1280, 800, [SEARCH, SAVE], "Work order WO-1")
+        return View(self.url, "Work Order", 1280, 800, [SEARCH, SAVE], [], self.tabs, "Work order WO-1")
 
     def screenshot(self):
         return b"jpeg"
@@ -70,6 +75,13 @@ class FakeSlot:
 
     def pointer(self, point, press):
         self.pointers.append((point, press))
+
+    def answer_dialog(self, accept, text):
+        self._pilot.done.append(f"{'accept' if accept else 'dismiss'} {text}".strip())
+        self._pilot.dialog = None
+
+    def switch_tab(self, index):
+        self._pilot.done.append(f"switch {index}")
 
 
 class BrowserContext(FakeContext):
@@ -113,7 +125,7 @@ def test_without_vision_the_result_lists_elements_instead(tmp_path):
 
 def test_a_write_is_blocked_while_changes_are_off(tmp_path):
     ctx = BrowserContext(tmp_path, effect=Effect.WRITE)
-    with pytest.raises(ToolError, match="Allow changes is off"):
+    with pytest.raises(ToolError, match="thread is Read-only"):
         tool_named("browser_click").handler({"ref": 2, "say": "Saving the work order"}, ctx)
     assert ctx.pilot.done == [] and ctx.asked == []
 
@@ -199,7 +211,7 @@ def test_a_run_stores_browser_events_and_forgets_them_on_reload(logged_in, monke
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
     monkeypatch.setattr("ov.agent.integrations.copilot.complete", lambda *a, **k: ("Title", None))
 
-    run = runs.create({"prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
     run.emit({"type": "browser", "browser": {"open": True, "instance": "acme", "session": 1, "pointer": None}})
     run.emit({"type": "browser", "browser": {"pointer": {"x": 1, "y": 2, "step": 1}}})
@@ -226,7 +238,47 @@ def test_a_browser_that_dies_is_reported_closed_once():
     slot = BrowserSlot("r1", events.append)
     dead = DeadPilot()
     slot._open = _Open("acme", dead, StoppedScreen())
-    slot._exited(dead)
-    slot._exited(dead)
-    assert events == [{"type": "browser", "browser": {"open": False, "error": "The browser stopped: crashed"}}]
+    slot.exited(dead)
+    slot.exited(dead)
+    closed = {"open": False, "dialog": None, "tabs": [], "error": "The browser stopped: crashed"}
+    assert events == [{"type": "browser", "browser": closed}]
     assert not slot.live
+
+
+def test_a_dialog_the_page_opens_is_reported_not_raised(tmp_path):
+    ctx = BrowserContext(tmp_path)
+    ctx.pilot.dialog = CONFIRM
+    out = tool_named("browser_click").handler({"ref": 2, "say": "Deleting the record"}, ctx)
+    assert 'showing a confirm: "Delete record 42?"' in out and "browser_dialog" in out
+
+
+def test_accepting_a_confirm_is_a_checked_change(tmp_path):
+    ctx = BrowserContext(tmp_path, effect=Effect.WRITE)
+    ctx.pilot.dialog = CONFIRM
+    with pytest.raises(ToolError, match="thread is Read-only"):
+        tool_named("browser_dialog").handler({"action": "accept", "say": "Confirming"}, ctx)
+    assert ctx.pilot.done == [] and 'press OK on the confirm "Delete record 42?"' in ctx.actions[0]
+
+    tool_named("browser_dialog").handler({"action": "dismiss", "say": "Cancelling"}, ctx)
+    assert ctx.pilot.done == ["dismiss"] and len(ctx.actions) == 1
+
+
+def test_an_alert_is_accepted_without_a_check(tmp_path):
+    ctx = BrowserContext(tmp_path, effect=Effect.WRITE)
+    ctx.pilot.dialog = Dialog("alert", "Saved", "")
+    out = tool_named("browser_dialog").handler({"action": "accept", "say": "Closing the alert"}, ctx)
+    assert ctx.actions == [] and "Accepted the alert." in out
+
+
+def test_answering_with_no_dialog_is_an_error(tmp_path):
+    with pytest.raises(ToolError, match="No dialog"):
+        tool_named("browser_dialog").handler({"action": "accept", "say": "OK"}, BrowserContext(tmp_path))
+
+
+def test_popups_show_up_as_tabs(tmp_path):
+    ctx = BrowserContext(tmp_path)
+    ctx.vision = False
+    ctx.pilot.tabs = [Tab(1, "Work Order", ctx.pilot.url, False), Tab(2, "Attachments", ctx.pilot.url, True)]
+    out = tool_named("browser_tab").handler({"action": "switch", "index": 2, "say": "Showing the popup"}, ctx)
+    assert ctx.pilot.done == ["switch 2"]
+    assert "[2] Attachments | https://acme.onevizion.com/Dashboard.do (shown)" in out

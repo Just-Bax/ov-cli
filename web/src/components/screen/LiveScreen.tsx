@@ -20,6 +20,7 @@ export const SCREEN_BAR_PX = 52
 const SCREEN_MARGIN_PX = 48
 const MAX_SCREEN_WIDTH = 1280
 const MAX_SCREEN_HEIGHT = 900
+const BLANK_PAGE = 'about:blank'
 
 const MODIFIER = { alt: 1, ctrl: 2, meta: 4, shift: 8 }
 const BUTTON_NAMES = ['left', 'middle', 'right'] as const
@@ -95,8 +96,10 @@ export function LiveScreen({
   closeLabel,
   onClose,
   overlay,
+  strip,
   focusOnStart = true,
   onStageResize,
+  loading,
 }: {
   streamUrl: string
   send: SendScreen
@@ -107,8 +110,10 @@ export function LiveScreen({
   closeLabel: string
   onClose: () => void
   overlay?: (size: FrameSize) => ReactNode
+  strip?: ReactNode
   focusOnStart?: boolean
   onStageResize?: (size: FrameSize) => void
+  loading?: string | null
 }) {
   const [frame, setFrame] = useState<Frame>()
   const [phase, setPhase] = useState<Phase>('starting')
@@ -235,15 +240,21 @@ export function LiveScreen({
     })
   }
 
-  const address = frame?.url ?? startAddress
+  const painted = frame && frame.url !== BLANK_PAGE ? frame.url : startAddress
+  const address = loading ?? painted
   const shown = splitAddress(address)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div
-        className="border-line flex shrink-0 items-center gap-2 border-b px-3"
+        className="border-line relative flex shrink-0 items-center gap-2 border-b px-3"
         style={{ height: SCREEN_BAR_PX }}
       >
+        {loading ? (
+          <div className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
+            <div className="bg-brand animate-load-bar h-full w-2/5 rounded-full" />
+          </div>
+        ) : null}
         <button
           type="button"
           aria-label="Back"
@@ -255,7 +266,9 @@ export function LiveScreen({
           <ArrowLeftIcon className="size-4" />
         </button>
         <div className="bg-raised text-text flex h-8 min-w-0 flex-1 items-center gap-2 rounded-full px-3 text-[12.5px]">
-          {shown.secure ? (
+          {loading ? (
+            <Spinner className="text-brand size-3.5 shrink-0" />
+          ) : shown.secure ? (
             <LockClosedIcon className="text-ok size-3.5 shrink-0" />
           ) : (
             <GlobeAltIcon className="text-muted size-3.5 shrink-0" />
@@ -276,6 +289,7 @@ export function LiveScreen({
           <XMarkIcon className="size-4" />
         </button>
       </div>
+      {strip}
 
       <div
         ref={stage}

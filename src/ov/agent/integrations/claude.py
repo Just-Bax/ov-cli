@@ -13,7 +13,6 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
-    query,
 )
 
 from ov.agent.integrations.copilot import Usage
@@ -28,6 +27,9 @@ NANO_PER_USD = 1_000_000_000
 HIDDEN_MODELS = frozenset({"default"})
 HELPER_EFFORT = "low"
 HELPER_DIR = "claude-helper"
+MESSAGE_BUFFER_BYTES = 64 * 1024 * 1024
+HELPER_QUESTIONS = 30
+HELPER_TIMEOUT_SECONDS = 120
 SERVER_NAME = "ov"
 TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
 SIGN_IN_HINT = "Install Claude Code, run `claude` in a terminal and sign in with /login."
@@ -109,6 +111,7 @@ async def _server_models() -> list[dict[str, Any]]:
         cli_path=cli_path(),
         cwd=str(agent_dir(HELPER_DIR)),
         extra_args=dict(NO_TRANSCRIPT),
+        max_buffer_size=MESSAGE_BUFFER_BYTES,
     )
     async with ClaudeSDKClient(options) as client:
         info = await client.get_server_info()
@@ -164,24 +167,86 @@ def base_options(model: str, system: str, cwd: Path, effort: str | None) -> Clau
         effort=effort,
         cli_path=cli_path(),
         cwd=str(cwd),
+        max_buffer_size=MESSAGE_BUFFER_BYTES,
     )
 
 
-async def _complete(model: str, system: str, user_text: str) -> tuple[str, Usage]:
-    options = base_options(model, system, agent_dir(HELPER_DIR), HELPER_EFFORT)
-    options.max_turns = 1
-    options.extra_args = dict(NO_TRANSCRIPT)
-    answer: ResultMessage | None = None
-    async for message in query(prompt=user_text, options=options):
-        if isinstance(message, ResultMessage):
-            answer = message
-    if answer is None or answer.is_error:
-        raise ClaudeError(result_error(answer) if answer else f"Claude Code gave no answer. {SIGN_IN_HINT}")
-    return answer.result or "", usage_of(answer, 0)
+class _Helper:
+    def __init__(self, model: str, system: str) -> None:
+        self._model = model
+        self._system = system
+        self._loop = asyncio.new_event_loop()
+        self._lock = asyncio.Lock()
+        self._client: ClaudeSDKClient | None = None
+        self._asked = 0
+        self._spent = 0.0
+        threading.Thread(target=self._loop.run_forever, name="claude-helper", daemon=True).start()
+
+    def ask(self, text: str) -> tuple[str, Usage]:
+        return asyncio.run_coroutine_threadsafe(self._ask(text), self._loop).result(HELPER_TIMEOUT_SECONDS)
+
+    def close(self) -> None:
+        asyncio.run_coroutine_threadsafe(self._close(), self._loop).result(HELPER_TIMEOUT_SECONDS)
+
+    async def _ask(self, text: str) -> tuple[str, Usage]:
+        async with self._lock:
+            if self._client is None or self._asked >= HELPER_QUESTIONS:
+                await self._open()
+
+            self._asked += 1
+            client = self._client
+            await client.query(text)
+            answer: ResultMessage | None = None
+            async for message in client.receive_response():
+                if isinstance(message, ResultMessage):
+                    answer = message
+
+            if answer is None or answer.is_error:
+                await self._close()
+                raise ClaudeError(result_error(answer) if answer else f"Claude Code gave no answer. {SIGN_IN_HINT}")
+
+            usage = usage_of(answer, self._spent)
+            self._spent = answer.total_cost_usd or self._spent
+            return answer.result or "", usage
+
+    async def _open(self) -> None:
+        await self._close()
+        options = base_options(self._model, self._system, agent_dir(HELPER_DIR), HELPER_EFFORT)
+        options.max_turns = 1
+        options.extra_args = dict(NO_TRANSCRIPT)
+        self._client = ClaudeSDKClient(options)
+        await self._client.connect()
+        self._asked, self._spent = 0, 0.0
+
+    async def _close(self) -> None:
+        if self._client is None:
+            return
+        client, self._client = self._client, None
+        await client.disconnect()
+
+
+_helpers: dict[tuple[str, str], _Helper] = {}
+_helpers_lock = threading.Lock()
+
+
+def _helper(model: str, system: str) -> _Helper:
+    with _helpers_lock:
+        found = _helpers.get((model, system))
+        if found is None:
+            found = _helpers[(model, system)] = _Helper(model, system)
+        return found
+
+
+def close_helpers() -> None:
+    with _helpers_lock:
+        helpers = list(_helpers.values())
+        _helpers.clear()
+    for helper in helpers:
+        helper.close()
 
 
 def complete(model: str, system: str, user_text: str) -> tuple[str, Usage]:
-    text, usage = asyncio.run(_complete(model, system, user_text))
+    text, usage = _helper(model, system).ask(user_text)
     if not text.strip():
         raise ClaudeError(f"{model} returned an empty reply.")
     return text, usage

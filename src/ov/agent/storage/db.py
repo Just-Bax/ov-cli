@@ -32,6 +32,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import aliased
 
 from ov.agent.storage.models import (
+    Access,
     Attachment,
     Event,
     EventType,
@@ -78,7 +79,7 @@ INTERRUPTED_RUN = "Interrupted by a restart."
 INTERRUPTED_TOOL = "Interrupted by a restart."
 RUN_LIST_LIMIT = 500
 ACTIVE = (ThreadStatus.QUEUED, ThreadStatus.RUNNING, ThreadStatus.WAITING)
-THREAD_COLUMNS = ("title", "instance", "status", "allow_write")
+THREAD_COLUMNS = ("title", "instance", "status", "access")
 TOKEN_COLUMNS = {
     "input": "input_tokens",
     "cache_read": "cached_tokens",
@@ -157,11 +158,25 @@ def _migrate(engine: Engine, path: Path) -> bool:
     if has_data:
         _ensure_alone(path)
         _backup(path, current)
-    with engine.begin() as conn:
-        conn.exec_driver_sql("PRAGMA defer_foreign_keys = ON")
-        config.attributes["connection"] = conn
-        command.upgrade(config, "head")
+
+    with engine.connect() as conn:
+        raw = conn.connection.dbapi_connection
+        raw.execute("PRAGMA foreign_keys = OFF")
+        try:
+            with conn.begin():
+                config.attributes["connection"] = conn
+                command.upgrade(config, "head")
+                _check_foreign_keys(conn)
+        finally:
+            raw.execute("PRAGMA foreign_keys = ON")
+
     return True
+
+
+def _check_foreign_keys(conn: Connection) -> None:
+    broken = conn.exec_driver_sql("PRAGMA foreign_key_check").first()
+    if broken is not None:
+        raise RuntimeError(f"Migration left a broken reference in {broken[0]}.")
 
 
 def _new_engine(path: Path) -> Engine:
@@ -365,7 +380,7 @@ def create_thread(
     *,
     prompt: str,
     instance: str | None,
-    allow_write: bool,
+    access: Access,
 ) -> dict[str, Any]:
     now = now_ms()
     values = {
@@ -374,7 +389,7 @@ def create_thread(
         "model": model,
         "prompt": prompt,
         "instance": instance,
-        "allow_write": allow_write,
+        "access": access,
     }
     with _begin() as conn:
         conn.execute(
@@ -407,9 +422,9 @@ def get_thread(thread_id: str) -> dict[str, Any] | None:
     return found[0] if found else None
 
 
-def thread_writes(thread_id: str) -> bool:
+def thread_access(thread_id: str) -> Access:
     with _begin() as conn:
-        return bool(conn.scalar(select(Thread.allow_write).where(Thread.id == thread_id)))
+        return Access(conn.scalar(select(Thread.access).where(Thread.id == thread_id)))
 
 
 def delete_thread(thread_id: str) -> None:

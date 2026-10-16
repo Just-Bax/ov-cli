@@ -5,7 +5,9 @@ import {
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type {
+  Access,
   ChatMessage,
+  ApprovalQuestion,
   FollowUp,
   Question,
   RunState,
@@ -25,12 +27,12 @@ import {
   type Tone,
 } from '@/components/common/ui'
 import { Composer } from '@/components/composer/Composer'
-import { WriteSwitch } from '@/components/composer/WriteSwitch'
+import { AccessMeter, AccessPicker, accessMode } from '@/components/composer/AccessPicker'
 import { OPEN_FIND } from '@/components/layout/CommandPalette'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { inCodeEditor } from '@/lib/dom'
-import { useWindowEvent } from '@/lib/hooks'
+import { usePresence, useWindowEvent } from '@/lib/hooks'
 import { layerOpen } from '@/lib/layers'
 import { allRuns, useRuns, WORKING } from '@/lib/runs'
 import { useSettings } from '@/lib/settings'
@@ -50,16 +52,19 @@ import {
   ShowBrowserButton,
 } from './BrowserPane'
 import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
-import { Answer, LoginCard, QuestionCard } from './Panels'
+import { Answer, LoginCard } from './Panels'
+import { AnsweredQuestion, QuestionComposer } from './QuestionDock'
 import { RunMenu } from './RunMenu'
 import { RUN_STATUS, StatusIcon } from './RunStatus'
 import { ThreadRail } from './ThreadRail'
-import { ToolGroup } from './ToolGroup'
+import { summarize, ToolGroup } from './ToolGroup'
+import { Worked } from './Worked'
 
 const FOLLOW_BOTTOM_PX = 80
 const USER_SCROLL_MS = 600
 const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const
 const MARK_LABEL_CHARS = 160
+const BROWSER_EXIT_MS = 200
 const OLDER_MARGIN_PX = 600
 const OLDER_ARM_MS = 500
 const RUN_ACTION_WIDTHS = ['w-24', 'w-9']
@@ -139,9 +144,46 @@ function buildTurns(state: RunState): Turn[] {
   return turns.filter((t) => t.user || t.blocks.length)
 }
 
-function turnText(turn: Turn, state: RunState): string {
+const RESULT_ITEMS = new Set<ThreadItem['kind']>(['change', 'outcome'])
+
+function splitTurn(blocks: Block[]): { work: Block[]; result: Block[] } {
+  const lastTools = blocks.findLastIndex((b) => b.kind === 'tools')
+  if (lastTools < 0) return { work: [], result: blocks }
+
+  const lastText = blocks.findLastIndex((b) => b.kind === 'item' && b.item.kind === 'text')
+  const cut = lastText > lastTools || lastText < 0 ? lastTools + 1 : lastText
+  const done = blocks.slice(0, cut)
+  const kept = (b: Block) => b.kind === 'item' && RESULT_ITEMS.has(b.item.kind)
+  return {
+    work: done.filter((b) => !kept(b)),
+    result: [...done.filter(kept), ...blocks.slice(cut)],
+  }
+}
+
+function workSummary(work: Block[], state: RunState): string {
+  const tools = work.flatMap((b) => (b.kind === 'tools' ? b.tools : []))
+  const updates = work.filter(
+    (b) =>
+      b.kind === 'item' && b.item.kind === 'text' && chatById(state).get(b.item.id)?.text.trim(),
+  ).length
+  const said = updates ? [`${updates} ${updates === 1 ? 'update' : 'updates'}`] : []
+  return [summarize(tools), ...said].filter(Boolean).join(', ')
+}
+
+function turnSpan(turn: Turn, state: RunState): number | undefined {
+  const tools = turn.blocks.flatMap((b) => (b.kind === 'tools' ? b.tools : []))
+  const texts = turn.blocks.flatMap((b) =>
+    b.kind === 'item' && b.item.kind === 'text' ? [chatById(state).get(b.item.id)?.ts ?? 0] : [],
+  )
+  const starts = tools.flatMap((t) => (t.startedAt ? [t.startedAt] : []))
+  const start = turn.user?.ts ?? Math.min(...starts, ...texts.filter(Boolean))
+  const end = Math.max(...texts, ...tools.map((t) => (t.startedAt ?? 0) + (t.ms ?? 0)))
+  return Number.isFinite(start) && end > start ? end - start : undefined
+}
+
+function blocksText(blocks: Block[], state: RunState): string {
   const parts: string[] = []
-  for (const b of turn.blocks) {
+  for (const b of blocks) {
     if (b.kind !== 'item') continue
 
     if (b.item.kind === 'text') {
@@ -167,13 +209,28 @@ function turnTime(turn: Turn, state: RunState): number | undefined {
   return undefined
 }
 
-function browserQuestion(state: RunState): Question | undefined {
+function isOpen(question: Question): boolean {
+  return !question.answers && !question.stopped
+}
+
+function browserQuestion(state: RunState): ApprovalQuestion | undefined {
   if (!state.browser?.open || !LIVE_QUESTION.has(state.summary.status)) return undefined
 
   const tools = new Map(state.tools.map((t) => [t.id, t.name]))
   return state.questions.find(
-    (q) => q.answer === undefined && q.toolId && isBrowserTool(tools.get(q.toolId)),
+    (q): q is ApprovalQuestion =>
+      q.kind === 'approval' &&
+      isOpen(q) &&
+      Boolean(q.toolId) &&
+      isBrowserTool(tools.get(q.toolId ?? '')),
   )
+}
+
+function dockedQuestion(state: RunState): Question | undefined {
+  if (!LIVE_QUESTION.has(state.summary.status)) return undefined
+
+  const inBrowser = browserQuestion(state)?.id
+  return state.questions.find((q) => isOpen(q) && q.id !== inBrowser)
 }
 
 function browserShown(state: RunState | undefined, hiddenSession: number | undefined): boolean {
@@ -203,16 +260,21 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
     }
     case 'question': {
       const q = state.questions.find((x) => x.id === item.id)
-      const live = LIVE_QUESTION.has(state.summary.status)
-      if (q && q.id === browserQuestion(state)?.id) {
-        return (
-          <div className="text-warn flex items-center gap-2 text-[12.5px] font-medium">
-            <ShieldWarningIcon className="size-4" /> Waiting for your approval in the browser
-          </div>
-        )
-      }
+      if (!q) return null
 
-      return q ? <QuestionCard runId={id} question={q} live={live} /> : null
+      const live = LIVE_QUESTION.has(state.summary.status)
+      if (!isOpen(q) || !live) return <AnsweredQuestion question={q} />
+
+      return (
+        <div className="text-warn flex items-center gap-2 text-[12.5px] font-medium">
+          <ShieldWarningIcon className="size-4" />
+          {q.id === browserQuestion(state)?.id
+            ? 'Waiting for your approval in the browser'
+            : q.kind === 'approval'
+              ? 'Waiting for your approval below'
+              : 'Waiting for your answer below'}
+        </div>
+      )
     }
     case 'login': {
       const l = state.logins.find((x) => x.id === item.id)
@@ -232,12 +294,18 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
 function Footer({
   runId,
   busy,
-  write,
+  access,
+  compact,
+  question,
+  tool,
   onSend,
 }: {
   runId: string
   busy: boolean
-  write: boolean
+  access: Access
+  compact: boolean
+  question?: Question
+  tool?: ToolActivity
   onSend: () => void
 }) {
   const [error, setError] = useState<string>()
@@ -258,25 +326,39 @@ function Footer({
     }
   }
 
+  const stop = () => void api.cancel(runId).catch(reportError)
+  const extras = <AccessPicker value={access} onChange={(v) => api.setAccess(runId, v)} />
+
   return (
-    <div className="px-6 pt-1 pb-4">
+    <div className={cn('pt-1 pb-4', compact ? 'px-4' : 'px-6')}>
       <div className="mx-auto max-w-[860px]">
         {error ? <div className="text-danger mb-1.5 text-[12px]">{error}</div> : null}
-        <Composer
-          busy={busy}
-          queueWhileBusy
-          allowFiles
-          placeholder={
-            busy
-              ? `${describe(settings.followUp)}. Ctrl+Enter to ${other} instead`
-              : 'Ask a follow-up or give direction'
-          }
-          busyHint={(alternate) => describe(alternate ? other : settings.followUp)}
-          onSend={send}
-          draftKey={`run-${runId}`}
-          onStop={() => void api.cancel(runId).catch(reportError)}
-          extras={<WriteSwitch value={write} onChange={(v) => api.setWriteAccess(runId, v)} />}
-        />
+        {question ? (
+          <QuestionComposer
+            runId={runId}
+            question={question}
+            tool={tool}
+            busy={busy}
+            extras={extras}
+            onStop={stop}
+          />
+        ) : (
+          <Composer
+            busy={busy}
+            queueWhileBusy
+            allowFiles
+            placeholder={
+              busy
+                ? `${describe(settings.followUp)}. Ctrl+Enter to ${other} instead`
+                : 'Ask a follow-up or give direction'
+            }
+            busyHint={(alternate) => describe(alternate ? other : settings.followUp)}
+            onSend={send}
+            draftKey={`run-${runId}`}
+            onStop={stop}
+            extras={extras}
+          />
+        )}
       </div>
     </div>
   )
@@ -338,7 +420,11 @@ export function RunView({ id }: { id: string }) {
   const followBottom = useRef(true)
   const ready = Boolean(state)
   const [hiddenSession, setHiddenSession] = useState<number>()
-  const browsing = browserShown(state, hiddenSession)
+  const modal = usePresence(
+    browserShown(state, hiddenSession) ? state?.browser : undefined,
+    BROWSER_EXIT_MS,
+  )
+  const browsing = Boolean(modal.shown)
   const wasOpen = useRef(false)
   const restoreHeight = useRef<number | undefined>(undefined)
   const [finding, setFinding] = useState(false)
@@ -453,6 +539,7 @@ export function RunView({ id }: { id: string }) {
 
   const { summary } = state
   const busy = WORKING.has(summary.status)
+  const docked = dockedQuestion(state)
   const status = RUN_STATUS[summary.status]
   const turns = toTurns(state)
   const lastBlock = turns.at(-1)?.blocks.at(-1)
@@ -467,13 +554,21 @@ export function RunView({ id }: { id: string }) {
         <StatusIcon status={summary.status} className="size-3" detailed />
         {status.text}
       </span>
-      {state.writeAccess ? (
+      {state.access !== 'read' ? (
         <>
           <Dot />
-          <span className="text-warn font-medium">Changes allowed</span>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1.5 font-medium',
+              accessMode(state.access).tone,
+            )}
+          >
+            <AccessMeter value={state.access} className="scale-90" />
+            {accessMode(state.access).label}
+          </span>
         </>
       ) : null}
-      {summary.caseKey && state.caseUrl ? (
+      {summary.caseKey && state.caseUrl && !browsing ? (
         <>
           <Dot />
           <a
@@ -486,7 +581,7 @@ export function RunView({ id }: { id: string }) {
           </a>
         </>
       ) : null}
-      {summary.instance ? (
+      {summary.instance && !browsing ? (
         <>
           <Dot />
           <InstanceChip instance={summary.instance} />
@@ -528,11 +623,15 @@ export function RunView({ id }: { id: string }) {
       }
       subtitle={subtitle}
       actions={actions}
+      compact={browsing}
       footer={
         <Footer
           runId={id}
           busy={busy}
-          write={state.writeAccess}
+          access={state.access}
+          compact={browsing}
+          question={docked}
+          tool={state.tools.find((t) => t.id === docked?.toolId)}
           onSend={() => {
             followBottom.current = true
           }}
@@ -553,18 +652,23 @@ export function RunView({ id }: { id: string }) {
           </div>
         </div>
       ) : null}
-      <ThreadRail
-        contentRef={scrollRef}
-        version={`${state.start}:${state.items.length}:${state.chat.length}:${state.tools.length}`}
-        outline={state.outline}
-        onLoadUntil={older}
-        onJump={() => {
-          followBottom.current = false
-        }}
-      />
+      {browsing ? null : (
+        <ThreadRail
+          contentRef={scrollRef}
+          version={`${state.start}:${state.items.length}:${state.chat.length}:${state.tools.length}`}
+          outline={state.outline}
+          onLoadUntil={older}
+          onJump={() => {
+            followBottom.current = false
+          }}
+        />
+      )}
       <div
         ref={scrollRef}
-        className="mx-auto max-w-[860px] space-y-5 px-6 pt-6 pb-8 @max-[940px]:pr-11"
+        className={cn(
+          'mx-auto max-w-[860px] space-y-5 pt-6 pb-8',
+          browsing ? 'px-4' : 'px-6 @max-[940px]:pr-11',
+        )}
       >
         {state.start > 0 ? (
           <OlderTurns
@@ -577,7 +681,10 @@ export function RunView({ id }: { id: string }) {
         {turns.map((turn, i) => {
           const isLast = i === turns.length - 1
           const active = isLast && busy
-          const text = turnText(turn, state)
+          const { work, result } = active
+            ? { work: [], result: turn.blocks }
+            : splitTurn(turn.blocks)
+          const text = blocksText(result, state)
           const toolIds = new Set(
             turn.blocks.flatMap((b) => (b.kind === 'tools' ? b.tools.map((x) => x.id) : [])),
           )
@@ -603,12 +710,19 @@ export function RunView({ id }: { id: string }) {
                   data-label={(text || 'Working').slice(0, MARK_LABEL_CHARS)}
                   className="space-y-4"
                 >
-                  {turn.blocks.map((b) => (
+                  {work.length ? (
+                    <Worked ms={turnSpan(turn, state)} summary={workSummary(work, state)}>
+                      {work.map((b) => (
+                        <ThreadBlock key={b.key} block={b} state={state} />
+                      ))}
+                    </Worked>
+                  ) : null}
+                  {result.map((b) => (
                     <div key={b.key} className="animate-fade-up">
                       <ThreadBlock block={b} state={state} />
                     </div>
                   ))}
-                  <FilesChanged runId={id} edits={edits} />
+                  {active ? null : <FilesChanged runId={id} edits={edits} />}
                 </div>
               ) : null}
               {!active && turnId && text ? (
@@ -644,20 +758,25 @@ export function RunView({ id }: { id: string }) {
     </Page>
   )
 
-  if (!browser || !browsing) return page
+  if (!modal.shown) return page
 
+  const shownBrowser = modal.shown
   return createPortal(
-    <div className="fixed inset-0 z-[90]">
-      <BrowserBackdrop />
+    <div className={cn('fixed inset-0 z-[90]', modal.leaving && 'pointer-events-none')}>
+      <BrowserBackdrop leaving={modal.leaving} />
       <BrowserPane
         runId={id}
-        browser={browser}
+        browser={shownBrowser}
         tools={state.tools}
         question={browserQuestion(state)}
-        write={state.writeAccess}
-        onHide={() => setHiddenSession(browser.session)}
+        access={state.access}
+        leaving={modal.leaving}
+        onHide={() => setHiddenSession(shownBrowser.session)}
       />
-      <div className={CARD_CLASS} style={CHAT_CARD_STYLE}>
+      <div
+        className={cn(CARD_CLASS, modal.leaving ? 'animate-side-out' : 'animate-side-in')}
+        style={CHAT_CARD_STYLE}
+      >
         {page}
       </div>
     </div>,

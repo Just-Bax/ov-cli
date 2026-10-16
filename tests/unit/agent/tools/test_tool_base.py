@@ -16,3 +16,45 @@ def test_secrets_are_masked_in_any_tool_output(tmp_path):
 
     out = clip('DB_PASSWORD=Xy9abc {"apiKey": "k-123"} max_tokens=32000', FakeContext(tmp_path), "output")
     assert out == 'DB_PASSWORD=*** {"apiKey": "***"} max_tokens=32000'
+
+
+def test_ask_first_asks_for_every_change(tmp_path):
+    from ov.agent.tools.base import approved
+
+    ctx = FakeContext(tmp_path, write=True)
+    assert approved(ctx, "Save?", "click Save")
+    assert ctx.asked == ["click Save"] and ctx.judged == []
+
+
+def test_auto_applies_routine_changes_without_asking(tmp_path):
+    from ov.agent.tools.base import approved
+
+    ctx = FakeContext(tmp_path, write=True, auto=True)
+    assert approved(ctx, "Save?", "click Save")
+    assert ctx.asked == [] and ctx.judged == ["Save?\nclick Save"]
+
+
+def test_auto_still_asks_for_risky_changes(tmp_path):
+    from ov.agent.tools.base import approved
+
+    ctx = FakeContext(tmp_path, write=True, auto=True, risky=True, approve="Reject")
+    assert not approved(ctx, "Delete?", "click Delete")
+    assert ctx.asked == ["click Delete"] and ctx.reasons == ["it deletes data"]
+
+
+def test_a_rejection_note_reaches_the_agent(tmp_path):
+    import pytest
+
+    from ov.agent.tools.base import ToolError, approved
+
+    ctx = FakeContext(tmp_path, write=True, approve="Reject", note="use the test instance")
+    with pytest.raises(ToolError, match="said: use the test instance"):
+        approved(ctx, "Save?", "click Save")
+
+
+def test_full_access_never_checks_or_asks(tmp_path):
+    from ov.agent.tools.base import approved
+
+    ctx = FakeContext(tmp_path, write=True, full=True, risky=True)
+    assert approved(ctx, "Delete?", "click Delete")
+    assert ctx.asked == [] and ctx.judged == []

@@ -19,7 +19,7 @@ def test_ws_run_gates_commands_by_their_judged_effect(workspace, tmp_path):
     with pytest.raises(ToolError, match="Nothing to run"):
         tool.handler({"command": "echo skip"}, reading)
     for command in ("git commit -m x", "git push"):
-        with pytest.raises(ToolError, match="Allow changes is off"):
+        with pytest.raises(ToolError, match="this thread is Read-only"):
             tool.handler({"command": command}, reading)
     assert reading.asked == []
 

@@ -5,14 +5,24 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from dataclasses import asdict, dataclass, field
+from typing import Any, Protocol, TypeVar
 from urllib.parse import urlsplit
 
-from playwright.sync_api import BrowserContext, Frame, Locator, Page, Route, sync_playwright
+from playwright.sync_api import BrowserContext, Frame, Locator, Page, Request, Route, sync_playwright
+from playwright.sync_api import Dialog as PageDialog
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
+from ov.browser.scripts import (
+    COVER_SCRIPT,
+    PICKER_SCRIPT,
+    POINT_SCRIPT,
+    REACH_SCRIPT,
+    SHAPE_SCRIPT,
+    SNAPSHOT_SCRIPT,
+    TEXT_SCRIPT,
+)
 from ov.onevizion.login import SCREEN_CHANNEL, browser_is_installed, desktop_user_agent
 
 LAUNCH_ARGS = ["--no-first-run", "--no-default-browser-check"]
@@ -20,10 +30,13 @@ ACTION_TIMEOUT_MS = 15_000
 NAV_TIMEOUT_MS = 45_000
 ACTION_PAUSE_MS = 250
 SETTLE_POLL_MS = 250
+NETWORK_QUIET_SECONDS = 0.5
+BACKGROUND_REQUEST_SECONDS = 5
 ACTION_SETTLE_SECONDS = 3
 PAGE_SETTLE_SECONDS = 10
 WAIT_POLL_MS = 250
 MAX_WAIT_SECONDS = 30
+MS_PER_SECOND = 1000
 IDLE_LOOP_MS = 40
 MOVE_STEPS = 8
 DRAG_STEPS = 16
@@ -33,6 +46,8 @@ START_TIMEOUT_SECONDS = 90
 CALL_TIMEOUT_SECONDS = 120
 CALL_POLL_SECONDS = 0.5
 MAX_ELEMENTS = 200
+MIN_FRAME_WIDTH = 200
+MIN_FRAME_HEIGHT = 100
 NAME_CHARS = 80
 VALUE_CHARS = 80
 TEXT_CHARS = 8_000
@@ -41,157 +56,43 @@ REF_ATTRIBUTE = "data-ov-ref"
 BLANK_PAGE = "about:blank"
 STAY_PUT_STATUS = 204
 EVERY_REQUEST = "**/*"
+PROMPT = "prompt"
 NOT_INSTALLED = "The browser is not installed. Run: ov setup"
 CLOSED = "The browser has closed."
+NO_DIALOG = "No dialog is open on the page."
+ONLY_TAB = "This is the only tab; close the browser instead."
+COVERED = "That element is covered or off screen. Close or scroll what is over it, then try again."
+SLOW_PAGE = (
+    "{url} did not load within {seconds}s; the instance is slow right now. It may still finish: look again shortly."
+)
 NAVIGATED = ("Execution context was destroyed", "Cannot find context", "Frame was detached")
 BUTTONS = ("left", "right", "middle")
 MODIFIERS = ("Alt", "Control", "Meta", "Shift")
 
-HELPERS = """
-  const selector = [
-    'a[href]', 'button', 'input:not([type=hidden])', 'textarea', 'select', 'summary',
-    '[contenteditable=""]', '[contenteditable=true]', '[onclick]', '[role=button]', '[role=link]',
-    '[role=tab]', '[role=menuitem]', '[role=menuitemcheckbox]', '[role=option]', '[role=checkbox]',
-    '[role=radio]', '[role=switch]', '[role=combobox]', '[role=textbox]', '[role=treeitem]',
-    '[role=gridcell]', '[role=row]',
-  ].join(', ');
-  const clean = (text, max) => (text || '').replace(/\\s+/g, ' ').trim().slice(0, max);
-  const roleOf = (el) => {
-    const explicit = el.getAttribute('role');
-    if (explicit) return explicit;
-    const tag = el.tagName.toLowerCase();
-    if (tag === 'a') return 'link';
-    if (tag === 'select') return 'combobox';
-    if (tag === 'textarea') return 'textbox';
-    if (tag === 'button' || tag === 'summary') return 'button';
-    if (tag === 'input') {
-      const type = (el.getAttribute('type') || 'text').toLowerCase();
-      if (['button', 'submit', 'reset', 'image'].includes(type)) return 'button';
-      if (type === 'checkbox' || type === 'radio') return type;
-      return 'textbox';
-    }
-    return el.isContentEditable ? 'textbox' : 'clickable';
-  };
-  const labelledBy = (el) =>
-    (el.getAttribute('aria-labelledby') || '')
-      .split(/\\s+/)
-      .filter(Boolean)
-      .map((id) => document.getElementById(id)?.innerText || '')
-      .join(' ');
-  const besideLabel = (el) => {
-    if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName)) return '';
-    const cell = el.closest('td');
-    const before = cell?.previousElementSibling;
-    return before ? before.innerText : '';
-  };
-  const nameOf = (el) => {
-    const buttonInput = el.tagName === 'INPUT' && roleOf(el) === 'button';
-    const ownText = el.tagName === 'INPUT' || el.tagName === 'SELECT' ? '' : el.innerText;
-    return clean(
-      el.getAttribute('aria-label') ||
-        labelledBy(el) ||
-        (el.labels && el.labels[0] ? el.labels[0].innerText : '') ||
-        (buttonInput ? el.value : '') ||
-        ownText ||
-        el.getAttribute('placeholder') ||
-        el.getAttribute('title') ||
-        el.getAttribute('alt') ||
-        el.querySelector('img[alt]')?.getAttribute('alt') ||
-        besideLabel(el) ||
-        el.getAttribute('name'),
-      nameChars,
-    );
-  };
-  const valueOf = (el) => {
-    if (el.tagName === 'SELECT') return clean(el.selectedOptions[0]?.innerText, valueChars);
-    if (el.type === 'checkbox' || el.type === 'radio') return el.checked ? 'checked' : 'unchecked';
-    if (el.type === 'password') return el.value ? '(hidden)' : '';
-    if (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && roleOf(el) === 'textbox')) {
-      return clean(el.value, valueChars);
-    }
-    return '';
-  };
-  const areaOf = (el) => {
-    const box = el.closest('[role=dialog], dialog, .ui-dialog, .modal');
-    if (!box) return '';
-    const heading = box.querySelector('[role=heading], h1, h2, h3, .ui-dialog-title, .modal-title');
-    return clean(box.getAttribute('aria-label') || heading?.innerText, nameChars);
-  };
-  const pointer = (el) => getComputedStyle(el).cursor === 'pointer';
-  const describe = (el) => {
-    const box = el.getBoundingClientRect();
-    return {
-      role: roleOf(el),
-      name: nameOf(el),
-      value: valueOf(el),
-      area: areaOf(el),
-      disabled: el.disabled === true || el.getAttribute('aria-disabled') === 'true',
-      x: box.x,
-      y: box.y,
-      width: box.width,
-      height: box.height,
-    };
-  };
-"""
-
-SNAPSHOT_SCRIPT = (
-    "({ start, limit, nameChars, valueChars, attribute }) => {"
-    + HELPERS
-    + """
-  const marked = new Set(document.querySelectorAll(selector));
-  const clickable = new Set();
-  for (const el of document.body ? document.body.querySelectorAll('*') : []) {
-    if (marked.has(el) || !pointer(el) || el.closest(selector)) continue;
-    if (el.parentElement && pointer(el.parentElement)) continue;
-    clickable.add(el);
-  }
-  const ordered = [...marked, ...clickable].sort((a, b) =>
-    a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
-  );
-
-  document.querySelectorAll(`[${attribute}]`).forEach((el) => el.removeAttribute(attribute));
-  const found = [];
-  for (const el of ordered) {
-    if (found.length >= limit) break;
-    const box = el.getBoundingClientRect();
-    if (!box.width || !box.height) continue;
-    const style = getComputedStyle(el);
-    if (style.visibility === 'hidden' || style.display === 'none') continue;
-    const item = describe(el);
-    if (clickable.has(el) && !item.name) continue;
-    const ref = start + found.length;
-    el.setAttribute(attribute, String(ref));
-    found.push({ ref, ...item });
-  }
-  return found;
-}
-"""
-)
-
-POINT_SCRIPT = (
-    "({ x, y, nameChars, valueChars }) => {"
-    + HELPERS
-    + """
-  const hit = document.elementFromPoint(x, y);
-  if (!hit || hit === document.body || hit === document.documentElement) return null;
-  const control = hit.closest(selector);
-  if (control) return describe(control);
-
-  let el = hit;
-  while (el.parentElement && pointer(el.parentElement)) el = el.parentElement;
-  return pointer(el) ? describe(el) : { ...describe(el), role: 'text' };
-}
-"""
-)
-
-TEXT_SCRIPT = "() => document.body ? document.body.innerText : ''"
-SHAPE_SCRIPT = "() => document.body ? document.body.innerText.length + document.querySelectorAll('*').length : -1"
-
 T = TypeVar("T")
+Notify = Callable[[dict[str, Any]], None]
+
+
+class Owner(Protocol):
+    def changed(self, change: dict[str, Any]) -> None: ...
+    def exited(self, pilot: Pilot) -> None: ...
 
 
 class BrowserError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class Dialog:
+    kind: str
+    message: str
+    default: str
+
+
+class DialogOpen(BrowserError):
+    def __init__(self, dialog: Dialog) -> None:
+        super().__init__(f'The page is showing a {dialog.kind}: "{dialog.message}"')
+        self.dialog = dialog
 
 
 @dataclass(frozen=True)
@@ -209,13 +110,11 @@ class Element:
     disabled: bool
     x: float
     y: float
-    width: float
-    height: float
     ref: int = 0
 
     @property
-    def center(self) -> Point:
-        return Point(round(self.x + self.width / 2), round(self.y + self.height / 2))
+    def point(self) -> Point:
+        return Point(round(self.x), round(self.y))
 
     def describe(self) -> str:
         parts = [f'{self.role} "{self.name}"' if self.name else self.role]
@@ -247,12 +146,31 @@ class Aim:
 
 
 @dataclass(frozen=True)
+class FrameBox:
+    url: str
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class Tab:
+    index: int
+    title: str
+    url: str
+    active: bool
+
+
+@dataclass(frozen=True)
 class View:
     url: str
     title: str
     width: int
     height: int
     elements: list[Element]
+    frames: list[FrameBox]
+    tabs: list[Tab]
     text: str
 
 
@@ -262,6 +180,12 @@ class _Job:
     done: threading.Event = field(default_factory=threading.Event)
     result: Any = None
     error: Exception | None = None
+
+
+@dataclass(frozen=True)
+class _Answer:
+    accept: bool
+    text: str
 
 
 def _first_line(exc: Exception) -> str:
@@ -279,6 +203,24 @@ def _viewport(page: Page) -> dict[str, int]:
     return size
 
 
+def _frame_shape(frame: Frame) -> int | None:
+    try:
+        return frame.evaluate(SHAPE_SCRIPT)
+    except PlaywrightError as exc:
+        if not any(hint in str(exc) for hint in NAVIGATED):
+            raise
+    return None
+
+
+def _page_shape(page: Page) -> tuple[tuple[str, int | None], ...]:
+    frames = [f for f in page.frames if not f.is_detached() and f.url not in ("", BLANK_PAGE)]
+    return tuple((f.url, _frame_shape(f)) for f in frames)
+
+
+def _settled(shape: tuple[tuple[str, int | None], ...]) -> bool:
+    return bool(shape) and all(size is not None and size > 0 for _, size in shape)
+
+
 def _evaluate(frame: Frame, script: str, arg: Any = None) -> Any:
     try:
         return frame.evaluate(script, arg)
@@ -289,17 +231,136 @@ def _evaluate(frame: Frame, script: str, arg: Any = None) -> Any:
     return frame.evaluate(script, arg)
 
 
+class _Network:
+    def __init__(self, context: BrowserContext) -> None:
+        self._open: dict[Request, float] = {}
+        self._last = time.monotonic()
+        context.on("request", self._started)
+        context.on("requestfinished", self._ended)
+        context.on("requestfailed", self._ended)
+
+    def quiet(self) -> bool:
+        now = time.monotonic()
+        busy = [started for started in self._open.values() if now - started < BACKGROUND_REQUEST_SECONDS]
+        return not busy and now - self._last >= NETWORK_QUIET_SECONDS
+
+    def _started(self, request: Request) -> None:
+        self._open[request] = time.monotonic()
+        self._last = time.monotonic()
+
+    def _ended(self, request: Request) -> None:
+        self._open.pop(request, None)
+        self._last = time.monotonic()
+
+
+class _Dialogs:
+    def __init__(self, notify: Notify) -> None:
+        self.open: Dialog | None = None
+        self._notify = notify
+        self._answers: queue.SimpleQueue[_Answer] = queue.SimpleQueue()
+
+    def hold(self, dialog: PageDialog) -> None:
+        self.open = Dialog(dialog.type, dialog.message, dialog.default_value)
+        self._notify({"dialog": asdict(self.open)})
+        answer = self._answers.get()
+        if not answer.accept:
+            dialog.dismiss()
+        elif dialog.type == PROMPT:
+            dialog.accept(answer.text)
+        else:
+            dialog.accept()
+
+    def answer(self, accept: bool, text: str) -> None:
+        if self.open is None:
+            raise BrowserError(NO_DIALOG)
+
+        self.open = None
+        self._notify({"dialog": None})
+        self._answers.put(_Answer(accept, text))
+
+
 class Driver:
-    def __init__(self, context: BrowserContext, hostname: str) -> None:
+    def __init__(self, context: BrowserContext, hostname: str, size: dict[str, int], dialogs: _Dialogs) -> None:
         self._context = context
         self._hostname = hostname
+        self._size = dict(size)
+        self._dialogs = dialogs
+        self._network = _Network(context)
         self._frames: dict[int, Frame] = {}
         self._elements: dict[int, Element] = {}
+        self._tabs: list[Page] = []
+        self._active: Page | None = None
+        self._fresh: list[Page] = []
+        self._targets: dict[Page, str] = {}
+        self.changed = True
+        context.on("page", self._track)
+        for page in context.pages:
+            self._track(page)
 
     @property
     def page(self) -> Page:
-        live = [p for p in self._context.pages if not p.is_closed()]
-        return live[-1] if live else self._context.new_page()
+        if self._active is None:
+            self._context.new_page()
+        if self._active is None:
+            raise BrowserError(CLOSED)
+
+        for fresh in self._fresh:
+            if not fresh.is_closed():
+                fresh.set_viewport_size(self._size)
+        self._fresh = []
+        return self._active
+
+    def _track(self, page: Page) -> None:
+        self._tabs.append(page)
+        self._fresh.append(page)
+        self._active = page
+        self.changed = True
+        page.on("close", self._forget)
+        page.on("load", self._loaded)
+        page.on("dialog", self._dialogs.hold)
+
+    def _loaded(self, _: Page) -> None:
+        self.changed = True
+
+    def _forget(self, page: Page) -> None:
+        self._tabs = [t for t in self._tabs if t is not page]
+        self._targets.pop(page, None)
+        self.changed = True
+        if self._active is not page:
+            return
+
+        opener = page.opener()
+        self._active = opener if opener in self._tabs else (self._tabs[-1] if self._tabs else None)
+
+    def _tab(self, index: int) -> Page:
+        if not 1 <= index <= len(self._tabs):
+            raise BrowserError(f"There is no tab {index}; there are {len(self._tabs)}.")
+        return self._tabs[index - 1]
+
+    def tabs(self) -> list[Tab]:
+        return [
+            Tab(index, page.title(), page.url, page is self._active)
+            for index, page in enumerate(self._tabs, start=1)
+            if not page.is_closed()
+        ]
+
+    def switch(self, index: int) -> None:
+        self._active = self._tab(index)
+        self._active.bring_to_front()
+        self.changed = True
+
+    def close_tab(self, index: int) -> None:
+        if len(self._tabs) == 1:
+            raise BrowserError(ONLY_TAB)
+        self._tab(index).close()
+
+    def active_target(self) -> str:
+        page = self.page
+        if page not in self._targets:
+            session = self._context.new_cdp_session(page)
+            self._targets[page] = session.send("Target.getTargetInfo")["targetInfo"]["targetId"]
+            session.detach()
+        return self._targets[page]
 
     def add_cookies(self, cookies: dict[str, str]) -> None:
         self._context.add_cookies(
@@ -307,8 +368,11 @@ class Driver:
         )
 
     def goto(self, url: str) -> None:
-        self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-        self._settle(PAGE_SETTLE_SECONDS, wait_load=True)
+        try:
+            self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        except PlaywrightTimeout:
+            raise BrowserError(SLOW_PAGE.format(url=url, seconds=NAV_TIMEOUT_MS // 1000)) from None
+        self._settle(PAGE_SETTLE_SECONDS)
 
     def snapshot(self) -> View:
         page = self.page
@@ -333,8 +397,23 @@ class Driver:
             size["width"],
             size["height"],
             list(self._elements.values()),
+            self._frame_boxes(page),
+            self.tabs(),
             "\n\n".join(texts)[:TEXT_CHARS],
         )
+
+    def _frame_boxes(self, page: Page) -> list[FrameBox]:
+        boxes = []
+        for frame in page.frames:
+            if frame.parent_frame is None or frame.is_detached() or frame.url in ("", BLANK_PAGE):
+                continue
+            box = frame.frame_element().bounding_box()
+            if box is not None and box["width"] >= MIN_FRAME_WIDTH and box["height"] >= MIN_FRAME_HEIGHT:
+                boxes.append(FrameBox(frame.url, *(round(box[k]) for k in ("x", "y", "width", "height"))))
+        return boxes
+
+    def _urls(self) -> tuple[str, ...]:
+        return tuple(f.url for f in self.page.frames if not f.is_detached())
 
     def _offset(self, frame: Frame) -> Point:
         if frame.parent_frame is None:
@@ -358,12 +437,24 @@ class Driver:
                 "attribute": REF_ATTRIBUTE,
             },
         )
-        for item in found:
-            element = Element(**{**item, "x": item["x"] + offset.x, "y": item["y"] + offset.y})
+        size = _viewport(frame.page)
+        elements = [Element(**{**item, "x": item["x"] + offset.x, "y": item["y"] + offset.y}) for item in found]
+        on_screen = [e for e in elements if 0 <= e.point.x < size["width"] and 0 <= e.point.y < size["height"]]
+        for element in self._uncovered(frame, on_screen):
             self._elements[element.ref] = element
             self._frames[element.ref] = frame
 
-    def _ref_locator(self, ref: int) -> Locator:
+    def _uncovered(self, frame: Frame, elements: list[Element]) -> list[Element]:
+        parent = frame.parent_frame
+        if parent is None or not elements:
+            return elements
+
+        origin = self._offset(parent)
+        points = [[e.point.x - origin.x, e.point.y - origin.y] for e in elements]
+        shown = _evaluate(parent, COVER_SCRIPT, {"el": frame.frame_element(), "points": points})
+        return [e for e, visible in zip(elements, shown, strict=True) if visible]
+
+    def _ref_locator(self, ref: int) -> tuple[Frame, Locator]:
         if ref not in self._elements:
             raise BrowserError(f"No element [{ref}] in the last snapshot. Take a new snapshot.")
 
@@ -374,15 +465,15 @@ class Driver:
         found = frame.locator(f'[{REF_ATTRIBUTE}="{ref}"]')
         if found.count() == 0:
             raise BrowserError(f"Element [{ref}] is gone from the page. Take a new snapshot.")
-        return found.first
+        return frame, found.first
 
-    def _selector_locator(self, selector: str) -> Locator:
+    def _selector_locator(self, selector: str) -> tuple[Frame, Locator]:
         for frame in self.page.frames:
             if frame.is_detached():
                 continue
             found = frame.locator(selector)
             if found.count() > 0:
-                return found.first
+                return frame, found.first
 
         raise BrowserError(f"Nothing on the page matches {selector}.")
 
@@ -390,15 +481,16 @@ class Driver:
         if target.point is not None:
             return Aim(target.point, self.describe_at(target.point))
 
-        found = (
+        frame, found = (
             self._ref_locator(target.ref) if target.ref is not None else self._selector_locator(target.locator or "")
         )
         found.scroll_into_view_if_needed()
-        box = found.bounding_box()
-        if box is None:
-            raise BrowserError("That element is not visible.")
+        spot = found.evaluate(REACH_SCRIPT)
+        if spot is None:
+            raise BrowserError(COVERED)
 
-        point = Point(round(box["x"] + box["width"] / 2), round(box["y"] + box["height"] / 2))
+        offset = self._offset(frame)
+        point = Point(round(spot[0] + offset.x), round(spot[1] + offset.y))
         return Aim(point, self.describe_at(point))
 
     def describe_at(self, point: Point) -> str:
@@ -426,11 +518,11 @@ class Driver:
 
     def move(self, point: Point) -> None:
         self.page.mouse.move(point.x, point.y, steps=MOVE_STEPS)
-        self._after(self.page.url)
+        self._after(self._urls())
 
     def click(self, point: Point, button: str, count: int, modifiers: list[str]) -> None:
         page = self.page
-        before = page.url
+        before = self._urls()
         page.mouse.move(point.x, point.y, steps=MOVE_STEPS)
         for key in modifiers:
             page.keyboard.down(key)
@@ -442,7 +534,7 @@ class Driver:
 
     def press_mouse(self, point: Point, button: str, down: bool) -> None:
         page = self.page
-        before = page.url
+        before = self._urls()
         page.mouse.move(point.x, point.y, steps=MOVE_STEPS)
         if down:
             page.mouse.down(button=button)
@@ -453,7 +545,7 @@ class Driver:
 
     def drag(self, start: Point, end: Point) -> None:
         page = self.page
-        before = page.url
+        before = self._urls()
         page.mouse.move(start.x, start.y, steps=MOVE_STEPS)
         page.mouse.down()
         page.mouse.move(end.x, end.y, steps=DRAG_STEPS)
@@ -465,11 +557,11 @@ class Driver:
         page = self.page
         page.mouse.move(point.x, point.y)
         page.mouse.wheel(dx, dy)
-        self._after(page.url)
+        self._after(self._urls())
 
     def type(self, text: str, clear: bool) -> None:
         page = self.page
-        before = page.url
+        before = self._urls()
         if clear:
             page.keyboard.press(SELECT_ALL_KEY)
             page.keyboard.press(ERASE_KEY)
@@ -479,14 +571,17 @@ class Driver:
 
     def press(self, key: str) -> None:
         page = self.page
-        before = page.url
+        before = self._urls()
         page.keyboard.press(key)
         self._after(before)
 
     def select(self, ref: int, option: str) -> None:
-        before = self.page.url
-        self._ref_locator(ref).select_option(label=option)
+        before = self._urls()
+        self._ref_locator(ref)[1].select_option(label=option)
         self._after(before)
+
+    def pause(self, seconds: float) -> None:
+        self.page.wait_for_timeout(min(seconds, MAX_WAIT_SECONDS) * MS_PER_SECOND)
 
     def wait_for(self, text: str, selector: str, url_part: str, seconds: float) -> str:
         deadline = time.monotonic() + min(seconds, MAX_WAIT_SECONDS)
@@ -514,27 +609,37 @@ class Driver:
         return page.title(), page.url
 
     def resize(self, width: int, height: int) -> None:
-        self.page.set_viewport_size({"width": width, "height": height})
+        self._size = {"width": width, "height": height}
+        for page in self._tabs:
+            if not page.is_closed():
+                page.set_viewport_size(self._size)
 
     def idle(self) -> None:
         self.page.wait_for_timeout(IDLE_LOOP_MS)
 
-    def _after(self, before: str) -> None:
+    def settle_after_dialog(self) -> None:
+        self._settle(ACTION_SETTLE_SECONDS)
+
+    def _after(self, before: tuple[str, ...]) -> None:
         self.page.wait_for_timeout(ACTION_PAUSE_MS)
-        moved = self.page.url != before
-        self._settle(PAGE_SETTLE_SECONDS if moved else ACTION_SETTLE_SECONDS, wait_load=moved)
+        moved = [f for f in self.page.frames if not f.is_detached() and f.url not in before]
+        if not moved:
+            self._settle(ACTION_SETTLE_SECONDS)
+            return
 
-    def _settle(self, seconds: float, wait_load: bool) -> None:
+        for frame in moved:
+            frame.wait_for_load_state("domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        self._settle(PAGE_SETTLE_SECONDS)
+
+    def _settle(self, seconds: float) -> None:
         page = self.page
-        if wait_load:
-            page.wait_for_load_state("load", timeout=NAV_TIMEOUT_MS)
-
         deadline = time.monotonic() + seconds
-        shape = _evaluate(page.main_frame, SHAPE_SCRIPT)
+        shape = _page_shape(page)
+
         while time.monotonic() < deadline:
             page.wait_for_timeout(SETTLE_POLL_MS)
-            now = _evaluate(page.main_frame, SHAPE_SCRIPT)
-            if now == shape and now > 0:
+            now = _page_shape(page)
+            if now == shape and _settled(now) and self._network.quiet():
                 return
             shape = now
 
@@ -546,7 +651,7 @@ class Pilot:
         cookies: dict[str, str],
         debug_port: int,
         size: tuple[int, int],
-        on_exit: Callable[[Pilot], None],
+        owner: Owner,
     ) -> None:
         if not browser_is_installed():
             raise BrowserError(NOT_INSTALLED)
@@ -556,19 +661,24 @@ class Pilot:
             raise BrowserError(f"Not an instance URL: {base_url!r}")
 
         self.base_url = base_url.rstrip("/")
+        self.active_target: str | None = None
         self._host = parts.netloc.lower()
         self._hostname = parts.hostname
         self._cookies = cookies
         self._port = debug_port
         self._size = {"width": size[0], "height": size[1]}
-        self._on_exit = on_exit
+        self._owner = owner
+        self._dialogs = _Dialogs(owner.changed)
         self._jobs: queue.SimpleQueue[_Job | None] = queue.SimpleQueue()
+        self._running: _Job | None = None
         self._started = threading.Event()
         self._failure: str | None = None
         self._blocked: list[str] = []
         self._thread = threading.Thread(target=self._run, name="agent-browser", daemon=True)
-        self._thread.start()
+        self._start()
 
+    def _start(self) -> None:
+        self._thread.start()
         if not self._started.wait(START_TIMEOUT_SECONDS):
             self.close()
             raise BrowserError("The browser did not start in time.")
@@ -583,19 +693,38 @@ class Pilot:
     def failure(self) -> str | None:
         return self._failure
 
+    @property
+    def dialog(self) -> Dialog | None:
+        return self._dialogs.open
+
     def close(self) -> None:
+        if self._dialogs.open is not None:
+            self._dialogs.answer(False, "")
         self._jobs.put(None)
 
     def call(self, work: Callable[[Driver], T]) -> T:
-        if not self.alive:
-            raise BrowserError(self._failure or CLOSED)
-
+        self._check()
         job = _Job(work)
         self._jobs.put(job)
+        return self._finish(job)
+
+    def answer(self, accept: bool, text: str) -> None:
+        held = self._running
+        self._dialogs.answer(accept, text)
+        if held is not None:
+            self._finish(held)
+        self.call(lambda d: d.settle_after_dialog())
+
+    def _check(self) -> None:
+        if not self.alive:
+            raise BrowserError(self._failure or CLOSED)
+        if self._dialogs.open is not None:
+            raise DialogOpen(self._dialogs.open)
+
+    def _finish(self, job: _Job) -> Any:
         deadline = time.monotonic() + CALL_TIMEOUT_SECONDS
         while not job.done.wait(CALL_POLL_SECONDS):
-            if not self.alive:
-                raise BrowserError(self._failure or CLOSED)
+            self._check()
             if time.monotonic() > deadline:
                 raise BrowserError("The browser did not respond in time.")
 
@@ -654,6 +783,9 @@ class Pilot:
     def select(self, ref: int, option: str) -> None:
         self.call(lambda d: d.select(ref, option))
 
+    def pause(self, seconds: float) -> None:
+        self.call(lambda d: d.pause(seconds))
+
     def wait_for(self, text: str, selector: str, url_part: str, seconds: float) -> str:
         return self.call(lambda d: d.wait_for(text, selector, url_part, seconds))
 
@@ -662,6 +794,12 @@ class Pilot:
 
     def resize(self, width: int, height: int) -> None:
         self.call(lambda d: d.resize(width, height))
+
+    def switch(self, index: int) -> None:
+        self.call(lambda d: d.switch(index))
+
+    def close_tab(self, index: int) -> None:
+        self.call(lambda d: d.close_tab(index))
 
     def _run(self) -> None:
         try:
@@ -676,10 +814,12 @@ class Pilot:
                 )
 
                 context.set_default_timeout(ACTION_TIMEOUT_MS)
+                context.add_init_script(PICKER_SCRIPT)
                 context.route(EVERY_REQUEST, self._fence)
-                driver = Driver(context, self._hostname)
+                driver = Driver(context, self._hostname, self._size, self._dialogs)
                 if self._cookies:
                     driver.add_cookies(self._cookies)
+                self._publish(driver)
                 self._started.set()
                 self._serve(driver)
                 context.close()
@@ -688,10 +828,12 @@ class Pilot:
         finally:
             self._started.set()
             self._fail_waiting()
-            self._on_exit(self)
+            self._owner.exited(self)
 
     def _serve(self, driver: Driver) -> None:
         while True:
+            if driver.changed:
+                self._publish(driver)
             try:
                 job = self._jobs.get_nowait()
             except queue.Empty:
@@ -701,7 +843,13 @@ class Pilot:
                 return
             self._do(job, driver)
 
+    def _publish(self, driver: Driver) -> None:
+        driver.changed = False
+        self.active_target = driver.active_target()
+        self._owner.changed({"tabs": [asdict(tab) for tab in driver.tabs()]})
+
     def _do(self, job: _Job, driver: Driver) -> None:
+        self._running = job
         try:
             job.result = job.work(driver)
         except BrowserError as exc:
@@ -711,6 +859,7 @@ class Pilot:
         except PlaywrightError as exc:
             job.error = BrowserError(_first_line(exc))
         finally:
+            self._running = None
             job.done.set()
 
     def _fail_waiting(self) -> None:
@@ -722,8 +871,7 @@ class Pilot:
 
     def _fence(self, route: Route) -> None:
         request = route.request
-        main = request.is_navigation_request() and request.frame.parent_frame is None
-        if main and not self.on_host(request.url):
+        if request.is_navigation_request() and not self.on_host(request.url):
             self._blocked.append(request.url)
             route.fulfill(status=STAY_PUT_STATUS)
             return

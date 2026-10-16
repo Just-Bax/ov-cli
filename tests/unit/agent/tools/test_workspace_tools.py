@@ -25,7 +25,7 @@ def test_workspace_edits_are_recorded_for_the_changes_view(workspace, tmp_path):
     tool_named("ws_edit").handler({"path": "module/main.py", "old": "RULE_ID = 1", "new": "RULE_ID = 2\nX = 3"}, ctx)
     tool_named("ws_write").handler({"path": "module/new.py", "content": "a\nb\n"}, ctx)
     assert ctx.edits == [
-        ("module/main.py", "RULE_ID = 1", "RULE_ID = 2\nX = 3", False),
+        ("module/main.py", "alpha\nRULE_ID = 1\n", "alpha\nRULE_ID = 2\nX = 3\n", False),
         ("module/new.py", "", "a\nb\n", True),
     ]
     assert _line_changes("RULE_ID = 1", "RULE_ID = 2\nX = 3") == (2, 1)
@@ -36,8 +36,8 @@ def test_workspace_edits_need_allow_changes(workspace, tmp_path):
     from ov.agent.tools.base import ToolError
 
     ctx = FakeContext(tmp_path)
-    with pytest.raises(ToolError, match="Allow changes is off"):
+    with pytest.raises(ToolError, match="this thread is Read-only"):
         tool_named("ws_edit").handler({"path": "module/main.py", "old": "RULE_ID = 1", "new": "x"}, ctx)
-    with pytest.raises(ToolError, match="Allow changes is off"):
+    with pytest.raises(ToolError, match="this thread is Read-only"):
         tool_named("ws_write").handler({"path": "module/new.py", "content": "a"}, ctx)
     assert ctx.edits == [] and "RULE_ID = 1" in (workspace / "module" / "main.py").read_text(encoding="utf-8")

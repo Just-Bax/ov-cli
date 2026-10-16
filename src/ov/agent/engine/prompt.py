@@ -8,15 +8,22 @@ from ov.agent import workspace as project
 from ov.agent.instances.ovproc import instances
 from ov.agent.integrations import datadog, pagerduty
 from ov.agent.storage import db
+from ov.agent.storage.models import Access
 from ov.agent.tools import TOOL_GROUPS, tool_specs
 from ov.agent.tools.thread import offered_skills
 
 _SENT = re.compile(r"^\[Sent [^\]]*\]\n\n")
-EXPIRED = " (session expired: use it anyway, the user is asked to sign in on the first call)"
+EXPIRED = " (session expired: the user is asked to sign in when you first use it)"
 NO_INSTANCE = (
     "not chosen. Work it out from context (a case's C_WEBSITE, a host or name in the "
     "message); if it is still unclear, ask the user which instance with run_ask"
 )
+ACCESS_TEXT = {
+    Access.READ: "OFF: read-only",
+    Access.ASK: "ON, and each instance, PagerDuty, browser or outside change waits for the user's approval",
+    Access.AUTO: "ON, and changes run without asking the user unless they look risky",
+    Access.FULL: "ON with full access: every change runs without any check or question",
+}
 
 
 def _servers(scope: str) -> str:
@@ -69,12 +76,12 @@ def stamped(content: Any) -> Any:
     return [{**first, "text": f"{stamp}\n\n{_SENT.sub('', first['text'])}"}, *rest]
 
 
-def system_prompt(write_access: bool, instance: str) -> str:
+def system_prompt(access: Access, instance: str) -> str:
     signed_in = "\n".join(f"- {i['alias']}: {i['url']}{EXPIRED if not i['valid'] else ''}" for i in instances())
     skills = offered_skills()
     core = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in skills if s["core"])
     skill_list = "\n".join(f"- {s['name']}: {s['description'] or s['title']}" for s in skills if not s["core"])
-    offered = {spec["function"]["name"] for spec in tool_specs(write_access)}
+    offered = {spec["function"]["name"] for spec in tool_specs(access != Access.READ)}
     groups = "\n".join(
         f"- {title} ({about}): {', '.join(n for n in names if n in offered)}"
         for title, about, names in TOOL_GROUPS
@@ -88,16 +95,21 @@ in UTC. Instances, their databases and Datadog may each run in another time zone
 comparing times.
 
 Rules that always apply:
-- When the request names no concrete symptom or outcome ("fix X", "clean up Y", "check Z"), ask with \
-run_ask what is wrong or wanted before investigating; you may first list the objects it could mean with \
-one or two cheap lookups.
+- Ask first, then work. When an input you need is missing or ambiguous (which instance, which object, the \
+scope, the outcome wanted, or no concrete symptom as in "fix X" or "check Z"), ask with run_ask before \
+running any lookup. Put related questions in one run_ask call, at most 5, each with clear options. Look up \
+yourself only facts the user expects you to find.
 - Every claim is backed by something you looked at with a tool. If you could not verify it, say so. \
 Label general knowledge you did not check on the instance or in the code as unverified.
 - An empty result is not proof that something does not exist or never happened. Say where you looked \
 ("no rows in X") and try another source before concluding.
 - Never call a tool as a placeholder (echo, where 1=0). To just answer, reply without tools.
-- Changes are blocked unless the user turned on Allow changes for this run; even then you change \
-only what the user agreed to. Allow changes is currently {"ON" if write_access else "OFF"}.
+- The user sees only your last message of a turn; your tool calls and earlier notes are folded away. End every \
+turn with one message that stands on its own: the answer or result first, then the evidence behind it, what you \
+changed or tested and how it went, and what is still open or needs the user. Never end on a tool call or a bare \
+"done", and never point back to earlier notes.
+- Changes are blocked unless the user allowed them for this run; even then you change only what the \
+user agreed to. Changes are currently {ACCESS_TEXT[access]}.
 - When the user wants to see, show, open, check, navigate or test something in the OneVizion web UI, use the \
 browser: the user watches it beside the chat. Open it with browser_open, plan the test, then hand each part to \
 browser_run as a concrete goal with the expected result; a fast assistant drives the mouse and keyboard and \

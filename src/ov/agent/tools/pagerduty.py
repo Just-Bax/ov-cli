@@ -31,6 +31,7 @@ AREA_OF_TOOL = {
 }
 
 INCIDENT = string_param("Incident number (e.g. 12345), id or PagerDuty link")
+CHANGE_GATE = "Only with changes allowed; asks the user first unless the thread is on Auto."
 
 
 def _pagerduty(handler: Handler) -> Handler:
@@ -148,7 +149,8 @@ def _pd_change(what: str, apply: Callable[[], dict[str, Any]], ref: str, ctx: To
     if not ctx.can_write():
         raise ToolError(
             "Blocked: changes are OFF for this run. Do not retry. Tell the user what you would do in "
-            'PagerDuty; they can turn on "Allow changes" below the chat if they want you to.'
+            "PagerDuty; they can switch the thread from Read-only to Ask first or Auto below the chat if they "
+            "want you to."
         )
 
     found = pagerduty.describe(ref)
@@ -277,7 +279,7 @@ READ_TOOLS = [
 WRITE_TOOLS = [
     Tool(
         "pd_note",
-        "Add a note to a PagerDuty incident. Only with changes allowed; waits for the user's approval.",
+        f"Add a note to a PagerDuty incident. {CHANGE_GATE}",
         {"incident": INCIDENT, "note": string_param("Note text")},
         ["incident", "note"],
         _pagerduty_label("note"),
@@ -285,7 +287,7 @@ WRITE_TOOLS = [
     ),
     Tool(
         "pd_ack",
-        "Acknowledge a PagerDuty incident. Only with changes allowed; waits for the user's approval.",
+        f"Acknowledge a PagerDuty incident. {CHANGE_GATE}",
         {"incident": INCIDENT},
         ["incident"],
         _pagerduty_label("acknowledge"),
@@ -293,8 +295,7 @@ WRITE_TOOLS = [
     ),
     Tool(
         "pd_resolve",
-        "Resolve a PagerDuty incident. Only with changes allowed; waits for the user's approval. Add "
-        "a note with the cause first.",
+        f"Resolve a PagerDuty incident. {CHANGE_GATE} Add a note with the cause first.",
         {"incident": INCIDENT},
         ["incident"],
         _pagerduty_label("resolve"),
@@ -303,7 +304,7 @@ WRITE_TOOLS = [
     Tool(
         "pd_escalate",
         "Escalate a PagerDuty incident to a level of its escalation policy (pd_oncall shows the levels). "
-        "Only with changes allowed; waits for the user's approval.",
+        "Only with changes allowed; asks the user first unless the thread is on Auto.",
         {"incident": INCIDENT, "level": int_param("Escalation level, 1 or higher")},
         ["incident", "level"],
         _pagerduty_label("escalate"),
@@ -312,8 +313,8 @@ WRITE_TOOLS = [
     Tool(
         "pd_reassign",
         "Reassign a PagerDuty incident to another escalation policy, or to users. Names are looked "
-        "up like pd_directory and must match one. Only with changes allowed; waits for the user's "
-        "approval.",
+        "up like pd_directory and must match one. Only with changes allowed; asks the user first unless "
+        "the thread is on Auto.",
         {
             "incident": INCIDENT,
             "policy": string_param("Escalation policy name or id"),
@@ -325,7 +326,7 @@ WRITE_TOOLS = [
     ),
     Tool(
         "pd_snooze",
-        "Snooze an acknowledged PagerDuty incident. Only with changes allowed; waits for the user's approval.",
+        f"Snooze an acknowledged PagerDuty incident. {CHANGE_GATE}",
         {"incident": INCIDENT, "minutes": int_param("Minutes, 1 to 1440")},
         ["incident", "minutes"],
         _pagerduty_label("snooze"),

@@ -23,7 +23,7 @@ def test_attachments_that_could_run_script_are_downloaded(agent_server, monkeypa
     from ov.agent.engine.run import runs
 
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
-    run = runs.create({"prompt": "x"}, Provider.COPILOT, "m")
+    run = runs.create({"access": "read", "prompt": "x"}, Provider.COPILOT, "m")
     (attachments_dir(run.id) / "page.html").write_text("<script>1</script>")
     (attachments_dir(run.id) / "shot.png").write_bytes(b"png")
 

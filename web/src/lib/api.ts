@@ -1,4 +1,5 @@
 import type {
+  Access,
   CodeSection,
   ClaudeAccount,
   CopilotAccount,
@@ -177,8 +178,8 @@ export const api = {
       `/runs/${id}/details?tools=${tools.map(seg).join(',')}&edits=${edits.map(seg).join(',')}`,
     ),
   startRun: (input: RunInput) => post<{ id: string }>('/runs', input),
-  answer: (id: string, questionId: string, answer: string) =>
-    post(`/runs/${id}/answer`, { questionId, answer }),
+  answer: (id: string, questionId: string, answers: string[], note = '') =>
+    post(`/runs/${id}/answer`, { questionId, answers, note }),
   login: (
     id: string,
     loginId: string,
@@ -191,12 +192,16 @@ export const api = {
   renameRun: (id: string, title: string) => post(`/runs/${id}/title`, { title }),
   removeQueued: (id: string, mid: string) => del(`/runs/${id}/queued/${seg(mid)}`),
   fileUrl: (id: string, name: string) => `${API_ROOT}/runs/${id}/files/${seg(name)}`,
-  setWriteAccess: (id: string, write: boolean) => post(`/runs/${id}/access`, { write }),
+  setAccess: (id: string, access: Access) => post(`/runs/${id}/access`, { access }),
   cancel: (id: string) => post(`/runs/${id}/cancel`),
   browserScreenUrl: (id: string) => `${API_ROOT}/runs/${id}/browser/screen`,
   browserInput: (id: string, events: unknown[]) =>
     post<{ open: boolean }>(`/runs/${id}/browser/input`, { events }),
   closeBrowser: (id: string) => post(`/runs/${id}/browser/close`),
+  answerBrowserDialog: (id: string, accept: boolean, text: string) =>
+    post(`/runs/${id}/browser/dialog`, { accept, text }),
+  browserTab: (id: string, index: number, close: boolean) =>
+    post(`/runs/${id}/browser/tab`, { index, close }),
   resizeBrowser: (id: string, size: { width: number; height: number }) =>
     post(`/runs/${id}/browser/size`, size),
   openBrowser: (id: string, instance: string) => post(`/runs/${id}/browser/open`, { instance }),

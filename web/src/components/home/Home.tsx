@@ -1,7 +1,8 @@
+import type { Access } from '@shared/types.ts'
 import { useEffect, useState } from 'react'
+import { AccessPicker, accessMode } from '@/components/composer/AccessPicker'
 import { Composer } from '@/components/composer/Composer'
 import { InstancePicker } from '@/components/composer/InstancePicker'
-import { WriteSwitch } from '@/components/composer/WriteSwitch'
 import { Page } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { DRAFT_EVENT, takeDraft } from '@/lib/draft'
@@ -50,7 +51,7 @@ function greeting(): string {
   return h < NOON_HOUR ? 'Good morning' : h < EVENING_HOUR ? 'Good afternoon' : 'Good evening'
 }
 
-type Choices = { instance?: string; allowWrite?: boolean }
+type Choices = { instance?: string; access?: Access }
 
 function loadChoices(): Choices {
   const raw = localStorage.getItem(CHOICES_KEY)
@@ -61,14 +62,14 @@ export function Home() {
   const saved = loadChoices()
   const { instances } = useInstances()
   const [instance, setInstance] = useState(saved.instance ?? '')
-  const [allowWrite, setAllowWrite] = useState(saved.allowWrite ?? false)
+  const [access, setAccess] = useState<Access>(saved.access ?? 'read')
   const [error, setError] = useState<string>()
   const [starting, setStarting] = useState(false)
   const [draft, setDraft] = useState<{ text: string; at: number }>()
 
   useEffect(() => {
-    localStorage.setItem(CHOICES_KEY, JSON.stringify({ instance, allowWrite }))
-  }, [instance, allowWrite])
+    localStorage.setItem(CHOICES_KEY, JSON.stringify({ instance, access }))
+  }, [instance, access])
 
   const loadDraft = () => {
     const found = takeDraft()
@@ -89,7 +90,7 @@ export function Home() {
         prompt: text.trim(),
         instance: instance || undefined,
         attachments,
-        allowWrite,
+        access,
       })
       void refreshRuns()
       go({ page: 'thread', id })
@@ -121,14 +122,12 @@ export function Home() {
                 {instances?.length ? (
                   <InstancePicker value={instance} onChange={setInstance} instances={instances} />
                 ) : null}
-                <WriteSwitch value={allowWrite} onChange={setAllowWrite} />
+                <AccessPicker value={access} onChange={setAccess} />
               </>
             }
           />
           <div className="text-faint mt-2 px-2 text-center text-[11.5px]">
-            {allowWrite
-              ? 'Changes allowed for this thread. Each change waits for your Approve.'
-              : 'Read-only on every instance. Changes come back as diffs for you to apply.'}
+            {accessMode(access).label}: {accessMode(access).about}
           </div>
           {error ? <div className="text-danger mt-2 text-center text-[12.5px]">{error}</div> : null}
         </div>

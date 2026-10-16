@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from ov.agent.storage.models import Access
+
 
 def test_the_prompt_lists_tools_by_group(logged_in):
     from ov.agent.engine.prompt import system_prompt
 
-    text = system_prompt(False, "")
+    text = system_prompt(Access.READ, "")
     assert (
         "- OV CLI (signed-in OneVizion instances): ov, ov_sql, ov_export, ov_import, ov_search, ov_map, ov_case" in text
     )

@@ -22,12 +22,12 @@ from ov.agent.tools.base import (
 
 _NO_OP_COMMAND = re.compile(r"^(echo|write-host|write-output)\b[^|;&>]*$|^\s*$", re.IGNORECASE)
 EDITS_OFF = (
-    "Not changed: Allow changes is off for this run. Show the user the change you would make and why; they "
-    "can turn on Allow changes below the chat."
+    "Not changed: this thread is Read-only. Show the user the change you would make and why; they "
+    "can switch the thread from Read-only to Ask first or Auto below the chat."
 )
 COMMAND_OFF = (
-    "Not run: {reason}. It changes something and Allow changes is off for this run. Tell the user what you "
-    "would run and why; they can turn on Allow changes below the chat."
+    "Not run: {reason}. It changes something and this thread is Read-only. Tell the user what you "
+    "would run and why; they can switch the thread from Read-only to Ask first or Auto below the chat."
 )
 
 _file_locks: dict[str, threading.Lock] = {}
@@ -72,8 +72,10 @@ def _ws_edit(args: dict[str, Any], ctx: ToolContext) -> str:
     _require_write(ctx)
     path, old, new = str(args["path"]), str(args["old"]), str(args["new"])
     with _file_lock(path):
+        before = project.text_of(path)
         result = project.edit(path, old, new, bool(args.get("replace_all")))
-    ctx.record_edit(path, old, new, created=False)
+        after = project.text_of(path)
+    ctx.record_edit(path, before, after, created=False)
     return result
 
 
@@ -94,6 +96,10 @@ def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
         raise ToolError("Nothing to run. To just answer, reply without a tool call.")
 
     folder = str(args.get("cwd") or "")
+    timeout = int(args.get("timeout") or project.DEFAULT_TIMEOUT_SECONDS)
+    if ctx.full_access() and not ctx.browser.live:
+        return clip(project.run(command, folder, timeout, ctx.cancel), ctx, "command output")
+
     escapes = project.escapes(command, project.resolve(folder))
     verdict = ctx.judge_command(command, folder)
     if verdict.effect != Effect.READ and not ctx.can_write():
@@ -107,7 +113,6 @@ def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
         if not approved(ctx, f"Run this command? {reasons}.", f"{where}> {command}"):
             raise ToolError("The user rejected this command. Do not retry it; ask what they want instead.")
 
-    timeout = int(args.get("timeout") or project.DEFAULT_TIMEOUT_SECONDS)
     return clip(project.run(command, folder, timeout, ctx.cancel), ctx, "command output")
 
 
@@ -151,9 +156,8 @@ TOOLS = [
     ),
     Tool(
         "ws_edit",
-        "Edit a workspace file by replacing exact text; needs Allow changes. old must match the file exactly, "
-        "including "
-        "indentation, and be unique unless replace_all is set. Read the file first.",
+        "Edit a workspace file by replacing exact text; needs changes allowed. old must match the file exactly, "
+        "including indentation, and be unique unless replace_all is set. Read the file first.",
         {
             "path": string_param("File path relative to the workspace root"),
             "old": string_param("Exact text to replace"),
@@ -167,7 +171,7 @@ TOOLS = [
     Tool(
         "ws_write",
         "Create a workspace file, or overwrite it completely. Prefer ws_edit for changes to existing files. "
-        "Needs Allow changes.",
+        "Needs changes allowed.",
         {
             "path": string_param("File path relative to the workspace root"),
             "content": string_param("Full file content"),
@@ -180,8 +184,8 @@ TOOLS = [
         "ws_run",
         "Run a shell command (PowerShell on Windows, bash elsewhere) in a workspace folder: git, "
         "builds, tests, scripts. Each command is judged first: commands that only read always run; "
-        "commands that change anything need Allow changes; pushes, remote writes, deletes, unknown scripts "
-        "and paths outside the workspace also wait for the user's approval.",
+        "commands that change anything need changes allowed; pushes, remote writes, deletes, unknown scripts "
+        "and paths outside the workspace also wait for the user's approval (in Auto only when risky).",
         {
             "command": string_param("The command line"),
             "cwd": string_param("Folder relative to the workspace root; default the root"),

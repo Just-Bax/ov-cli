@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 from ov.agent.storage import db
-from ov.agent.storage.models import Provider
+from ov.agent.storage.models import Access, Provider
 
 
 def test_a_thread_without_usage_has_no_cost():
-    db.create_thread("rold", "Old", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rold", "Old", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
     assert "cost" not in db.list_threads()[0]
     assert db.thread_cost("rold") == {"credits": 0.0, "usd": 0.0, "requests": 0, "tokens": {}, "models": []}
 
 
 def test_the_cost_report_adds_up_by_day_model_and_thread():
-    db.create_thread("ra", "Alpha", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
-    db.create_thread("rb", "Beta", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("ra", "Alpha", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rb", "Beta", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
     db.add_usage("ra", Provider.COPILOT, "opus", "turn", tokens={"input": 100}, nano=2_000_000_000)
     db.add_usage("ra", Provider.COPILOT, "haiku", "step", tokens={"input": 50, "output": 5}, nano=500_000_000)
     db.add_usage("rb", Provider.COPILOT, "opus", "turn", tokens={"output": 10}, nano=4_000_000_000)

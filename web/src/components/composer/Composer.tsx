@@ -29,6 +29,8 @@ export function Composer({
   draft,
   draftKey,
   busyHint,
+  submitLabel,
+  allowEmpty,
 }: {
   placeholder: string
   onSend: (text: string, files: File[], alternate: boolean) => void | Promise<void>
@@ -42,6 +44,8 @@ export function Composer({
   queueWhileBusy?: boolean
   draft?: { text: string; at: number }
   draftKey: string
+  submitLabel?: (text: string) => string
+  allowEmpty?: boolean
 }) {
   const [text, setText] = useState(() => loadText(draftKey))
   const [files, setFiles] = useState<File[]>([])
@@ -49,7 +53,10 @@ export function Composer({
   const filesLoaded = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
-  const canSend = (!busy || Boolean(queueWhileBusy)) && (text.trim().length > 0 || files.length > 0)
+  const canSend =
+    (!busy || Boolean(queueWhileBusy)) &&
+    (Boolean(allowEmpty) || text.trim().length > 0 || files.length > 0)
+  const showStop = busy && onStop && (submitLabel || (!text.trim() && !files.length))
 
   useEffect(() => {
     let alive = true
@@ -253,7 +260,7 @@ export function Composer({
         ) : null}
         {extras}
         <div className="flex-1" />
-        {busy && onStop && !text.trim() && !files.length ? (
+        {showStop ? (
           <button
             type="button"
             title="Stop"
@@ -262,7 +269,17 @@ export function Composer({
           >
             <StopIcon weight="fill" className="size-3" />
           </button>
-        ) : (
+        ) : null}
+        {submitLabel ? (
+          <button
+            type="button"
+            disabled={!canSend}
+            onClick={() => void send()}
+            className="bg-brand hover:bg-brand-strong disabled:bg-line-strong text-on-brand h-8 rounded-full px-4 text-[12.5px] font-medium transition-colors"
+          >
+            {submitLabel(text.trim())}
+          </button>
+        ) : showStop ? null : (
           <button
             type="button"
             title={busy && busyHint ? busyHint(false) : 'Send'}

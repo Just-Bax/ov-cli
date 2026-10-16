@@ -66,9 +66,20 @@ def _outcome(outcome: dict[str, Any]) -> list[str]:
 
 
 def _question(question: dict[str, Any]) -> list[str]:
-    lines = [f"**Question:** {question['question']}"]
-    if question.get("answer"):
-        lines.append(f"**Answer:** {question['answer']}")
+    answers = question.get("answers") or []
+    if question["kind"] == "approval":
+        lines = [f"**Approval:** {question['question']}"]
+        if answers:
+            lines.append(f"**Answer:** {answers[0]}")
+        if question.get("note"):
+            lines.append(f"**Note:** {question['note']}")
+        return lines
+
+    lines = []
+    for index, item in enumerate(question["items"]):
+        lines.append(f"**Question:** {item['question']}")
+        if index < len(answers):
+            lines.append(f"**Answer:** {answers[index]}")
     return lines
 
 

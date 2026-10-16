@@ -21,7 +21,10 @@ def ov_home(tmp_path, monkeypatch):
 def logged_in(ov_home):
     from helpers.sessions import BASE_URL, seed_session
 
+    from ov.agent.storage import db
+
     seed_session(BASE_URL)
+    db.save_preferences({"fastModel": "test-model"})
     return ov_home
 
 

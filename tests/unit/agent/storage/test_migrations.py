@@ -33,7 +33,7 @@ def test_a_legacy_database_is_backed_up_and_migrated_to_the_thread_schema(ov_hom
 
     (thread,) = db.list_threads()
     assert (thread["title"], thread["settled"], thread["pinned"]) == ("Old", True, True)
-    assert db.thread_writes("r1") is True
+    assert db.thread_access("r1") == models.Access.ASK
     assert db.thread_cost("r1")["tokens"] == {"input": 3, "cache_read": 4}
     assert [e["event"]["type"] for e in db.load_events("r1")] == ["user", "message", "access"]
     assert db.load_events("r1")[1]["event"]["text"] == "Hello"
@@ -89,3 +89,56 @@ def test_old_case_reply_usage_is_kept_as_naming_cost(ov_home, monkeypatch):
     with db._begin() as conn:
         rows = conn.exec_driver_sql("SELECT kind, cost_nano FROM usage").all()
     assert [tuple(r) for r in rows] == [("naming", 7)]
+
+
+def test_write_access_becomes_an_access_mode_and_keeps_thread_events(ov_home, monkeypatch):
+    from alembic import command
+
+    home = ov_home / "access"
+    monkeypatch.setenv("OV_HOME", str(home))
+    path = home / "agent" / "agent.db"
+    path.parent.mkdir(parents=True)
+    engine = db._new_engine(path)
+    config = db._alembic_config()
+    with engine.begin() as conn:
+        config.attributes["connection"] = conn
+        command.upgrade(config, "0009")
+        for thread_id, allowed in (("rw", 1), ("rr", 0)):
+            conn.exec_driver_sql(
+                "INSERT INTO thread (id, title, status, model, prompt, allow_write, created_at, updated_at) "
+                f"VALUES ('{thread_id}', 'T', 'done', 'm', '', {allowed}, 1, 1)"
+            )
+        conn.exec_driver_sql(
+            "INSERT INTO event (thread_id, position, type, data, created_at) "
+            """VALUES ('rw', 0, 'access', '{"type": "access", "write": true}', 1)"""
+        )
+    engine.dispose()
+
+    assert db.migrate() is True
+    assert db.thread_access("rw") == models.Access.ASK
+    assert db.thread_access("rr") == models.Access.READ
+    assert [e["event"] for e in db.load_events("rw")] == [{"type": "access", "access": "ask"}]
+
+
+def test_old_questions_become_asks_and_approvals():
+    from ov.agent.storage.migrations.versions.v0011_question_items import _converted
+
+    ask = _converted({"id": "q1", "question": "Which?", "options": ["a", "b"], "multiple": False, "answer": "b"})
+    assert ask == {
+        "id": "q1",
+        "kind": "ask",
+        "items": [{"header": "", "question": "Which?", "options": [{"label": "a"}, {"label": "b"}], "multiple": False}],
+        "answers": ["b"],
+    }
+    detail = "rm x\n\nAuto mode asks because this looks risky: deletes"
+    approval = _converted({"id": "q2", "question": "Run?", "detail": detail, "toolId": "c1"})
+    assert approval == {
+        "id": "q2",
+        "kind": "approval",
+        "question": "Run?",
+        "detail": "rm x",
+        "reason": "deletes",
+        "toolId": "c1",
+    }
+    stopped = _converted({"id": "q3", "question": "Which?", "options": [], "answer": "(not answered: the run stopped)"})
+    assert stopped["stopped"] is True and "answers" not in stopped

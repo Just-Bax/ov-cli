@@ -66,7 +66,7 @@ def test_a_background_call_returns_at_once_and_wakes_the_idle_run_with_its_resul
 
     from ov.agent.engine.run import BACKGROUND_STARTED, runs
 
-    run = runs.create({"prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
     _wait_for(lambda: len(seen) == 2 and not run._busy)
     assert seen[1][-1]["content"] == BACKGROUND_STARTED.format(label=_tool(run, "c1")["label"])
     assert run.state["summary"]["status"] == "running"
@@ -96,7 +96,7 @@ def test_a_running_call_can_be_moved_to_the_background(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
     _wait_for(lambda: any(t["id"] == "c1" for t in run.state["tools"]))
     run.move_to_background("c1")
     _wait_for(lambda: len(seen) >= 2)
@@ -117,7 +117,7 @@ def test_stopping_a_foreground_call_keeps_the_turn_going(logged_in, monkeypatch)
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
     _wait_for(lambda: any(t["id"] == "c1" for t in run.state["tools"]))
     run.stop_tool("c1")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
@@ -138,7 +138,7 @@ def test_stopping_the_run_stops_background_tasks_without_waking_it(logged_in, mo
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
     _wait_for(lambda: len(seen) == 2 and not run._busy)
     run.stop()
     _wait_for(lambda: _tool(run, "c1")["status"] == "error")
@@ -152,18 +152,20 @@ def test_a_background_task_cannot_ask_for_approval(tmp_path):
     import pytest
 
     from ov.agent.engine.tasks import Task, TaskContext
-    from ov.agent.tools.base import ToolError
+    from ov.agent.tools.base import Approval, ToolError
 
     class Owner:
-        def ask_user(self, *args):
-            return "Approve"
+        def ask_approval(self, *args):
+            return Approval(True, "")
 
     task = Task({"id": "c1", "label": "x"}, 1)
     context = TaskContext(Owner(), task)
-    assert context.ask_user("ok?", ["Approve"], False) == "Approve"
+    assert context.ask_approval("ok?", "detail").approved
     task.backgrounded_at = 2
     with pytest.raises(ToolError, match="foreground"):
-        context.ask_user("ok?", ["Approve"], False)
+        context.ask_approval("ok?", "detail")
+    with pytest.raises(ToolError, match="foreground"):
+        context.ask_user([{"question": "which?"}])
 
 
 def test_every_tool_but_the_silent_ones_offers_background():

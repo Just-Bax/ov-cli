@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from ov.agent.engine.cancel import Cancel
-from ov.agent.engine.guard import Verdict
+from ov.agent.engine.guard import Effect, Verdict
 
 if TYPE_CHECKING:
     from ov.agent.engine.browsing import BrowserSlot
@@ -24,6 +24,7 @@ UI_ONLY = (
     "stop and tell the user."
 )
 REJECT = "Reject"
+REJECTED_WITH_NOTE = "The user rejected this and said: {note}"
 
 SECRET_JSON = re.compile(
     r'("[\w.\-]*(?:pass(?:word|wd)?|secret|token|api_?key|private_?key|credential)[\w.\-]*"\s*:\s*)"[^"]*"',
@@ -48,6 +49,12 @@ class ToolError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class Approval:
+    approved: bool
+    note: str
+
+
 class ToolContext(Protocol):
     work_dir: Path
     cancel: Cancel
@@ -58,15 +65,19 @@ class ToolContext(Protocol):
 
     def emit(self, event: dict[str, Any]) -> None: ...
     def has_outcome(self) -> bool: ...
-    def ask_user(self, question: str, options: list[str], multiple: bool, detail: str | None = None) -> str: ...
+    def ask_user(self, items: list[dict[str, Any]]) -> list[str]: ...
+    def ask_approval(self, question: str, detail: str, reason: str = "") -> Approval: ...
     def require_login(self, host: str, tenant: str = "") -> bool: ...
     def attach_image(self, name: str, url: str) -> None: ...
     def record_edit(self, path: str, before: str, after: str, created: bool) -> None: ...
     def finish(self, outcome: dict[str, Any]) -> None: ...
     def can_write(self) -> bool: ...
+    def auto_approves(self) -> bool: ...
+    def full_access(self) -> bool: ...
     def load_case(self, ref: str) -> str: ...
     def judge_command(self, command: str, folder: str) -> Verdict: ...
     def judge_page_action(self, action: str) -> Verdict: ...
+    def judge_risk(self, change: str) -> Verdict: ...
     def drive_browser(self, goal: str, cancel: Cancel) -> str: ...
 
 
@@ -136,7 +147,20 @@ def clip(text: str, ctx: ToolContext, what: str) -> str:
 
 
 def approved(ctx: ToolContext, question: str, detail: str) -> bool:
-    return ctx.ask_user(question, [APPROVE, REJECT], False, detail) == APPROVE
+    if ctx.full_access():
+        return True
+
+    reason = ""
+    if ctx.auto_approves():
+        verdict = ctx.judge_risk(f"{question}\n{detail}")
+        if verdict.effect == Effect.ROUTINE:
+            return True
+        reason = verdict.reason
+
+    approval = ctx.ask_approval(question, detail, reason)
+    if not approval.approved and approval.note:
+        raise ToolError(REJECTED_WITH_NOTE.format(note=approval.note))
+    return approval.approved
 
 
 def raising_tool_errors(handler: Handler, *errors: type[Exception]) -> Handler:

@@ -7,8 +7,10 @@ from ov.agent.integrations import claude, copilot
 from ov.agent.integrations.copilot import Usage
 from ov.agent.storage.models import Provider
 
-CLAUDE_MODELS = ("opus", "haiku")
+CLAUDE_FAST = "haiku"
+CLAUDE_MODELS = ("opus", CLAUDE_FAST)
 COPILOT_PREFERRED = re.compile(r"^claude-opus-(\d+(?:\.\d+)?)$")
+COPILOT_FAST = re.compile(r"^claude-haiku-(\d+(?:\.\d+)?)$")
 
 
 def list_models(provider: Provider) -> list[dict[str, Any]]:
@@ -35,9 +37,13 @@ def signed_in(provider: Provider) -> bool:
     return bool(copilot.user())
 
 
-def _version(model_id: str) -> float:
-    found = COPILOT_PREFERRED.match(model_id)
+def _version(pattern: re.Pattern[str], model_id: str) -> float:
+    found = pattern.match(model_id)
     return float(found.group(1)) if found else -1.0
+
+
+def _newest(listed: list[dict[str, Any]], pattern: re.Pattern[str]) -> str:
+    return str(max(listed, key=lambda m: _version(pattern, m["id"]))["id"])
 
 
 def default_models(provider: Provider) -> tuple[str | None, str | None]:
@@ -45,7 +51,10 @@ def default_models(provider: Provider) -> tuple[str | None, str | None]:
         return CLAUDE_MODELS
     if copilot.user() is None:
         return None, None
+
     listed = copilot.list_models()
     if not listed:
         raise copilot.CopilotError("Copilot offers no models to this account.")
-    return max(listed, key=lambda m: _version(m["id"]))["id"], None
+
+    fast = _newest(listed, COPILOT_FAST)
+    return _newest(listed, COPILOT_PREFERRED), fast if COPILOT_FAST.match(fast) else None

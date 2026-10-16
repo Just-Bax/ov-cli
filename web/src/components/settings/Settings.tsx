@@ -170,14 +170,14 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
       </Row>
       <Row
         title="Fast model"
-        hint="Writes thread titles and judges what each workspace command would do before it runs. A quick model fits, such as Haiku. Without one, the thread's own model does it."
+        hint="Writes thread titles, drives the browser and checks every command and change before it runs. Pick a quick, cheap model such as Haiku."
       >
         <Select
           className="w-[260px]"
           value={settings.fastModel}
           onChange={(v) => void update({ fastModel: v })}
-          placeholder={models.length ? 'Main model' : 'Loading models...'}
-          options={[{ value: '', label: 'Main model' }, ...models.map(modelOption)]}
+          placeholder={models.length ? 'Pick a fast model' : 'Loading models...'}
+          options={models.map(modelOption)}
         />
       </Row>
       <Row

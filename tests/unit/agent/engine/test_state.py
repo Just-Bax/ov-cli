@@ -73,7 +73,14 @@ def test_a_thread_is_searched_across_messages_changes_and_questions():
         {"type": "user", "message": {"id": "u1", "role": "user", "text": "Why is the Rule slow?", "ts": 1}},
         {"type": "message", "messageId": "a1", "text": "Looking at the rule queue.", "ts": 2},
         {"type": "tool", "tool": {"id": "t1", "name": "ov_sql", "label": "rule SQL", "status": "ok"}},
-        {"type": "question", "question": {"id": "q1", "question": "Which instance?", "options": [], "multiple": False}},
+        {
+            "type": "question",
+            "question": {
+                "id": "q1",
+                "kind": "ask",
+                "items": [{"header": "", "question": "Which instance?", "options": [], "multiple": False}],
+            },
+        },
         {
             "type": "change",
             "change": {

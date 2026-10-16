@@ -39,7 +39,7 @@ from ov.agent.integrations.datadog import DatadogError
 from ov.agent.integrations.pagerduty import PagerDutyError
 from ov.agent.skills import SkillError
 from ov.agent.storage import db
-from ov.agent.storage.models import Provider
+from ov.agent.storage.models import Access, Provider
 from ov.browser.pilot import BrowserError
 from ov.core.errors import OvError
 from ov.onevizion.auth import LOGIN_PATH
@@ -328,6 +328,7 @@ def status(_: Handler) -> dict[str, Any]:
         "instances": {"total": len(rows), "valid": sum(1 for r in rows if r["valid"])},
         "settings": settings,
         "ready": bool(signed_in and rows and settings["defaultModel"]),
+        "fullAccess": runs.full_access,
     }
 
 
@@ -692,7 +693,7 @@ def start_run(h: Handler) -> dict[str, str]:
             "prompt": prompt,
             "instance": instance or None,
             "attachments": attachments,
-            "allowWrite": bool(data.get("allowWrite")),
+            "access": _access(data),
         },
         provider,
         model,
@@ -904,7 +905,10 @@ def run_events(h: Handler, run_id: str) -> None:
 @route("POST", "/api/runs/([a-z0-9]+)/answer")
 def answer(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
-    _run(run_id).answer(_required(data, "questionId"), _required(data, "answer"))
+    answers = data.get("answers")
+    if not isinstance(answers, list) or not all(isinstance(a, str) for a in answers):
+        raise HttpError(400, "answers must be a list of strings.")
+    _run(run_id).answer(_required(data, "questionId"), answers, str(data.get("note") or ""))
     return {"ok": True}
 
 
@@ -988,9 +992,18 @@ def run_file(h: Handler, run_id: str, name: str) -> None:
     h.send(200, path.read_bytes(), content_type, extra=headers)
 
 
+def _access(data: dict[str, Any]) -> Access:
+    value = _required(data, "access")
+    if value not in set(Access):
+        raise HttpError(400, f"Unknown access mode {value}.")
+    access = Access(value)
+    runs.require_access(access)
+    return access
+
+
 @route("POST", "/api/runs/([a-z0-9]+)/access")
 def access(h: Handler, run_id: str) -> dict[str, bool]:
-    _run(run_id).set_write_access(bool(h.json().get("write")))
+    _run(run_id).set_access(_access(h.json()))
     return {"ok": True}
 
 
@@ -1019,6 +1032,24 @@ def browser_open(h: Handler, run_id: str) -> dict[str, bool]:
 def browser_size(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     _run(run_id).browser.resize(int(data["width"]), int(data["height"]))
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/browser/dialog")
+def browser_dialog(h: Handler, run_id: str) -> dict[str, bool]:
+    data = h.json()
+    _run(run_id).browser.answer_dialog(data.get("accept") is True, str(data.get("text") or ""))
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/browser/tab")
+def browser_tab(h: Handler, run_id: str) -> dict[str, bool]:
+    data = h.json()
+    browser = _run(run_id).browser
+    if data.get("close") is True:
+        browser.close_tab(int(data["index"]))
+    else:
+        browser.switch_tab(int(data["index"]))
     return {"ok": True}
 
 
@@ -1058,13 +1089,15 @@ def _local_url(port: int) -> str:
     return f"http://{LOOPBACK_HOST}:{port}"
 
 
-def serve(port: int = DEFAULT_PORT, open_browser: bool = True) -> int:
+def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool = False) -> int:
     url = _local_url(port)
     try:
         server = AgentServer((LOOPBACK_HOST, port), Handler)
     except OSError:
         if not already_running(port):
             raise OvError(f"Port {port} is in use by another program. Pass --port.") from None
+        if full_access:
+            raise OvError(f"OV Agent is already running at {url}. Stop it, then start it with --full-access.") from None
         print(f"OV Agent is already running at {url}")
         if open_browser:
             webbrowser.open(url)
@@ -1075,7 +1108,12 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True) -> int:
     except OvError:
         server.server_close()
         raise
+
+    runs.full_access = full_access
     print(f"OV Agent running at {url}  (Ctrl+C to stop)", flush=True)
+    if full_access:
+        print("Full access is available: threads set to it change anything without asking.", flush=True)
+
     if open_browser:
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
     _serve_until_stopped(server)
@@ -1090,4 +1128,5 @@ def _serve_until_stopped(server: AgentServer) -> None:
     finally:
         server.server_close()
         runs.close()
+        claude.close_helpers()
         db.close()

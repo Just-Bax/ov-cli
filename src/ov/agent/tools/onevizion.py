@@ -11,7 +11,7 @@ from urllib.parse import quote
 from ov.agent import workspace
 from ov.agent.engine.files import within
 from ov.agent.instances import components, graph
-from ov.agent.instances.ovproc import OvResult, find_instance, host_of, run_ov, url_for
+from ov.agent.instances.ovproc import OvResult, find_instance, host_of, instances, run_ov, url_for
 from ov.agent.tools.base import (
     LABEL_CHARS,
     SECRET_JSON,
@@ -31,10 +31,16 @@ from ov.core.errors import EXIT_READ_ONLY
 OV_TIMEOUT_SECONDS = 180
 SQL_TIMEOUT_SECONDS = 300
 SQL_TIMED_OUT = (
-    "Test SQL gave no answer in {limit}s (ran {took:.1f}s). Oracle may still be running the query and ov "
-    "cannot cancel it. Do not rerun it as is: narrow it with selective key or date filters, or sample inside "
+    "The query gave no answer on {instance} in {limit}s (ran {took:.1f}s). Oracle may still be running it and "
+    "ov cannot cancel it. Do not rerun it as is: narrow it with selective key or date filters, or sample inside "
     "the query with fetch first."
 )
+SQL_UNEXPECTED_ERROR = "Error[9478]"
+SQL_UNEXPECTED_HINT = (
+    "\nHint: this generic error usually comes from select * over a join or a view with LOB columns, or "
+    "dbms_lob.substr past the end of the text. Name the columns you need and retry."
+)
+MAX_INSTANCE_OPTIONS = 5
 DEFAULT_SQL_ROWS = 100
 MAX_SQL_ROWS = 1000
 DEFAULT_SEARCH_LIMIT = 50
@@ -67,6 +73,8 @@ _PLSQL_IN_WITH = re.compile(r"\bwith\s+(function|procedure)\b", re.IGNORECASE)
 _SECRET_SQL = re.compile(r"\bselect\s+\*\s+from\s+(module|users?|auth_token\w*)\b", re.IGNORECASE)
 _SECRET_NAME = re.compile(r"pass(word|wd)?|secret|token|api_?key|private_?key|credential", re.IGNORECASE)
 _SECRET_KEY = re.compile(r"^[\w.\-]{0,60}$")
+_SECRET_VALUE = re.compile(r"^\S+$")
+_IDENTIFIER = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 def entity_link(entity_type: str, entity_id: str | None, instance: str | None) -> str | None:
@@ -86,9 +94,15 @@ def _output(result: OvResult) -> str:
 
 def _target(instance: str | None, ctx: ToolContext) -> str:
     target = (instance or ctx.instance).strip()
-    if not target:
-        raise ToolError("No instance given. Pass instance, or ask the user which one.")
-    return target
+    if target:
+        return target
+
+    known = [{"label": row["alias"], "description": row["host"]} for row in instances()][:MAX_INSTANCE_OPTIONS]
+    if not known:
+        raise ToolError("No instance given and none is signed in. Ask the user for the instance host.")
+
+    item = {"header": "Instance", "question": "Which instance should I use?", "options": known, "multiple": False}
+    return ctx.ask_user([item])[0].strip()
 
 
 def _alias_for(target: str, ctx: ToolContext) -> tuple[str, str, str]:
@@ -195,9 +209,9 @@ def run_ov_tool(
 
 def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
     blocked = ToolError(
-        "Blocked: this would change data and write access is OFF for this run. Do not "
-        "retry. Tell the user in chat what you would change and that they can turn on "
-        '"Allow changes" below the chat if they want you to apply it.'
+        "Blocked: this would change data and this thread is Read-only. Do not retry. Tell the user in chat "
+        "what you would change and that they can switch the thread to Ask first or Auto below the chat if "
+        "they want you to apply it."
     )
     if not ctx.can_write():
         raise blocked
@@ -228,15 +242,21 @@ def _sql_cell(value: Any) -> str:
     return str(value).replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n")
 
 
+def _secret_key(cell: Any) -> bool:
+    return isinstance(cell, str) and bool(_SECRET_KEY.match(cell) and _SECRET_NAME.search(cell))
+
+
+def _secret_value(cell: str) -> bool:
+    return bool(_SECRET_VALUE.match(cell)) and not cell.isdigit() and not _IDENTIFIER.match(cell)
+
+
 def _masked(columns: list[str], cells: list[Any]) -> list[Any]:
-    secret_row = any(isinstance(c, str) and _SECRET_KEY.match(c) and _SECRET_NAME.search(c) for c in cells)
+    secret_row = any(_secret_key(c) for c in cells)
     out = []
     for name, cell in zip(columns, cells, strict=True):
         if cell is None or isinstance(cell, (int, float)):
             out.append(cell)
-        elif _SECRET_NAME.search(name) or (
-            secret_row and not (_SECRET_KEY.match(str(cell)) and _SECRET_NAME.search(str(cell)))
-        ):
+        elif _SECRET_NAME.search(name) or (secret_row and not _secret_key(cell) and _secret_value(str(cell))):
             out.append(SECRET_MASK)
         else:
             out.append(SECRET_JSON.sub(rf'\1"{SECRET_MASK}"', str(cell)))
@@ -273,6 +293,7 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
         )
 
     rows = min(max(int(args.get("limit") or DEFAULT_SQL_ROWS), 1), MAX_SQL_ROWS)
+    instance = _target(args.get("instance"), ctx)
     started = time.monotonic()
     try:
         raw = run_ov_tool(
@@ -284,19 +305,22 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
                 query,
                 "--json",
             ],
-            args.get("instance"),
+            instance,
             ctx,
             allow_sql=True,
             raw=True,
             timeout=SQL_TIMEOUT_SECONDS,
         )
-    except ToolError:
         took = time.monotonic() - started
-        if took < SQL_TIMEOUT_SECONDS:
-            raise
-        raise ToolError(SQL_TIMED_OUT.format(limit=SQL_TIMEOUT_SECONDS, took=took)) from None
-    took = time.monotonic() - started
-    return clip(f"{_format_sql(raw)}\n[took {took:.1f}s including the ov call]", ctx, "result")
+        table = _format_sql(raw)
+    except ToolError as exc:
+        took = time.monotonic() - started
+        if took >= SQL_TIMEOUT_SECONDS:
+            raise ToolError(SQL_TIMED_OUT.format(instance=instance, limit=SQL_TIMEOUT_SECONDS, took=took)) from None
+        if SQL_UNEXPECTED_ERROR in str(exc):
+            raise ToolError(f"{exc}{SQL_UNEXPECTED_HINT}") from None
+        raise
+    return clip(f"{table}\n[took {took:.1f}s including the ov call]", ctx, "result")
 
 
 def _export_ids(args: dict[str, Any]) -> list[int]:
@@ -440,8 +464,8 @@ TOOLS = [
         "ov",
         "Run the ov CLI against a OneVizion instance: any API call, schema discovery (api list, "
         "api show), component export, chats, files. Reads always work. Calls that change data "
-        "are blocked unless the user allowed changes for this run, and then each one waits for "
-        "the user to approve it.",
+        "are blocked in a Read-only thread; in Ask first each one waits for the user to approve "
+        "it, in Auto only risky ones do.",
         {
             "instance": INSTANCE,
             "args": strings_param(
@@ -471,7 +495,9 @@ TOOLS = [
         "ov_sql",
         "Run a read-only SELECT (or WITH) on an instance database through the platform's Test "
         f"SQL endpoint. Max 1000 rows, and it gives up after {SQL_TIMEOUT_SECONDS}s. Secret-looking values are "
-        "masked in the result.",
+        "masked in the result. Look unfamiliar tables and columns up in all_tab_columns first instead of "
+        "guessing names. On big tables (trackor data, staging, logs) filter by key or date before any count, "
+        "distinct or group by.",
         {
             "instance": INSTANCE,
             "query": string_param("A single SELECT statement, no trailing semicolon"),
@@ -489,7 +515,8 @@ TOOLS = [
         "Export components from an instance with the platform's component export and save their "
         "code to files in the run folder: a DB package's full spec and body, a rule's SQL, an import's or "
         "report's SQL and settings. One call, however long the code; prefer it to paging CLOBs "
-        "through ov_sql.",
+        "through ov_sql. Each code field is saved as its own .txt file, ready to read with run_read or diff "
+        "directly; do not parse the exported XML for it.",
         {
             "instance": INSTANCE,
             "component_type": {"type": "string", "enum": list(components.TYPES)},
@@ -503,8 +530,9 @@ TOOLS = [
         "ov_import",
         "Import components into an instance with the platform's component import, from a component "
         "export XML: an ov_export file in the run folder, or a file in the workspace. Always run it "
-        "with dry_run true first and show the user what it would do; a real import needs Allow changes "
-        "and the user's approval. Leave components out to import everything in the file.",
+        "with dry_run true first and show the user what it would do; a real import needs changes "
+        "allowed and, unless the thread is on Auto, the user's approval. Leave components out to import "
+        "everything in the file.",
         {
             "instance": INSTANCE,
             "file": string_param("Export XML: a file name in the run folder, or a path inside the workspace"),

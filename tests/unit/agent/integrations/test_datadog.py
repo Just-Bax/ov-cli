@@ -9,6 +9,7 @@ from helpers.sessions import BASE_URL, seed_session
 
 from ov.agent.engine import prompt
 from ov.agent.integrations import datadog
+from ov.agent.storage.models import Access
 from ov.agent.tools import TOOLS_BY_NAME, tool_specs
 from ov.agent.tools.base import ToolError
 from ov.core import credentials
@@ -128,14 +129,14 @@ def test_a_tenant_uses_its_hosts_match(linked):
 def test_tools_are_offered_only_when_connected_and_allowed(fake, logged_in):
     names = {s["function"]["name"] for s in tool_specs()}
     assert not names & set(datadog.AREAS) and "dd_logs" not in names
-    assert "Datadog: not connected" in prompt.system_prompt(False, "")
+    assert "Datadog: not connected" in prompt.system_prompt(Access.READ, "")
 
     fake.denied = {"apm"}
     datadog.connect("datadoghq.com", API_KEY, APP_KEY)
     names = {s["function"]["name"] for s in tool_specs()}
     assert {"dd_logs", "dd_metrics", "dd_monitors", "dd_events"} <= names
     assert "dd_apm" not in names
-    assert "- datadog: " in prompt.system_prompt(False, "")
+    assert "- datadog: " in prompt.system_prompt(Access.READ, "")
 
 
 def test_log_tool_applies_the_instance_filter(linked, tmp_path):

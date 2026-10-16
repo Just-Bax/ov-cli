@@ -2,26 +2,35 @@ import {
   Browser as BrowserIcon,
   ArrowsIn as HideIcon,
   Cursor as CursorIcon,
-  Eye as EyeIcon,
   Prohibit as ProhibitIcon,
   ShieldWarning as ShieldWarningIcon,
+  X as CloseIcon,
 } from '@phosphor-icons/react'
 import { useState } from 'react'
-import type { BrowserPointer, BrowserState, Question, ToolActivity } from '@shared/types.ts'
+import type {
+  Access,
+  BrowserDialog,
+  BrowserPointer,
+  BrowserState,
+  BrowserTab,
+  ApprovalQuestion,
+  ToolActivity,
+} from '@shared/types.ts'
 import { LiveScreen, type FrameSize } from '@/components/screen/LiveScreen'
+import { AccessMeter, accessMode } from '@/components/composer/AccessPicker'
 import { reportError } from '@/components/common/Toasts'
 import { Button, Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useLayer } from '@/lib/layers'
-import { useAnswer } from './Panels'
+import { useAnswer } from './QuestionDock'
 
 const BROWSER_TOOL_PREFIX = 'browser_'
 const CARD_GAP_PX = 16
 const CHAT_CARD_WIDTH_PX = 440
 const CARD_SHADOW = 'shadow-[0_20px_60px_rgba(38,50,56,0.3)]'
 
-export const CARD_CLASS = `animate-pop fixed overflow-hidden rounded-2xl bg-white ${CARD_SHADOW}`
+export const CARD_CLASS = `fixed overflow-hidden rounded-2xl bg-white ${CARD_SHADOW}`
 export const CHAT_CARD_STYLE = {
   top: CARD_GAP_PX,
   bottom: CARD_GAP_PX,
@@ -47,7 +56,7 @@ function lastBrowserTool(tools: ToolActivity[]): ToolActivity | undefined {
 function Pointer({ pointer, size }: { pointer: BrowserPointer; size: FrameSize }) {
   return (
     <div
-      className="pointer-events-none absolute z-10 transition-[left,top] duration-300 ease-out"
+      className="animate-fade-in pointer-events-none absolute z-10 transition-[left,top] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
       style={{
         left: `${(pointer.x / size.width) * 100}%`,
         top: `${(pointer.y / size.height) * 100}%`,
@@ -59,18 +68,23 @@ function Pointer({ pointer, size }: { pointer: BrowserPointer; size: FrameSize }
           className="animate-tap bg-brand/40 absolute top-0 left-0 size-12 rounded-full"
         />
       ) : null}
-      <CursorIcon
-        weight="fill"
-        className="text-brand-strong size-6 -translate-x-[3px] -translate-y-[2px] drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
-      />
+      <span
+        key={pointer.press ? pointer.step : 'still'}
+        className={cn('block origin-top-left', pointer.press && 'animate-cursor-press')}
+      >
+        <CursorIcon
+          weight="fill"
+          className="text-brand-strong size-6 -translate-x-[3px] -translate-y-[2px] drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
+        />
+      </span>
     </div>
   )
 }
 
-function Caption({ tool, write }: { tool: ToolActivity | undefined; write: boolean }) {
+function Caption({ tool, access }: { tool: ToolActivity | undefined; access: Access }) {
   if (!tool) return null
 
-  const blocked = tool.status === 'error' && tool.verdict?.effect === 'write' && !write
+  const blocked = tool.status === 'error' && tool.verdict?.effect === 'write' && access === 'read'
   if (tool.status !== 'running' && !blocked) return null
 
   const change = tool.verdict?.effect === 'write'
@@ -105,7 +119,123 @@ function Caption({ tool, write }: { tool: ToolActivity | undefined; write: boole
   )
 }
 
-function Approval({ runId, question }: { runId: string; question: Question }) {
+function tabName(tab: BrowserTab): string {
+  if (tab.title) return tab.title
+  if (!URL.canParse(tab.url)) return tab.url
+  return new URL(tab.url).pathname
+}
+
+function Tabs({ runId, tabs }: { runId: string; tabs: BrowserTab[] }) {
+  if (tabs.length < 2) return null
+
+  const act = (index: number, close: boolean) =>
+    void api.browserTab(runId, index, close).catch(reportError)
+  return (
+    <div
+      role="tablist"
+      aria-label="Browser tabs"
+      className="border-line animate-fade-in flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-1.5"
+    >
+      {tabs.map((tab) => (
+        <div
+          key={tab.index}
+          className={cn(
+            'group flex h-7 max-w-56 min-w-0 shrink-0 items-center rounded-full text-[12px] transition-colors',
+            tab.active ? 'bg-brand-soft text-fg' : 'text-muted hover:bg-raised',
+          )}
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab.active}
+            title={tab.url}
+            onClick={() => act(tab.index, false)}
+            className="min-w-0 truncate py-1 pr-1 pl-3"
+          >
+            {tabName(tab)}
+          </button>
+          <button
+            type="button"
+            aria-label={`Close ${tabName(tab)}`}
+            title="Close this tab"
+            onClick={() => act(tab.index, true)}
+            className="text-faint hover:text-fg mr-1 flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-white"
+          >
+            <CloseIcon className="size-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const DIALOG_TITLES: Record<BrowserDialog['kind'], string> = {
+  alert: 'The page says',
+  confirm: 'The page asks',
+  prompt: 'The page asks',
+  beforeunload: 'Leave this page?',
+}
+
+function PageDialog({
+  runId,
+  dialog,
+  instance,
+}: {
+  runId: string
+  dialog: BrowserDialog
+  instance: string
+}) {
+  const [text, setText] = useState(dialog.default)
+  const [sending, setSending] = useState(false)
+  const answer = (accept: boolean) => {
+    setSending(true)
+    api
+      .answerBrowserDialog(runId, accept, text)
+      .catch(reportError)
+      .finally(() => setSending(false))
+  }
+
+  return (
+    <div className="animate-fade-in absolute inset-0 z-20 flex justify-center bg-[#263238]/20 px-6 pt-6">
+      <form
+        role="alertdialog"
+        aria-label={DIALOG_TITLES[dialog.kind]}
+        onSubmit={(e) => {
+          e.preventDefault()
+          answer(true)
+        }}
+        className="animate-pop h-fit w-full max-w-[420px] rounded-xl bg-white p-4 shadow-[0_12px_40px_rgba(38,50,56,0.3)]"
+      >
+        <div className="text-fg text-[13.5px] font-semibold">
+          {instance} &middot; {DIALOG_TITLES[dialog.kind]}
+        </div>
+        <div className="text-text mt-1.5 max-h-48 scrollbar-thin overflow-auto text-[13px] [overflow-wrap:anywhere] whitespace-pre-wrap">
+          {dialog.message}
+        </div>
+        {dialog.kind === 'prompt' ? (
+          <input
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="border-line focus:border-brand mt-3 h-8 w-full rounded-lg border px-2.5 text-[13px] outline-none"
+          />
+        ) : null}
+        <div className="mt-3.5 flex justify-end gap-1.5">
+          {dialog.kind === 'alert' ? null : (
+            <Button variant="ghost" type="button" disabled={sending} onClick={() => answer(false)}>
+              Cancel
+            </Button>
+          )}
+          <Button variant="primary" type="submit" disabled={sending}>
+            {sending ? <Spinner className="size-3.5" /> : null} OK
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function Approval({ runId, question }: { runId: string; question: ApprovalQuestion }) {
   const { sending, send } = useAnswer(runId, question.id)
 
   return (
@@ -129,10 +259,10 @@ function Approval({ runId, question }: { runId: string; question: Question }) {
           {question.detail}
         </pre>
         <div className="flex justify-end gap-1.5 px-5 py-4">
-          <Button variant="ghost" disabled={sending} onClick={() => send('Reject')}>
+          <Button variant="ghost" disabled={sending} onClick={() => send(['Reject'])}>
             Reject
           </Button>
-          <Button variant="primary" disabled={sending} onClick={() => send('Approve')}>
+          <Button variant="primary" disabled={sending} onClick={() => send(['Approve'])}>
             {sending ? <Spinner className="size-3.5" /> : null} Approve
           </Button>
         </div>
@@ -141,8 +271,15 @@ function Approval({ runId, question }: { runId: string; question: Question }) {
   )
 }
 
-export function BrowserBackdrop() {
-  return <div className="animate-fade-in fixed inset-0 bg-[#263238]/30 backdrop-blur-[2px]" />
+export function BrowserBackdrop({ leaving }: { leaving: boolean }) {
+  return (
+    <div
+      className={cn(
+        'fixed inset-0 bg-[#263238]/30 backdrop-blur-[2px]',
+        leaving ? 'animate-fade-out' : 'animate-fade-in',
+      )}
+    />
+  )
 }
 
 export function BrowserPane({
@@ -150,14 +287,16 @@ export function BrowserPane({
   browser,
   tools,
   question,
-  write,
+  access,
+  leaving,
   onHide,
 }: {
   runId: string
   browser: BrowserState
   tools: ToolActivity[]
-  question: Question | undefined
-  write: boolean
+  question: ApprovalQuestion | undefined
+  access: Access
+  leaving: boolean
   onHide: () => void
 }) {
   const last = lastBrowserTool(tools)
@@ -169,7 +308,11 @@ export function BrowserPane({
     <div
       role="dialog"
       aria-label={`Browser on ${instance}`}
-      className={cn(CARD_CLASS, 'flex min-w-0 flex-col')}
+      className={cn(
+        CARD_CLASS,
+        'flex min-w-0 flex-col',
+        leaving ? 'animate-card-sink' : 'animate-card-rise',
+      )}
       style={BROWSER_CARD_STYLE}
     >
       <LiveScreen
@@ -182,38 +325,41 @@ export function BrowserPane({
         closeLabel="Close the browser"
         onClose={() => void api.closeBrowser(runId).catch(reportError)}
         focusOnStart={false}
+        loading={browser.loading}
         onStageResize={(size) => void api.resizeBrowser(runId, size).catch(reportError)}
+        strip={<Tabs runId={runId} tabs={browser.tabs ?? []} />}
         status={
           <>
             <span
-              className={cn(
-                'hidden h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium sm:inline-flex',
-                write ? 'bg-warn-soft text-warn' : 'bg-raised text-muted',
-              )}
-              title={
-                write
-                  ? 'Each change in the browser waits for your approval'
-                  : 'Changes in the browser are blocked'
-              }
+              className="border-line text-muted hidden h-8 shrink-0 items-center gap-2 rounded-full border px-3 text-[12px] font-medium sm:inline-flex"
+              title={accessMode(access).about}
             >
-              {driving ? <Spinner className="size-3" /> : <EyeIcon className="size-3.5" />}
-              {write ? 'Changes need approval' : 'Read only'}
+              <AccessMeter value={access} className={cn(driving && 'animate-pulse')} />
+              {accessMode(access).label}
             </span>
             <button
               type="button"
               onClick={onHide}
+              aria-label="Hide the browser"
               title="Hide the browser and keep it running (Esc)"
-              className="text-muted hover:bg-raised hover:text-fg flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium transition-colors"
+              className="text-faint hover:text-fg hover:bg-raised flex size-8 shrink-0 items-center justify-center rounded-full transition-colors"
             >
-              <HideIcon className="size-3.5" />
-              Hide
+              <HideIcon className="size-4" />
             </button>
           </>
         }
         overlay={(size) => (
           <>
             {browser.pointer ? <Pointer pointer={browser.pointer} size={size} /> : null}
-            <Caption tool={last} write={write} />
+            <Caption tool={last} access={access} />
+            {browser.dialog ? (
+              <PageDialog
+                key={`${browser.dialog.kind}:${browser.dialog.message}`}
+                runId={runId}
+                dialog={browser.dialog}
+                instance={instance}
+              />
+            ) : null}
           </>
         )}
       />

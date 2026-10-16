@@ -7,6 +7,7 @@ from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.guard import Effect, Verdict
 from ov.agent.engine.run import runs
 from ov.agent.storage import db
+from ov.agent.tools.base import APPROVE, Approval
 
 RUN_POLLS = 100
 RUN_POLL_SECONDS = 0.05
@@ -18,7 +19,16 @@ class ClosedBrowser:
 
 class FakeContext:
     def __init__(
-        self, work_dir: Path, write: bool = False, approve: str = "Approve", effects: dict[str, Effect] | None = None
+        self,
+        work_dir: Path,
+        write: bool = False,
+        approve: str = "Approve",
+        note: str = "",
+        effects: dict[str, Effect] | None = None,
+        *,
+        auto: bool = False,
+        full: bool = False,
+        risky: bool = False,
     ) -> None:
         self.work_dir = work_dir
         self.cancel = Cancel()
@@ -30,8 +40,13 @@ class FakeContext:
         self.edits: list[tuple] = []
         self.write = write
         self.approve = approve
+        self.note = note
+        self.reasons: list[str] = []
         self.effects = effects or {}
         self.judged: list[str] = []
+        self.auto = auto
+        self.full = full
+        self.risky = risky
         self.browser = ClosedBrowser()
 
     def emit(self, event):
@@ -40,9 +55,14 @@ class FakeContext:
     def has_outcome(self):
         return False
 
-    def ask_user(self, question, options, multiple, detail=None):
-        self.asked.append(detail or question)
-        return self.approve
+    def ask_user(self, items):
+        self.asked += [item["question"] for item in items]
+        return [self.approve for _ in items]
+
+    def ask_approval(self, question, detail, reason=""):
+        self.asked.append(detail)
+        self.reasons.append(reason)
+        return Approval(self.approve == APPROVE, self.note)
 
     def require_login(self, host):
         return False
@@ -58,6 +78,16 @@ class FakeContext:
 
     def can_write(self):
         return self.write
+
+    def auto_approves(self):
+        return self.auto
+
+    def full_access(self):
+        return self.full
+
+    def judge_risk(self, change):
+        self.judged.append(change)
+        return Verdict(Effect.RISKY if self.risky else Effect.ROUTINE, "it deletes data")
 
     def judge_command(self, command, folder):
         self.judged.append(command)

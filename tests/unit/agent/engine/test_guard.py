@@ -51,7 +51,7 @@ def test_the_run_judges_each_command_once_and_records_it(logged_in, monkeypatch)
     from ov.agent.engine.run import runs
     from ov.agent.storage import db
 
-    run = runs.create({"prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
     run.emit({"type": "tool", "tool": {"id": "t1", "name": "ws_run", "label": "$ mvn", "status": "running"}})
     run._local.tool = "t1"

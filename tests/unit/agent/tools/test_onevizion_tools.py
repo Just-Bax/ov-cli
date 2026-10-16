@@ -31,7 +31,7 @@ def test_a_blocked_write_needs_access_then_approval(logged_in, tmp_path, monkeyp
         return OvResult(0, "deleted", "")
 
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", fake_run)
-    with pytest.raises(ToolError, match="write access is OFF"):
+    with pytest.raises(ToolError, match="this thread is Read-only"):
         run_ov_tool(["request", "DELETE", "/v3/users/1"], "acme", FakeContext(tmp_path))
 
     ctx = FakeContext(tmp_path, write=True)
@@ -116,13 +116,44 @@ def test_sql_results_mask_secrets_without_refusing_the_query(logged_in, tmp_path
     assert "[took " in out
 
 
+def test_a_token_field_name_does_not_hide_the_rule_beside_it(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools import tool_named
+
+    body = {
+        "status": "SUCCESS",
+        "columns": ["RULE_ID", "RULE_NAME", "FIELD_NAME"],
+        "rows": [{"cells": ["100026670", "UDL Trigger Token", "C_GENERATE_TOKEN"]}],
+    }
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, json.dumps(body), ""))
+    out = tool_named("ov_sql").handler({"query": "select rule_id from rule"}, FakeContext(tmp_path))
+    assert out.splitlines()[2] == "100026670\tUDL Trigger Token\tC_GENERATE_TOKEN"
+
+
+def test_the_generic_sql_error_gets_a_hint(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools import tool_named
+
+    failed = json.dumps({"status": "FAILED", "error_message": "Error[9478]: Unexpected error"})
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, failed, ""))
+    with pytest.raises(ToolError, match="Name the columns you need"):
+        tool_named("ov_sql").handler({"query": "select * from rule"}, FakeContext(tmp_path))
+
+
+def test_a_missing_instance_is_asked_for(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools.onevizion import _target
+
+    ctx = FakeContext(tmp_path, approve="acme")
+    ctx.instance = ""
+    assert _target(None, ctx) == "acme"
+    assert ctx.asked == ["Which instance should I use?"]
+
+
 def test_sql_timeout_reports_the_limit_and_the_measured_time(logged_in, tmp_path, monkeypatch):
     from ov.agent.tools import tool_named
 
     clock = iter([0.0, 300.4])
     monkeypatch.setattr("ov.agent.tools.onevizion.time.monotonic", lambda: next(clock))
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(5, "", "timed out"))
-    with pytest.raises(ToolError, match=r"no answer in 300s \(ran 300\.4s\).*may still be running"):
+    with pytest.raises(ToolError, match=r"no answer on acme in 300s \(ran 300\.4s\).*may still be running"):
         tool_named("ov_sql").handler({"query": "select 1 from dual"}, FakeContext(tmp_path))
 
 
@@ -197,7 +228,7 @@ def test_imports_dry_run_first_and_need_approval_to_apply(logged_in, tmp_path, m
         {"component_type": "RULE", "mode": "UPDATE_IF_EXIST", "components": [{"id": 7}]}
     ]
 
-    with pytest.raises(ToolError, match="write access is OFF"):
+    with pytest.raises(ToolError, match="this thread is Read-only"):
         tool.handler({"file": "export-1.xml", "dry_run": False}, FakeContext(tmp_path))
     ctx = FakeContext(tmp_path, write=True)
     assert tool.handler({"file": "export-1.xml", "dry_run": False}, ctx).startswith("Imported:")

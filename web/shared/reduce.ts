@@ -127,7 +127,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       }
     }
     case 'access':
-      return { ...state, writeAccess: event.write }
+      return { ...state, access: event.access }
     case 'browser':
       return { ...state, browser: { open: false, ...state.browser, ...event.browser } }
     default:

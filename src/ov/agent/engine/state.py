@@ -12,7 +12,7 @@ TOOL_DETAIL = ("input", "output")
 EDIT_DETAIL = ("before", "after")
 
 
-def empty_state(summary: dict[str, Any], write: bool) -> State:
+def empty_state(summary: dict[str, Any], access: str) -> State:
     return {
         "summary": summary,
         "items": [],
@@ -22,7 +22,7 @@ def empty_state(summary: dict[str, Any], write: bool) -> State:
         "questions": [],
         "logins": [],
         "chat": [],
-        "writeAccess": write,
+        "access": access,
         "queued": [],
         "claude": {"session": None, "turns": {}, "spent": 0.0},
     }
@@ -157,7 +157,7 @@ def _on_rewind(state: State, stored: Stored) -> None:
 
 
 def _on_access(state: State, stored: Stored) -> None:
-    state["writeAccess"] = stored["event"]["write"]
+    state["access"] = stored["event"]["access"]
 
 
 def _on_browser(state: State, stored: Stored) -> None:
@@ -259,6 +259,11 @@ def details(state: State, tool_ids: set[str], edit_ids: set[str]) -> dict[str, A
     }
 
 
+def question_text(question: dict[str, Any]) -> str:
+    asked = [question["question"]] if question["kind"] == "approval" else [i["question"] for i in question["items"]]
+    return " ".join([*asked, *question.get("answers", []), question.get("note", "")]).strip()
+
+
 def _searchable(state: State) -> dict[tuple[str, str], str]:
     texts: dict[tuple[str, str], str] = {}
     for message in state["chat"]:
@@ -268,7 +273,7 @@ def _searchable(state: State) -> dict[tuple[str, str], str]:
             change.get(k) or "" for k in ("title", "what", "why", "how", "after")
         )
     for question in state["questions"]:
-        texts[("question", question["id"])] = f"{question['question']} {question.get('answer') or ''}"
+        texts[("question", question["id"])] = question_text(question)
     outcome = state.get("outcome")
     if outcome and state.get("outcomeId"):
         parts = [outcome.get("reply") or "", *(f"{i['title']} {i['summary']}" for i in outcome.get("issues") or [])]

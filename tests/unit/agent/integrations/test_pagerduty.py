@@ -8,8 +8,9 @@ from helpers.sessions import BASE_URL
 
 from ov.agent.engine import prompt
 from ov.agent.integrations import pagerduty
+from ov.agent.storage.models import Access
 from ov.agent.tools import TOOLS_BY_NAME, tool_specs
-from ov.agent.tools.base import ToolError
+from ov.agent.tools.base import Approval, ToolError
 from ov.core import credentials
 
 
@@ -34,9 +35,15 @@ class Ctx:
     def can_write(self):
         return self.write
 
-    def ask_user(self, question, options, multiple, detail=None):
+    def auto_approves(self):
+        return False
+
+    def full_access(self):
+        return False
+
+    def ask_approval(self, question, detail, reason=""):
         self.asked.append(question)
-        return self.approve
+        return Approval(self.approve == "Approve", "")
 
 
 def test_account_and_region_come_from_any_pagerduty_address():
@@ -94,7 +101,7 @@ def test_a_tenant_sees_its_host_incidents(linked):
 def test_tools_are_offered_only_when_connected(fake, logged_in):
     names = {s["function"]["name"] for s in tool_specs()}
     assert not {n for n in names if n.startswith("pd_")}
-    assert "PagerDuty: not connected" in prompt.system_prompt(False, "")
+    assert "PagerDuty: not connected" in prompt.system_prompt(Access.READ, "")
 
     fake.denied = {"oncall"}
     pagerduty.connect("onevizion", KEY)
@@ -102,7 +109,7 @@ def test_tools_are_offered_only_when_connected(fake, logged_in):
     assert {"pd_incidents", "pd_incident", "pd_directory"} <= names
     assert "pd_oncall" not in names and "pd_ack" not in names
     assert "pd_ack" in {s["function"]["name"] for s in tool_specs(write=True)}
-    text = prompt.system_prompt(False, "")
+    text = prompt.system_prompt(Access.READ, "")
     assert "- pagerduty: " in text
     assert "PagerDuty (incidents and on-call; changes only while allowed): pd_incidents" in text
 

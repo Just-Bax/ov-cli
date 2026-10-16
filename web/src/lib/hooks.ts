@@ -85,3 +85,19 @@ export function useLoad<T>(load: () => Promise<T>, deps: DependencyList) {
   const reload = useCallback(() => setVersion((v) => v + 1), [])
   return { value, setValue, loading, reload }
 }
+
+export function usePresence<T>(value: T | undefined, exitMs: number) {
+  const [kept, setKept] = useState(value)
+
+  useEffect(() => {
+    if (value !== undefined) {
+      setKept(value)
+      return
+    }
+
+    const timer = setTimeout(() => setKept(undefined), exitMs)
+    return () => clearTimeout(timer)
+  }, [value, exitMs])
+
+  return { shown: value ?? kept, leaving: value === undefined && kept !== undefined }
+}

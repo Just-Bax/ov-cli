@@ -100,7 +100,7 @@ def claude_thread(logged_in, monkeypatch):
 def _start(prompt: str):
     from ov.agent.engine.run import runs
 
-    return runs.create({"prompt": prompt, "instance": "acme"}, Provider.CLAUDE, "opus")
+    return runs.create({"access": "read", "prompt": prompt, "instance": "acme"}, Provider.CLAUDE, "opus")
 
 
 def test_a_claude_thread_streams_text_records_usage_and_its_session(claude_thread):

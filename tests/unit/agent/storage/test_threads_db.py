@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from ov.agent.storage import db
-from ov.agent.storage.models import Provider
+from ov.agent.storage.models import Access, Provider
 
 
 def test_a_restart_marks_running_runs_interrupted(ov_home):
-    db.create_thread("rabc", "t", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rabc", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
     db.update_thread("rabc", status="running")
     db.append_event("rabc", 0, {"type": "status", "status": "running"})
     db.close()
@@ -14,7 +14,7 @@ def test_a_restart_marks_running_runs_interrupted(ov_home):
 
 
 def test_restart_closes_tools_left_running():
-    db.create_thread("r1", "t", Provider.COPILOT, "m", prompt="", instance=None, allow_write=False)
+    db.create_thread("r1", "t", Provider.COPILOT, "m", prompt="", instance=None, access=Access.READ)
     db.append_event("r1", 0, {"type": "tool", "tool": {"id": "a", "status": "running"}})
     db.append_event("r1", 1, {"type": "tool", "tool": {"id": "b", "status": "running"}})
     db.append_event("r1", 2, {"type": "tool", "tool": {"id": "b", "status": "ok"}})
@@ -27,7 +27,7 @@ def test_restart_closes_tools_left_running():
 
 
 def test_runs_can_be_settled_and_a_follow_up_unsettles_them(logged_in):
-    db.create_thread("rsettle", "t", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
+    db.create_thread("rsettle", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
     db.set_settled("rsettle", True)
     assert db.list_threads()[0]["settled"] is True
     db.set_settled("rsettle", False)
@@ -36,7 +36,7 @@ def test_runs_can_be_settled_and_a_follow_up_unsettles_them(logged_in):
 
 def test_run_list_splits_active_and_settled(logged_in):
     for n in range(3):
-        db.create_thread(f"rlist{n}", "t", Provider.COPILOT, "m", prompt="x", instance=None, allow_write=False)
+        db.create_thread(f"rlist{n}", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
     db.set_settled("rlist0", True)
     assert {r["id"] for r in db.list_threads(settled=False)} >= {"rlist1", "rlist2"}
     assert [r["id"] for r in db.list_threads(settled=True)] == ["rlist0"]

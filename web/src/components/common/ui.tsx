@@ -431,29 +431,48 @@ export function Page({
   actions,
   children,
   footer,
+  compact = false,
 }: {
   title?: ReactNode
   subtitle?: ReactNode
   actions?: ReactNode
   children: ReactNode
   footer?: ReactNode
+  compact?: boolean
 }) {
   return (
     <div className="flex h-full min-w-0 flex-col bg-white">
       {title || actions ? (
-        <header className="border-line flex min-h-16 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b px-6 py-2.5">
-          <div className="min-w-[min(100%,260px)] flex-1">
+        <header
+          className={cn(
+            'border-line flex min-h-16 shrink-0 items-center border-b py-2.5',
+            compact ? 'gap-x-2 px-4' : 'flex-wrap gap-x-4 gap-y-2 px-6',
+          )}
+        >
+          <div className={cn('flex-1', compact ? 'min-w-0' : 'min-w-[min(100%,260px)]')}>
             {title ? (
               <div className="text-fg truncate text-[15px] leading-6 font-semibold">{title}</div>
             ) : null}
             {subtitle ? (
-              <div className="text-muted flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
+              <div
+                className={cn(
+                  'text-muted flex min-w-0 items-center gap-x-2 text-[12px]',
+                  compact ? 'overflow-hidden whitespace-nowrap' : 'flex-wrap gap-y-0.5',
+                )}
+              >
                 {subtitle}
               </div>
             ) : null}
           </div>
           {actions ? (
-            <div className="flex max-w-full min-w-0 flex-wrap items-center gap-1">{actions}</div>
+            <div
+              className={cn(
+                'flex min-w-0 items-center gap-1',
+                compact ? 'shrink-0' : 'max-w-full flex-wrap',
+              )}
+            >
+              {actions}
+            </div>
           ) : null}
         </header>
       ) : null}

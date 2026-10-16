@@ -12,12 +12,28 @@ export interface BrowserPointer {
   press?: boolean
 }
 
+export interface BrowserTab {
+  index: number
+  title: string
+  url: string
+  active: boolean
+}
+
+export interface BrowserDialog {
+  kind: 'alert' | 'confirm' | 'prompt' | 'beforeunload'
+  message: string
+  default: string
+}
+
 export interface BrowserState {
   open: boolean
   instance?: string
   session?: number
   pointer?: BrowserPointer | null
   error?: string | null
+  loading?: string | null
+  tabs?: BrowserTab[]
+  dialog?: BrowserDialog | null
 }
 
 export interface ToolActivity {
@@ -89,15 +105,39 @@ export interface Outcome {
   reply: string
 }
 
-export interface Question {
-  id: string
-  question: string
-  options: string[]
-  multiple: boolean
-  answer?: string
-  detail?: string
-  toolId?: string
+export interface QuestionOption {
+  label: string
+  description?: string
 }
+
+export interface QuestionItem {
+  header: string
+  question: string
+  options: QuestionOption[]
+  multiple: boolean
+}
+
+interface QuestionBase {
+  id: string
+  toolId?: string
+  answers?: string[]
+  stopped?: boolean
+}
+
+export interface AskQuestion extends QuestionBase {
+  kind: 'ask'
+  items: QuestionItem[]
+}
+
+export interface ApprovalQuestion extends QuestionBase {
+  kind: 'approval'
+  question: string
+  detail: string
+  reason?: string
+  note?: string
+}
+
+export type Question = AskQuestion | ApprovalQuestion
 
 export interface LoginPrompt {
   id: string
@@ -140,7 +180,7 @@ type RunEvent =
   | { type: 'outcome'; outcome: Outcome }
   | { type: 'question'; question: Question }
   | { type: 'login'; login: LoginPrompt }
-  | { type: 'access'; write: boolean }
+  | { type: 'access'; access: Access }
   | { type: 'browser'; browser: Partial<BrowserState> }
   | { type: 'queued'; message: ChatMessage }
   | { type: 'unqueue'; id: string }
@@ -233,11 +273,13 @@ export interface Upload {
   name: string
 }
 
+export type Access = 'read' | 'ask' | 'auto' | 'full'
+
 export interface RunInput {
   prompt: string
   instance?: string
   attachments?: Upload[]
-  allowWrite?: boolean
+  access?: Access
 }
 
 export interface RunSummary {
@@ -271,7 +313,7 @@ export interface RunState extends RunWindow {
   outcome?: Outcome
   outcomeId?: string
   error?: string
-  writeAccess: boolean
+  access: Access
   queued: ChatMessage[]
   browser?: BrowserState
 }
@@ -333,6 +375,7 @@ export interface Status {
   instances: { total: number; valid: number }
   settings: Settings
   ready: boolean
+  fullAccess: boolean
 }
 
 export type GraphNodeType =

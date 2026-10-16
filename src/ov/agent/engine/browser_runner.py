@@ -35,6 +35,8 @@ watches live, to reach one goal the engineer gave you. Work like a careful perso
 - Give every action a short say line in plain words; the user reads it over the browser.
 - Do only what the goal asks. Never save, delete, run or send anything the goal does not ask for. A change that \
 is blocked or rejected is final: stop there.
+- Alerts, confirms and prompts the page shows are real dialogs: answer them with browser_dialog. A page that \
+opens a new window gets a new tab: the snapshot lists tabs, browser_tab switches or closes them.
 - If something unexpected happens (an error message, a dialog you did not expect, a missing button, a read-only \
 field), stop and report it instead of trying another way.
 When you finish or stop, reply with this report and nothing else:
@@ -47,7 +49,7 @@ ASCII only."""
 
 def drive(run: Run, model: str, goal: str, cancel: Cancel) -> str:
     if run.provider == Provider.CLAUDE:
-        return asyncio.run(_claude_drive(run, model, goal, cancel))
+        return asyncio.run(_claude_drive(run, model, _claude_options(run, model), goal, cancel))
     return _copilot_drive(run, model, goal, cancel)
 
 
@@ -56,13 +58,16 @@ def _claude_server(run: Run) -> Any:
     return create_sdk_mcp_server(claude.SERVER_NAME, tools=tools)
 
 
-async def _claude_drive(run: Run, model: str, goal: str, cancel: Cancel) -> str:
+def _claude_options(run: Run, model: str) -> Any:
     options = claude.base_options(model, RUNNER_PROMPT, run.work_dir, claude.effort_for(model, RUNNER_EFFORT))
     options.mcp_servers = {claude.SERVER_NAME: _claude_server(run)}
     options.allowed_tools = [f"{claude.TOOL_PREFIX}*"]
     options.max_turns = RUNNER_STEPS
     options.extra_args = dict(claude.NO_TRANSCRIPT)
+    return options
 
+
+async def _claude_drive(run: Run, model: str, options: Any, goal: str, cancel: Cancel) -> str:
     result: ResultMessage | None = None
     loop = asyncio.get_running_loop()
     async with ClaudeSDKClient(options) as client:

@@ -149,6 +149,7 @@ export const FilesChanged = memo(function FilesChanged({
   runId: string
   edits: FileEdit[]
 }) {
+  const [open, setOpen] = useState(false)
   const files = summarize(edits)
   if (!files.length) return null
 
@@ -156,16 +157,27 @@ export const FilesChanged = memo(function FilesChanged({
   const removed = files.reduce((n, f) => n + f.removed, 0)
 
   return (
-    <div className="border-line-strong/70 rounded-2xl border p-2">
-      <div className="flex items-center gap-2 px-3 pt-1 pb-1.5">
-        <span className="text-fg text-[12.5px] font-semibold">
+    <div className="border-line-strong/70 rounded-2xl border p-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="hover:bg-raised flex w-full items-center gap-2.5 rounded-xl px-3 py-1.5 text-left"
+      >
+        <ChevronRightIcon
+          className={cn('text-faint size-3 shrink-0 transition-transform', open && 'rotate-90')}
+        />
+        <span className="text-fg flex-1 text-[12.5px] font-semibold">
           {files.length} file{files.length === 1 ? '' : 's'} changed
         </span>
         <LineCounts added={added} removed={removed} />
-      </div>
-      {files.map((f) => (
-        <FileRow key={f.path} runId={runId} file={f} />
-      ))}
+      </button>
+      {open ? (
+        <div className="px-1 pb-1">
+          {files.map((f) => (
+            <FileRow key={f.path} runId={runId} file={f} />
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }, sameEdits)

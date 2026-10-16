@@ -44,6 +44,13 @@ class EventType(StrEnum):
     BROWSER = "browser"
 
 
+class Access(StrEnum):
+    READ = "read"
+    ASK = "ask"
+    AUTO = "auto"
+    FULL = "full"
+
+
 class MessageRole(StrEnum):
     SYSTEM = "system"
     USER = "user"
@@ -103,7 +110,7 @@ class Thread(Base):
     __table_args__ = (
         one_of("status", ThreadStatus),
         one_of("provider", Provider),
-        CheckConstraint("allow_write IN (0, 1)", name="allow_write_valid"),
+        one_of("access", Access),
         Index("thread_by_created", "created_at"),
         Index("thread_by_settled", "settled_at"),
         Index("thread_by_status", "status"),
@@ -116,7 +123,7 @@ class Thread(Base):
     provider: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(Text)
     prompt: Mapped[str] = mapped_column(Text)
-    allow_write: Mapped[bool] = mapped_column(Integer)
+    access: Mapped[str] = mapped_column(Text)
     pinned_at: Mapped[int | None] = mapped_column(Integer)
     snoozed_until: Mapped[int | None] = mapped_column(Integer)
     settled_at: Mapped[int | None] = mapped_column(Integer)

@@ -37,9 +37,9 @@ from ov.agent.instances.ovproc import find_instance, url_for, web_cookies
 from ov.agent.instances.ovproc import login as ov_login
 from ov.agent.integrations import claude, copilot, providers
 from ov.agent.storage import db
-from ov.agent.storage.models import Provider, UsageKind
+from ov.agent.storage.models import Access, Provider, UsageKind
 from ov.agent.tools import tool_named, tool_specs
-from ov.agent.tools.base import Tool, ToolError
+from ov.agent.tools.base import APPROVE, REJECT, Approval, Tool, ToolError
 
 CONTEXT_BUDGET = 360_000
 COMPACT_TARGET = int(CONTEXT_BUDGET * 0.7)
@@ -79,13 +79,34 @@ STREAM_END = object()
 WAKE_STATUSES = ("waiting", "error", "done")
 SHUTDOWN_POLL_SECONDS = 0.05
 
-EMPTY_REPLY_NOTE = "Your last reply was empty. Answer the user's last message."
-WRITE_ON_NOTE = (
-    "The user turned ON Allow changes for this run. Changes through ov, ov_import, the PagerDuty change tools, "
-    "workspace edits and commands that change something are now possible; instance and PagerDuty changes, "
-    "pushes and other outside effects still wait for their approval. Apply only what the agreed plan needs."
+NO_FAST_MODEL = (
+    "No fast model is set for Copilot. Pick one in Settings; titles, change checks and the browser run on it."
 )
-WRITE_OFF_NOTE = "The user turned OFF Allow changes for this run. Make no changes; propose them instead."
+EMPTY_REPLY_NOTE = "Your last reply was empty. Answer the user's last message."
+CHANGES_POSSIBLE = (
+    "Changes through ov, ov_import, the PagerDuty change tools, the browser, workspace edits and commands that "
+    "change something are now possible"
+)
+ACCESS_NOTES = {
+    Access.READ: "The user switched this run to Read-only. Make no changes; propose them instead.",
+    Access.ASK: (
+        f"The user switched this run to Always ask. {CHANGES_POSSIBLE}; instance, PagerDuty and browser "
+        "changes, pushes and other outside effects wait for their approval. Apply only what the agreed plan needs."
+    ),
+    Access.AUTO: (
+        f"The user switched this run to Auto. {CHANGES_POSSIBLE} and run without asking the user; only risky ones "
+        "such as deletes, force pushes or bulk changes wait for their approval. Apply only what the agreed plan needs."
+    ),
+    Access.FULL: (
+        f"The user switched this run to Full access. {CHANGES_POSSIBLE} and run without any check or question, "
+        "deletes and pushes included. Be careful: apply only what the agreed plan needs."
+    ),
+}
+FULL_ACCESS_NEEDS_FLAG = "Full access needs OV Agent started with: ov agent --full-access"
+FULL_ACCESS_OFF_NOTE = (
+    "Full access is off because OV Agent was started without --full-access. This run is now on Auto: only risky "
+    "changes wait for the user's approval."
+)
 BROWSER_OPENED_NOTE = (
     "The user opened {alias} in the browser beside the chat. You both see it and the user may click in it too. "
     "Questions about what is on screen and requests to go somewhere or do something there are about this browser: "
@@ -101,9 +122,10 @@ BACKGROUND_FULL = "{count} tasks already run in the background. Wait for one to 
 TASK_FINISHED = "[Background task finished: {label}]\n{result}"
 TASK_STOPPED_NOTE = "The user stopped the background task {label}; it gave no result."
 STOPPED_BY_USER = "Stopped by the user."
+STEERED = "[The user wrote while you worked: {text}]"
 
 CLOSED_LOGINS = ("done", "failed", "skipped")
-STOPPED_ANSWER = "(not answered: the run stopped)"
+APPROVAL_ANSWERS = ([APPROVE], [REJECT])
 EDIT_CHARS = 60_000
 CUT_OFF_ARGUMENTS = (
     "the arguments of this call were cut off or were not valid JSON, so it did not run. This "
@@ -175,7 +197,7 @@ class Run:
         self._waits = 0
         self._queue: list[tuple[dict[str, Any], Any]] = []
         self._held: set[str] = set()
-        self._questions: dict[str, tuple[threading.Event, list[str]]] = {}
+        self._questions: dict[str, tuple[threading.Event, list[tuple[list[str], str]]]] = {}
         self._logins: dict[str, tuple[threading.Event, list[bool]]] = {}
         self._busy, self._finished = False, False
         self._streaming: str | None = None
@@ -322,7 +344,7 @@ class Run:
                 db.update_thread(self.id, title=event.get("title"), instance=event.get("instance"))
                 status_feed.publish({"kind": "meta", "id": self.id})
             elif kind == "access":
-                db.update_thread(self.id, allow_write=event["write"])
+                db.update_thread(self.id, access=event["access"])
             for channel in self._listeners:
                 channel.put(stored)
 
@@ -392,18 +414,18 @@ class Run:
 
         pilot = self.browser.start(found["alias"], found["url"], web_cookies(found["alias"]))
         self._notes.append(BROWSER_OPENED_NOTE.format(alias=found["alias"]))
-        pilot.goto(pilot.url_of(""))
+        self.browser.navigate(pilot.url_of(""))
 
     def close_browser(self) -> None:
         if self.browser.live:
             self._notes.append(BROWSER_CLOSED_NOTE)
         self.browser.close()
 
-    def set_write_access(self, write: bool) -> None:
-        if self.state["writeAccess"] == write:
+    def set_access(self, access: Access, note: str | None = None) -> None:
+        if self.access == access:
             return
-        self.emit({"type": "access", "write": write})
-        self._notes.append(WRITE_ON_NOTE if write else WRITE_OFF_NOTE)
+        self.emit({"type": "access", "access": access})
+        self._notes.append(note or ACCESS_NOTES[access])
 
     def stop(self) -> None:
         self.cancel.set()
@@ -418,8 +440,8 @@ class Run:
         for message, _ in dropped:
             self.emit({"type": "unqueue", "id": message["id"]})
         for question_id, (event, answer) in questions.items():
-            self._close_question(question_id, STOPPED_ANSWER)
-            answer.append(STOPPED_ANSWER)
+            self._close_question(question_id)
+            answer.append(([], ""))
             event.set()
         for event, ok in logins.values():
             ok.append(False)
@@ -470,34 +492,43 @@ class Run:
         if count >= MAX_BACKGROUND_TASKS:
             raise RunError(BACKGROUND_FULL.format(count=count))
 
-    def answer(self, question_id: str, answer: str) -> None:
+    def answer(self, question_id: str, answers: list[str], note: str = "") -> None:
         question = next((q for q in self.state["questions"] if q["id"] == question_id), None)
-        with self._lock:
-            waiter = self._questions.pop(question_id, None)
         if question is None:
             raise RunError("No such question in this run.")
+
+        _check_answers(question, answers)
+        with self._lock:
+            waiter = self._questions.pop(question_id, None)
         if waiter is None:
-            self._close_question(question_id, STOPPED_ANSWER)
+            self._close_question(question_id)
             raise RunError("The agent is no longer waiting for this answer. Send a message to continue.")
 
-        self.emit({"type": "question", "question": {**question, "answer": answer}})
-        waiter[1].append(answer)
+        closed = {**question, "answers": answers}
+        if note.strip():
+            closed["note"] = note.strip()
+        self.emit({"type": "question", "question": closed})
+        waiter[1].append((answers, closed.get("note", "")))
         waiter[0].set()
 
-    def _close_question(self, question_id: str, answer: str) -> None:
+    def _close_question(self, question_id: str) -> None:
         question = next((q for q in self.state["questions"] if q["id"] == question_id), None)
-        if question is not None and "answer" not in question:
-            self.emit({"type": "question", "question": {**question, "answer": answer}})
+        if question is not None and "answers" not in question and not question.get("stopped"):
+            self.emit({"type": "question", "question": {**question, "stopped": True}})
 
-    def ask_user(self, question: str, options: list[str], multiple: bool, detail: str | None = None) -> str:
-        entry: dict[str, Any] = {
-            "id": _uid("q"),
-            "question": question,
-            "options": options,
-            "multiple": multiple,
-        }
-        if detail:
-            entry["detail"] = detail
+    def ask_user(self, items: list[dict[str, Any]]) -> list[str]:
+        answers, _ = self._ask({"kind": "ask", "items": items})
+        return answers
+
+    def ask_approval(self, question: str, detail: str, reason: str = "") -> Approval:
+        entry: dict[str, Any] = {"kind": "approval", "question": question, "detail": detail}
+        if reason:
+            entry["reason"] = reason
+        answers, note = self._ask(entry)
+        return Approval(answers == [APPROVE], note)
+
+    def _ask(self, entry: dict[str, Any]) -> tuple[list[str], str]:
+        entry = {"id": _uid("q"), **entry}
         tool_id = getattr(self._local, "tool", "")
         if tool_id:
             entry["toolId"] = tool_id
@@ -607,8 +638,18 @@ class Run:
     def has_outcome(self) -> bool:
         return bool(self.state.get("outcome"))
 
+    @property
+    def access(self) -> Access:
+        return Access(self.state["access"])
+
     def can_write(self) -> bool:
-        return bool(self.state["writeAccess"])
+        return self.access != Access.READ
+
+    def auto_approves(self) -> bool:
+        return self.access == Access.AUTO
+
+    def full_access(self) -> bool:
+        return self.access == Access.FULL
 
     def judge_command(self, command: str, folder: str) -> guard.Verdict:
         return self._judged(
@@ -625,8 +666,14 @@ class Run:
     def judge_page_action(self, action: str) -> guard.Verdict:
         return self._judged(("page", action), lambda model: guard.judge_page_action(self.provider, model, action))
 
+    def judge_risk(self, change: str) -> guard.Verdict:
+        return self._judged(("risk", change), lambda model: guard.judge_risk(self.provider, model, change), shown=False)
+
     def _judged(
-        self, key: tuple[str, ...], ask: Callable[[str], tuple[guard.Verdict, providers.Usage | None]]
+        self,
+        key: tuple[str, ...],
+        ask: Callable[[str], tuple[guard.Verdict, providers.Usage | None]],
+        shown: bool = True,
     ) -> guard.Verdict:
         with self._lock:
             verdict = self._verdicts.get(key)
@@ -637,7 +684,8 @@ class Run:
             with self._lock:
                 self._verdicts[key] = verdict
 
-        self.emit({"type": "tool", "tool": {"id": self._local.tool, "verdict": verdict.as_dict()}})
+        if shown:
+            self.emit({"type": "tool", "tool": {"id": self._local.tool, "verdict": verdict.as_dict()}})
         return verdict
 
     def finish(self, outcome: dict[str, Any]) -> None:
@@ -660,7 +708,7 @@ class Run:
             if not ref and text:
                 self._name_later(text)
             content = self._preload_case(ref) if ref else self._user_content(text, uploaded)
-            self._messages = [{"role": "system", "content": system_prompt(self.can_write(), self.instance)}]
+            self._messages = [{"role": "system", "content": system_prompt(self.access, self.instance)}]
             self._push_turn(START_TURN, content)
             self._loop("user")
         except Exception as exc:
@@ -682,9 +730,9 @@ class Run:
         return f"Troubleshoot this case.\n\n{text}"
 
     def load_case(self, ref: str) -> str:
-        return self.read_case(ref, self.cancel)
+        return self.read_case(ref, self.cancel, names_thread=True)
 
-    def read_case(self, ref: str, cancel: Cancel) -> str:
+    def read_case(self, ref: str, cancel: Cancel, names_thread: bool = False) -> str:
         for attempt in range(LOGIN_ATTEMPTS):
             try:
                 bundle = cases.load_case(ref, self.work_dir, cancel)
@@ -693,18 +741,15 @@ class Run:
                 if attempt or not self.require_login(exc.host):
                     raise RunError(f"Not signed in to {exc.host}.") from None
 
-        title = " ".join(bundle["title"].split()) or f"Case {bundle['key']}"
-        self.emit(
-            {
-                "type": "meta",
-                "title": short_title(f"{bundle['key']}: {title}", TITLE_CHARS),
-                "caseKey": bundle["key"],
-                "caseUrl": bundle["url"],
-                "instance": bundle["website"],
-            }
-        )
-
         text = cases.render(bundle, self.work_dir)
+        if self.state["summary"].get("caseKey"):
+            return text
+
+        meta = {"type": "meta", "caseKey": bundle["key"], "caseUrl": bundle["url"], "instance": bundle["website"]}
+        if names_thread:
+            title = " ".join(bundle["title"].split()) or f"Case {bundle['key']}"
+            meta["title"] = short_title(f"{bundle['key']}: {title}", TITLE_CHARS)
+        self.emit(meta)
         if bundle["website"]:
             text += f"\n\nThe run's default instance is now {bundle['website']}."
         return text
@@ -749,7 +794,9 @@ class Run:
         preferences = db.get_preferences()
         if preferences["provider"] == self.provider and preferences["fastModel"]:
             return preferences["fastModel"]
-        return self.state["summary"]["model"]
+        if self.provider == Provider.CLAUDE:
+            return providers.CLAUDE_FAST
+        raise RunError(NO_FAST_MODEL)
 
     def _name_later(self, text: str) -> None:
         self._spawn(self._name, self.state["summary"]["title"], text)
@@ -950,7 +997,7 @@ class Run:
     def _prepare_step(self) -> None:
         self.cancel.check()
         if self._messages and self._messages[0]["role"] == "system":
-            self._messages[0] = {"role": "system", "content": system_prompt(self.can_write(), self.instance)}
+            self._messages[0] = {"role": "system", "content": system_prompt(self.access, self.instance)}
         self._compact()
         self._take_input()
 
@@ -1002,6 +1049,22 @@ class Run:
         with self._lock:
             images, self._pending_images = self._pending_images, []
         return output, images
+
+    def call_tool_with_steering(self, name: str, args: dict[str, Any]) -> tuple[str, list[tuple[str, str]]]:
+        output, images = self.call_tool_named(name, args)
+        with self._lock:
+            ready = [q for q in self._queue if q[0]["id"] not in self._held]
+            self._queue = [q for q in self._queue if q not in ready]
+        if not ready:
+            return output, images
+
+        texts = []
+        for message, content in ready:
+            self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
+            parts = content if isinstance(content, list) else [{"type": "text", "text": content}]
+            texts += [p["text"] for p in parts if p["type"] == "text"]
+            images += [(message["id"], p["image_url"]["url"]) for p in parts if p["type"] == "image_url"]
+        return f"{output}\n\n{STEERED.format(text=chr(10).join(texts))}", images
 
     def _ask_model(self, model: str, specs: list[dict[str, Any]], initiator: str) -> list[dict[str, Any]]:
         message_id = _uid("a")
@@ -1190,6 +1253,16 @@ def _trim(message: dict[str, Any]) -> None:
         ]
 
 
+def _check_answers(question: dict[str, Any], answers: list[str]) -> None:
+    if question["kind"] == "approval":
+        if answers not in APPROVAL_ANSWERS:
+            raise RunError(f"Answer an approval with {APPROVE} or {REJECT}.")
+        return
+
+    if len(answers) != len(question["items"]) or not all(a.strip() for a in answers):
+        raise RunError(f"Answer all {len(question['items'])} questions.")
+
+
 def _line_changes(before: str, after: str) -> tuple[int, int]:
     added = removed = 0
     matcher = difflib.SequenceMatcher(None, before.splitlines(), after.splitlines(), autojunk=False)
@@ -1235,6 +1308,7 @@ def _interrupted(call_id: str) -> dict[str, Any]:
 
 class RunManager:
     def __init__(self) -> None:
+        self.full_access = False
         self._runs: dict[str, Run] = {}
         self._lock = threading.Lock()
         self._deleting: set[str] = set()
@@ -1244,12 +1318,12 @@ class RunManager:
         run_id = f"r{_base36(db.now_ms())}{suffix}"
         prompt = (data.get("prompt") or "").strip()
         title = short_title(prompt.split("\n", 1)[0], PROMPT_TITLE_CHARS) or "Attached files"
-        write = bool(data.get("allowWrite"))
+        access = Access(data["access"])
         summary = db.create_thread(
-            run_id, title, provider, model, prompt=prompt, instance=data.get("instance"), allow_write=write
+            run_id, title, provider, model, prompt=prompt, instance=data.get("instance"), access=access
         )
 
-        run = Run(run_id, empty_state(summary, write), -1)
+        run = Run(run_id, empty_state(summary, access), -1)
         with self._lock:
             self._runs[run_id] = run
         status_feed.publish({"kind": "list"})
@@ -1270,16 +1344,22 @@ class RunManager:
             if summary is None:
                 return None
 
-            state = empty_state(summary, db.thread_writes(run_id))
+            state = empty_state(summary, db.thread_access(run_id))
             events = db.load_events(run_id)
             for event in events:
                 reduce(state, event)
             state["summary"] = {**state["summary"], **summary}
             state.pop("browser", None)
             run = Run(run_id, state, events[-1]["seq"] if events else -1)
+            if run.access == Access.FULL and not self.full_access:
+                run.set_access(Access.AUTO, FULL_ACCESS_OFF_NOTE)
             self._evict()
             self._runs[run_id] = run
             return run
+
+    def require_access(self, access: Access) -> None:
+        if access == Access.FULL and not self.full_access:
+            raise RunError(FULL_ACCESS_NEEDS_FLAG)
 
     def delete(self, run_id: str) -> None:
         if db.get_thread(run_id) is None:

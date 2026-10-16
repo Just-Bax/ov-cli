@@ -34,6 +34,8 @@ import {
   Keyboard as KeyboardIcon,
   ListChecks as ListChecksIcon,
   ArrowsDownUp as ScrollIcon,
+  AppWindow as DialogIcon,
+  Tabs as TabsIcon,
 } from '@phosphor-icons/react'
 import { memo, type ReactNode, useEffect, useState } from 'react'
 import type { CommandVerdict, ToolActivity } from '@shared/types.ts'
@@ -77,6 +79,7 @@ const ICONS: Record<string, Icon> = {
   pd_reassign: ArrowsRightLeftIcon,
   pd_snooze: MoonIcon,
   browser_open: BrowserIcon,
+  browser_run: BrowserIcon,
   browser_snapshot: EyeIcon,
   browser_click: CursorIcon,
   browser_hover: CursorIcon,
@@ -87,6 +90,8 @@ const ICONS: Record<string, Icon> = {
   browser_press: KeyboardIcon,
   browser_scroll: ScrollIcon,
   browser_wait: ClockIcon,
+  browser_dialog: DialogIcon,
+  browser_tab: TabsIcon,
   browser_close: XMarkIcon,
 }
 
@@ -121,6 +126,7 @@ const NOUNS: Record<string, [string, string]> = {
   pd_reassign: ['reassignment', 'reassignments'],
   pd_snooze: ['snooze', 'snoozes'],
   browser_open: ['page opened', 'pages opened'],
+  browser_run: ['browser task', 'browser tasks'],
   browser_snapshot: ['look at the page', 'looks at the page'],
   browser_click: ['click', 'clicks'],
   browser_hover: ['hover', 'hovers'],
@@ -131,10 +137,12 @@ const NOUNS: Record<string, [string, string]> = {
   browser_select: ['choice', 'choices'],
   browser_press: ['key press', 'key presses'],
   browser_scroll: ['scroll', 'scrolls'],
+  browser_dialog: ['dialog answered', 'dialogs answered'],
+  browser_tab: ['tab change', 'tab changes'],
   browser_close: ['browser close', 'browser closes'],
 }
 
-function summarize(tools: ToolActivity[]): string {
+export function summarize(tools: ToolActivity[]): string {
   const counts = new Map<string, number>()
   for (const t of tools) counts.set(t.name, (counts.get(t.name) ?? 0) + 1)
 
@@ -319,7 +327,7 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
             <span
               title={tool.verdict.reason}
               className={cn(
-                'max-w-56 shrink-0 truncate text-[11px]',
+                'max-w-56 shrink-0 truncate text-[11px] @max-[600px]:hidden',
                 VERDICT_TONE[tool.verdict.effect],
               )}
             >
