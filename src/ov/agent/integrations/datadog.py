@@ -34,6 +34,8 @@ DETAIL_CHARS = 300
 TITLE_CHARS = 200
 PATTERN_CHARS = 180
 HEALTH_TTL_SECONDS = 60
+DATABASE_TTL_SECONDS = 600
+DATABASE_LOOKBACK_SECONDS = 3600
 HEALTH_WORKERS = 8
 HEALTH_LOG_SAMPLE = 300
 HEALTH_EVENTS = 15
@@ -87,10 +89,16 @@ QUIET_STATES = ("OK", "Ignored", "Skipped")
 TRANSPORT: httpx.BaseTransport | None = None
 
 _health_cache = TimedCache(HEALTH_TTL_SECONDS)
+_database_cache = TimedCache(DATABASE_TTL_SECONDS)
 
 
 class DatadogError(Exception):
     pass
+
+
+def clear_caches() -> None:
+    _health_cache.clear()
+    _database_cache.clear()
 
 
 def site_of(value: str) -> str:
@@ -264,7 +272,7 @@ def connect(site: str, api_key: str, app_key: str) -> dict[str, Any]:
         }
     )
     _save_state(state)
-    _health_cache.clear()
+    clear_caches()
     return status()
 
 
@@ -281,14 +289,14 @@ def retest() -> dict[str, Any]:
         state["error"] = str(exc)
     state["checkedAt"] = now_ms()
     _save_state(state)
-    _health_cache.clear()
+    clear_caches()
     return status()
 
 
 def disconnect() -> dict[str, Any]:
     credentials.delete(CREDENTIAL_KEY)
     _save_state({"matches": load_state().get("matches", {})})
-    _health_cache.clear()
+    clear_caches()
     return status()
 
 
@@ -315,7 +323,7 @@ def save_matches(matches: dict[str, str]) -> dict[str, Any]:
     state = load_state()
     state["matches"] = {alias: value.strip() for alias, value in matches.items() if value.strip()}
     _save_state(state)
-    _health_cache.clear()
+    clear_caches()
     return status()
 
 
@@ -327,7 +335,7 @@ def forget(alias: str) -> None:
 
     del matches[alias]
     _save_state(state)
-    _health_cache.clear()
+    clear_caches()
 
 
 def filter_for(alias: str) -> str:
@@ -401,18 +409,20 @@ def _instance_label(website: str) -> str:
     return website.split(":")[0].split(".")[0].lower()
 
 
+def _owner_of_parts(parts: list[str], instances_by_label: dict[str, str]) -> str | None:
+    owners = [
+        (label, alias)
+        for label, alias in instances_by_label.items()
+        if any(p == label or p.startswith(label + "-") for p in parts)
+    ]
+    return max(owners, key=lambda owner: len(owner[0]))[1] if owners else None
+
+
 def owner_of(host: str, instances_by_label: dict[str, str], websites: dict[str, str]) -> str | None:
     name = host.lower()
     if name in websites:
         return websites[name]
-
-    domain_parts = name.split(".")[1:]
-    owners = [
-        (label, alias)
-        for label, alias in instances_by_label.items()
-        if any(p == label or p.startswith(label + "-") for p in domain_parts)
-    ]
-    return max(owners, key=lambda owner: len(owner[0]))[1] if owners else None
+    return _owner_of_parts(name.split(".")[1:], instances_by_label)
 
 
 def _all_hosts(dd: Client) -> list[str]:
@@ -576,12 +586,17 @@ def log_timeseries(query: str, start: int, end: int, interval: str) -> list[dict
     return _series(_field(buckets[0], "computes").get("c0", [])) if buckets else []
 
 
-def metric_scope(scope: str) -> str:
+def tag_filter(tag: str, values: list[str]) -> str:
+    return f"{tag}:{values[0]}" if len(values) == 1 else f"{tag} IN ({','.join(values)})"
+
+
+def metric_scope(scope: str, host_tag: str = "host") -> str:
     hosts = hosts_in(scope)
     if hosts:
-        return f"host:{hosts[0]}" if len(hosts) == 1 else f"host IN ({','.join(hosts)})"
+        return tag_filter(host_tag, hosts)
     tags = [t for t in scope.split() if ":" in t and not t.startswith(("-", "("))]
-    return ",".join(tags) or "*"
+    named = [f"{host_tag}:{t.removeprefix('host:')}" if t.startswith("host:") else t for t in tags]
+    return ",".join(named) or "*"
 
 
 def query_metric(query: str, start: int, end: int) -> list[dict[str, Any]]:
@@ -632,13 +647,14 @@ def _num(value: float) -> str:
     return f"{value:.3g}"
 
 
-def monitors_for(scope: str, include_ok: bool) -> list[dict[str, Any]]:
+def monitors_for(scope: str, include_ok: bool, database_needles: list[str] | None = None) -> list[dict[str, Any]]:
     params = {"group_states": "alert,warn,no data", "page": 0, "page_size": MONITORS_PAGE}
     with client() as dd:
         data = dd.call("GET", "/api/v1/monitor", "monitors", params=params)
 
     needles = _needles(scope)
-    rows = [_monitor_row(mon) for mon in data if _mentions(mon, needles)]
+    exact = [re.compile(rf"(?<![\w.-]){re.escape(n.lower())}(?![\w-])") for n in database_needles or []]
+    rows = [_monitor_row(mon) for mon in data if _mentions(mon, needles, exact)]
     if not include_ok:
         rows = [m for m in rows if m["state"] not in QUIET_STATES]
     return sorted(rows, key=lambda m: (MONITOR_ORDER.get(m["state"], len(MONITOR_ORDER)), m["name"]))
@@ -656,11 +672,11 @@ def _monitor_groups(mon: dict[str, Any]) -> list[str]:
     return list(((mon.get("state") or {}).get("groups") or {}).keys())
 
 
-def _mentions(mon: dict[str, Any], needles: list[str]) -> bool:
-    if not needles:
+def _mentions(mon: dict[str, Any], needles: list[str], exact: list[re.Pattern[str]]) -> bool:
+    if not needles and not exact:
         return True
     haystack = " ".join([str(mon.get("query", "")), *(mon.get("tags") or []), *_monitor_groups(mon)]).lower()
-    return any(n in haystack for n in needles)
+    return any(n in haystack for n in needles) or any(p.search(haystack) for p in exact)
 
 
 def _monitor_row(mon: dict[str, Any]) -> dict[str, Any]:
@@ -780,7 +796,37 @@ METRICS = [
     ("load", "avg:system.load.norm.1{%s} by {host}"),
     ("heap", "avg:jvm.heap_memory{%s} by {host}"),
 ]
-SECTION_AREAS = {"monitors": "monitors", "logs": "logs", "traffic": "apm", "servers": "metrics", "events": "events"}
+RDS_TAG = "dbinstanceidentifier"
+RDS_ENGINE_TAG = "engine"
+ORACLE_TAG = "server"
+ORACLE_HOST_TAG = "ddagenthostname"
+ORACLE_ENGINE = "oracle"
+RDS_ENDPOINT_SUFFIX = ".rds.amazonaws.com"
+ORACLE_PROBE = "avg:oracle.session_count{%s} by {server}"
+RDS_PROBE = "avg:aws.rds.cpuutilization{*} by {dbinstanceidentifier,engine}"
+DATABASE_METRICS = [
+    ("cpu", RDS_TAG, "avg:aws.rds.cpuutilization{%(scope)s} by {dbinstanceidentifier}"),
+    ("memory", RDS_TAG, "avg:aws.rds.freeable_memory{%(scope)s} by {dbinstanceidentifier}"),
+    (
+        "storage",
+        RDS_TAG,
+        "100 - 100 * avg:aws.rds.free_storage_space{%(scope)s} by {dbinstanceidentifier} / "
+        "avg:aws.rds.total_storage_space{%(scope)s} by {dbinstanceidentifier}",
+    ),
+    ("connections", RDS_TAG, "avg:aws.rds.database_connections{%(scope)s} by {dbinstanceidentifier}"),
+    ("readLatency", RDS_TAG, "avg:aws.rds.read_latency{%(scope)s} by {dbinstanceidentifier}*1000"),
+    ("writeLatency", RDS_TAG, "avg:aws.rds.write_latency{%(scope)s} by {dbinstanceidentifier}*1000"),
+    ("sessions", ORACLE_TAG, "max:oracle.session_limit_usage{%(scope)s} by {server}"),
+    ("tablespace", ORACLE_TAG, "max:oracle.tablespace.in_use{%(scope)s} by {server}"),
+]
+SECTION_AREAS = {
+    "monitors": "monitors",
+    "logs": "logs",
+    "traffic": "apm",
+    "servers": "metrics",
+    "database": "metrics",
+    "events": "events",
+}
 AREA_WORDS = {"monitors": "monitors", "logs": "logs", "apm": "APM traces", "metrics": "metrics", "events": "events"}
 SERVER_POINTS = 30
 
@@ -838,7 +884,7 @@ def health_section(alias: str, range_key: str, section: str, end: int) -> dict[s
         raise Unavailable("This instance has no Datadog servers picked yet.")
 
     start, interval = window(range_key, end)
-    result = SECTION_READERS[section](scope, start, end, interval)
+    result = SECTION_READERS[section](alias, scope, start, end, interval)
     _health_cache.put(key, result)
     return result
 
@@ -849,11 +895,11 @@ def _parallel(jobs: dict[str, Callable[[], Any]]) -> dict[str, Any]:
         return {name: future.result() for name, future in futures.items()}
 
 
-def _monitors_section(scope: str, _start: int, _end: int, _interval: str) -> dict[str, Any]:
-    return {"monitors": monitors_for(scope, include_ok=True)}
+def _monitors_section(alias: str, scope: str, _start: int, _end: int, _interval: str) -> dict[str, Any]:
+    return {"monitors": monitors_for(scope, include_ok=True, database_needles=database_needles(alias))}
 
 
-def _logs_section(scope: str, start: int, end: int, interval: str) -> dict[str, Any]:
+def _logs_section(_alias: str, scope: str, start: int, end: int, interval: str) -> dict[str, Any]:
     errors_query = combine(scope, "status:error")
     previous_start = start - (end - start)
 
@@ -867,7 +913,7 @@ def _logs_section(scope: str, start: int, end: int, interval: str) -> dict[str, 
     )
 
 
-def _traffic_section(scope: str, start: int, end: int, interval: str) -> dict[str, Any]:
+def _traffic_section(_alias: str, scope: str, start: int, end: int, interval: str) -> dict[str, Any]:
     return _parallel(
         {
             "traffic": partial(traffic, scope, start, end, interval),
@@ -876,43 +922,143 @@ def _traffic_section(scope: str, start: int, end: int, interval: str) -> dict[st
     )
 
 
-def _events_section(scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
+def _events_section(_alias: str, scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
     return {"events": events_for(scope, start, end, HEALTH_EVENTS)}
 
 
-def _servers_section(scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
+def _servers_section(_alias: str, scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
     tags = metric_scope(scope)
     found = _parallel({name: partial(query_metric, template % tags, start, end) for name, template in METRICS})
-    names = hosts_in(scope) or sorted({_host_of_series(s) for series in found.values() for s in series} - {None})
+    names = hosts_in(scope) or sorted({_tag_of(s, "host") for series in found.values() for s in series} - {None})
 
     servers = []
     for name in names:
-        metrics = {metric: _server_metric(found[metric], name) for metric, _ in METRICS}
+        metrics = {metric: _series_metric(found[metric], "host", name) for metric, _ in METRICS}
         servers.append({"host": name, "role": role_of(name), "metrics": {k: v for k, v in metrics.items() if v}})
     return {"servers": servers}
 
 
-def _host_of_series(series: dict[str, Any]) -> str | None:
-    return next((p.split(":", 1)[1] for p in series["scope"].split(",") if p.startswith("host:")), None)
+def _tag_of(series: dict[str, Any], tag: str) -> str | None:
+    return next((p.split(":", 1)[1] for p in series["scope"].split(",") if p.startswith(f"{tag}:")), None)
 
 
-def _server_metric(series: list[dict[str, Any]], host: str) -> dict[str, Any] | None:
-    mine = next((s for s in series if _host_of_series(s) == host and s["points"]), None)
+def _series_metric(series: list[dict[str, Any]], tag: str, value: str) -> dict[str, Any] | None:
+    mine = next((s for s in series if _tag_of(s, tag) == value and s["points"]), None)
     if mine is None:
         return None
     points = mine["points"]
     return {"latest": points[-1]["v"], "max": max(p["v"] for p in points), "points": downsample(points, SERVER_POINTS)}
 
 
+def database_id(server: str) -> str:
+    name = server.lower()
+    return name.split(".")[0] if name.endswith(RDS_ENDPOINT_SUFFIX) else name
+
+
+def _database_owner(alias: str, scope: str) -> Callable[[str], bool]:
+    found = find_instance(alias)
+    if found is None:
+        raise DatadogError(f"No signed-in instance matches {alias}.")
+
+    by_label = {_instance_label(i["host"]): i["alias"] for i in _main_instances()}
+    mine = by_label.get(_instance_label(found["host"]))
+    host_labels = {part for host in hosts_in(scope) or [] for part in host.lower().split(".")[1:]}
+    return lambda ident: ident in host_labels or (mine is not None and _owner_of_parts([ident], by_label) == mine)
+
+
+def _discover_databases(alias: str, scope: str) -> list[dict[str, str]]:
+    end = now_ms()
+    start = end - DATABASE_LOOKBACK_SECONDS * 1000
+    agents = metric_scope(scope, ORACLE_HOST_TAG)
+    jobs = {"rds": partial(query_metric, RDS_PROBE, start, end)}
+    if agents != "*":
+        jobs["oracle"] = partial(query_metric, ORACLE_PROBE % agents, start, end)
+    probes = _parallel(jobs)
+
+    found: dict[str, dict[str, str]] = {}
+    for server in sorted({_tag_of(s, ORACLE_TAG) for s in probes.get("oracle", [])} - {None}):
+        found[database_id(server)] = {"id": database_id(server), "engine": ORACLE_ENGINE, "endpoint": server.lower()}
+
+    owns = _database_owner(alias, scope)
+    for series in probes["rds"]:
+        ident = (_tag_of(series, RDS_TAG) or "").lower()
+        if not ident or (ident not in found and not owns(ident)):
+            continue
+        engine = _tag_of(series, RDS_ENGINE_TAG) or found.get(ident, {}).get("engine", "")
+        found[ident] = {**found.get(ident, {"id": ident, "endpoint": ""}), "engine": engine}
+
+    return [found[k] for k in sorted(found)]
+
+
+def databases_for(alias: str) -> list[dict[str, str]]:
+    scope = filter_for(alias)
+    if not scope:
+        return []
+
+    key = (alias, scope)
+    cached = _database_cache.get(key)
+    if cached is not None:
+        return cached
+
+    found = _discover_databases(alias, scope)
+    _database_cache.put(key, found)
+    return found
+
+
+def known_databases(alias: str) -> list[dict[str, str]]:
+    if not connected() or not permissions()["metrics"]:
+        return []
+    return databases_for(alias)
+
+
+def database_needles(alias: str) -> list[str]:
+    needles = []
+    for db in known_databases(alias):
+        needles.append(f"{RDS_TAG}:{db['id']}")
+        if db["endpoint"]:
+            needles.append(db["endpoint"])
+    return needles
+
+
+def _database_section(alias: str, _scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
+    databases = databases_for(alias)
+    if not databases:
+        raise Unavailable(
+            "No database found for this instance in Datadog: its servers send no Oracle metrics "
+            "and no RDS instance is named after it."
+        )
+
+    values = {
+        RDS_TAG: [d["id"] for d in databases if not d["endpoint"] or d["endpoint"].endswith(RDS_ENDPOINT_SUFFIX)],
+        ORACLE_TAG: [d["endpoint"] for d in databases if d["endpoint"]],
+    }
+    jobs = {
+        name: partial(query_metric, template % {"scope": tag_filter(tag, values[tag])}, start, end)
+        for name, tag, template in DATABASE_METRICS
+        if values[tag]
+    }
+    found = _parallel(jobs)
+
+    rows = []
+    for db in databases:
+        keys = {RDS_TAG: db["id"], ORACLE_TAG: db["endpoint"]}
+        metrics = {
+            name: _series_metric(found[name], tag, keys[tag]) for name, tag, _ in DATABASE_METRICS if name in found
+        }
+        rows.append({**db, "metrics": {k: v for k, v in metrics.items() if v}})
+    return {"databases": rows}
+
+
 def _error_count(query: str, start: int, end: int, interval: str) -> float:
     return sum(p["v"] for p in log_timeseries(query, start, end, interval))
 
 
-SECTION_READERS: dict[str, Callable[[str, int, int, str], dict[str, Any]]] = {
+SECTION_READERS: dict[str, Callable[[str, str, int, int, str], dict[str, Any]]] = {
     "monitors": _monitors_section,
     "logs": _logs_section,
     "traffic": _traffic_section,
     "servers": _servers_section,
+    "database": _database_section,
     "events": _events_section,
 }
 

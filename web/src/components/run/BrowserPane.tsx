@@ -17,9 +17,8 @@ import type {
   ToolActivity,
 } from '@shared/types.ts'
 import { LiveScreen, type FrameSize } from '@/components/screen/LiveScreen'
-import { AccessMeter, accessMode } from '@/components/composer/AccessPicker'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Spinner } from '@/components/common/ui'
+import { Button, Shimmer } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useLayer } from '@/lib/layers'
@@ -98,12 +97,14 @@ function Caption({ tool, access }: { tool: ToolActivity | undefined; access: Acc
           blocked ? 'bg-danger' : 'bg-[#263238]/85',
         )}
       >
+        {blocked ? <ProhibitIcon className="size-3.5 shrink-0" /> : null}
         {blocked ? (
-          <ProhibitIcon className="size-3.5 shrink-0" />
+          <span className="truncate">Blocked: {tool.label}</span>
         ) : (
-          <Spinner className="size-3 shrink-0" />
+          <Shimmer tone="light" className="truncate">
+            {tool.label}
+          </Shimmer>
         )}
-        <span className="truncate">{blocked ? `Blocked: ${tool.label}` : tool.label}</span>
         {tool.verdict ? (
           <span
             className={cn(
@@ -226,8 +227,8 @@ function PageDialog({
               Cancel
             </Button>
           )}
-          <Button variant="primary" type="submit" disabled={sending}>
-            {sending ? <Spinner className="size-3.5" /> : null} OK
+          <Button variant="primary" type="submit" busy={sending} disabled={sending}>
+            OK
           </Button>
         </div>
       </form>
@@ -262,8 +263,13 @@ function Approval({ runId, question }: { runId: string; question: ApprovalQuesti
           <Button variant="ghost" disabled={sending} onClick={() => send(['Reject'])}>
             Reject
           </Button>
-          <Button variant="primary" disabled={sending} onClick={() => send(['Approve'])}>
-            {sending ? <Spinner className="size-3.5" /> : null} Approve
+          <Button
+            variant="primary"
+            busy={sending}
+            disabled={sending}
+            onClick={() => send(['Approve'])}
+          >
+            Approve
           </Button>
         </div>
       </div>
@@ -300,7 +306,6 @@ export function BrowserPane({
   onHide: () => void
 }) {
   const last = lastBrowserTool(tools)
-  const driving = last?.status === 'running'
   const instance = browser.instance ?? ''
   useLayer(onHide, !question)
 
@@ -329,24 +334,15 @@ export function BrowserPane({
         onStageResize={(size) => void api.resizeBrowser(runId, size).catch(reportError)}
         strip={<Tabs runId={runId} tabs={browser.tabs ?? []} />}
         status={
-          <>
-            <span
-              className="border-line text-muted hidden h-8 shrink-0 items-center gap-2 rounded-full border px-3 text-[12px] font-medium sm:inline-flex"
-              title={accessMode(access).about}
-            >
-              <AccessMeter value={access} className={cn(driving && 'animate-pulse')} />
-              {accessMode(access).label}
-            </span>
-            <button
-              type="button"
-              onClick={onHide}
-              aria-label="Hide the browser"
-              title="Hide the browser and keep it running (Esc)"
-              className="text-faint hover:text-fg hover:bg-raised flex size-8 shrink-0 items-center justify-center rounded-full transition-colors"
-            >
-              <HideIcon className="size-4" />
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={onHide}
+            aria-label="Hide the browser"
+            title="Hide the browser and keep it running (Esc)"
+            className="text-faint hover:text-fg hover:bg-raised flex size-8 shrink-0 items-center justify-center rounded-full transition-colors"
+          >
+            <HideIcon className="size-4" />
+          </button>
         }
         overlay={(size) => (
           <>
@@ -368,6 +364,9 @@ export function BrowserPane({
   )
 }
 
+const HEADER_PILL =
+  'bg-raised text-text hover:bg-line-strong/45 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium whitespace-nowrap transition-colors disabled:opacity-60'
+
 export function OpenBrowserButton({ runId, instance }: { runId: string; instance: string }) {
   const [opening, setOpening] = useState(false)
 
@@ -380,15 +379,16 @@ export function OpenBrowserButton({ runId, instance }: { runId: string; instance
   }
 
   return (
-    <Button
-      variant="secondary"
+    <button
+      type="button"
       disabled={opening}
       onClick={open}
       title={`Open ${instance} beside the chat`}
+      className={cn(HEADER_PILL, opening && 'busy-sweep')}
     >
-      {opening ? <Spinner className="size-3.5" /> : <BrowserIcon className="size-4" />}
-      Open browser
-    </Button>
+      <BrowserIcon className="text-brand-strong size-3.5" />
+      {opening ? 'Opening' : 'Browser'}
+    </button>
   )
 }
 
@@ -402,9 +402,21 @@ export function ShowBrowserButton({
   onShow: () => void
 }) {
   return (
-    <Button variant="secondary" onClick={onShow} title={`Show the browser on ${instance}`}>
-      {driving ? <Spinner className="size-3.5" /> : <BrowserIcon className="size-4" />}
-      Show browser
-    </Button>
+    <button
+      type="button"
+      onClick={onShow}
+      title={
+        driving ? `The agent is using ${instance}. Show it` : `Show the browser on ${instance}`
+      }
+      className={HEADER_PILL}
+    >
+      <span className="relative flex size-2">
+        {driving ? (
+          <span className="bg-ok absolute inline-flex size-full animate-ping rounded-full opacity-60" />
+        ) : null}
+        <span className="bg-ok relative inline-flex size-2 rounded-full" />
+      </span>
+      Browser
+    </button>
   )
 }

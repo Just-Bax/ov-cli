@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 
 MAX_OUTPUT = 24_000
 SECRET_MASK = "***"
-LABEL_CHARS = 60
+LABEL_CHARS = 200
+LABEL_CUT = "..."
 APPROVE = "Approve"
 UI_ONLY = (
     "Not done: the browser is open, so changes happen in the UI the way a user makes them. Do this step in the "
@@ -35,6 +36,15 @@ _SECRET_ASSIGN = re.compile(
     r"""\s*[=:]\s*)(["']?)([^\s"',;]{4,})\2""",
     re.IGNORECASE,
 )
+
+
+def brief(text: object) -> str:
+    flat = re.sub(r"\s+", " ", str(text)).strip()
+    if len(flat) <= LABEL_CHARS:
+        return flat
+
+    return flat[: LABEL_CHARS - len(LABEL_CUT)] + LABEL_CUT
+
 
 BACKGROUND_PARAM = {
     "type": "boolean",

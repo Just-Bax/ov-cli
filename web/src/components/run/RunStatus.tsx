@@ -4,7 +4,7 @@ import {
   Prohibit as NoSymbolIcon,
 } from '@phosphor-icons/react'
 import type { RunStatus } from '@shared/types.ts'
-import { Spinner, type Tone } from '@/components/common/ui'
+import { PulseDot, type Tone } from '@/components/common/ui'
 import { cn } from '@/lib/cn'
 
 export const RUN_STATUS: Record<RunStatus, { text: string; tone: Tone }> = {
@@ -32,8 +32,7 @@ export function StatusIcon({
   className?: string
   detailed?: boolean
 }) {
-  if (status === 'running' || status === 'queued')
-    return <Spinner className={cn('text-brand size-3', className)} />
+  if (status === 'running' || status === 'queued') return <PulseDot className={className} />
   if (detailed && status === 'done')
     return <CheckCircleIcon className={cn('text-ok size-3.5', className)} />
   if (detailed && status === 'cancelled')

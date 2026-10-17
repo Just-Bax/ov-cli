@@ -41,7 +41,7 @@ import { memo, type ReactNode, useEffect, useState } from 'react'
 import type { CommandVerdict, ToolActivity } from '@shared/types.ts'
 import { useSkeleton } from '@/components/common/skeletons'
 import { reportError } from '@/components/common/Toasts'
-import { CopyButton, type Icon, Skeleton, Spinner } from '@/components/common/ui'
+import { CopyButton, type Icon, Shimmer, Skeleton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { prefetch, take } from '@/lib/prefetch'
@@ -308,9 +308,7 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
           <ChevronRightIcon
             className={cn('text-faint size-3 shrink-0 transition-transform', open && 'rotate-90')}
           />
-          {tool.status === 'running' ? (
-            <Spinner className="text-brand size-3.5 shrink-0" />
-          ) : tool.status === 'error' ? (
+          {tool.status === 'error' ? (
             <XMarkIcon className="text-danger size-3.5 shrink-0" />
           ) : (
             <Icon className="text-muted size-3.5 shrink-0" />
@@ -321,7 +319,7 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
               tool.status === 'error' ? 'text-danger' : 'text-text',
             )}
           >
-            {tool.label}
+            {tool.status === 'running' ? <Shimmer>{tool.label}</Shimmer> : tool.label}
           </span>
           {tool.verdict ? (
             <span
@@ -428,10 +426,9 @@ export const ToolGroup = memo(function ToolGroup({
         <ChevronRightIcon
           className={cn('text-faint size-3.5 shrink-0 transition-transform', open && 'rotate-90')}
         />
-        {running ? <Spinner className="text-brand size-3.5 shrink-0" /> : null}
         <span className="min-w-0 truncate text-[12.5px]">
           {running ? (
-            <span className="text-text">{running.label}</span>
+            <Shimmer>{running.label}</Shimmer>
           ) : (
             <span>
               {tools.length === 1 && tools[0].name === 'ov_case'

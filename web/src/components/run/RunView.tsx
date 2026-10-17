@@ -8,7 +8,7 @@ import type {
   Access,
   ChatMessage,
   ApprovalQuestion,
-  FollowUp,
+  ContextUsage,
   Question,
   RunState,
   ThreadItem,
@@ -21,13 +21,13 @@ import {
   Dot,
   Markdown,
   Page,
+  Shimmer,
   Skeleton,
   SkeletonText,
-  Spinner,
   type Tone,
 } from '@/components/common/ui'
 import { Composer } from '@/components/composer/Composer'
-import { AccessMeter, AccessPicker, accessMode } from '@/components/composer/AccessPicker'
+import { AccessPicker } from '@/components/composer/AccessPicker'
 import { OPEN_FIND } from '@/components/layout/CommandPalette'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -35,9 +35,9 @@ import { inCodeEditor } from '@/lib/dom'
 import { usePresence, useWindowEvent } from '@/lib/hooks'
 import { layerOpen } from '@/lib/layers'
 import { allRuns, useRuns, WORKING } from '@/lib/runs'
-import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
 import { ChangeCard } from './ChangeCard'
+import { CompactionNote, ContextMeter } from './Context'
 import { CostPill } from './CostPill'
 import { FilesChanged } from './FilesChanged'
 import { FIND_LABEL, FindBar } from './FindBar'
@@ -51,8 +51,9 @@ import {
   OpenBrowserButton,
   ShowBrowserButton,
 } from './BrowserPane'
-import { AssistantActions, QueuedMessage, UserMessage } from './Messages'
+import { AssistantActions, UserMessage } from './Messages'
 import { Answer, LoginCard } from './Panels'
+import { QueuedPanel } from './QueuedPanel'
 import { AnsweredQuestion, QuestionComposer } from './QuestionDock'
 import { RunMenu } from './RunMenu'
 import { RUN_STATUS, StatusIcon } from './RunStatus'
@@ -144,7 +145,7 @@ function buildTurns(state: RunState): Turn[] {
   return turns.filter((t) => t.user || t.blocks.length)
 }
 
-const RESULT_ITEMS = new Set<ThreadItem['kind']>(['change', 'outcome'])
+const RESULT_ITEMS = new Set<ThreadItem['kind']>(['change', 'outcome', 'compact'])
 
 function splitTurn(blocks: Block[]): { work: Block[]; result: Block[] } {
   const lastTools = blocks.findLastIndex((b) => b.kind === 'tools')
@@ -286,6 +287,10 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
       }
 
       return <MemoAnswer outcome={state.outcome} caseUrl={state.caseUrl} />
+    case 'compact': {
+      const compaction = state.compactions.find((c) => c.id === item.id)
+      return compaction ? <CompactionNote compaction={compaction} /> : null
+    }
     default:
       return null
   }
@@ -295,31 +300,31 @@ function Footer({
   runId,
   busy,
   access,
+  context,
   compact,
   question,
   tool,
+  queued,
   onSend,
 }: {
   runId: string
   busy: boolean
   access: Access
+  context?: ContextUsage
   compact: boolean
   question?: Question
   tool?: ToolActivity
+  queued: ChatMessage[]
   onSend: () => void
 }) {
   const [error, setError] = useState<string>()
-  const { settings } = useSettings()
-  const other: FollowUp = settings.followUp === 'steer' ? 'queue' : 'steer'
-  const describe = (mode: FollowUp) =>
-    mode === 'steer' ? 'Steer: picked up at the next step' : 'Queue: sent after this turn'
 
-  const send = async (text: string, files: File[] = [], alternate = false) => {
+  const send = async (text: string, files: File[] = []) => {
     setError(undefined)
     onSend()
     try {
       const uploaded = files.length ? await api.upload(files) : []
-      await api.message(runId, text, uploaded, alternate && busy ? other : settings.followUp)
+      await api.message(runId, text, uploaded)
     } catch (e) {
       setError((e as Error).message)
       throw e
@@ -327,12 +332,18 @@ function Footer({
   }
 
   const stop = () => void api.cancel(runId).catch(reportError)
-  const extras = <AccessPicker value={access} onChange={(v) => api.setAccess(runId, v)} />
+  const extras = (
+    <>
+      <AccessPicker value={access} onChange={(v) => api.setAccess(runId, v)} />
+      {context ? <ContextMeter runId={runId} context={context} busy={busy} /> : null}
+    </>
+  )
 
   return (
     <div className={cn('pt-1 pb-4', compact ? 'px-4' : 'px-6')}>
       <div className="mx-auto max-w-[860px]">
         {error ? <div className="text-danger mb-1.5 text-[12px]">{error}</div> : null}
+        <QueuedPanel runId={runId} queued={queued} />
         {question ? (
           <QuestionComposer
             runId={runId}
@@ -349,10 +360,9 @@ function Footer({
             allowFiles
             placeholder={
               busy
-                ? `${describe(settings.followUp)}. Ctrl+Enter to ${other} instead`
+                ? 'Queue a message for after this turn, or steer it from the queue'
                 : 'Ask a follow-up or give direction'
             }
-            busyHint={(alternate) => describe(alternate ? other : settings.followUp)}
             onSend={send}
             draftKey={`run-${runId}`}
             onStop={stop}
@@ -436,6 +446,13 @@ export function RunView({ id }: { id: string }) {
     wasOpen.current = open
   }, [state?.browser?.open, state?.browser?.error])
 
+  const attention = allRuns(list).find((r) => r.id === id)?.attention
+  const markSeen = useCallback(() => {
+    if (attention && !document.hidden) void api.markRunSeen(id).catch(reportError)
+  }, [id, attention])
+
+  useEffect(markSeen, [markSeen])
+  useWindowEvent('focus', markSeen)
   useWindowEvent(OPEN_FIND, () => setFinding(true))
   useWindowEvent('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.code !== 'KeyF') return
@@ -546,28 +563,23 @@ export function RunView({ id }: { id: string }) {
   const showThinking =
     summary.status === 'running' &&
     !(lastBlock?.kind === 'tools' && lastBlock.tools.some((t) => t.status === 'running')) &&
-    !(lastBlock?.kind === 'item' && lastBlock.item.kind === 'text')
+    !(lastBlock?.kind === 'item' && lastBlock.item.kind === 'text') &&
+    !state.compactions.some((c) => c.status === 'running')
 
   const subtitle = (
     <>
-      <span className={cn('inline-flex items-center gap-1.5 font-medium', TONE_TEXT[status.tone])}>
-        <StatusIcon status={summary.status} className="size-3" detailed />
-        {status.text}
-      </span>
-      {state.access !== 'read' ? (
-        <>
-          <Dot />
-          <span
-            className={cn(
-              'inline-flex items-center gap-1.5 font-medium',
-              accessMode(state.access).tone,
-            )}
-          >
-            <AccessMeter value={state.access} className="scale-90" />
-            {accessMode(state.access).label}
-          </span>
-        </>
-      ) : null}
+      {summary.status === 'running' || summary.status === 'queued' ? (
+        <Shimmer tone="brand" className="font-medium">
+          {status.text}
+        </Shimmer>
+      ) : (
+        <span
+          className={cn('inline-flex items-center gap-1.5 font-medium', TONE_TEXT[status.tone])}
+        >
+          <StatusIcon status={summary.status} className="size-3" detailed />
+          {status.text}
+        </span>
+      )}
       {summary.caseKey && state.caseUrl && !browsing ? (
         <>
           <Dot />
@@ -629,9 +641,11 @@ export function RunView({ id }: { id: string }) {
           runId={id}
           busy={busy}
           access={state.access}
+          context={state.context}
           compact={browsing}
           question={docked}
           tool={state.tools.find((t) => t.id === docked?.toolId)}
+          queued={state.queued}
           onSend={() => {
             followBottom.current = true
           }}
@@ -738,13 +752,10 @@ export function RunView({ id }: { id: string }) {
           )
         })}
         {showThinking ? (
-          <div className="text-muted flex items-center gap-2 text-[12.5px]">
-            <Spinner className="text-brand size-3.5" /> Thinking
+          <div className="text-[12.5px]">
+            <Shimmer>Thinking</Shimmer>
           </div>
         ) : null}
-        {state.queued.map((m) => (
-          <QueuedMessage key={m.id} runId={id} message={m} />
-        ))}
         {state.error && summary.status === 'error' ? (
           <div
             className={cn(

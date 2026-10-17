@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { Provider, Status } from '@shared/types.ts'
 import { PROVIDER_NAMES, ProviderLogo } from '@/components/common/ProviderLogo'
 import { reportError } from '@/components/common/Toasts'
-import { Select, Spinner } from '@/components/common/ui'
+import { Select, Shimmer } from '@/components/common/ui'
 import { CopilotSignIn } from '@/components/settings/CopilotSignIn'
 import { api } from '@/lib/api'
 
@@ -67,7 +67,8 @@ function CheckAgain({ onRefresh }: { onRefresh: () => void }) {
       }}
       className="text-brand-strong inline-flex items-center gap-1 font-medium hover:underline"
     >
-      {checking ? <Spinner className="size-3" /> : <ArrowPathIcon className="size-3" />} Check again
+      <ArrowPathIcon className="size-3" />
+      {checking ? <Shimmer tone="brand">Checking</Shimmer> : 'Check again'}
     </button>
   )
 }

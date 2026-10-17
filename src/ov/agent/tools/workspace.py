@@ -7,13 +7,13 @@ from typing import Any
 from ov.agent import workspace as project
 from ov.agent.engine.guard import Effect
 from ov.agent.tools.base import (
-    LABEL_CHARS,
     UI_ONLY,
     Handler,
     Tool,
     ToolContext,
     ToolError,
     approved,
+    brief,
     clip,
     int_param,
     raising_tool_errors,
@@ -194,7 +194,7 @@ TOOLS = [
             ),
         },
         ["command"],
-        lambda a: f"$ {a.get('command')}"[:LABEL_CHARS],
+        lambda a: brief(f"$ {a.get('command')}"),
         _workspace(_ws_run),
     ),
 ]

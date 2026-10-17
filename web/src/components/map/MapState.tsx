@@ -1,7 +1,7 @@
 import { ArrowsClockwise as ArrowPathIcon, MapTrifold as MapIcon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 import { ActionsSkeleton, useSkeleton } from '@/components/common/skeletons'
-import { Button, EmptyState, IconBadge, Select, Spinner } from '@/components/common/ui'
+import { Button, EmptyState, IconBadge, Select, Shimmer } from '@/components/common/ui'
 import { instanceLabel } from '@/lib/instances'
 import type { InstanceGraphState } from '@/lib/useInstanceGraph'
 
@@ -22,12 +22,8 @@ function MapState({
 }) {
   return (
     <EmptyState
-      badge={
-        <IconBadge icon={MapIcon} size="lg">
-          {building ? <Spinner className="size-6" /> : undefined}
-        </IconBadge>
-      }
-      title={building ? 'Reading the configuration' : 'No map yet'}
+      badge={<IconBadge icon={MapIcon} size="lg" />}
+      title={building ? <Shimmer>Reading the configuration</Shimmer> : 'No map yet'}
       error={error}
       action={
         building ? null : (
@@ -69,11 +65,7 @@ export function GraphPlaceholder({
 }
 
 export function BuildingNote({ step }: { step?: string }) {
-  return (
-    <span className="text-brand-strong inline-flex items-center gap-1.5">
-      <Spinner className="size-3" /> {step ?? 'Building'}...
-    </span>
-  )
+  return <Shimmer tone="brand">{step ?? 'Building'}...</Shimmer>
 }
 
 export function GraphActions({ state }: { state: InstanceGraphState }) {
@@ -93,14 +85,11 @@ export function GraphActions({ state }: { state: InstanceGraphState }) {
       {state.graph ? (
         <Button
           variant="primary"
+          busy={state.building}
           disabled={!state.alias || state.building}
           onClick={() => void state.build()}
         >
-          {state.building ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <ArrowPathIcon className="size-3.5" />
-          )}
+          <ArrowPathIcon className="size-3.5" />
           Refresh
         </Button>
       ) : null}

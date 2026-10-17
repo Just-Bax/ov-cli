@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { CostTotal, Provider, RunCost } from '@shared/types.ts'
 import { ProviderLogo } from '@/components/common/ProviderLogo'
 import { reportError } from '@/components/common/Toasts'
-import { Spinner } from '@/components/common/ui'
+import { Shimmer } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import {
   formatAmount,
@@ -90,8 +90,8 @@ export function CostPill({
               ) : null}
             </>
           ) : (
-            <div className="mt-3 flex justify-center">
-              <Spinner className="text-brand size-4" />
+            <div className="mt-3 text-center text-[12px]">
+              <Shimmer>Loading costs</Shimmer>
             </div>
           )}
         </div>

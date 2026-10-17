@@ -9,7 +9,6 @@ import {
 import type { Access } from '@shared/types.ts'
 import { useEffect, useRef, useState } from 'react'
 import { dialog } from '@/components/common/Dialog'
-import { Spinner } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useClickOutside, useLoad } from '@/lib/hooks'
@@ -166,9 +165,10 @@ export function AccessPicker({
           local === 'full'
             ? 'border-danger/45 text-danger hover:bg-danger-soft/40'
             : 'border-line-strong text-text hover:bg-raised',
+          saving && 'busy-sweep',
         )}
       >
-        {saving ? <Spinner className="size-3.5" /> : <AccessMeter value={local} />}
+        <AccessMeter value={local} />
         {current.label}
         <ChevronDownIcon
           className={cn('size-3 opacity-60 transition-transform', open && 'rotate-180')}

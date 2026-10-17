@@ -24,6 +24,7 @@
   --color-ok-soft: #e3f4e5;
   --color-warn: #e46b00;
   --color-warn-soft: #ffe4cc;
+  --color-woke: #b7791f;
   --color-danger: #ce2605;
   --color-danger-soft: #f5d3cd;
 
@@ -98,13 +99,60 @@
     }
   }
 
-  .ov-spinner {
-    animation: ov-spin 1s linear infinite;
+  .shimmer {
+    color: transparent;
+    background-image: linear-gradient(
+      90deg,
+      var(--color-faint) 0 38%,
+      var(--color-fg) 50%,
+      var(--color-faint) 62% 100%
+    );
+    background-size: 300% 100%;
+    background-clip: text;
+    animation: sweep 2.2s ease-in-out infinite alternate;
   }
-  .ov-spinner circle {
-    stroke-dasharray: 1, 200;
-    stroke-dashoffset: 0;
-    animation: ov-dash 1.6s ease-in-out infinite;
+  .shimmer-brand {
+    background-image: linear-gradient(
+      90deg,
+      var(--color-brand-chip) 0 36%,
+      var(--color-brand-strong) 50%,
+      var(--color-brand-chip) 64% 100%
+    );
+  }
+  .shimmer-light {
+    background-image: linear-gradient(
+      90deg,
+      rgb(255 255 255 / 0.45) 0 36%,
+      #fff 50%,
+      rgb(255 255 255 / 0.45) 64% 100%
+    );
+  }
+  .shimmer :is(code, svg) {
+    color: inherit;
+    background: none;
+  }
+
+  .busy-sweep {
+    position: relative;
+    overflow: hidden;
+  }
+  .busy-sweep::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: linear-gradient(
+      100deg,
+      transparent 35%,
+      color-mix(in srgb, currentColor 30%, transparent) 50%,
+      transparent 65%
+    );
+    background-size: 300% 100%;
+    animation: sweep 1.5s ease-in-out infinite alternate;
+  }
+
+  .pulse-dot {
+    animation: pulse-dot 1.4s ease-in-out infinite;
   }
 
   .md {
@@ -176,24 +224,24 @@
   }
 }
 
-@keyframes ov-spin {
-  100% {
-    transform: rotate(360deg);
+@keyframes sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
   }
 }
 
-@keyframes ov-dash {
-  0% {
-    stroke-dasharray: 1, 200;
-    stroke-dashoffset: 0;
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.8);
   }
   50% {
-    stroke-dasharray: 60, 200;
-    stroke-dashoffset: -20;
-  }
-  100% {
-    stroke-dasharray: 60, 200;
-    stroke-dashoffset: -80;
+    opacity: 1;
+    transform: scale(1.15);
   }
 }
 
@@ -477,9 +525,10 @@
   }
 
   .skeleton,
-  .ov-spinner,
-  .ov-spinner circle {
-    animation-duration: 1.6s !important;
+  .shimmer,
+  .busy-sweep::after,
+  .pulse-dot {
+    animation-duration: 2s !important;
   }
 }
 

@@ -5,7 +5,6 @@ import type {
   CopilotAccount,
   CostRange,
   CostReport,
-  FollowUp,
   RunCost,
   DatadogDiscovery,
   DatadogStatus,
@@ -80,8 +79,10 @@ export const api = {
   cost: (range: CostRange, provider: Provider) =>
     request<CostReport>(`/cost?range=${range}&provider=${provider}`),
   retitleRun: (id: string) => post<{ title: string }>(`/runs/${id}/retitle`),
+  compactRun: (id: string) => post(`/runs/${id}/compact`),
   pinRun: (id: string, pinned: boolean) => post(`/runs/${id}/pin`, { pinned }),
   snoozeRun: (id: string, until: number | null) => post(`/runs/${id}/snooze`, { until }),
+  markRunSeen: (id: string) => post(`/runs/${id}/seen`),
   searchRun: (id: string, q: string, signal?: AbortSignal) =>
     request<{ items: number[] }>(`/runs/${id}/search?q=${seg(q)}`, { signal }),
   runCost: (id: string) => request<RunCost>(`/runs/${id}/cost`),
@@ -185,9 +186,11 @@ export const api = {
     loginId: string,
     options: { skip?: boolean; token?: string; screen?: { width: number; height: number } } = {},
   ) => post<{ ok: boolean; message: string }>(`/runs/${id}/login`, { loginId, ...options }),
-  message: (id: string, text: string, files: Upload[] = [], mode: FollowUp = 'steer') =>
-    post(`/runs/${id}/message`, { text, files, mode }),
+  message: (id: string, text: string, files: Upload[] = []) =>
+    post(`/runs/${id}/message`, { text, files }),
   steerQueued: (id: string, mid: string) => post(`/runs/${id}/queued/${seg(mid)}/steer`),
+  editQueued: (id: string, mid: string, text: string) =>
+    post(`/runs/${id}/queued/${seg(mid)}/text`, { text }),
   retry: (id: string, itemId: string) => post(`/runs/${id}/retry`, { itemId }),
   renameRun: (id: string, title: string) => post(`/runs/${id}/title`, { title }),
   removeQueued: (id: string, mid: string) => del(`/runs/${id}/queued/${seg(mid)}`),

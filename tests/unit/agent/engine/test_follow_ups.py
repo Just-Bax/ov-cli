@@ -94,8 +94,9 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
         if seen:
             break
         time.sleep(0.05)
-    run.follow_up("later", [], steer=False)
-    run.follow_up("now", [], steer=True)
+    run.follow_up("later", [])
+    run.follow_up("now", [])
+    run.steer_queued(run.state["queued"][-1]["id"])
     gate.set()
     for _ in range(200):
         if len(seen) >= 3 and run.state["summary"]["status"] == "done":
@@ -115,8 +116,9 @@ def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch
     run = runs.get("rsteer")
     run._busy = True
     monkeypatch.setattr(run, "call_tool_named", lambda name, args: ("rows", []))
-    run.follow_up("skip VHMKFBC_PKG", [], steer=True)
-    run.follow_up("after the turn", [], steer=False)
+    run.follow_up("skip VHMKFBC_PKG", [])
+    run.follow_up("after the turn", [])
+    run.steer_queued(run.state["queued"][0]["id"])
 
     output, _ = run.call_tool_with_steering("ov_sql", {})
     again, _ = run.call_tool_with_steering("ov_sql", {})
@@ -126,6 +128,25 @@ def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch
     assert again == "rows"
     assert [m["text"] for m in run.state["queued"]] == ["after the turn"]
     assert run.state["chat"][-1]["text"] == "skip VHMKFBC_PKG"
+
+
+def test_an_edited_queued_message_keeps_its_place(logged_in):
+    from ov.agent.engine.run import RunError, runs
+
+    db.create_thread("redit", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
+    run = runs.get("redit")
+    run._busy = True
+    run.follow_up("first", [])
+    run.follow_up("second", [])
+    first = run.state["queued"][0]["id"]
+
+    run.edit_queued(first, "first, edited")
+    with pytest.raises(RunError, match="needs text or files"):
+        run.edit_queued(first, "  ")
+    run._busy = False
+
+    assert [m["text"] for m in run.state["queued"]] == ["first, edited", "second"]
+    assert run._queue[0][1] == "first, edited"
 
 
 def test_full_access_needs_the_flag_and_falls_back_to_auto_without_it(logged_in, monkeypatch):

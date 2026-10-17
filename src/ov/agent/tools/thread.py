@@ -10,10 +10,10 @@ from ov.agent import workspace as project
 from ov.agent.engine.files import IMAGE_EXTS, image_mime, within
 from ov.agent.integrations import datadog, pagerduty
 from ov.agent.tools.base import (
-    LABEL_CHARS,
     Tool,
     ToolContext,
     ToolError,
+    brief,
     clip,
     int_param,
     serial,
@@ -195,7 +195,7 @@ def _ask_label(args: dict[str, Any]) -> str:
     questions = args.get("questions") or [{}]
     first = questions[0] if isinstance(questions[0], dict) else {}
     more = f" (+{len(questions) - 1})" if len(questions) > 1 else ""
-    return f"ask: {str(first.get('question', ''))[:LABEL_CHARS]}{more}"
+    return f"ask: {brief(first.get('question', ''))}{more}"
 
 
 def _ask_user(args: dict[str, Any], ctx: ToolContext) -> str:

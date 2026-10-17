@@ -28,13 +28,11 @@ export function Composer({
   queueWhileBusy,
   draft,
   draftKey,
-  busyHint,
   submitLabel,
   allowEmpty,
 }: {
   placeholder: string
-  onSend: (text: string, files: File[], alternate: boolean) => void | Promise<void>
-  busyHint?: (alternate: boolean) => string
+  onSend: (text: string, files: File[]) => void | Promise<void>
   onStop?: () => void
   busy?: boolean
   allowFiles?: boolean
@@ -86,7 +84,7 @@ export function Composer({
 
   useWindowEvent('beforeunload', () => saveText(draftKey, textRef.current?.value ?? ''))
 
-  const send = async (alternate = false) => {
+  const send = async () => {
     if (!canSend) return
 
     const value = text.trim()
@@ -94,7 +92,7 @@ export function Composer({
     setText('')
     setFiles([])
     try {
-      await onSend(value, attached, alternate)
+      await onSend(value, attached)
       forgetDraft(draftKey)
     } catch {
       setText(value)
@@ -228,7 +226,7 @@ export function Composer({
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            void send(e.ctrlKey || e.metaKey)
+            void send()
           }
         }}
         rows={1}
@@ -282,7 +280,7 @@ export function Composer({
         ) : showStop ? null : (
           <button
             type="button"
-            title={busy && busyHint ? busyHint(false) : 'Send'}
+            title={busy ? 'Queue: sent after this turn' : 'Send'}
             disabled={!canSend}
             onClick={() => void send()}
             className="bg-brand hover:bg-brand-strong disabled:bg-line-strong flex size-8 items-center justify-center rounded-full text-white transition-colors"

@@ -27,6 +27,7 @@ function withOlder(state: RunState, older: RunWindow): RunState {
     changes: [...older.changes, ...state.changes],
     questions: [...older.questions, ...state.questions],
     logins: [...older.logins, ...state.logins],
+    compactions: [...older.compactions, ...state.compactions],
     outline: state.outline.filter((m) => m.start < older.start),
   }
 }

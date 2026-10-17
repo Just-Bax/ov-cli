@@ -16,7 +16,7 @@ import type {
   ToolActivity,
 } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Chip, CopyButton, Spinner } from '@/components/common/ui'
+import { Button, Chip, CopyButton } from '@/components/common/ui'
 import { Composer } from '@/components/composer/Composer'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -316,23 +316,22 @@ function ApprovalComposer({
           <pre className="bg-canvas border-line text-fg mt-2.5 max-h-56 scrollbar-thin overflow-auto rounded-xl border px-3.5 py-2.5 font-mono text-[12px] leading-[19px] break-words whitespace-pre-wrap">
             {question.detail}
           </pre>
-          <div className="mt-3 mb-3 flex items-center justify-end gap-2">
+          <div className="mt-2.5 mb-3 flex items-center justify-end gap-1.5">
             <Button
               ref={rejectRef}
-              size="lg"
               variant="ghost"
               disabled={sending}
               onClick={() => send([REJECT])}
-              className="border-line-strong border"
             >
               <XIcon weight="bold" className="size-3.5" /> Reject
             </Button>
-            <Button size="lg" variant="primary" disabled={sending} onClick={() => send([APPROVE])}>
-              {sending ? (
-                <Spinner className="size-3.5" />
-              ) : (
-                <CheckIcon weight="bold" className="size-3.5" />
-              )}
+            <Button
+              variant="primary"
+              busy={sending}
+              disabled={sending}
+              onClick={() => send([APPROVE])}
+            >
+              <CheckIcon weight="bold" className="size-3.5" />
               Approve
             </Button>
           </div>

@@ -26,7 +26,6 @@ import {
   Select,
   Skeleton,
   SkeletonText,
-  Spinner,
   SWITCH_TRACK,
   SwitchKnob,
   Textarea,
@@ -52,6 +51,7 @@ import {
   signInKey,
 } from '@/components/signin/SignInModal'
 import { api } from '@/lib/api'
+import { allowNotifications, notificationsBlocked, notificationsSupported } from '@/lib/attention'
 import { cn } from '@/lib/cn'
 import { useLoad } from '@/lib/hooks'
 import { useInstances } from '@/lib/instances'
@@ -81,6 +81,17 @@ function Section({
 }
 
 const STEP_LIMITS = [40, 80, 150, 300]
+const MODEL_WINDOW = 0
+const COMPACT_WINDOWS = [
+  { value: 100_000, label: '100K', title: 'Cheapest and quickest; summarizes often' },
+  { value: 200_000, label: '200K', title: 'Recommended balance of memory, speed and cost' },
+  { value: 400_000, label: '400K', title: 'Keeps more history; each step costs more' },
+  { value: MODEL_WINDOW, label: 'Model max', title: 'Only when the model runs out of room' },
+]
+const NOTIFY_HINT =
+  'A desktop notification when a thread needs your answer, finishes or fails while you are looking elsewhere.'
+const BLOCKED_HINT =
+  'Notifications are blocked for this site. Allow them in the browser site settings, then switch this on.'
 const NEW = '__new__'
 const EMPTY_DRAFT = { title: '', description: '', content: '' }
 
@@ -132,6 +143,14 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
     update({ provider }).then(onChange, reportError)
   }
 
+  const toggleNotify = async () => {
+    if (settings.notify) return update({ notify: false })
+    if (!notificationsSupported())
+      return dialog.alert('No notifications', 'This browser cannot show desktop notifications.')
+    if (!(await allowNotifications())) return dialog.alert('Notifications blocked', BLOCKED_HINT)
+    await update({ notify: true })
+  }
+
   return (
     <Card className="divide-line divide-y">
       <Row
@@ -181,24 +200,6 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
         />
       </Row>
       <Row
-        title="Messages while working"
-        hint="What a message sent while the agent works does. Ctrl+Enter does the other one."
-      >
-        <Segmented
-          label="Messages while working"
-          value={settings.followUp}
-          options={[
-            {
-              value: 'steer',
-              label: 'Steer',
-              title: 'Picked up at the next step of the current turn',
-            },
-            { value: 'queue', label: 'Queue', title: 'Waits until the current turn is finished' },
-          ]}
-          onChange={(v) => void update({ followUp: v })}
-        />
-      </Row>
-      <Row
         title="Step limit"
         hint="How many tool steps a thread may take before it stops. Big investigations need more."
       >
@@ -210,6 +211,34 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
             : [...STEP_LIMITS, settings.maxSteps].sort((a, b) => a - b)
           ).map((n) => ({ value: n, label: n }))}
           onChange={(v) => void update({ maxSteps: v })}
+        />
+      </Row>
+      <Row
+        title="Compact context at"
+        hint="When a thread's history reaches this size, older turns are summarized so the agent keeps working without paying to resend everything. You can also compact any thread from its menu."
+      >
+        <Segmented
+          label="Compact context at"
+          value={settings.compactWindow ?? MODEL_WINDOW}
+          options={COMPACT_WINDOWS}
+          onChange={(v) => void update({ compactWindow: v === MODEL_WINDOW ? null : v })}
+        />
+      </Row>
+      <Row title="Desktop notifications" hint={notificationsBlocked() ? BLOCKED_HINT : NOTIFY_HINT}>
+        <Switch
+          on={settings.notify && !notificationsBlocked()}
+          onChange={() => void toggleNotify()}
+          label="Desktop notifications"
+        />
+      </Row>
+      <Row
+        title="Tab badge"
+        hint="A yellow dot on the browser tab icon, and a count in its title, while threads need you or finished unseen."
+      >
+        <Switch
+          on={settings.tabBadge}
+          onChange={() => void update({ tabBadge: !settings.tabBadge })}
+          label="Tab badge"
         />
       </Row>
       <Row
@@ -300,9 +329,10 @@ function Instances() {
                   <Button
                     size="sm"
                     variant={i.valid ? 'ghost' : 'secondary'}
+                    busy={busy}
                     onClick={() => setTarget(row)}
                   >
-                    {busy ? <Spinner className="size-3.5" /> : <KeyIcon className="size-3.5" />}
+                    <KeyIcon className="size-3.5" />
                     {busy ? 'Signing in' : i.valid ? 'Refresh' : 'Sign in'}
                   </Button>
                   <IconButton
@@ -570,20 +600,22 @@ function Skills() {
               <Button
                 variant="primary"
                 size="sm"
+                busy={saving}
                 disabled={saving}
                 onClick={() => void clone(current)}
               >
-                {saving ? <Spinner className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+                <CopyIcon className="size-3.5" />
                 Clone to edit
               </Button>
             ) : (
               <Button
                 variant="primary"
                 size="sm"
+                busy={saving}
                 disabled={!dirty || saving}
                 onClick={() => void save()}
               >
-                {saving ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />}
+                <CheckIcon className="size-3.5" />
                 {creating ? 'Create' : 'Save'}
               </Button>
             )}
@@ -652,8 +684,14 @@ function Workspace() {
         }
       />
       <div className="flex items-center gap-2">
-        <Button variant="primary" size="sm" disabled={!dirty || saving} onClick={() => void save()}>
-          {saving ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />} Save
+        <Button
+          variant="primary"
+          size="sm"
+          busy={saving}
+          disabled={!dirty || saving}
+          onClick={() => void save()}
+        >
+          <CheckIcon className="size-3.5" /> Save
         </Button>
         {error ? <span className="text-danger text-[12px]">{error}</span> : null}
       </div>

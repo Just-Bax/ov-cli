@@ -198,6 +198,7 @@ def _usable(model: dict[str, Any]) -> bool:
 
 def _model_entry(model: dict[str, Any]) -> dict[str, Any]:
     supports = model["capabilities"].get("supports") or {}
+    limits = model["capabilities"].get("limits") or {}
     return {
         "id": model["id"],
         "name": model.get("name") or model["id"],
@@ -205,6 +206,7 @@ def _model_entry(model: dict[str, Any]) -> dict[str, Any]:
         "vision": bool(supports.get("vision")),
         "premium": (model.get("billing") or {}).get("multiplier"),
         "reasoning": [level for level in supports.get("reasoning_effort") or [] if level in REASONING_LEVELS],
+        "contextWindow": limits.get("max_prompt_tokens"),
     }
 
 
@@ -243,6 +245,15 @@ def reasoning_for(model_id: str, wanted: str) -> str | None:
         model["reasoning"],
         key=lambda level: (abs(REASONING_LEVELS.index(level) - rank), -REASONING_LEVELS.index(level)),
     )
+
+
+def prompt_limit(model_id: str) -> int:
+    model = next((m for m in list_models() if m["id"] == model_id), None)
+    if model is None:
+        raise CopilotError(f"Model {model_id} is not available on this Copilot account.")
+    if not model["contextWindow"]:
+        raise CopilotError(f"Copilot does not say how much context {model_id} takes.")
+    return int(model["contextWindow"])
 
 
 def supports_vision(model_id: str) -> bool:
@@ -361,7 +372,11 @@ def _stream_once(
 
 
 def complete(
-    model: str, system: str, user_text: str, max_tokens: int = COMPLETE_MAX_TOKENS
+    model: str,
+    system: str,
+    user_text: str,
+    max_tokens: int = COMPLETE_MAX_TOKENS,
+    read_timeout: float = HTTP_TIMEOUT_SECONDS,
 ) -> tuple[str, Usage | None]:
     api, headers = _headers(**{"X-Initiator": "agent"})
     payload = {
@@ -371,7 +386,7 @@ def complete(
         "max_tokens": max_tokens,
     }
 
-    with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as http:
+    with httpx.Client(timeout=httpx.Timeout(HTTP_TIMEOUT_SECONDS, read=read_timeout)) as http:
         response = http.post(f"{api}/chat/completions", json=payload, headers=headers)
     if response.status_code >= 400:
         raise CopilotError(f"Copilot chat failed ({response.status_code}): {response.text[:ERROR_DETAIL_CHARS]}")

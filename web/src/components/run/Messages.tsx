@@ -3,12 +3,11 @@ import {
   Check as CheckIcon,
   FileText as DocumentTextIcon,
   Copy as Square2StackIcon,
-  X as XMarkIcon,
 } from '@phosphor-icons/react'
 import { type ReactNode, useState } from 'react'
 import type { ChatMessage, MessageFile } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
-import { Markdown, Spinner, useCopy } from '@/components/common/ui'
+import { Markdown, useCopy } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { timeWithDay } from '@/lib/time'
@@ -24,10 +23,12 @@ function formatTime(ts: number): string {
 function ActionButton({
   label,
   onClick,
+  busy = false,
   children,
 }: {
   label: string
   onClick: () => void
+  busy?: boolean
   children: ReactNode
 }) {
   return (
@@ -36,7 +37,11 @@ function ActionButton({
       title={label}
       aria-label={label}
       onClick={onClick}
-      className="text-faint hover:bg-raised hover:text-fg flex size-7 items-center justify-center rounded-full transition-colors"
+      disabled={busy}
+      className={cn(
+        'text-faint hover:bg-raised hover:text-fg flex size-7 items-center justify-center rounded-full transition-colors',
+        busy && 'busy-sweep',
+      )}
     >
       {children}
     </button>
@@ -63,6 +68,7 @@ function RetryButton({ label, runId, itemId }: { label: string; runId: string; i
   return (
     <ActionButton
       label={label}
+      busy={retrying}
       onClick={() => {
         setRetrying(true)
         api
@@ -71,7 +77,7 @@ function RetryButton({ label, runId, itemId }: { label: string; runId: string; i
           .finally(() => setRetrying(false))
       }}
     >
-      {retrying ? <Spinner className="size-3.5" /> : <ArrowUturnLeftIcon className="size-3.5" />}
+      <ArrowUturnLeftIcon className="size-3.5" />
     </ActionButton>
   )
 }
@@ -163,41 +169,6 @@ export function UserMessage({
           <RetryButton label="Retry from here" runId={runId} itemId={message.id} />
         ) : null}
         <CopyAction text={message.text} />
-      </div>
-    </div>
-  )
-}
-
-export function QueuedMessage({ runId, message }: { runId: string; message: ChatMessage }) {
-  return (
-    <div className="flex flex-col items-end gap-1.5 opacity-70">
-      <FileChips runId={runId} files={message.files ?? []} />
-      <div className="border-line-strong text-fg max-w-[80%] rounded-3xl border border-dashed px-4 py-2.5 text-[14px] whitespace-pre-wrap">
-        {message.text}
-      </div>
-      <div className="text-faint flex h-7 items-center gap-1 text-[11.5px]">
-        <Spinner className="text-brand size-3" />
-        {message.steer === false
-          ? 'Queued, sent after this turn'
-          : 'Steering, picked up at the next step'}
-        {message.steer === false ? (
-          <button
-            type="button"
-            title="Send now, at the next step"
-            onClick={() => void api.steerQueued(runId, message.id).catch(reportError)}
-            className="text-brand-strong hover:bg-brand-soft ml-1 h-6 rounded-full px-2 font-medium"
-          >
-            Send now
-          </button>
-        ) : null}
-        <button
-          type="button"
-          title="Remove from queue"
-          onClick={() => void api.removeQueued(runId, message.id).catch(reportError)}
-          className="hover:bg-raised hover:text-fg flex size-6 items-center justify-center rounded-full"
-        >
-          <XMarkIcon className="size-3.5" />
-        </button>
       </div>
     </div>
   )

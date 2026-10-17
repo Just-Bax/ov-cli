@@ -30,9 +30,10 @@ const COPIED_FEEDBACK_MS = 1400
 
 const VARIANTS: Record<Variant, string> = {
   primary:
-    'bg-brand text-on-brand hover:bg-brand-strong disabled:bg-line-strong disabled:text-white',
-  secondary: 'bg-brand-soft text-brand hover:bg-brand-chip disabled:bg-raised disabled:text-faint',
-  ghost: 'text-text hover:bg-black/[0.06] disabled:text-faint',
+    'bg-brand text-on-brand hover:bg-brand-strong disabled:bg-line-strong disabled:text-white aria-busy:disabled:bg-brand',
+  secondary:
+    'bg-brand-soft text-brand hover:bg-brand-chip disabled:bg-raised disabled:text-faint aria-busy:disabled:bg-brand-soft aria-busy:disabled:text-brand',
+  ghost: 'text-text hover:bg-black/[0.06] disabled:text-faint aria-busy:disabled:text-text',
   danger: 'text-danger hover:bg-danger-soft',
 }
 
@@ -47,20 +48,24 @@ export type Icon = typeof SparklesIcon
 export function Button({
   variant = 'secondary',
   size = 'md',
+  busy = false,
   className,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant
   size?: Size
+  busy?: boolean
   ref?: React.Ref<HTMLButtonElement>
 }) {
   return (
     <button
       type="button"
+      aria-busy={busy || undefined}
       className={cn(
         'inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition-colors select-none disabled:pointer-events-none [&_svg]:shrink-0',
         VARIANTS[variant],
         SIZES[size],
+        busy && 'busy-sweep',
         className,
       )}
       {...props}
@@ -70,16 +75,19 @@ export function Button({
 
 export function IconButton({
   label,
+  busy = false,
   className,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; busy?: boolean }) {
   return (
     <button
       type="button"
       aria-label={label}
+      aria-busy={busy || undefined}
       title={label}
       className={cn(
-        'text-muted hover:bg-raised hover:text-fg inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40',
+        'text-muted hover:bg-raised hover:text-fg inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40 aria-busy:disabled:opacity-100',
+        busy && 'busy-sweep',
         className,
       )}
       {...props}
@@ -119,33 +127,32 @@ export function Chip({
   )
 }
 
-export function Spinner({ className }: { className?: string }) {
+type ShimmerTone = 'muted' | 'brand' | 'light'
+
+const SHIMMER_TONES: Record<ShimmerTone, string> = {
+  muted: 'shimmer',
+  brand: 'shimmer shimmer-brand',
+  light: 'shimmer shimmer-light',
+}
+
+export function Shimmer({
+  tone = 'muted',
+  className,
+  children,
+}: {
+  tone?: ShimmerTone
+  className?: string
+  children: ReactNode
+}) {
+  return <span className={cn(SHIMMER_TONES[tone], className)}>{children}</span>
+}
+
+export function PulseDot({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 50 50"
-      className={cn('ov-spinner size-4 shrink-0', className)}
-      aria-label="Loading"
-    >
-      <circle
-        cx="25"
-        cy="25"
-        r="20"
-        fill="none"
-        stroke="currentColor"
-        strokeOpacity="0.2"
-        strokeWidth="5"
-        style={{ animation: 'none', strokeDasharray: 'none' }}
-      />
-      <circle
-        cx="25"
-        cy="25"
-        r="20"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="5"
-        strokeLinecap="round"
-      />
-    </svg>
+    <span
+      aria-label="Working"
+      className={cn('pulse-dot bg-brand block size-1.5 shrink-0 rounded-full', className)}
+    />
   )
 }
 

@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ov.agent import workspace as project
-from ov.agent.engine import browser_runner, cases, claude_loop, guard
+from ov.agent.engine import browser_runner, cases, claude_loop, compaction, guard
 from ov.agent.engine.browsing import BrowserSlot
 from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.files import (
@@ -41,11 +41,11 @@ from ov.agent.storage.models import Access, Provider, UsageKind
 from ov.agent.tools import tool_named, tool_specs
 from ov.agent.tools.base import APPROVE, REJECT, Approval, Tool, ToolError
 
-CONTEXT_BUDGET = 360_000
-COMPACT_TARGET = int(CONTEXT_BUDGET * 0.7)
-KEEP_RECENT_MESSAGES = 12
-PINNED_MESSAGES = 2
-TRIMMED_TOOL_OUTPUT = 1200
+SUMMARY_READ_TIMEOUT_SECONDS = 300
+CONTEXT_TOKEN_KINDS = ("input", "cache_read", "cache_write", "output")
+NOTHING_TO_COMPACT = "There is nothing to compact in this thread yet."
+COMPACT_WHILE_BUSY = "Wait for the agent to finish, or stop it, before compacting."
+SUMMARY_EMPTY = "{model} returned an empty summary, so the context was not compacted."
 TOOL_WORKERS = 8
 MAX_BACKGROUND_TASKS = TOOL_WORKERS
 TOOL_INPUT_CHARS = 8000
@@ -177,6 +177,7 @@ class Run:
     _finished_tasks: list[Task]
     _verdicts: dict[tuple[str, ...], guard.Verdict]
     _claude_fork: dict[str, Any] | None
+    _compacting: dict[str, Any] | None
 
     def __init__(self, run_id: str, state: dict[str, Any], seq: int) -> None:
         self.id = run_id
@@ -194,15 +195,15 @@ class Run:
         self._local = threading.local()
         self._pending_images: list[tuple[str, str]] = []
         self._notes: list[str] = []
-        self._waits = 0
-        self._queue: list[tuple[dict[str, Any], Any]] = []
+        self._waits, self._background = 0, 0
+        self._queue: list[tuple[dict[str, Any], Any, list[dict[str, Any]]]] = []
         self._held: set[str] = set()
         self._questions: dict[str, tuple[threading.Event, list[tuple[list[str], str]]]] = {}
         self._logins: dict[str, tuple[threading.Event, list[bool]]] = {}
         self._busy, self._finished = False, False
         self._streaming: str | None = None
-        self._background = 0
         self._tasks, self._finished_tasks, self._verdicts, self._claude_fork = {}, [], {}, None
+        self._compacting, self._context_tokens = None, int((state.get("context") or {}).get("tokens") or 0)
         self.browser, self.touched = BrowserSlot(run_id, self.emit), db.now_ms()
 
     @property
@@ -437,7 +438,7 @@ class Run:
             self._held.clear()
             idle = not self._busy
         self._stop_tasks()
-        for message, _ in dropped:
+        for message, *_ in dropped:
             self.emit({"type": "unqueue", "id": message["id"]})
         for question_id, (event, answer) in questions.items():
             self._close_question(question_id)
@@ -754,7 +755,7 @@ class Run:
             text += f"\n\nThe run's default instance is now {bundle['website']}."
         return text
 
-    def follow_up(self, text: str, files: list[dict[str, str]], steer: bool = True) -> None:
+    def follow_up(self, text: str, files: list[dict[str, str]]) -> None:
         claimed = self._claim()
         if claimed and not self._messages:
             self._busy = False
@@ -772,10 +773,9 @@ class Run:
 
         if not claimed:
             with self._lock:
-                self._queue.append((message, content))
-                if not steer:
-                    self._held.add(message["id"])
-            self.emit({"type": "queued", "message": {**message, "steer": steer}})
+                self._queue.append((message, content, uploaded))
+                self._held.add(message["id"])
+            self.emit({"type": "queued", "message": {**message, "steer": False}})
             self._pick_up_queue()
             return
 
@@ -839,11 +839,27 @@ class Run:
 
     def steer_queued(self, message_id: str) -> None:
         with self._lock:
-            entry = next((q for q in self._queue if q[0]["id"] == message_id), None)
-            if entry is None:
-                raise RunError("That message is no longer queued.")
+            entry = self._queued(message_id)
             self._held.discard(message_id)
         self.emit({"type": "queued", "message": {**entry[0], "steer": True}})
+
+    def edit_queued(self, message_id: str, text: str) -> None:
+        with self._lock:
+            message, _, uploaded = self._queued(message_id)
+            if not text.strip() and not uploaded:
+                raise RunError("A queued message needs text or files.")
+
+            edited = {**message, "text": text}
+            content = self._user_content(text, uploaded)
+            self._queue = [(edited, content, uploaded) if q[0]["id"] == message_id else q for q in self._queue]
+            steer = message_id not in self._held
+        self.emit({"type": "queued", "message": {**edited, "steer": steer}})
+
+    def _queued(self, message_id: str) -> tuple[dict[str, Any], Any, list[dict[str, Any]]]:
+        entry = next((q for q in self._queue if q[0]["id"] == message_id), None)
+        if entry is None:
+            raise RunError("That message is no longer queued.")
+        return entry
 
     def _steering(self) -> bool:
         with self._lock:
@@ -907,7 +923,7 @@ class Run:
             ready = [q for q in self._queue if everything or q[0]["id"] not in self._held]
             self._queue = [q for q in self._queue if q not in ready]
             self._held -= {q[0]["id"] for q in ready}
-        for message, content in ready:
+        for message, content, _ in ready:
             self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
             self._push_turn(message["id"], content)
 
@@ -953,6 +969,7 @@ class Run:
         return parts
 
     def _fail(self, exc: Exception) -> None:
+        self.compaction_failed(str(exc) or type(exc).__name__)
         with self._lock:
             live = set(self._tasks)
         for tool in [t for t in self.state["tools"] if t["status"] == "running" and t["id"] not in live]:
@@ -977,7 +994,7 @@ class Run:
         self._finished = False
         nudged = False
         for step in range(max_steps):
-            self._prepare_step()
+            self._prepare_step(model)
             specs = tool_specs(self.can_write())
             calls = self._ask_model(model, specs, initiator if step == 0 else "agent")
             if calls:
@@ -994,11 +1011,12 @@ class Run:
         with self._lock:
             return bool(self._background_tasks())
 
-    def _prepare_step(self) -> None:
+    def _prepare_step(self, model: str) -> None:
         self.cancel.check()
         if self._messages and self._messages[0]["role"] == "system":
             self._messages[0] = {"role": "system", "content": system_prompt(self.access, self.instance)}
-        self._compact()
+        if self._context_tokens and self._context_tokens >= self._copilot_compact_at(model):
+            self._summarize(model, "auto")
         self._take_input()
 
     def _take_input(self) -> None:
@@ -1059,7 +1077,7 @@ class Run:
             return output, images
 
         texts = []
-        for message, content in ready:
+        for message, content, _ in ready:
             self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
             parts = content if isinstance(content, list) else [{"type": "text", "text": content}]
             texts += [p["text"] for p in parts if p["type"] == "text"]
@@ -1085,6 +1103,10 @@ class Run:
         finally:
             self.commit_text(message_id)
         self._record_usage(model, "turn" if initiator == "user" else "step", result.usage)
+        if result.usage is not None:
+            self._context_tokens = sum(result.usage.tokens.get(kind, 0) for kind in CONTEXT_TOKEN_KINDS)
+            limit = copilot.prompt_limit(model)
+            self.record_context(self._context_tokens, limit, self._copilot_compact_at(model))
 
         reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
         if result.tool_calls:
@@ -1210,18 +1232,83 @@ class Run:
         tool = {**base, "status": status, "ms": db.now_ms() - started, "output": output}
         self.emit({"type": "tool", "tool": tool})
 
-    def _compact(self) -> None:
-        total = _size(self._messages)
-        if total < CONTEXT_BUDGET:
-            return
+    def record_context(self, tokens: int, limit: int, compact_at: int | None) -> None:
+        context = {"tokens": tokens, "limit": limit, **({"compactAt": compact_at} if compact_at else {})}
+        if self.state.get("context") != context:
+            self.emit({"type": "context", "context": context})
 
-        keep_from = max(PINNED_MESSAGES, len(self._messages) - KEEP_RECENT_MESSAGES)
-        for message in self._messages[PINNED_MESSAGES:keep_from]:
-            if total <= COMPACT_TARGET:
-                break
-            before = _size(message)
-            _trim(message)
-            total -= before - _size(message)
+    def compact(self) -> None:
+        if self.provider == Provider.CLAUDE and not self.state["claude"]["session"]:
+            raise RunError(NOTHING_TO_COMPACT)
+        if self.provider == Provider.COPILOT and len(self._messages) < 3:
+            raise RunError(NOTHING_TO_COMPACT)
+        if not self._claim():
+            raise RunError(COMPACT_WHILE_BUSY)
+
+        self._spawn(self._compact_now)
+
+    def _compact_now(self) -> None:
+        try:
+            self._set_status("running")
+            if self.provider == Provider.CLAUDE:
+                claude_loop.compact(self)
+            else:
+                self._summarize(self.state["summary"]["model"], "manual")
+            self._set_status("done")
+        except Exception as exc:
+            self._fail(exc)
+        finally:
+            self._busy = False
+            self._pick_up_queue()
+
+    def compaction_started(self, trigger: str) -> None:
+        with self._lock:
+            if self._compacting is not None:
+                return
+            self._compacting = {"id": _uid("k"), "trigger": trigger, "status": "running", "startedAt": db.now_ms()}
+            entry = dict(self._compacting)
+        self.emit({"type": "compact", "compact": entry})
+
+    def compaction_finished(self, trigger: str, before: int, after: int) -> None:
+        with self._lock:
+            entry, self._compacting = self._compacting or {"id": _uid("k"), "startedAt": db.now_ms()}, None
+        done = {**entry, "trigger": trigger, "status": "done", "before": before, "after": after}
+        self.emit({"type": "compact", "compact": {**done, "ms": db.now_ms() - entry["startedAt"]}})
+
+    def compaction_failed(self, error: str) -> None:
+        with self._lock:
+            entry, self._compacting = self._compacting, None
+        if entry is not None:
+            self.emit({"type": "compact", "compact": {**entry, "status": "error", "error": error}})
+
+    def _copilot_compact_at(self, model: str) -> int:
+        return compaction.compact_at(db.get_preferences()["compactWindow"], copilot.prompt_limit(model))
+
+    def _summarize(self, model: str, trigger: str) -> None:
+        threshold = self._copilot_compact_at(model)
+        cut = compaction.cut_point(self._messages, int(threshold * compaction.KEEP_RECENT_SHARE))
+        if cut is None:
+            raise RunError(NOTHING_TO_COMPACT)
+
+        self.compaction_started(trigger)
+        before = self._context_tokens or compaction.estimate_tokens(self._messages)
+        summary, usage = copilot.complete(
+            model,
+            compaction.SUMMARY_PROMPT,
+            compaction.transcript(self._messages[1:cut]),
+            compaction.SUMMARY_MAX_TOKENS,
+            SUMMARY_READ_TIMEOUT_SECONDS,
+        )
+        self._record_usage(model, UsageKind.COMPACT, usage)
+        if not summary.strip():
+            raise RunError(SUMMARY_EMPTY.format(model=model))
+
+        self._messages = compaction.rebuilt(self._messages, cut, summary)
+        self._turns = {turn: index - cut + 2 for turn, index in self._turns.items() if index >= cut}
+        self._persist()
+        self._context_tokens = compaction.estimate_tokens(self._messages)
+        self.compaction_finished(trigger, before, self._context_tokens)
+        self.record_context(self._context_tokens, copilot.prompt_limit(model), threshold)
 
 
 def _tool_args(tool: Tool, raw: str) -> dict[str, Any]:
@@ -1236,21 +1323,6 @@ def _tool_args(tool: Tool, raw: str) -> dict[str, Any]:
     if missing:
         raise ToolError(f"missing required arguments: {', '.join(missing)}")
     return args
-
-
-def _size(messages: list[dict[str, Any]]) -> int:
-    return len(json.dumps(messages))
-
-
-def _trim(message: dict[str, Any]) -> None:
-    content = message["content"]
-    if message["role"] == "tool" and len(content) > TRIMMED_TOOL_OUTPUT:
-        message["content"] = content[:TRIMMED_TOOL_OUTPUT] + "\n[older output trimmed to save context]"
-    elif message["role"] == "user" and isinstance(content, list):
-        message["content"] = [
-            {"type": "text", "text": "[image removed to save context]"} if part["type"] == "image_url" else part
-            for part in content
-        ]
 
 
 def _check_answers(question: dict[str, Any], answers: list[str]) -> None:

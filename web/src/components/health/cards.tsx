@@ -9,7 +9,9 @@ import {
 } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import type {
+  HealthDatabaseMetricKey,
   HealthMeta,
+  HealthPoint,
   HealthSection,
   HealthSections,
   HealthServer,
@@ -71,6 +73,31 @@ const THRESHOLDS: Record<string, { title: string; unit: string; tone: (v: number
   },
   load: { title: 'Load', unit: '', tone: (v) => (v >= 1.5 ? 'danger' : v >= 1 ? 'warn' : null) },
   heap: { title: 'JVM heap', unit: 'B', tone: () => null },
+}
+
+const DB_CPU = { warn: 65, danger: 85 }
+const DB_STORAGE = { warn: 80, danger: 90 }
+const DB_SESSIONS = { warn: 70, danger: 90 }
+const DB_TABLESPACE = { warn: 80, danger: 90 }
+
+function atLeast(limits: { warn: number; danger: number }): (v: number) => Tone {
+  return (v) => (v >= limits.danger ? 'danger' : v >= limits.warn ? 'warn' : null)
+}
+
+const percent = (v: number) => fmt(v, '%')
+
+const DATABASE_METRICS: Record<
+  HealthDatabaseMetricKey,
+  { title: string; format: (v: number) => string; tone: (v: number) => Tone }
+> = {
+  cpu: { title: 'CPU', format: percent, tone: atLeast(DB_CPU) },
+  memory: { title: 'Free memory', format: (v) => fmt(v, 'B'), tone: () => null },
+  storage: { title: 'Storage used', format: percent, tone: atLeast(DB_STORAGE) },
+  connections: { title: 'Connections', format: count, tone: () => null },
+  readLatency: { title: 'Read latency', format: duration, tone: () => null },
+  writeLatency: { title: 'Write latency', format: duration, tone: () => null },
+  sessions: { title: 'Session limit', format: percent, tone: atLeast(DB_SESSIONS) },
+  tablespace: { title: 'Tablespace', format: percent, tone: atLeast(DB_TABLESPACE) },
 }
 
 const TONE_TEXT: Record<'danger' | 'warn', string> = { danger: 'text-danger', warn: 'text-warn' }
@@ -259,6 +286,17 @@ function signals(slots: Slots): Signal[] {
         out.push({
           tone,
           text: `${shortHost(server.host)} ${THRESHOLDS[key].title.toLowerCase()} ${fmt(metric.latest, THRESHOLDS[key].unit)}`,
+        })
+    }
+
+  for (const db of ready(slots.database)?.databases ?? [])
+    for (const [key, metric] of Object.entries(db.metrics)) {
+      const spec = DATABASE_METRICS[key as HealthDatabaseMetricKey]
+      const tone = spec.tone(metric.latest)
+      if (tone)
+        out.push({
+          tone,
+          text: `${db.id} ${spec.title.toLowerCase()} ${spec.format(metric.latest)}`,
         })
     }
 
@@ -757,29 +795,109 @@ export function ServersCard({ ctx }: { ctx: Context }) {
                       </td>
                       {shown.map((k) => {
                         const m = s.metrics[k as keyof HealthServer['metrics']]
-                        const tone = m ? THRESHOLDS[k].tone(m.latest) : null
                         return (
-                          <td key={k} className="py-2.5 pl-4">
-                            {m ? (
-                              <div className="flex items-center gap-2">
-                                <Sparkline
-                                  points={m.points}
-                                  color={TONE_LINE[tone ?? 'ok']}
-                                  className="w-20"
-                                />
-                                <span
-                                  className={cn(
-                                    'w-14 shrink-0 text-right tabular-nums',
-                                    tone ? `${TONE_TEXT[tone]} font-semibold` : 'text-text',
-                                  )}
-                                >
-                                  {fmt(m.latest, THRESHOLDS[k].unit)}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-faint">-</span>
-                            )}
-                          </td>
+                          <MetricCell
+                            key={k}
+                            metric={m}
+                            tone={m ? THRESHOLDS[k].tone(m.latest) : null}
+                            text={m ? fmt(m.latest, THRESHOLDS[k].unit) : ''}
+                          />
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }}
+      </Body>
+    </Panel>
+  )
+}
+
+function MetricCell({
+  metric,
+  tone,
+  text,
+}: {
+  metric?: { points: HealthPoint[] }
+  tone: Tone
+  text: string
+}) {
+  return (
+    <td className="py-2.5 pl-4">
+      {metric ? (
+        <div className="flex items-center gap-2">
+          <Sparkline points={metric.points} color={TONE_LINE[tone ?? 'ok']} className="w-20" />
+          <span
+            className={cn(
+              'w-14 shrink-0 text-right tabular-nums',
+              tone ? `${TONE_TEXT[tone]} font-semibold` : 'text-text',
+            )}
+          >
+            {text}
+          </span>
+        </div>
+      ) : (
+        <span className="text-faint">-</span>
+      )}
+    </td>
+  )
+}
+
+export function DatabaseCard({ ctx }: { ctx: Context }) {
+  const keys = Object.keys(DATABASE_METRICS) as HealthDatabaseMetricKey[]
+
+  return (
+    <Panel
+      title="Database"
+      hint="RDS and Oracle metrics over the window, latest value on the right"
+      onAsk={() =>
+        ask(
+          ctx,
+          'Check the database of this instance: CPU, free memory, storage, connections, read and write latency, Oracle session limit and tablespace use, and any database monitors or incidents. Say what stands out and why.',
+        )
+      }
+    >
+      <Body slot={ctx.slots.database} skeleton={<RowsSkeleton rows={2} />}>
+        {(v) => {
+          const shown = keys.filter((k) => v.databases.some((d) => d.metrics[k]))
+          if (!v.databases.length) return <Quiet>No database metrics in this window.</Quiet>
+
+          return (
+            <div className="scrollbar-thin overflow-x-auto">
+              <table className="w-full min-w-[960px] text-[12.5px]">
+                <thead>
+                  <tr className="text-faint text-left text-[11.5px]">
+                    <th className="pb-2 font-medium">Database</th>
+                    {shown.map((k) => (
+                      <th key={k} className="pb-2 pl-4 font-medium">
+                        {DATABASE_METRICS[k].title}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-line divide-y">
+                  {v.databases.map((d) => (
+                    <tr key={d.id}>
+                      <td className="py-2.5 pr-4 whitespace-nowrap" title={d.endpoint || d.id}>
+                        {d.engine ? (
+                          <span className="bg-brand-soft text-brand-strong mr-2 rounded-full px-1.5 py-0.5 text-[10.5px] font-medium">
+                            {d.engine}
+                          </span>
+                        ) : null}
+                        <span className="text-fg">{d.id}</span>
+                      </td>
+                      {shown.map((k) => {
+                        const m = d.metrics[k]
+                        return (
+                          <MetricCell
+                            key={k}
+                            metric={m}
+                            tone={m ? DATABASE_METRICS[k].tone(m.latest) : null}
+                            text={m ? DATABASE_METRICS[k].format(m.latest) : ''}
+                          />
                         )
                       })}
                     </tr>

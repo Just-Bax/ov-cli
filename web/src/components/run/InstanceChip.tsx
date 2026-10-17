@@ -5,7 +5,7 @@ import {
 } from '@phosphor-icons/react'
 import { useRef, useState } from 'react'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Spinner } from '@/components/common/ui'
+import { Button } from '@/components/common/ui'
 import { SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -87,9 +87,12 @@ export function InstanceChip({ instance }: { instance: string }) {
             type="button"
             disabled={checking}
             onClick={runCheck}
-            className="text-muted hover:bg-raised hover:text-fg mt-2 flex h-8 w-full items-center gap-2 rounded-xl px-2 text-left"
+            className={cn(
+              'text-muted hover:bg-raised hover:text-fg mt-2 flex h-8 w-full items-center gap-2 rounded-xl px-2 text-left',
+              checking && 'busy-sweep',
+            )}
           >
-            {checking ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}
+            <ArrowPathIcon className="size-3.5" />
             <span className="flex-1">
               {check
                 ? `Version ${check.version ?? 'unknown'}, ${check.ms} ms`

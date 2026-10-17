@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import type { RunList, RunStatus, RunSummary } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
 import { api } from '@/lib/api'
+import { noteRuns, noteStatus, type StatusChange } from '@/lib/attention'
 import { MINUTE_MS } from '@/lib/time'
 import { remember } from '@/lib/undo'
 
@@ -23,6 +24,7 @@ export const WORKING = new Set<RunStatus>(['queued', 'running', 'waiting'])
 
 function publish(next: RunList) {
   list = next
+  noteRuns(next)
   for (const listen of listeners) listen()
 }
 
@@ -56,6 +58,12 @@ export function refreshRuns(): Promise<void> {
     .catch(reportError)
 }
 
+function onChange(message: MessageEvent<string>) {
+  const change = JSON.parse(message.data) as StatusChange | { kind: 'list' | 'meta' }
+  if (change.kind === 'status') noteStatus(change)
+  scheduleRefresh()
+}
+
 function scheduleRefresh() {
   clearTimeout(pending)
   pending = setTimeout(() => void refreshRuns(), REFRESH_DEBOUNCE_MS)
@@ -71,7 +79,7 @@ function start() {
   void refreshRuns()
   source = new EventSource(api.statusEventsUrl())
   source.onopen = () => void refreshRuns()
-  source.onmessage = scheduleRefresh
+  source.onmessage = onChange
   poll = setInterval(onVisible, FALLBACK_POLL_MS)
   document.addEventListener('visibilitychange', onVisible)
 }

@@ -347,11 +347,14 @@ def _named_by_datadog(hosts: set[str], alias: str) -> bool:
     return any(h == value or (prefix and h.startswith(value)) for value, prefix in _datadog_hosts(alias) for h in hosts)
 
 
-def _named_in_text(text: str, host: str, label: str, alias: str) -> bool:
+def _named_in_text(text: str, host: str, label: str, alias: str, databases: list[str]) -> bool:
     hosts = set(_HOST.findall(text))
     if host in hosts or _named_by_datadog(hosts, alias):
         return True
-    return any(tag.strip() == label for tag in _TAG.findall(text)) or label in _PAIR.findall(text)
+    if any(datadog.database_id(h) in databases for h in hosts):
+        return True
+    pairs = set(_PAIR.findall(text))
+    return any(tag.strip() == label for tag in _TAG.findall(text)) or bool(pairs & {label, *databases})
 
 
 def belongs_to(incident: dict[str, Any], host: str, alias: str, databases: list[str]) -> bool:
@@ -361,7 +364,7 @@ def belongs_to(incident: dict[str, Any], host: str, alias: str, databases: list[
         return host in incident["websites"]
     if incident["database"]:
         return incident["database"] in {label, *databases}
-    return _named_in_text(incident["text"], host, label, alias)
+    return _named_in_text(incident["text"], host, label, alias, databases)
 
 
 def iso_utc(ms: int) -> str:
@@ -429,7 +432,9 @@ def _host_key(host: str) -> str:
 def for_instance(rows: list[dict[str, Any]], alias: str) -> list[dict[str, Any]]:
     found = _instance_of(alias)
     main = main_alias(found["alias"])
-    databases = load_state().get("databases", {}).get(_host_key(found["host"]), [])
+    learned = load_state().get("databases", {}).get(_host_key(found["host"]), [])
+    discovered = [db["id"] for db in datadog.known_databases(main)]
+    databases = list(dict.fromkeys([*learned, *discovered]))
     return [r for r in rows if belongs_to(r, found["host"], main, databases)]
 
 
@@ -528,7 +533,7 @@ def _add_incidents(report: dict[str, Any], alias: str, start: int, end: int) -> 
             window = pool.submit(incidents, start, end)
             report["open"] = [public(r) for r in for_instance(opened.result(), alias)]
             report["incidents"] = [public(r) for r in for_instance(window.result(), alias)]
-    except PagerDutyError as exc:
+    except (PagerDutyError, datadog.DatadogError) as exc:
         report["errors"]["incidents"] = str(exc)
 
 

@@ -2,7 +2,7 @@ import { Sparkle as SparklesIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import type { DatadogDiscovery, DatadogStatus } from '@shared/types.ts'
 import { DatadogBadge, ServerChips } from '@/components/integrations/Datadog'
-import { Button, Card, Spinner } from '@/components/common/ui'
+import { Button, Card } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { hostsIn, roleOf, shortHost } from '@/lib/servers'
 
@@ -65,8 +65,14 @@ export function MatchInstance({
           </div>
         </div>
         {found ? null : (
-          <Button size="sm" variant="primary" disabled={loading} onClick={() => void detect()}>
-            {loading ? <Spinner className="size-3.5" /> : <SparklesIcon className="size-3.5" />}
+          <Button
+            size="sm"
+            variant="primary"
+            busy={loading}
+            disabled={loading}
+            onClick={() => void detect()}
+          >
+            <SparklesIcon className="size-3.5" />
             Detect servers
           </Button>
         )}
@@ -83,10 +89,11 @@ export function MatchInstance({
             <ServerChips scope={filter} hosts={found.hosts} onChange={setFilter} />
             <Button
               variant="primary"
+              busy={saving}
               disabled={!filter.trim() || saving}
               onClick={() => void save()}
             >
-              {saving ? <Spinner className="size-3.5" /> : null} Save servers
+              Save servers
             </Button>
           </div>
         </div>

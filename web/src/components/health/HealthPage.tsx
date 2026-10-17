@@ -10,6 +10,7 @@ import { href } from '@/lib/route'
 import { hostsIn } from '@/lib/servers'
 import {
   type Context,
+  DatabaseCard,
   EventsCard,
   FailedRunsCard,
   IncidentsCard,
@@ -84,7 +85,7 @@ export function HealthPage() {
   const askAll = () =>
     openDraft({
       instance: alias,
-      prompt: `Check the health of ${label} over the last ${RANGE_WORDS[range]}. Use PagerDuty incidents, Datadog monitors, events such as deploys and restarts, error logs grouped by pattern, traffic and latency, and server metrics. Line them up with failed OneVizion processes in the same window. Tell me what changed or is failing, the likely cause, and what to do.`,
+      prompt: `Check the health of ${label} over the last ${RANGE_WORDS[range]}. Use PagerDuty incidents, Datadog monitors, events such as deploys and restarts, error logs grouped by pattern, traffic and latency, database metrics, and server metrics. Line them up with failed OneVizion processes in the same window. Tell me what changed or is failing, the likely cause, and what to do.`,
     })
 
   const actions = !status ? (
@@ -119,10 +120,11 @@ export function HealthPage() {
         variant="ghost"
         className="aspect-square px-0"
         aria-label="Refresh"
+        busy={busy}
         disabled={busy || !alias}
         onClick={() => setTick((t) => t + 1)}
       >
-        <ArrowPathIcon className={cn('size-3.5', busy && 'animate-spin')} />
+        <ArrowPathIcon className="size-3.5" />
       </Button>
       <Button variant="primary" disabled={!alias} onClick={askAll}>
         <SparklesIcon className="size-3.5" /> Ask the agent
@@ -180,6 +182,7 @@ export function HealthPage() {
         <Summary ctx={ctx} busy={busy} />
         <TimelineCard ctx={ctx} />
         <IncidentsCard ctx={ctx} />
+        {matched ? <DatabaseCard ctx={ctx} /> : null}
         {matched ? <ServersCard ctx={ctx} /> : null}
         <div className="grid gap-4 xl:grid-cols-2">
           {matched ? <TopErrorsCard ctx={ctx} /> : null}

@@ -13,7 +13,7 @@ import { type ReactNode, useId, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { dialog } from '@/components/common/Dialog'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Card, Chip, Skeleton, Spinner } from '@/components/common/ui'
+import { Button, Card, Chip, Skeleton } from '@/components/common/ui'
 import { cn } from '@/lib/cn'
 import { useEnterTransition } from '@/lib/hooks'
 import { useLayer } from '@/lib/layers'
@@ -211,8 +211,8 @@ export function ConnectModal({
             <Button variant="ghost" size="lg" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" size="lg" disabled={!ready || busy}>
-              {busy ? <Spinner className="size-4" /> : <CheckIcon className="size-4" />}
+            <Button type="submit" variant="primary" size="lg" busy={busy} disabled={!ready || busy}>
+              <CheckIcon className="size-4" />
               {busy ? busyLabel : 'Test and connect'}
             </Button>
           </div>
@@ -337,9 +337,8 @@ export function IntegrationCard<S extends IntegrationStatus>({
         </div>
         {status.connected ? (
           <div className="flex shrink-0 gap-1">
-            <Button size="sm" variant="ghost" disabled={testing} onClick={runTest}>
-              {testing ? <Spinner className="size-3.5" /> : <ArrowPathIcon className="size-3.5" />}{' '}
-              Test
+            <Button size="sm" variant="ghost" busy={testing} disabled={testing} onClick={runTest}>
+              <ArrowPathIcon className="size-3.5" /> Test
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setConnecting(true)}>
               {changeLabel}

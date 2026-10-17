@@ -4,7 +4,7 @@ import {
   Copy as Square2StackIcon,
 } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
-import { Button, GithubMark, Spinner, useCopy } from '@/components/common/ui'
+import { Button, GithubMark, Shimmer, useCopy } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { SECOND_MS } from '@/lib/time'
@@ -54,9 +54,14 @@ export function CopilotSignIn({ onDone }: { onDone: () => void }) {
   if (!code)
     return (
       <div>
-        <Button variant="primary" size="lg" disabled={starting} onClick={() => void start()}>
-          {starting ? <Spinner className="size-4" /> : <GithubMark className="size-4" />} Sign in
-          with GitHub
+        <Button
+          variant="primary"
+          size="lg"
+          busy={starting}
+          disabled={starting}
+          onClick={() => void start()}
+        >
+          <GithubMark className="size-4" /> Sign in with GitHub
         </Button>
         {error ? <div className="text-danger mt-2 text-[12.5px]">{error}</div> : null}
       </div>
@@ -91,9 +96,7 @@ export function CopilotSignIn({ onDone }: { onDone: () => void }) {
         >
           Copy code and open GitHub <ArrowTopRightOnSquareIcon className="size-3.5" />
         </Button>
-        <span className="text-muted inline-flex items-center gap-2 text-[12.5px]">
-          <Spinner className="text-brand size-3.5" /> Waiting for you to approve
-        </span>
+        <Shimmer className="text-[12.5px]">Waiting for you to approve</Shimmer>
       </div>
     </div>
   )

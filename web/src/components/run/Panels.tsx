@@ -1,7 +1,7 @@
 import { Key as KeyIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import type { LoginPrompt, Outcome, Verdict } from '@shared/types.ts'
-import { Button, Chip, CopyButton, Markdown, Spinner, type Tone } from '@/components/common/ui'
+import { Button, Chip, CopyButton, Markdown, Shimmer, type Tone } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { reportError } from '@/components/common/Toasts'
 import { SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
@@ -148,24 +148,23 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
           {login.tenant ? <Chip tone="brand">{login.tenant}</Chip> : null}
         </div>
         <div className="text-muted text-[12px]">
-          {login.state === 'running'
-            ? 'Signing in. Open the sign-in window to continue.'
-            : login.state === 'failed'
-              ? (login.message ?? 'Sign-in failed.')
-              : login.tenant
-                ? `Needed to continue. Sign in as usual; ov switches to ${login.tenant} afterwards. Access is read-only.`
-                : 'Needed to continue. Access is read-only.'}
+          {login.state === 'running' ? (
+            <Shimmer>Signing in. Open the sign-in window to continue.</Shimmer>
+          ) : login.state === 'failed' ? (
+            (login.message ?? 'Sign-in failed.')
+          ) : login.tenant ? (
+            `Needed to continue. Sign in as usual; ov switches to ${login.tenant} afterwards. Access is read-only.`
+          ) : (
+            'Needed to continue. Access is read-only.'
+          )}
         </div>
       </div>
       {login.state === 'running' ? (
-        <>
-          <Spinner className="text-brand" />
-          {open ? null : (
-            <Button variant="ghost" onClick={() => setOpen(true)}>
-              Show
-            </Button>
-          )}
-        </>
+        open ? null : (
+          <Button variant="ghost" onClick={() => setOpen(true)}>
+            Show
+          </Button>
+        )
       ) : (
         <>
           <Button

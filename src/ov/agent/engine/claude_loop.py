@@ -9,6 +9,7 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     ResultMessage,
     StreamEvent,
+    SystemMessage,
     UserMessage,
     create_sdk_mcp_server,
     delete_session,
@@ -27,6 +28,12 @@ if TYPE_CHECKING:
 REPLAY_PROMPTS = {"replay-user-messages": None}
 ERROR_PREFIX = "Error:"
 DATA_URL_PREFIX = "data:"
+COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+COMPACT_COMMAND = "/compact"
+COMPACTING = "compacting"
+COMPACT_SUCCESS = "success"
+COMPACT_FAILED = "Claude Code could not compact the context ({result})."
+COMPACT_UNREPORTED = "Claude Code finished without compacting the context."
 
 
 def _image_block(url: str) -> dict[str, Any]:
@@ -95,8 +102,11 @@ def _options(run: Run) -> tuple[Any, str, dict[str, Any] | None]:
     options.mcp_servers = {claude.SERVER_NAME: tool_server(run)}
     options.allowed_tools = [f"{claude.TOOL_PREFIX}*"]
     options.include_partial_messages = True
-    options.max_turns = int(db.get_preferences()["maxSteps"])
+    preferences = db.get_preferences()
+    options.max_turns = int(preferences["maxSteps"])
     options.extra_args = dict(REPLAY_PROMPTS)
+    if preferences["compactWindow"]:
+        options.env = {COMPACT_WINDOW_ENV: str(preferences["compactWindow"])}
 
     fork = run.take_claude_fork()
     current = run.state["claude"]["session"]
@@ -164,12 +174,30 @@ class Stream:
             raise claude.ClaudeError(claude.result_error(result))
 
 
+def on_system(run: Run, message: SystemMessage, trigger: str) -> None:
+    data = message.data
+    if message.subtype == "status" and data.get("status") == COMPACTING:
+        run.compaction_started(trigger)
+    elif message.subtype == "status" and data.get("compact_result") not in (None, COMPACT_SUCCESS):
+        run.compaction_failed(COMPACT_FAILED.format(result=data["compact_result"]))
+    elif message.subtype == "compact_boundary":
+        meta = data["compact_metadata"]
+        run.compaction_finished(meta["trigger"], int(meta["pre_tokens"]), int(meta.get("post_tokens") or 0))
+
+
+async def _record_context(client: ClaudeSDKClient, run: Run) -> None:
+    usage = await client.get_context_usage()
+    run.record_context(int(usage["totalTokens"]), int(usage["rawMaxTokens"]), usage.get("autoCompactThreshold"))
+
+
 async def _receive(client: ClaudeSDKClient, stream: Stream) -> None:
     async for message in client.receive_response():
         if isinstance(message, StreamEvent) and message.parent_tool_use_id is None:
             stream.on_event(message.event)
         elif isinstance(message, UserMessage):
             stream.on_prompt(message)
+        elif isinstance(message, SystemMessage):
+            on_system(stream.run, message, "auto")
         elif isinstance(message, ResultMessage):
             stream.on_result(message)
 
@@ -190,6 +218,7 @@ async def _session(run: Run, options: Any, session: str, fork_point: str | None)
                 fork_point = None
                 await client.query(_prompt(content_blocks(contents), session))
                 await _receive(client, Stream(run, session, turn, before))
+                await _record_context(client, run)
                 run.cancel.check()
                 if not run.has_news():
                     return
@@ -201,6 +230,33 @@ def run_turn(run: Run) -> None:
         spent = fork.get("spentBefore", 0.0) if fork else 0.0
         run.emit({"type": "meta", "claude": {"session": session, "spent": spent}})
     asyncio.run(_session(run, options, session, fork["before"] if fork else None))
+
+
+async def _compact(run: Run, options: Any, session: str) -> None:
+    loop = asyncio.get_running_loop()
+    async with ClaudeSDKClient(options) as client:
+
+        def interrupt() -> None:
+            asyncio.run_coroutine_threadsafe(client.interrupt(), loop)
+
+        with run.cancel.hook(interrupt):
+            run.compaction_started("manual")
+            await client.query(COMPACT_COMMAND)
+            async for message in client.receive_response():
+                if isinstance(message, SystemMessage):
+                    on_system(run, message, "manual")
+                elif isinstance(message, ResultMessage):
+                    run.record_claude_usage(session, message)
+                    if message.is_error and not run.cancel.is_set():
+                        raise claude.ClaudeError(claude.result_error(message))
+            run.cancel.check()
+            run.compaction_failed(COMPACT_UNREPORTED)
+            await _record_context(client, run)
+
+
+def compact(run: Run) -> None:
+    options, session, _ = _options(run)
+    asyncio.run(_compact(run, options, session))
 
 
 def sessions_of(events: list[dict[str, Any]]) -> set[str]:

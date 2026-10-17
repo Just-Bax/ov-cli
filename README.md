@@ -454,8 +454,11 @@ In **Settings**:
   for each request; threads from before usage was recorded show "Not tracked".
 
 Preferences also hold the **Reasoning** level (how hard models think; each model gets the
-nearest level it supports) and what **messages while working** do: steer (picked up at the
-next step) or queue (sent after the turn). Ctrl+Enter sends the other way.
+nearest level it supports).
+
+A message sent while the agent works is **queued** above the composer and sent after the turn.
+Each queued message can be edited, removed, or sent with **Steer** so the agent picks it up at
+its next step.
 
 In a thread:
 

@@ -1,5 +1,8 @@
 import {
   ArrowLeft as ArrowLeftIcon,
+  ArrowSquareOut as OpenIcon,
+  Check as CheckIcon,
+  Copy as CopyIcon,
   Globe as GlobeAltIcon,
   Lock as LockClosedIcon,
   X as XMarkIcon,
@@ -13,7 +16,7 @@ import {
   useState,
 } from 'react'
 import { reportError } from '@/components/common/Toasts'
-import { Spinner } from '@/components/common/ui'
+import { Shimmer, useCopy } from '@/components/common/ui'
 import { cn } from '@/lib/cn'
 
 export const SCREEN_BAR_PX = 52
@@ -32,15 +35,21 @@ export type ScreenEvent = Record<string, unknown> & { type: string }
 export type SendScreen = (events: ScreenEvent[]) => Promise<{ open: boolean }>
 type Phase = 'starting' | 'live' | 'gone'
 
-function splitAddress(address: string): { host: string; path: string; secure: boolean } {
+type Address = { host: string; rest: string; secure: boolean; href?: string }
+
+const BAR_ACTION =
+  'text-muted hover:text-brand-strong flex size-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white hover:shadow-[0_1px_2px_rgba(0,0,0,0.08)]'
+
+function splitAddress(address: string): Address {
   const full = /^[a-z][a-z0-9+.-]*:/i.test(address) ? address : `https://${address}`
-  if (!URL.canParse(full)) return { host: address, path: '', secure: false }
+  if (!URL.canParse(full)) return { host: address, rest: '', secure: false }
 
   const url = new URL(full)
   return {
     host: url.host,
-    path: url.pathname === '/' ? '' : url.pathname,
+    rest: `${url.pathname === '/' ? '' : url.pathname}${url.search}${url.hash}`,
     secure: url.protocol === 'https:',
+    href: url.protocol === 'http:' || url.protocol === 'https:' ? url.href : undefined,
   }
 }
 
@@ -243,6 +252,8 @@ export function LiveScreen({
   const painted = frame && frame.url !== BLANK_PAGE ? frame.url : startAddress
   const address = loading ?? painted
   const shown = splitAddress(address)
+  const { href } = shown
+  const [copied, copy] = useCopy()
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -265,18 +276,55 @@ export function LiveScreen({
         >
           <ArrowLeftIcon className="size-4" />
         </button>
-        <div className="bg-raised text-text flex h-8 min-w-0 flex-1 items-center gap-2 rounded-full px-3 text-[12.5px]">
-          {loading ? (
-            <Spinner className="text-brand size-3.5 shrink-0" />
-          ) : shown.secure ? (
-            <LockClosedIcon className="text-ok size-3.5 shrink-0" />
+        <div className="bg-raised text-text flex h-8 min-w-0 flex-1 items-center gap-2 rounded-full pr-1 pl-3 text-[12.5px]">
+          {shown.secure ? (
+            <LockClosedIcon
+              className={cn('size-3.5 shrink-0', loading ? 'text-faint' : 'text-ok')}
+            />
           ) : (
             <GlobeAltIcon className="text-muted size-3.5 shrink-0" />
           )}
-          <span className="truncate" title={address}>
-            <span className="text-fg">{shown.host}</span>
-            <span className="text-faint">{shown.path}</span>
+          <span
+            className={cn(
+              'text-fg shrink-0 font-semibold whitespace-nowrap',
+              shown.rest && 'border-line-strong border-r pr-2',
+            )}
+          >
+            {shown.host}
           </span>
+          <span
+            className="text-faint min-w-0 flex-1 truncate font-mono text-[11.5px]"
+            title={address}
+          >
+            {loading ? <Shimmer>{shown.rest}</Shimmer> : shown.rest}
+          </span>
+          {href ? (
+            <>
+              <button
+                type="button"
+                aria-label="Copy the address"
+                title={copied ? 'Copied' : 'Copy the address'}
+                onClick={() => copy(href)}
+                className={BAR_ACTION}
+              >
+                {copied ? (
+                  <CheckIcon className="text-ok size-3.5" />
+                ) : (
+                  <CopyIcon className="size-3.5" />
+                )}
+              </button>
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open in your browser"
+                title="Open in your browser"
+                className={BAR_ACTION}
+              >
+                <OpenIcon className="size-3.5" />
+              </a>
+            </>
+          ) : null}
         </div>
         {status}
         <button
@@ -322,10 +370,7 @@ export function LiveScreen({
           {phase !== 'live' ? (
             <div className="text-muted absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px]">
               {phase === 'starting' ? (
-                <>
-                  <Spinner className="text-brand size-6" />
-                  {starting}
-                </>
+                <Shimmer className="text-[14px] font-medium">{starting}</Shimmer>
               ) : frame ? null : (
                 (failure ?? 'The page is not shown here.')
               )}

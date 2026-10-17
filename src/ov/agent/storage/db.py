@@ -36,7 +36,6 @@ from ov.agent.storage.models import (
     Attachment,
     Event,
     EventType,
-    FollowUp,
     Message,
     Preference,
     Provider,
@@ -63,16 +62,20 @@ PREFERENCE_COLUMNS = {
     "fastModel": "fast_model",
     "reasoning": "reasoning",
     "maxSteps": "max_steps",
-    "followUp": "follow_up",
     "workspace": "workspace",
     "workspaceNotes": "workspace_notes",
     "expandTools": "expand_tools",
+    "notify": "notify",
+    "tabBadge": "tab_badge",
+    "compactWindow": "compact_window",
 }
+BOOLEAN_PREFERENCES = ("expandTools", "notify", "tabBadge")
+MIN_COMPACT_WINDOW = 50_000
+MAX_COMPACT_WINDOW = 1_000_000
 TEXT_PREFERENCES = ("defaultModel", "fastModel", "workspace", "workspaceNotes")
 REASONING_LEVELS = tuple(level.value for level in Reasoning)
 PROVIDERS = tuple(provider.value for provider in Provider)
 NANO_PER_USD = 1_000_000_000
-FOLLOW_UPS = tuple(mode.value for mode in FollowUp)
 NANO_PER_CREDIT = 1_000_000_000
 TOP_THREADS = 5
 INTERRUPTED_RUN = "Interrupted by a restart."
@@ -80,6 +83,7 @@ INTERRUPTED_TOOL = "Interrupted by a restart."
 RUN_LIST_LIMIT = 500
 ACTIVE = (ThreadStatus.QUEUED, ThreadStatus.RUNNING, ThreadStatus.WAITING)
 THREAD_COLUMNS = ("title", "instance", "status", "access")
+ATTENTION_OF_STATUS = {ThreadStatus.DONE: "done", ThreadStatus.ERROR: "failed"}
 TOKEN_COLUMNS = {
     "input": "input_tokens",
     "cache_read": "cached_tokens",
@@ -266,8 +270,9 @@ def _ensure_preferences(conn: Connection) -> None:
     values = {
         "provider": Provider.COPILOT,
         "max_steps": DEFAULT_MAX_STEPS,
-        "follow_up": FollowUp.STEER,
         "expand_tools": False,
+        "notify": False,
+        "tab_badge": True,
     }
     statement = insert(Preference).values(id=PREFERENCE_ROW, updated_at=now_ms(), **values)
     conn.execute(statement.on_conflict_do_nothing(index_elements=[Preference.id]))
@@ -280,7 +285,7 @@ def get_preferences() -> dict[str, Any]:
     return {
         **values,
         **{key: values[key] or "" for key in (*TEXT_PREFERENCES, "reasoning")},
-        "expandTools": bool(values["expandTools"]),
+        **{key: bool(values[key]) for key in BOOLEAN_PREFERENCES},
     }
 
 
@@ -292,14 +297,22 @@ def _max_steps(value: Any) -> int:
     return min(max(steps, 1), MAX_STEPS_LIMIT)
 
 
+def _compact_window(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not MIN_COMPACT_WINDOW <= value <= MAX_COMPACT_WINDOW:
+        raise ValueError(
+            f"compactWindow must be null or a number of tokens from {MIN_COMPACT_WINDOW} to {MAX_COMPACT_WINDOW}."
+        )
+    return value
+
+
 def _check_preferences(patch: dict[str, Any]) -> None:
     unknown = set(patch) - set(PREFERENCE_COLUMNS)
     if unknown:
         raise ValueError(f"Unknown settings: {', '.join(sorted(unknown))}.")
     if patch.get("reasoning") and patch["reasoning"] not in REASONING_LEVELS:
         raise ValueError(f"Unknown reasoning level: {patch['reasoning']}")
-    if "followUp" in patch and patch["followUp"] not in FOLLOW_UPS:
-        raise ValueError(f"followUp must be one of {', '.join(FOLLOW_UPS)}.")
     if "provider" in patch and patch["provider"] not in PROVIDERS:
         raise ValueError(f"provider must be one of {', '.join(PROVIDERS)}.")
 
@@ -309,8 +322,11 @@ def _preference_values(patch: dict[str, Any]) -> dict[str, Any]:
     values = {PREFERENCE_COLUMNS[key]: value for key, value in patch.items()}
     if "maxSteps" in patch:
         values["max_steps"] = _max_steps(patch["maxSteps"])
-    if "expandTools" in patch:
-        values["expand_tools"] = bool(patch["expandTools"])
+    for key in BOOLEAN_PREFERENCES:
+        if key in patch:
+            values[PREFERENCE_COLUMNS[key]] = bool(patch[key])
+    if "compactWindow" in patch:
+        values["compact_window"] = _compact_window(patch["compactWindow"])
     if "workspace" in patch:
         from ov.agent.workspace import validate_folder
 
@@ -342,6 +358,21 @@ def _thread_query() -> Any:
     )
 
 
+def _unseen_since(thread: Thread, moment: int | None) -> bool:
+    return moment is not None and (thread.seen_at is None or thread.seen_at < moment)
+
+
+def _attention(thread: Thread) -> str | None:
+    snoozed = thread.snoozed_until
+    if snoozed is not None and snoozed <= now_ms() and _unseen_since(thread, snoozed):
+        return "woke"
+
+    if not _unseen_since(thread, thread.status_at):
+        return None
+
+    return ATTENTION_OF_STATUS.get(thread.status)
+
+
 def _summary(thread: Thread, copilot: int | None, claude: int | None, requests: int) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "id": thread.id,
@@ -360,6 +391,9 @@ def _summary(thread: Thread, copilot: int | None, claude: int | None, requests: 
         summary["pinned"] = True
     if thread.snoozed_until and thread.snoozed_until > now_ms():
         summary["snoozedUntil"] = thread.snoozed_until
+    attention = _attention(thread)
+    if attention:
+        summary["attention"] = attention
     if requests:
         summary["cost"] = _amounts(copilot, claude, requests)
     return summary
@@ -406,8 +440,11 @@ def update_thread(thread_id: str, **patch: Any) -> None:
     if unknown:
         raise ValueError(f"Threads have no {', '.join(sorted(unknown))}.")
     values = {k: v for k, v in patch.items() if v is not None}
+    now = now_ms()
+    if "status" in values:
+        values["status_at"] = now
     with _begin() as conn:
-        conn.execute(update(Thread).where(Thread.id == thread_id).values(updated_at=now_ms(), **values))
+        conn.execute(update(Thread).where(Thread.id == thread_id).values(updated_at=now, **values))
 
 
 def list_threads(settled: bool | None = None, limit: int = RUN_LIST_LIMIT) -> list[dict[str, Any]]:
@@ -440,6 +477,10 @@ def set_snoozed(thread_id: str, until: int | None) -> None:
     if until is not None and until <= now_ms():
         raise ValueError("Snooze until a time in the future.")
     _set_thread(thread_id, snoozed_until=until)
+
+
+def set_seen(thread_id: str) -> None:
+    _set_thread(thread_id, seen_at=now_ms())
 
 
 def set_settled(thread_id: str, settled: bool) -> None:

@@ -1,5 +1,6 @@
 import {
   ArrowCounterClockwise,
+  ArrowsInLineVertical,
   BellZ,
   CaretRight,
   Checks,
@@ -348,6 +349,20 @@ export function RunMenu({
                   })
                 }
               />
+              {inRow ? null : (
+                <Item
+                  icon={<ArrowsInLineVertical className="size-4" />}
+                  label="Compact context"
+                  disabled={WORKING.has(run.status)}
+                  hint={WORKING.has(run.status) ? 'Working' : undefined}
+                  onHover={() => setSnoozing(false)}
+                  onClick={() =>
+                    act(async () => {
+                      await api.compactRun(run.id)
+                    })
+                  }
+                />
+              )}
               {inRow ? null : (
                 <>
                   <div className="bg-line mx-2 my-1 h-px" />

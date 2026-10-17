@@ -104,10 +104,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
         items: withItem(state.items, { kind: 'login', id: event.login.id }),
       }
     case 'queued':
-      return {
-        ...state,
-        queued: [...state.queued.filter((m) => m.id !== event.message.id), event.message],
-      }
+      return { ...state, queued: upsert(state.queued, event.message) }
     case 'unqueue':
       return { ...state, queued: state.queued.filter((m) => m.id !== event.id) }
     case 'rewind': {
@@ -130,6 +127,14 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       return { ...state, access: event.access }
     case 'browser':
       return { ...state, browser: { open: false, ...state.browser, ...event.browser } }
+    case 'compact':
+      return {
+        ...state,
+        compactions: upsert(state.compactions, event.compact),
+        items: withItem(state.items, { kind: 'compact', id: event.compact.id }),
+      }
+    case 'context':
+      return { ...state, context: event.context }
     default:
       return state
   }

@@ -13,6 +13,7 @@ export const RANGE_WORDS: Record<Range, string> = {
 
 const SECTIONS: HealthSection[] = [
   'incidents',
+  'database',
   'monitors',
   'logs',
   'traffic',

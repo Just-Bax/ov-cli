@@ -7,7 +7,7 @@ State = dict[str, Any]
 Stored = dict[str, Any]
 
 MARK_LABEL_CHARS = 160
-WINDOWED = ("items", "chat", "tools", "changes", "questions", "logins", "edits")
+WINDOWED = ("items", "chat", "tools", "changes", "questions", "logins", "edits", "compactions")
 TOOL_DETAIL = ("input", "output")
 EDIT_DETAIL = ("before", "after")
 
@@ -21,6 +21,7 @@ def empty_state(summary: dict[str, Any], access: str) -> State:
         "edits": [],
         "questions": [],
         "logins": [],
+        "compactions": [],
         "chat": [],
         "access": access,
         "queued": [],
@@ -134,8 +135,7 @@ def _on_edit(state: State, stored: Stored) -> None:
 
 
 def _on_queued(state: State, stored: Stored) -> None:
-    message = stored["event"]["message"]
-    state["queued"] = [*_without(state["queued"], message["id"]), message]
+    _upsert(state["queued"], stored["event"]["message"])
 
 
 def _on_unqueue(state: State, stored: Stored) -> None:
@@ -164,6 +164,10 @@ def _on_browser(state: State, stored: Stored) -> None:
     state["browser"] = {**state.get("browser", {}), **stored["event"]["browser"]}
 
 
+def _on_context(state: State, stored: Stored) -> None:
+    state["context"] = stored["event"]["context"]
+
+
 _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "status": _on_status,
     "meta": _on_meta,
@@ -181,6 +185,8 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "rewind": _on_rewind,
     "access": _on_access,
     "browser": _on_browser,
+    "compact": _upserter("compact", "compactions"),
+    "context": _on_context,
 }
 
 
@@ -240,6 +246,7 @@ def window(state: State, end: int, turns: int) -> State:
         "changes": [c for c in state["changes"] if ("change", c["id"]) in keys],
         "questions": [q for q in state["questions"] if ("question", q["id"]) in keys],
         "logins": [x for x in state["logins"] if ("login", x["id"]) in keys],
+        "compactions": [c for c in state["compactions"] if ("compact", c["id"]) in keys],
         "outline": outline(state, start),
     }
 

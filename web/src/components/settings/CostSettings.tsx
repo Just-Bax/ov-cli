@@ -68,8 +68,8 @@ function CopilotPlan() {
     <PlanRow
       title={account ? `GitHub Copilot, ${copilotPlan(account.plan)}` : 'GitHub Copilot'}
       action={
-        <IconButton label="Refresh" disabled={loading} onClick={reload}>
-          <ArrowPathIcon className={cn('size-4', loading && 'animate-spin')} />
+        <IconButton label="Refresh" busy={loading} disabled={loading} onClick={reload}>
+          <ArrowPathIcon className="size-4" />
         </IconButton>
       }
     >
@@ -86,8 +86,8 @@ function ClaudePlan() {
     <PlanRow
       title={account?.signedIn ? `Claude, ${planLabel(account.plan)}` : 'Claude'}
       action={
-        <IconButton label="Refresh" disabled={loading} onClick={reload}>
-          <ArrowPathIcon className={cn('size-4', loading && 'animate-spin')} />
+        <IconButton label="Refresh" busy={loading} disabled={loading} onClick={reload}>
+          <ArrowPathIcon className="size-4" />
         </IconButton>
       }
     >

@@ -13,7 +13,6 @@ from ov.agent.engine.files import within
 from ov.agent.instances import components, graph
 from ov.agent.instances.ovproc import OvResult, find_instance, host_of, instances, run_ov, url_for
 from ov.agent.tools.base import (
-    LABEL_CHARS,
     SECRET_JSON,
     SECRET_MASK,
     UI_ONLY,
@@ -21,6 +20,7 @@ from ov.agent.tools.base import (
     ToolContext,
     ToolError,
     approved,
+    brief,
     clip,
     int_param,
     string_param,
@@ -504,10 +504,7 @@ TOOLS = [
             "limit": int_param("Row limit, default 100, max 1000"),
         },
         ["query"],
-        lambda a: (
-            f"SQL{' @ ' + a['instance'] if a.get('instance') else ''}: "
-            + re.sub(r"\s+", " ", str(a.get("query", "")))[:LABEL_CHARS]
-        ),
+        lambda a: f"SQL{' @ ' + a['instance'] if a.get('instance') else ''}: " + brief(a.get("query", "")),
         _ov_sql,
     ),
     Tool(
@@ -523,7 +520,7 @@ TOOLS = [
             "ids": {"type": "array", "items": {"type": "integer"}, "description": "Component ids, up to 20"},
         },
         ["component_type", "ids"],
-        lambda a: f"export {a.get('component_type')} {', '.join(map(str, a.get('ids') or []))}"[:LABEL_CHARS],
+        lambda a: brief(f"export {a.get('component_type')} {', '.join(map(str, a.get('ids') or []))}"),
         _ov_export,
     ),
     Tool(
@@ -553,7 +550,7 @@ TOOLS = [
             "dry_run": {"type": "boolean", "description": "Check without changing anything. Default true"},
         },
         ["file"],
-        lambda a: f"import {a.get('file')}{' (dry run)' if a.get('dry_run', True) is not False else ''}"[:LABEL_CHARS],
+        lambda a: brief(f"import {a.get('file')}{' (dry run)' if a.get('dry_run', True) is not False else ''}"),
         _ov_import,
     ),
     Tool(
@@ -568,7 +565,7 @@ TOOLS = [
             "limit": int_param("Max rows, default 50"),
         },
         ["trackor_type", "fields", "condition"],
-        lambda a: f"search {a.get('trackor_type')}: {str(a.get('condition', ''))[:LABEL_CHARS]}",
+        lambda a: f"search {a.get('trackor_type')}: {brief(a.get('condition', ''))}",
         _ov_search,
     ),
 ]

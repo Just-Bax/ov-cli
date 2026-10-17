@@ -6,7 +6,7 @@ import {
 } from '@phosphor-icons/react'
 import { type RefObject, useEffect, useRef, useState } from 'react'
 import { reportError } from '@/components/common/Toasts'
-import { Spinner } from '@/components/common/ui'
+import { Shimmer } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useLayer } from '@/lib/layers'
@@ -161,7 +161,7 @@ export function FindBar({
         )}
       >
         {searching ? (
-          <Spinner className="text-brand ml-auto size-3.5" />
+          <Shimmer>Searching</Shimmer>
         ) : !query.trim() ? null : ranges.length ? (
           `${current + 1} of ${ranges.length}`
         ) : (

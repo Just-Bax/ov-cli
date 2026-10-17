@@ -16,7 +16,7 @@ import {
 } from '@/components/settings/Providers'
 import { AddInstanceForm, SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Card, Label, Select, Spinner } from '@/components/common/ui'
+import { Button, Card, Label, Select } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { loadModels } from '@/lib/models'
@@ -269,10 +269,11 @@ export function Setup({
                   <Button
                     variant="primary"
                     size="lg"
+                    busy={saving}
                     disabled={!model || saving}
                     onClick={() => void finish()}
                   >
-                    {saving ? <Spinner className="size-4" /> : null} Start using OV Agent
+                    Start using OV Agent
                     <ArrowRightIcon className="size-4" />
                   </Button>
                 </div>

@@ -185,3 +185,24 @@ def test_a_read_only_token_is_explained(linked, tmp_path):
     linked.denied = {"read-only"}
     with pytest.raises(ToolError, match="read-only"):
         TOOLS_BY_NAME["pd_resolve"].handler({"incident": "PINC7"}, Ctx(tmp_path, write=True))
+
+
+def test_database_pages_are_tied_to_the_instance_through_its_datadog_databases(linked, monkeypatch):
+    from helpers.fake_datadog import install_fake_datadog, link_datadog
+    from helpers.fake_pagerduty import incident
+
+    from ov.agent.integrations import datadog
+
+    dd = link_datadog(install_fake_datadog(monkeypatch))
+    datadog.save_matches({"acme": "host:(web01.acme-vpc.example)"})
+    dd.metric_scopes = {
+        "oracle.session_count": ["server:acme-db.abc123.us-east-1.rds.amazonaws.com"],
+        "aws.rds.cpuutilization": ["dbinstanceidentifier:acme-vpc,engine:oracle-ee"],
+    }
+    rows = [
+        pagerduty._incident(incident(11, "triggered", "RDS storage low on dbinstanceidentifier:acme-vpc", "x")),
+        pagerduty._incident(incident(12, "triggered", "Oracle sessions high", {"database": "acme-db"})),
+        pagerduty._incident(incident(13, "triggered", "Down: acme-db.abc123.us-east-1.rds.amazonaws.com", "x")),
+        pagerduty._incident(incident(14, "triggered", "RDS CPU on dbinstanceidentifier:globex", "x")),
+    ]
+    assert [r["number"] for r in pagerduty.for_instance(rows, "acme")] == [11, 12, 13]

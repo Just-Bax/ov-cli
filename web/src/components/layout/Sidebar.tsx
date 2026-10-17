@@ -1,4 +1,7 @@
 import {
+  Alarm as AlarmIcon,
+  Bell as BellIcon,
+  CheckCircle as CheckCircleIcon,
   Checks as DoubleCheckIcon,
   Code as CodeBracketIcon,
   GearSix as Cog6ToothIcon,
@@ -9,15 +12,16 @@ import {
   CaretUp as ChevronUpIcon,
   PushPin as BookmarkIcon,
   SidebarSimple as SidebarIcon,
+  WarningCircle as WarningCircleIcon,
 } from '@phosphor-icons/react'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { Provider, RunSummary } from '@shared/types.ts'
+import type { Attention, Provider, RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { EditableTitle } from '@/components/common/EditableTitle'
 import { ProviderLogo } from '@/components/common/ProviderLogo'
-import { type Icon, Skeleton, Spinner } from '@/components/common/ui'
+import { type Icon, PulseDot, Shimmer, Skeleton } from '@/components/common/ui'
 import { OPEN_PALETTE, TOGGLE_SIDEBAR } from '@/components/layout/CommandPalette'
 import { RunMenu, snoozeLabel } from '@/components/run/RunMenu'
 import { RUN_STATUS, StatusIcon } from '@/components/run/RunStatus'
@@ -59,6 +63,14 @@ const FOOTER_INSET = 'pr-[9px] pl-3'
 const ACCOUNT_INSET = 'pr-3 pl-2'
 
 type NavTool = { route: Route; label: string; icon: Icon }
+type Signal = { label: string; icon: Icon; tone: string }
+
+const NEEDS_YOU: Signal = { label: 'Needs you', icon: BellIcon, tone: 'text-warn' }
+const ATTENTION: Record<Attention, Signal> = {
+  woke: { label: 'Woke', icon: AlarmIcon, tone: 'text-woke' },
+  done: { label: 'Done', icon: CheckCircleIcon, tone: 'text-ok' },
+  failed: { label: 'Failed', icon: WarningCircleIcon, tone: 'text-danger' },
+}
 
 const TOOLS: NavTool[] = [
   { route: { page: 'map' }, label: 'Instance map', icon: MapIcon },
@@ -128,9 +140,29 @@ function Avatar({ account, loading }: { account?: SidebarAccount; loading?: bool
   )
 }
 
-function RunMeta({ run }: { run: RunSummary }) {
-  if (BUSY.has(run.status)) return <Spinner className="text-brand size-3.5" />
-  if (run.status === 'waiting') return <span className="text-warn font-medium">Needs you</span>
+function runSignal(run: RunSummary, open: boolean): Signal | undefined {
+  if (run.status === 'waiting') return NEEDS_YOU
+  if (open || !run.attention) return undefined
+  return ATTENTION[run.attention]
+}
+
+function RunMeta({ run, open }: { run: RunSummary; open: boolean }) {
+  if (BUSY.has(run.status))
+    return (
+      <Shimmer tone="brand" className="font-semibold">
+        Working
+      </Shimmer>
+    )
+
+  const signal = runSignal(run, open)
+  if (signal)
+    return (
+      <span className={cn('inline-flex items-center gap-1 font-semibold', signal.tone)}>
+        <signal.icon weight="bold" className="size-3.5" />
+        {signal.label}
+      </span>
+    )
+
   if (run.snoozedUntil)
     return (
       <span title={`Snoozed until ${snoozeLabel(run.snoozedUntil)}`} className="text-brand">
@@ -168,7 +200,6 @@ function RunItem({
           : settled
             ? 'text-muted hover:bg-canvas hover:text-brand-strong focus-visible:bg-canvas'
             : 'text-text hover:bg-canvas hover:text-brand-strong focus-visible:bg-canvas',
-        !active && BUSY.has(run.status) && 'opacity-55 hover:opacity-100 focus-visible:opacity-100',
       )}
     >
       <EditableTitle
@@ -185,7 +216,7 @@ function RunItem({
       ) : null}
       <span className="relative flex h-7 min-w-7 shrink-0 items-center justify-end text-[11.5px] font-normal tabular-nums">
         <span className="group-focus-within/run:invisible group-hover/run:invisible">
-          <RunMeta run={run} />
+          <RunMeta run={run} open={active} />
         </span>
         <span className="absolute inset-y-0 -right-[5px] flex items-center">
           <RunMenu run={run} settled={Boolean(settled)} inRow />
@@ -225,14 +256,8 @@ function initials(title: string): string {
 function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
   const tip = useRailTip()
   const hover = useHoverPrefetch(run.id, active)
-  const tone =
-    run.status === 'waiting'
-      ? 'ring-warn'
-      : run.status === 'error'
-        ? 'ring-danger/60'
-        : BUSY.has(run.status)
-          ? 'ring-brand'
-          : 'ring-transparent'
+  const busy = BUSY.has(run.status)
+  const signal = runSignal(run, active)
 
   return (
     <a
@@ -246,15 +271,11 @@ function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
         tip.hide()
         hover.stop()
       }}
-      className={cn(
-        'group/rail animate-fade-in relative mx-auto flex size-9 items-center justify-center transition-opacity',
-        !active && BUSY.has(run.status) && 'opacity-55 hover:opacity-100',
-      )}
+      className="group/rail animate-fade-in relative mx-auto flex size-9 items-center justify-center"
     >
       <span
         className={cn(
-          'flex size-8 items-center justify-center rounded-full text-[11px] font-semibold tracking-tight ring-2 transition-colors',
-          tone,
+          'flex size-8 items-center justify-center rounded-full text-[11px] font-semibold tracking-tight transition-colors',
           active
             ? 'bg-brand text-white'
             : 'bg-raised text-text group-hover/rail:bg-brand-soft group-hover/rail:text-brand-strong',
@@ -262,9 +283,13 @@ function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
       >
         {initials(run.title)}
       </span>
-      {BUSY.has(run.status) ? (
+      {busy || signal ? (
         <span className="absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full bg-white">
-          <StatusIcon status={run.status} className="size-3" />
+          {busy ? (
+            <PulseDot className="size-2" />
+          ) : signal ? (
+            <signal.icon weight="bold" className={cn('size-3', signal.tone)} />
+          ) : null}
         </span>
       ) : null}
       <RailTip at={tip.at}>

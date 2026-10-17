@@ -741,6 +741,12 @@ def retitle(_: Handler, run_id: str) -> dict[str, str]:
     return {"title": _run(run_id).retitle()}
 
 
+@route("POST", "/api/runs/([a-z0-9]+)/compact")
+def compact(_: Handler, run_id: str) -> dict[str, bool]:
+    _run(run_id).compact()
+    return {"ok": True}
+
+
 @route("POST", "/api/runs/([a-z0-9]+)/pin")
 def pin(h: Handler, run_id: str) -> dict[str, bool]:
     _known(run_id)
@@ -767,6 +773,14 @@ def snooze(h: Handler, run_id: str) -> dict[str, bool]:
     if until is not None:
         _not_waiting(run_id, "snoozing")
     db.set_snoozed(run_id, until)
+    status_feed.publish({"kind": "list"})
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/seen")
+def seen(_: Handler, run_id: str) -> dict[str, bool]:
+    _known(run_id)
+    db.set_seen(run_id)
     status_feed.publish({"kind": "list"})
     return {"ok": True}
 
@@ -925,7 +939,7 @@ def run_login(h: Handler, run_id: str) -> dict[str, Any]:
 def message(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     files = _objects(data, "files")
-    _run(run_id).follow_up(str(data.get("text", "")), files, data.get("mode", "steer") != "queue")
+    _run(run_id).follow_up(str(data.get("text", "")), files)
     db.set_settled(run_id, False)
     db.set_snoozed(run_id, None)
     status_feed.publish({"kind": "list"})
@@ -947,6 +961,12 @@ def retry(h: Handler, run_id: str) -> dict[str, bool]:
 @route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/steer")
 def steer_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
     _run(run_id).steer_queued(message_id)
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/text")
+def edit_queued(h: Handler, run_id: str, message_id: str) -> dict[str, bool]:
+    _run(run_id).edit_queued(message_id, str(h.json().get("text", "")))
     return {"ok": True}
 
 

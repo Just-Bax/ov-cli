@@ -23,6 +23,19 @@ AREAS_BY_PATH = {
 }
 
 
+MONITORS = [
+    {
+        "id": 1,
+        "name": "Heap high on acme",
+        "overall_state": "Alert",
+        "query": "avg:jvm.heap_memory{host:acme-app-01}",
+        "state": {"groups": {"host:acme-app-01": {}}},
+    },
+    {"id": 2, "name": "Other org thing", "overall_state": "Alert", "query": "x{host:zz}"},
+    {"id": 3, "name": "Acme disk", "overall_state": "OK", "query": "y{host:acme-app-02}"},
+]
+
+
 def forbidden() -> httpx.Response:
     return httpx.Response(403, json={"errors": ["Forbidden"]})
 
@@ -31,6 +44,8 @@ class FakeDatadog:
     def __init__(self) -> None:
         self.denied: set[str] = set()
         self.requests: list[httpx.Request] = []
+        self.metric_scopes: dict[str, list[str]] = {}
+        self.monitors = list(MONITORS)
         self.logs = [
             {"host": "acme-app-01", "service": "tomcat", "message": "Deadlock on row 42 in RULE"},
             {"host": "acme-app-02", "service": "tomcat", "message": "Deadlock on row 77 in RULE"},
@@ -59,14 +74,10 @@ class FakeDatadog:
         route = routes.get(path)
         return httpx.Response(200, json=route() if route else {"data": []})
 
-    @staticmethod
-    def _query(query: str) -> dict[str, Any]:
-        series = {
-            "expression": query,
-            "scope": "host:acme-app-01",
-            "pointlist": [[1_700_000_000_000, 10.0], [1_700_000_060_000, 30.0]],
-        }
-        return {"series": [series]}
+    def _query(self, query: str) -> dict[str, Any]:
+        scopes = next((v for k, v in self.metric_scopes.items() if k in query), ["host:acme-app-01"])
+        points = [[1_700_000_000_000, 10.0], [1_700_000_060_000, 30.0]]
+        return {"series": [{"expression": query, "scope": scope, "pointlist": points} for scope in scopes]}
 
     @staticmethod
     def _hosts() -> dict[str, Any]:
@@ -121,25 +132,14 @@ class FakeDatadog:
             return {"data": {"buckets": [{"by": {group: k}, "computes": {"c0": v}} for k, v in counts.items()]}}
         return {"data": {"buckets": [{"computes": {"c0": 300}}]}}
 
-    @staticmethod
-    def _monitors() -> list[dict[str, Any]]:
-        return [
-            {
-                "id": 1,
-                "name": "Heap high on acme",
-                "overall_state": "Alert",
-                "query": "avg:jvm.heap_memory{host:acme-app-01}",
-                "state": {"groups": {"host:acme-app-01": {}}},
-            },
-            {"id": 2, "name": "Other org thing", "overall_state": "Alert", "query": "x{host:zz}"},
-            {"id": 3, "name": "Acme disk", "overall_state": "OK", "query": "y{host:acme-app-02}"},
-        ]
+    def _monitors(self) -> list[dict[str, Any]]:
+        return self.monitors
 
 
 def install_fake_datadog(monkeypatch) -> FakeDatadog:
     dd = FakeDatadog()
     monkeypatch.setattr(datadog, "TRANSPORT", httpx.MockTransport(dd.handler))
-    datadog._health_cache.clear()
+    datadog.clear_caches()
     return dd
 
 

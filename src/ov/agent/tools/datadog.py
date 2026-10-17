@@ -6,11 +6,11 @@ from typing import Any
 
 from ov.agent.integrations import datadog
 from ov.agent.tools.base import (
-    LABEL_CHARS,
     Handler,
     Tool,
     ToolContext,
     ToolError,
+    brief,
     clip,
     int_param,
     raising_tool_errors,
@@ -134,17 +134,23 @@ def _datadog_metrics(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 def _datadog_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
-    scope = _datadog_scope(args, ctx)
-    rows = datadog.monitors_for(scope, include_ok=bool(args.get("include_ok")))
+    alias, scope = datadog.resolve_scope(args.get("instance"), ctx.instance)
+    databases = datadog.known_databases(alias) if scope else []
+    needles = datadog.database_needles(alias) if databases else []
+    rows = datadog.monitors_for(scope, include_ok=bool(args.get("include_ok")), database_needles=needles)
+    target = scope or "the org"
+    if databases:
+        names = [f"{d['id']} ({d['endpoint']})" if d["endpoint"] else d["id"] for d in databases]
+        target += f" and databases {', '.join(names)}"
     if not rows:
-        return f"No {'' if args.get('include_ok') else 'alerting or warning '}monitors for {scope or 'the org'}."
+        return f"No {'' if args.get('include_ok') else 'alerting or warning '}monitors for {target}."
 
     base = datadog.app_url(_datadog_site())
     lines = []
     for m in rows[:MAX_MONITORS_SHOWN]:
         groups = f" groups: {', '.join(m['groups'])}" if m["groups"] else ""
         lines.append(f"[{m['state']}] {m['name']} ({base}/monitors/{m['id']}){groups}")
-    return clip(f"Monitors for {scope or 'the org'}:\n" + "\n".join(lines), ctx, "monitors")
+    return clip(f"Monitors for {target}:\n" + "\n".join(lines), ctx, "monitors")
 
 
 def _datadog_events(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -191,7 +197,7 @@ def _datadog_label(kind: str) -> Callable[[dict[str, Any]], str]:
         what = a.get("query") or a.get("mode") or ""
         at = f" @ {a['instance']}" if a.get("instance") else ""
         span = f" {a['from']}" if a.get("from") else ""
-        return f"Datadog {kind}{': ' + str(what)[:LABEL_CHARS] if what else ''}{span}{at}"
+        return f"Datadog {kind}{': ' + brief(what) if what else ''}{span}{at}"
 
     return label
 
@@ -220,7 +226,9 @@ TOOLS = [
         "Query a Datadog metric for an instance and get min, avg, max, latest and a sample of "
         "points per series. Give an aggregation and metric, e.g. avg:system.cpu.user, "
         "avg:jvm.heap_memory, max:system.disk.in_use; the instance filter is added as the scope "
-        'unless the query has its own {...} scope. Add "by {host}" to split by host.',
+        'unless the query has its own {...} scope. Add "by {host}" to split by host. Databases '
+        "are not hosts: query aws.rds.* with {dbinstanceidentifier:<id>} and oracle.* with "
+        "{server:<endpoint>}; dd_monitors names the instance's databases.",
         {
             "instance": DATADOG_INSTANCE,
             "role": ROLE,

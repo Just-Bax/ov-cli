@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DatadogArea, DatadogDiscovery, DatadogStatus } from '@shared/types.ts'
 import datadogMark from '@/assets/datadog.svg'
 import { Dropdown } from '@/components/common/Dropdown'
-import { Button, IconBadge, Select, Skeleton, Spinner, useCopy } from '@/components/common/ui'
+import { Button, IconBadge, Select, Skeleton, useCopy } from '@/components/common/ui'
 import {
   ConnectModal,
   type ConnectProps,
@@ -352,24 +352,21 @@ function DatadogMatches({
         <Button
           size="sm"
           variant="secondary"
+          busy={busy === 'detect'}
           disabled={Boolean(busy)}
           onClick={() => void detect()}
         >
-          {busy === 'detect' ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <SparklesIcon className="size-3.5" />
-          )}
+          <SparklesIcon className="size-3.5" />
           Detect servers
         </Button>
         <Button
           size="sm"
           variant="primary"
+          busy={busy === 'save'}
           disabled={!dirty || Boolean(busy)}
           onClick={() => void save()}
         >
-          {busy === 'save' ? <Spinner className="size-3.5" /> : <CheckIcon className="size-3.5" />}{' '}
-          Save
+          <CheckIcon className="size-3.5" /> Save
         </Button>
       </div>
       <div className="divide-line border-line max-h-[380px] scrollbar-thin divide-y overflow-y-auto border-t">

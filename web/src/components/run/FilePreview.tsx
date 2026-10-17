@@ -12,7 +12,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { MessageFile } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
-import { type Icon, Spinner } from '@/components/common/ui'
+import { type Icon, Shimmer } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useEnterTransition, useWindowEvent } from '@/lib/hooks'
@@ -179,7 +179,12 @@ function Body({ runId, file }: { runId: string; file: MessageFile }) {
       />
     )
   }
-  if (text.state === 'loading') return <Spinner className="size-6 text-white/70" />
+  if (text.state === 'loading')
+    return (
+      <Shimmer tone="light" className="text-[14px] font-medium">
+        Loading preview
+      </Shimmer>
+    )
   if (text.state === 'ready') return <TextBody text={text} />
   return <NoPreview runId={runId} file={file} />
 }

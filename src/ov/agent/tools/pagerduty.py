@@ -6,12 +6,12 @@ from typing import Any
 
 from ov.agent.integrations import datadog, pagerduty
 from ov.agent.tools.base import (
-    LABEL_CHARS,
     Handler,
     Tool,
     ToolContext,
     ToolError,
     approved,
+    brief,
     clip,
     int_param,
     raising_tool_errors,
@@ -140,7 +140,7 @@ def _pagerduty_label(kind: str) -> Callable[[dict[str, Any]], str]:
     def label(a: dict[str, Any]) -> str:
         what = a.get("incident") or a.get("query") or ""
         at = f" @ {a['instance']}" if a.get("instance") else ""
-        return f"PagerDuty {kind}{': ' + str(what)[:LABEL_CHARS] if what else ''}{at}"
+        return f"PagerDuty {kind}{': ' + brief(what) if what else ''}{at}"
 
     return label
 

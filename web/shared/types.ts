@@ -168,6 +168,23 @@ export interface MessageLinks {
   unverified: string[]
 }
 
+export interface Compaction {
+  id: string
+  trigger: 'auto' | 'manual'
+  status: 'running' | 'done' | 'error'
+  startedAt: number
+  before?: number
+  after?: number
+  ms?: number
+  error?: string
+}
+
+export interface ContextUsage {
+  tokens: number
+  limit: number
+  compactAt?: number
+}
+
 type RunEvent =
   | { type: 'status'; status: RunStatus; error?: string }
   | { type: 'meta'; title?: string; caseKey?: string; caseUrl?: string; instance?: string }
@@ -186,6 +203,8 @@ type RunEvent =
   | { type: 'unqueue'; id: string }
   | { type: 'rewind'; itemId: string }
   | { type: 'cost'; cost: CostTotal }
+  | { type: 'compact'; compact: Compaction }
+  | { type: 'context'; context: ContextUsage }
 
 export type Provider = 'copilot' | 'claude'
 
@@ -251,6 +270,7 @@ export interface RunWindow {
   changes: Change[]
   questions: Question[]
   logins: LoginPrompt[]
+  compactions: Compaction[]
   outline: OutlineMark[]
 }
 
@@ -267,6 +287,7 @@ export type ThreadItem =
   | { kind: 'question'; id: string }
   | { kind: 'login'; id: string }
   | { kind: 'outcome'; id: string }
+  | { kind: 'compact'; id: string }
 
 export interface Upload {
   id: string
@@ -282,6 +303,8 @@ export interface RunInput {
   access?: Access
 }
 
+export type Attention = 'done' | 'failed' | 'woke'
+
 export interface RunSummary {
   id: string
   title: string
@@ -295,6 +318,7 @@ export interface RunSummary {
   settled?: boolean
   pinned?: boolean
   snoozedUntil?: number
+  attention?: Attention
   cost?: CostTotal
 }
 
@@ -316,6 +340,7 @@ export interface RunState extends RunWindow {
   access: Access
   queued: ChatMessage[]
   browser?: BrowserState
+  context?: ContextUsage
 }
 
 export type RunSnapshot = RunState & { seq: number }
@@ -328,8 +353,10 @@ export interface Settings {
   workspaceNotes: string
   maxSteps: number
   reasoning: ReasoningLevel | ''
-  followUp: FollowUp
   expandTools: boolean
+  notify: boolean
+  tabBadge: boolean
+  compactWindow: number | null
 }
 
 export interface SkillInfo {
@@ -350,9 +377,8 @@ export interface ModelInfo {
   premium?: number
   reasoning: ReasoningLevel[]
   description?: string
+  contextWindow?: number | null
 }
-
-export type FollowUp = 'steer' | 'queue'
 
 export type ReasoningLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -481,6 +507,23 @@ export interface HealthServer {
   metrics: Partial<Record<'cpu' | 'memory' | 'disk' | 'load' | 'heap', HealthServerMetric>>
 }
 
+export type HealthDatabaseMetricKey =
+  | 'cpu'
+  | 'memory'
+  | 'storage'
+  | 'connections'
+  | 'readLatency'
+  | 'writeLatency'
+  | 'sessions'
+  | 'tablespace'
+
+export interface HealthDatabase {
+  id: string
+  engine: string
+  endpoint: string
+  metrics: Partial<Record<HealthDatabaseMetricKey, HealthServerMetric>>
+}
+
 export interface HealthPoint {
   t: number
   v: number
@@ -526,6 +569,7 @@ export interface HealthSections {
     slowEndpoints: { resource: string; p95Ms: number; count: number }[]
   }
   servers: { servers: HealthServer[] }
+  database: { databases: HealthDatabase[] }
   events: { events: HealthEvent[] }
   onevizion: {
     byType: { type: string; count: number; last: string }[]

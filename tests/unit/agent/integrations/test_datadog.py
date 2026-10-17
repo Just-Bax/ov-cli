@@ -228,3 +228,101 @@ def test_datadog_queries_naming_a_host_skip_the_instance_lookup(logged_in, tmp_p
     from ov.agent.tools.datadog import _datadog_scope
 
     assert _datadog_scope({"query": "host:app01.test-lumen-vpc status:error"}, FakeContext(tmp_path)) == ""
+
+
+ACME_HOSTS = "host:(app01.acme-vpc.example OR web01.acme-vpc.example)"
+ACME_ENDPOINT = "acme-vpc.abc123.us-east-1.rds.amazonaws.com"
+DATABASE_SCOPES = {
+    "oracle.session_count": [f"server:{ACME_ENDPOINT}", "server:db01.shared.example"],
+    "aws.rds.cpuutilization{*}": [
+        "dbinstanceidentifier:acme-vpc,engine:oracle-ee",
+        "dbinstanceidentifier:acme-archive,engine:oracle-se2",
+        "dbinstanceidentifier:acme-north-db,engine:oracle-ee",
+        "dbinstanceidentifier:acmecorp,engine:postgres",
+        "dbinstanceidentifier:globex,engine:oracle-ee",
+    ],
+    "aws.rds": ["dbinstanceidentifier:acme-vpc", "dbinstanceidentifier:acme-archive"],
+    "oracle.": [f"server:{ACME_ENDPOINT}", "server:db01.shared.example"],
+}
+
+
+@pytest.fixture
+def with_databases(linked):
+    from helpers.sessions import seed_session
+
+    seed_session("https://acme-north.onevizion.test")
+    datadog.save_matches({"acme": ACME_HOSTS})
+    linked.metric_scopes = dict(DATABASE_SCOPES)
+    return linked
+
+
+def test_databases_come_from_oracle_agents_and_rds_names(with_databases):
+    found = datadog.databases_for("acme")
+    assert found == [
+        {"id": "acme-archive", "endpoint": "", "engine": "oracle-se2"},
+        {"id": "acme-vpc", "engine": "oracle-ee", "endpoint": ACME_ENDPOINT},
+        {"id": "db01.shared.example", "engine": "oracle", "endpoint": "db01.shared.example"},
+    ]
+    probe = next(r.url.params["query"] for r in with_databases.requests if "session_count" in str(r.url))
+    assert "ddagenthostname IN (app01.acme-vpc.example,web01.acme-vpc.example)" in probe
+
+    before = len(with_databases.requests)
+    datadog.databases_for("acme")
+    assert len(with_databases.requests) == before
+
+
+def test_database_section_maps_rds_and_oracle_metrics_back_to_each_database(with_databases):
+    meta = datadog.health_meta("acme", "24h")
+    rows = {d["id"]: d for d in datadog.health_section("acme", "24h", "database", meta["to"])["databases"]}
+    assert set(rows["acme-vpc"]["metrics"]) == {
+        "cpu",
+        "memory",
+        "storage",
+        "connections",
+        "readLatency",
+        "writeLatency",
+        "sessions",
+        "tablespace",
+    }
+    assert set(rows["db01.shared.example"]["metrics"]) == {"sessions", "tablespace"}
+    assert rows["acme-vpc"]["metrics"]["cpu"] == {
+        "latest": 30.0,
+        "max": 30.0,
+        "points": [{"t": 1_700_000_000_000, "v": 10.0}, {"t": 1_700_000_060_000, "v": 30.0}],
+    }
+    queries = [r.url.params.get("query", "") for r in with_databases.requests]
+    assert any("total_storage_space{dbinstanceidentifier IN (acme-archive,acme-vpc)}" in q for q in queries)
+    assert not any("dbinstanceidentifier IN" in q and "db01" in q for q in queries)
+
+
+def test_an_instance_without_a_database_says_so(linked):
+    datadog.save_matches({"acme": ACME_HOSTS})
+    meta = datadog.health_meta("acme", "24h")
+    with pytest.raises(datadog.Unavailable, match="No database found"):
+        datadog.health_section("acme", "24h", "database", meta["to"])
+
+
+def test_rds_monitors_match_the_instance_by_database_group(with_databases, tmp_path):
+    rds = "avg(last_5m):avg:aws.rds.cpuutilization{*} by {dbinstanceidentifier} > 90"
+    with_databases.monitors += [
+        {
+            "id": 4,
+            "name": "RDS CPU",
+            "overall_state": "Alert",
+            "query": rds,
+            "state": {"groups": {"dbinstanceidentifier:acme-vpc": {}, "dbinstanceidentifier:globex": {}}},
+        },
+        {
+            "id": 5,
+            "name": "RDS CPU old",
+            "overall_state": "Alert",
+            "query": rds,
+            "state": {"groups": {"dbinstanceidentifier:acme-vpc-old": {}}},
+        },
+    ]
+    meta = datadog.health_meta("acme", "24h")
+    names = [m["name"] for m in datadog.health_section("acme", "24h", "monitors", meta["to"])["monitors"]]
+    assert "RDS CPU" in names and "RDS CPU old" not in names
+
+    out = TOOLS_BY_NAME["dd_monitors"].handler({}, Ctx(tmp_path))
+    assert f"databases acme-archive, acme-vpc ({ACME_ENDPOINT})" in out and "[Alert] RDS CPU (" in out

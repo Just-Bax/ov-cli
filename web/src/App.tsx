@@ -9,6 +9,7 @@ import { Sidebar, type SidebarAccount } from '@/components/layout/Sidebar'
 import { Toasts } from '@/components/common/Toasts'
 import { HomeSkeleton } from '@/components/common/skeletons'
 import { api } from '@/lib/api'
+import { configureAttention } from '@/lib/attention'
 import { useRoute } from '@/lib/route'
 import { SettingsContext } from '@/lib/settings'
 
@@ -57,6 +58,9 @@ export function App() {
   }, [])
 
   useEffect(refresh, [refresh])
+  useEffect(() => {
+    if (status) configureAttention(status.settings)
+  }, [status?.settings.notify, status?.settings.tabBadge])
   useEffect(() => {
     if (status && !status.ready) setInSetup(true)
   }, [status?.ready])

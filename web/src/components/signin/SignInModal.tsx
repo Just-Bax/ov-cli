@@ -9,7 +9,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Input, Spinner } from '@/components/common/ui'
+import { Button, Input } from '@/components/common/ui'
 import { LiveScreen, SCREEN_BAR_PX, screenSize } from '@/components/screen/LiveScreen'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -214,8 +214,7 @@ export function SignInModal({
             closeLabel="Cancel sign-in"
             onClose={dismiss}
             status={
-              <span className="bg-brand-soft text-brand-strong hidden h-8 shrink-0 items-center gap-2 rounded-full px-3 text-[12px] font-medium sm:inline-flex">
-                <Spinner className="size-3" />
+              <span className="bg-brand-soft text-brand-strong busy-sweep hidden h-8 shrink-0 items-center gap-2 rounded-full px-3 text-[12px] font-medium sm:inline-flex">
                 {tenant ? `Tenant ${tenant}` : 'Sign in'}
                 <span className="text-brand-strong/60 tabular-nums">{clock}</span>
               </span>
@@ -407,8 +406,7 @@ export function SignInModal({
             </>
           ) : phase === 'waiting' ? (
             <>
-              <span className="bg-brand-soft text-brand-strong mr-auto inline-flex h-10 items-center gap-2 rounded-full px-4 text-[12.5px] font-medium">
-                <Spinner className="size-3.5" />
+              <span className="bg-brand-soft text-brand-strong busy-sweep mr-auto inline-flex h-10 items-center gap-2 rounded-full px-4 text-[12.5px] font-medium">
                 {byToken ? (
                   'Checking the token'
                 ) : (

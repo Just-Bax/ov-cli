@@ -5,7 +5,7 @@ import time
 from typing import Any, ClassVar
 
 import pytest
-from claude_agent_sdk import ResultMessage, StreamEvent, UserMessage
+from claude_agent_sdk import ResultMessage, StreamEvent, SystemMessage, UserMessage
 
 from ov.agent.storage import db
 from ov.agent.storage.models import Provider
@@ -13,6 +13,7 @@ from ov.agent.storage.models import Provider
 POLLS = 200
 POLL_SECONDS = 0.05
 SESSION_UUID_LENGTH = 36
+CONTEXT_USAGE = {"totalTokens": 52_000, "rawMaxTokens": 200_000, "autoCompactThreshold": 167_000}
 
 BREAK = chr(10) * 2
 
@@ -64,8 +65,14 @@ class FakeClient:
         return False
 
     async def query(self, prompt: Any, session_id: str = "default") -> None:
+        if isinstance(prompt, str):
+            FakeClient.prompts.append([{"type": "text", "text": prompt}])
+            return
         async for message in prompt:
             FakeClient.prompts.append(message["message"]["content"])
+
+    async def get_context_usage(self) -> dict[str, Any]:
+        return CONTEXT_USAGE
 
     async def receive_response(self):
         script = FakeClient.replies.pop(0)
@@ -266,3 +273,60 @@ def test_deleting_a_claude_thread_deletes_its_claude_code_transcripts(claude_thr
 
     runs.delete(run.id)
     assert deleted == [(session, str(run.work_dir))]
+
+
+def _compacted(trigger: str) -> list[SystemMessage]:
+    return [
+        SystemMessage(subtype="status", data={"status": "compacting"}),
+        SystemMessage(subtype="status", data={"status": None, "compact_result": "success"}),
+        SystemMessage(
+            subtype="compact_boundary",
+            data={"compact_metadata": {"trigger": trigger, "pre_tokens": 170_000, "post_tokens": 9_000}},
+        ),
+    ]
+
+
+def test_claude_compacts_at_the_chosen_window_and_shows_it_in_the_thread(claude_thread):
+    db.save_preferences({"compactWindow": 200_000})
+    FakeClient.replies = [[*_compacted("auto"), *_text_events("Carrying on."), _result()]]
+    run = _start("a long investigation")
+    _wait_for(lambda: run.state["summary"]["status"] == "done")
+
+    assert FakeClient.sessions[0].env == {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000"}
+    [compacted] = run.state["compactions"]
+    assert compacted["status"] == "done" and compacted["trigger"] == "auto"
+    assert (compacted["before"], compacted["after"]) == (170_000, 9_000)
+    assert {"kind": "compact", "id": compacted["id"]} in run.state["items"]
+    assert run.state["context"] == {"tokens": 52_000, "limit": 200_000, "compactAt": 167_000}
+
+
+def test_compacting_a_claude_thread_on_request_sends_the_compact_command(claude_thread):
+    FakeClient.replies = [[_result()], [*_compacted("manual")[2:], _result(0.3)]]
+    run = _start("first")
+    _wait_for(lambda: run.state["summary"]["status"] == "done")
+
+    run.compact()
+    _wait_for(lambda: len(FakeClient.sessions) == 2 and not run._busy)
+    assert FakeClient.sessions[1].resume == FakeClient.sessions[0].session_id
+    assert FakeClient.prompts[-1] == [{"type": "text", "text": "/compact"}]
+    [compacted] = run.state["compactions"]
+    assert compacted["trigger"] == "manual" and compacted["status"] == "done"
+    assert run.state["summary"]["status"] == "done" and run.state["summary"]["cost"]["usd"] == pytest.approx(0.3)
+
+
+def test_a_thread_without_a_session_has_nothing_to_compact(claude_thread):
+    from ov.agent.engine.run import RunError
+
+    FakeClient.replies = [[_result()]]
+    run = _start("first")
+    _wait_for(lambda: run.state["summary"]["status"] == "done")
+    run.state["claude"]["session"] = None
+    with pytest.raises(RunError, match="nothing to compact"):
+        run.compact()
+
+
+def test_the_model_window_leaves_claude_code_to_pick_when_to_compact(claude_thread):
+    FakeClient.replies = [[_result()]]
+    run = _start("first")
+    _wait_for(lambda: run.state["summary"]["status"] == "done")
+    assert FakeClient.sessions[0].env == {}
