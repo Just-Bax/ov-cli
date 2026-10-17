@@ -201,6 +201,7 @@ type RunEvent =
   | { type: 'browser'; browser: Partial<BrowserState> }
   | { type: 'queued'; message: ChatMessage }
   | { type: 'unqueue'; id: string }
+  | { type: 'queue'; order: string[]; steering: string[]; held: boolean }
   | { type: 'rewind'; itemId: string }
   | { type: 'cost'; cost: CostTotal }
   | { type: 'compact'; compact: Compaction }
@@ -339,6 +340,7 @@ export interface RunState extends RunWindow {
   error?: string
   access: Access
   queued: ChatMessage[]
+  queueHeld: boolean
   browser?: BrowserState
   context?: ContextUsage
 }
@@ -353,6 +355,7 @@ export interface Settings {
   workspaceNotes: string
   maxSteps: number
   reasoning: ReasoningLevel | ''
+  followUp: FollowUp
   expandTools: boolean
   notify: boolean
   tabBadge: boolean
@@ -379,6 +382,8 @@ export interface ModelInfo {
   description?: string
   contextWindow?: number | null
 }
+
+export type FollowUp = 'steer' | 'queue'
 
 export type ReasoningLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 

@@ -4,7 +4,7 @@ import {
   Stop as StopIcon,
   X as XMarkIcon,
 } from '@phosphor-icons/react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { reportError } from '@/components/common/Toasts'
 import { cn } from '@/lib/cn'
 import { useWindowEvent } from '@/lib/hooks'
@@ -30,9 +30,15 @@ export function Composer({
   draftKey,
   submitLabel,
   allowEmpty,
+  busyAction,
+  idleAction,
+  onKeyDown,
 }: {
   placeholder: string
-  onSend: (text: string, files: File[]) => void | Promise<void>
+  onSend: (text: string, files: File[], alternate: boolean) => void | Promise<void>
+  busyAction?: (alternate: boolean) => { label: string; icon: ReactNode }
+  idleAction?: ReactNode
+  onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean
   onStop?: () => void
   busy?: boolean
   allowFiles?: boolean
@@ -48,13 +54,16 @@ export function Composer({
   const [text, setText] = useState(() => loadText(draftKey))
   const [files, setFiles] = useState<File[]>([])
   const [previews, setPreviews] = useState<(string | undefined)[]>([])
+  const [alternate, setAlternate] = useState(false)
   const filesLoaded = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
   const canSend =
     (!busy || Boolean(queueWhileBusy)) &&
     (Boolean(allowEmpty) || text.trim().length > 0 || files.length > 0)
-  const showStop = busy && onStop && (submitLabel || (!text.trim() && !files.length))
+  const hasContent = text.trim().length > 0 || files.length > 0
+  const showStop = busy && onStop && (submitLabel || !hasContent)
+  const action = busy && hasContent ? busyAction?.(alternate) : undefined
 
   useEffect(() => {
     let alive = true
@@ -83,8 +92,11 @@ export function Composer({
   }, [draftKey, files])
 
   useWindowEvent('beforeunload', () => saveText(draftKey, textRef.current?.value ?? ''))
+  useWindowEvent('keydown', (e) => setAlternate(e.ctrlKey || e.metaKey))
+  useWindowEvent('keyup', (e) => setAlternate(e.ctrlKey || e.metaKey))
+  useWindowEvent('blur', () => setAlternate(false))
 
-  const send = async () => {
+  const send = async (alternate = false) => {
     if (!canSend) return
 
     const value = text.trim()
@@ -92,7 +104,7 @@ export function Composer({
     setText('')
     setFiles([])
     try {
-      await onSend(value, attached)
+      await onSend(value, attached, alternate)
       forgetDraft(draftKey)
     } catch {
       setText(value)
@@ -224,9 +236,13 @@ export function Composer({
           if (tookFiles && !hasText) e.preventDefault()
         }}
         onKeyDown={(e) => {
+          if (onKeyDown?.(e)) {
+            e.preventDefault()
+            return
+          }
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            void send()
+            void send(e.ctrlKey || e.metaKey)
           }
         }}
         rows={1}
@@ -277,10 +293,23 @@ export function Composer({
           >
             {submitLabel(text.trim())}
           </button>
-        ) : showStop ? null : (
+        ) : showStop ? null : action ? (
           <button
             type="button"
-            title={busy ? 'Queue: sent after this turn' : 'Send'}
+            title={action.label}
+            aria-label={action.label}
+            disabled={!canSend}
+            onClick={() => void send(alternate)}
+            className="bg-brand hover:bg-brand-strong disabled:bg-line-strong flex size-8 items-center justify-center rounded-full text-white transition-colors"
+          >
+            {action.icon}
+          </button>
+        ) : !busy && !hasContent && idleAction ? (
+          idleAction
+        ) : (
+          <button
+            type="button"
+            title="Send"
             disabled={!canSend}
             onClick={() => void send()}
             className="bg-brand hover:bg-brand-strong disabled:bg-line-strong flex size-8 items-center justify-center rounded-full text-white transition-colors"

@@ -39,11 +39,17 @@ class EventType(StrEnum):
     LOGIN = "login"
     QUEUED = "queued"
     UNQUEUE = "unqueue"
+    QUEUE = "queue"
     REWIND = "rewind"
     ACCESS = "access"
     BROWSER = "browser"
     COMPACT = "compact"
     CONTEXT = "context"
+
+
+class FollowUp(StrEnum):
+    STEER = "steer"
+    QUEUE = "queue"
 
 
 class Access(StrEnum):
@@ -195,6 +201,7 @@ class Preference(Base):
         CheckConstraint("id = 1", name="single_row"),
         one_of("reasoning", Reasoning, nullable=True),
         one_of("provider", Provider),
+        one_of("follow_up", FollowUp),
         CheckConstraint("max_steps BETWEEN 1 AND 500", name="max_steps_valid"),
         CheckConstraint("expand_tools IN (0, 1)", name="expand_tools_valid"),
         CheckConstraint("notify IN (0, 1)", name="notify_valid"),
@@ -208,6 +215,7 @@ class Preference(Base):
     fast_model: Mapped[str | None] = mapped_column(Text)
     reasoning: Mapped[str | None] = mapped_column(Text)
     max_steps: Mapped[int] = mapped_column(Integer)
+    follow_up: Mapped[str] = mapped_column(Text)
     workspace: Mapped[str | None] = mapped_column(Text)
     workspace_notes: Mapped[str | None] = mapped_column(Text)
     expand_tools: Mapped[bool] = mapped_column(Integer)

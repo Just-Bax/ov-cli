@@ -292,11 +292,9 @@ function ApprovalComposer({
 
   return (
     <div>
-      <div className="border-warn/60 relative -mb-6 overflow-hidden rounded-t-[26px] border border-b-0 bg-white pb-6">
-        <div className="bg-warn-soft/60 flex items-center gap-2.5 px-5 py-2.5">
-          <span className="bg-warn-soft text-warn flex size-7 shrink-0 items-center justify-center rounded-full">
-            <ShieldWarningIcon weight="fill" className="size-4" />
-          </span>
+      <div className="border-line-strong relative -mb-6 overflow-hidden rounded-t-[26px] border border-b-0 bg-white pb-6">
+        <div className="flex items-center gap-2 px-5 pt-3">
+          <ShieldWarningIcon weight="fill" className="text-warn size-4 shrink-0" />
           <span className="text-warn text-[12.5px] font-semibold">Approval needed</span>
           {tool ? (
             <Chip className="max-w-[50%] truncate" tone="neutral">
@@ -306,7 +304,7 @@ function ApprovalComposer({
           <div className="flex-1" />
           <CopyButton text={question.detail} variant="ghost" />
         </div>
-        <div className="px-5 pt-3">
+        <div className="px-5 pt-1.5">
           <div className="text-fg text-[14.5px] font-semibold [overflow-wrap:anywhere]">
             {question.question}
           </div>

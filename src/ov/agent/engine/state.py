@@ -25,6 +25,7 @@ def empty_state(summary: dict[str, Any], access: str) -> State:
         "chat": [],
         "access": access,
         "queued": [],
+        "queueHeld": False,
         "claude": {"session": None, "turns": {}, "spent": 0.0},
     }
 
@@ -138,6 +139,14 @@ def _on_queued(state: State, stored: Stored) -> None:
     _upsert(state["queued"], stored["event"]["message"])
 
 
+def _on_queue(state: State, stored: Stored) -> None:
+    event = stored["event"]
+    by_id = {m["id"]: m for m in state["queued"]}
+    steering = set(event["steering"])
+    state["queued"] = [{**by_id[i], "steer": i in steering} for i in event["order"] if i in by_id]
+    state["queueHeld"] = event["held"]
+
+
 def _on_unqueue(state: State, stored: Stored) -> None:
     state["queued"] = _without(state["queued"], stored["event"]["id"])
 
@@ -182,6 +191,7 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "login": _upserter("login", "logins"),
     "queued": _on_queued,
     "unqueue": _on_unqueue,
+    "queue": _on_queue,
     "rewind": _on_rewind,
     "access": _on_access,
     "browser": _on_browser,

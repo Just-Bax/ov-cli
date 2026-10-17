@@ -107,6 +107,14 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       return { ...state, queued: upsert(state.queued, event.message) }
     case 'unqueue':
       return { ...state, queued: state.queued.filter((m) => m.id !== event.id) }
+    case 'queue': {
+      const byId = new Map(state.queued.map((m) => [m.id, m]))
+      const queued = event.order.flatMap((id) => {
+        const message = byId.get(id)
+        return message ? [{ ...message, steer: event.steering.includes(id) }] : []
+      })
+      return { ...state, queued, queueHeld: event.held }
+    }
     case 'rewind': {
       const i = state.items.findIndex((x) => x.kind === 'user' && x.id === event.itemId)
       if (i < 0) return state

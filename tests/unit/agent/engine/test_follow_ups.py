@@ -34,7 +34,7 @@ def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(l
     run._fail(RuntimeError("tool thread died"))
     assert run.state["tools"][-1]["status"] == "error"
 
-    run.follow_up("continue", [])
+    run.follow_up("continue", [], steer=False)
     for _ in range(100):
         if len(sent) == 2:
             break
@@ -60,7 +60,7 @@ def test_the_system_prompt_follows_the_access_mode(logged_in, monkeypatch):
     run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
     run.set_access(Access.AUTO)
-    run.follow_up("go", [])
+    run.follow_up("go", [], steer=False)
     for _ in range(100):
         if len(sent) == 2:
             break
@@ -94,9 +94,8 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
         if seen:
             break
         time.sleep(0.05)
-    run.follow_up("later", [])
-    run.follow_up("now", [])
-    run.steer_queued(run.state["queued"][-1]["id"])
+    run.follow_up("later", [], steer=False)
+    run.follow_up("now", [], steer=True)
     gate.set()
     for _ in range(200):
         if len(seen) >= 3 and run.state["summary"]["status"] == "done":
@@ -108,6 +107,38 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
     assert not run.state["queued"]
 
 
+def test_queued_messages_are_sent_one_turn_at_a_time(logged_in, monkeypatch):
+    gate = threading.Event()
+    seen: list[str] = []
+
+    def fake_chat(model, messages, *args, cancel, on_text, **_):
+        seen.append(messages[-1]["content"])
+        if len(seen) == 1:
+            gate.wait(5)
+        return StreamResult(text="ok")
+
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
+
+    from ov.agent.engine.run import runs
+
+    run = runs.create({"access": "read", "prompt": "start", "instance": "acme"}, Provider.COPILOT, "test-model")
+    for _ in range(100):
+        if seen:
+            break
+        time.sleep(0.05)
+    run.follow_up("one", [], steer=False)
+    run.follow_up("two", [], steer=False)
+    gate.set()
+    for _ in range(200):
+        if len(seen) >= 3 and run.state["summary"]["status"] == "done":
+            break
+        time.sleep(0.05)
+
+    assert [m.rsplit(BREAK, 1)[-1] for m in seen[1:]] == ["one", "two"]
+    assert not run.state["queued"]
+
+
 def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch):
     from ov.agent.engine.run import runs
     from ov.agent.storage import db
@@ -116,8 +147,8 @@ def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch
     run = runs.get("rsteer")
     run._busy = True
     monkeypatch.setattr(run, "call_tool_named", lambda name, args: ("rows", []))
-    run.follow_up("skip VHMKFBC_PKG", [])
-    run.follow_up("after the turn", [])
+    run.follow_up("skip VHMKFBC_PKG", [], steer=False)
+    run.follow_up("after the turn", [], steer=False)
     run.steer_queued(run.state["queued"][0]["id"])
 
     output, _ = run.call_tool_with_steering("ov_sql", {})
@@ -136,8 +167,8 @@ def test_an_edited_queued_message_keeps_its_place(logged_in):
     db.create_thread("redit", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("redit")
     run._busy = True
-    run.follow_up("first", [])
-    run.follow_up("second", [])
+    run.follow_up("first", [], steer=False)
+    run.follow_up("second", [], steer=False)
     first = run.state["queued"][0]["id"]
 
     run.edit_queued(first, "first, edited")
@@ -146,7 +177,64 @@ def test_an_edited_queued_message_keeps_its_place(logged_in):
     run._busy = False
 
     assert [m["text"] for m in run.state["queued"]] == ["first, edited", "second"]
-    assert run._queue[0][1] == "first, edited"
+    assert run._queue[0][0]["text"] == "first, edited"
+
+
+def test_queued_messages_can_be_reordered(logged_in):
+    from ov.agent.engine.run import RunError, runs
+
+    db.create_thread("rmove", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
+    run = runs.get("rmove")
+    run._busy = True
+    for text in ("a", "b", "c"):
+        run.follow_up(text, [], steer=False)
+    a, b, c = (m["id"] for m in run.state["queued"])
+
+    run.move_queued(c, a)
+    run.move_queued(a, None)
+    with pytest.raises(RunError, match="no longer queued"):
+        run.move_queued(b, "gone")
+    run._busy = False
+
+    assert [m["text"] for m in run.state["queued"]] == ["c", "b", "a"]
+    assert [q[0]["id"] for q in run._queue] == [c, b, a]
+
+
+def test_stop_holds_the_queue_until_it_is_resumed(logged_in, monkeypatch):
+    from ov.agent.engine.run import RunError, runs
+
+    db.create_thread("rhold", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
+    run = runs.get("rhold")
+    run._busy = True
+    run.follow_up("later", [], steer=False)
+    run.stop()
+    run._busy = False
+    started: list[str] = []
+    monkeypatch.setattr(run, "_spawn", lambda target, *args: started.append(target.__name__))
+
+    run._pick_up_queue()
+    assert run.state["queueHeld"] and not started
+    with pytest.raises(RunError, match="no running turn"):
+        run.steer_queued(run.state["queued"][0]["id"])
+
+    run.resume_queue()
+    run._busy = False
+    assert not run.state["queueHeld"] and started == ["_run_turn"]
+
+
+def test_a_reloaded_thread_holds_its_queue(logged_in):
+    from ov.agent.engine.run import RunManager, runs
+
+    db.create_thread("rload", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
+    run = runs.get("rload")
+    run._busy = True
+    run.follow_up("kept", [], steer=True)
+    run._busy = False
+
+    loaded = RunManager().get("rload")
+    assert loaded is not None
+    assert [(m["text"], m["steer"]) for m in loaded.state["queued"]] == [("kept", False)]
+    assert loaded.state["queueHeld"] and loaded._held == {loaded.state["queued"][0]["id"]}
 
 
 def test_full_access_needs_the_flag_and_falls_back_to_auto_without_it(logged_in, monkeypatch):

@@ -36,6 +36,7 @@ from ov.agent.storage.models import (
     Attachment,
     Event,
     EventType,
+    FollowUp,
     Message,
     Preference,
     Provider,
@@ -62,6 +63,7 @@ PREFERENCE_COLUMNS = {
     "fastModel": "fast_model",
     "reasoning": "reasoning",
     "maxSteps": "max_steps",
+    "followUp": "follow_up",
     "workspace": "workspace",
     "workspaceNotes": "workspace_notes",
     "expandTools": "expand_tools",
@@ -75,6 +77,7 @@ MAX_COMPACT_WINDOW = 1_000_000
 TEXT_PREFERENCES = ("defaultModel", "fastModel", "workspace", "workspaceNotes")
 REASONING_LEVELS = tuple(level.value for level in Reasoning)
 PROVIDERS = tuple(provider.value for provider in Provider)
+FOLLOW_UPS = tuple(mode.value for mode in FollowUp)
 NANO_PER_USD = 1_000_000_000
 NANO_PER_CREDIT = 1_000_000_000
 TOP_THREADS = 5
@@ -270,6 +273,7 @@ def _ensure_preferences(conn: Connection) -> None:
     values = {
         "provider": Provider.COPILOT,
         "max_steps": DEFAULT_MAX_STEPS,
+        "follow_up": FollowUp.QUEUE,
         "expand_tools": False,
         "notify": False,
         "tab_badge": True,
@@ -313,6 +317,8 @@ def _check_preferences(patch: dict[str, Any]) -> None:
         raise ValueError(f"Unknown settings: {', '.join(sorted(unknown))}.")
     if patch.get("reasoning") and patch["reasoning"] not in REASONING_LEVELS:
         raise ValueError(f"Unknown reasoning level: {patch['reasoning']}")
+    if "followUp" in patch and patch["followUp"] not in FOLLOW_UPS:
+        raise ValueError(f"followUp must be one of {', '.join(FOLLOW_UPS)}.")
     if "provider" in patch and patch["provider"] not in PROVIDERS:
         raise ValueError(f"provider must be one of {', '.join(PROVIDERS)}.")
 

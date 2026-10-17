@@ -1,5 +1,6 @@
 import type {
   Access,
+  FollowUp,
   CodeSection,
   ClaudeAccount,
   CopilotAccount,
@@ -186,8 +187,11 @@ export const api = {
     loginId: string,
     options: { skip?: boolean; token?: string; screen?: { width: number; height: number } } = {},
   ) => post<{ ok: boolean; message: string }>(`/runs/${id}/login`, { loginId, ...options }),
-  message: (id: string, text: string, files: Upload[] = []) =>
-    post(`/runs/${id}/message`, { text, files }),
+  message: (id: string, text: string, files: Upload[], mode: FollowUp) =>
+    post(`/runs/${id}/message`, { text, files, mode }),
+  moveQueued: (id: string, mid: string, before: string | null) =>
+    post(`/runs/${id}/queued/${seg(mid)}/move`, { before }),
+  resumeQueue: (id: string) => post(`/runs/${id}/queue/resume`),
   steerQueued: (id: string, mid: string) => post(`/runs/${id}/queued/${seg(mid)}/steer`),
   editQueued: (id: string, mid: string, text: string) =>
     post(`/runs/${id}/queued/${seg(mid)}/text`, { text }),

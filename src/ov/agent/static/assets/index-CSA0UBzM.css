@@ -219,6 +219,9 @@
   .inset-x-0 {
     inset-inline: 0px;
   }
+  .inset-x-2 {
+    inset-inline: calc(var(--spacing) * 2);
+  }
   .inset-y-0 {
     inset-block: 0px;
   }
@@ -715,9 +718,6 @@
   .h-px {
     height: 1px;
   }
-  .max-h-32 {
-    max-height: calc(var(--spacing) * 32);
-  }
   .max-h-40 {
     max-height: calc(var(--spacing) * 40);
   }
@@ -1175,6 +1175,9 @@
   .cursor-default {
     cursor: default;
   }
+  .cursor-grab {
+    cursor: grab;
+  }
   .cursor-pointer {
     cursor: pointer;
   }
@@ -1496,9 +1499,6 @@
   .border-warn\/50 {
     border-color: color-mix(in oklab, #e46b00 50%, transparent);
   }
-  .border-warn\/60 {
-    border-color: color-mix(in oklab, #e46b00 60%, transparent);
-  }
   .\!bg-transparent {
     background-color: transparent !important;
   }
@@ -1639,9 +1639,6 @@
   }
   .bg-warn-soft\/40 {
     background-color: color-mix(in oklab, #ffe4cc 40%, transparent);
-  }
-  .bg-warn-soft\/60 {
-    background-color: color-mix(in oklab, #ffe4cc 60%, transparent);
   }
   .bg-white {
     background-color: var(--color-white);
@@ -2168,6 +2165,9 @@
   .opacity-35 {
     opacity: 35%;
   }
+  .opacity-50 {
+    opacity: 50%;
+  }
   .opacity-55 {
     opacity: 55%;
   }
@@ -2273,6 +2273,10 @@
   .outline {
     outline-style: var(--tw-outline-style);
     outline-width: 1px;
+  }
+  .blur {
+    --tw-blur: blur(8px);
+    filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
   }
   .drop-shadow-\[0_1px_2px_rgba\(0\,0\,0\,0\.35\)\] {
     --tw-drop-shadow-size: drop-shadow(0 1px 2px var(--tw-drop-shadow-color, rgba(0,0,0,0.35)));
@@ -2535,6 +2539,9 @@
   .focus-visible\:bg-canvas:focus-visible {
     background-color: #eceff1;
   }
+  .active\:cursor-grabbing:active {
+    cursor: grabbing;
+  }
   @media (hover: hover) {
     .enabled\:hover\:bg-raised:enabled:hover {
       background-color: #f4f6f7;
@@ -2563,6 +2570,9 @@
   }
   .disabled\:opacity-40:disabled {
     opacity: 40%;
+  }
+  .disabled\:opacity-45:disabled {
+    opacity: 45%;
   }
   .disabled\:opacity-50:disabled {
     opacity: 50%;

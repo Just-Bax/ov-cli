@@ -49,6 +49,9 @@ const SHORTCUTS: [string, string][] = [
   ['Ctrl+B', 'Collapse or expand the sidebar'],
   ['Ctrl+F', 'Find in this thread'],
   ['Alt+S', 'Stop the agent in this thread'],
+  ['Ctrl+Enter', 'Send the other way: steer or queue'],
+  ['Ctrl+Shift+Enter', 'Steer the oldest queued message'],
+  ['Alt+Up', 'Edit the latest queued message'],
   ['Ctrl+Z', 'Undo settle, pin or snooze'],
   ['?', 'Show these shortcuts'],
 ]

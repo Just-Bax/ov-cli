@@ -39,7 +39,7 @@ from ov.agent.integrations.datadog import DatadogError
 from ov.agent.integrations.pagerduty import PagerDutyError
 from ov.agent.skills import SkillError
 from ov.agent.storage import db
-from ov.agent.storage.models import Access, Provider
+from ov.agent.storage.models import Access, FollowUp, Provider
 from ov.browser.pilot import BrowserError
 from ov.core.errors import OvError
 from ov.onevizion.auth import LOGIN_PATH
@@ -939,7 +939,10 @@ def run_login(h: Handler, run_id: str) -> dict[str, Any]:
 def message(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     files = _objects(data, "files")
-    _run(run_id).follow_up(str(data.get("text", "")), files)
+    mode = _required(data, "mode")
+    if mode not in db.FOLLOW_UPS:
+        raise HttpError(400, f"mode must be one of {', '.join(db.FOLLOW_UPS)}.")
+    _run(run_id).follow_up(str(data.get("text", "")), files, mode == FollowUp.STEER)
     db.set_settled(run_id, False)
     db.set_snoozed(run_id, None)
     status_feed.publish({"kind": "list"})
@@ -967,6 +970,21 @@ def steer_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
 @route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/text")
 def edit_queued(h: Handler, run_id: str, message_id: str) -> dict[str, bool]:
     _run(run_id).edit_queued(message_id, str(h.json().get("text", "")))
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/move")
+def move_queued(h: Handler, run_id: str, message_id: str) -> dict[str, bool]:
+    before = h.json().get("before")
+    if before is not None and not isinstance(before, str):
+        raise HttpError(400, "before must be a queued message id or null.")
+    _run(run_id).move_queued(message_id, before)
+    return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/queue/resume")
+def resume_queue(_: Handler, run_id: str) -> dict[str, bool]:
+    _run(run_id).resume_queue()
     return {"ok": True}
 
 

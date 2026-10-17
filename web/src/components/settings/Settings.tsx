@@ -200,6 +200,24 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
         />
       </Row>
       <Row
+        title="Follow-up behavior"
+        hint="What Enter does while the agent works. Ctrl+Enter does the other one."
+      >
+        <Segmented
+          label="Follow-up behavior"
+          value={settings.followUp}
+          options={[
+            { value: 'queue', label: 'Queue', title: 'Sent as its own turn after the current one' },
+            {
+              value: 'steer',
+              label: 'Steer',
+              title: 'Picked up at the next step of the current turn',
+            },
+          ]}
+          onChange={(v) => void update({ followUp: v })}
+        />
+      </Row>
+      <Row
         title="Step limit"
         hint="How many tool steps a thread may take before it stops. Big investigations need more."
       >

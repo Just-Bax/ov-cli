@@ -135,7 +135,7 @@ def test_a_follow_up_resumes_the_same_claude_session(claude_thread):
     _wait_for(lambda: run.state["summary"]["status"] == "done")
     first = FakeClient.sessions[0].session_id
 
-    run.follow_up("second", [])
+    run.follow_up("second", [], steer=False)
     _wait_for(lambda: len(FakeClient.sessions) == 2 and run.state["summary"]["status"] == "done" and not run._busy)
     assert FakeClient.sessions[1].resume == first and FakeClient.sessions[1].session_id is None
     assert FakeClient.prompts[1][0]["text"].endswith(BREAK + "second")
@@ -145,7 +145,7 @@ def test_retrying_a_claude_turn_forks_the_session_before_it(claude_thread, monke
     FakeClient.replies = [[_result()], [_result()], [_result()]]
     run = _start("first")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
-    run.follow_up("second", [])
+    run.follow_up("second", [], steer=False)
     _wait_for(lambda: len(FakeClient.sessions) == 2 and not run._busy)
     second = next(m["id"] for m in run.state["chat"] if m["text"] == "second")
     anchor = run.state["claude"]["turns"][second]
@@ -242,7 +242,7 @@ def test_claude_reports_session_totals_so_each_turn_records_only_its_own_cost(cl
     FakeClient.replies = [[_result(0.5)], [_result(0.75)]]
     run = _start("first")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
-    run.follow_up("second", [])
+    run.follow_up("second", [], steer=False)
     _wait_for(lambda: len(FakeClient.sessions) == 2 and not run._busy)
     assert run.state["summary"]["cost"]["usd"] == 0.75
     assert run.state["claude"]["spent"] == 0.75

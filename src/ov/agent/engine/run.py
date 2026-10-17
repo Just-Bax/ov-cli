@@ -180,9 +180,7 @@ class Run:
     _compacting: dict[str, Any] | None
 
     def __init__(self, run_id: str, state: dict[str, Any], seq: int) -> None:
-        self.id = run_id
-        self.state = state
-        self.seq = seq
+        self.id, self.state, self.seq = run_id, state, seq
         self.work_dir = run_dir(run_id)
         self.cancel = Cancel()
         self.opened: set[str] = set()
@@ -196,7 +194,7 @@ class Run:
         self._pending_images: list[tuple[str, str]] = []
         self._notes: list[str] = []
         self._waits, self._background = 0, 0
-        self._queue: list[tuple[dict[str, Any], Any, list[dict[str, Any]]]] = []
+        self._queue: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
         self._held: set[str] = set()
         self._questions: dict[str, tuple[threading.Event, list[tuple[list[str], str]]]] = {}
         self._logins: dict[str, tuple[threading.Event, list[bool]]] = {}
@@ -205,6 +203,17 @@ class Run:
         self._tasks, self._finished_tasks, self._verdicts, self._claude_fork = {}, [], {}, None
         self._compacting, self._context_tokens = None, int((state.get("context") or {}).get("tokens") or 0)
         self.browser, self.touched = BrowserSlot(run_id, self.emit), db.now_ms()
+        self._restore_queue()
+
+    def _restore_queue(self) -> None:
+        for message in self.state["queued"]:
+            files = message.get("files") or []
+            uploaded = [describe(attachments_dir(self.id) / f["name"], "upload") for f in files]
+            self._queue.append((message, uploaded))
+            self._held.add(message["id"])
+        self._queue_held = bool(self._queue)
+        self.state["queued"] = [{**m, "steer": False} for m in self.state["queued"]]
+        self.state["queueHeld"] = self._queue_held
 
     @property
     def _messages(self) -> list[dict[str, Any]]:
@@ -431,15 +440,15 @@ class Run:
     def stop(self) -> None:
         self.cancel.set()
         with self._lock:
-            dropped, self._queue = self._queue, []
             questions, self._questions = self._questions, {}
             logins, self._logins = self._logins, {}
             self._finished_tasks = []
-            self._held.clear()
+            self._held = {q[0]["id"] for q in self._queue}
+            self._queue_held = bool(self._queue)
             idle = not self._busy
         self._stop_tasks()
-        for message, *_ in dropped:
-            self.emit({"type": "unqueue", "id": message["id"]})
+        if self._queue_held:
+            self._emit_queue()
         for question_id, (event, answer) in questions.items():
             self._close_question(question_id)
             answer.append(([], ""))
@@ -755,7 +764,7 @@ class Run:
             text += f"\n\nThe run's default instance is now {bundle['website']}."
         return text
 
-    def follow_up(self, text: str, files: list[dict[str, str]]) -> None:
+    def follow_up(self, text: str, files: list[dict[str, str]], steer: bool) -> None:
         claimed = self._claim()
         if claimed and not self._messages:
             self._busy = False
@@ -765,7 +774,7 @@ class Run:
             message_id = _uid("u")
             uploaded = self._copy_uploads(files, message_id)
             message = self._message(message_id, text, uploaded)
-            content = self._user_content(text, uploaded)
+            content = self._user_content(text, uploaded) if claimed else None
         except Exception:
             if claimed:
                 self._busy = False
@@ -773,9 +782,10 @@ class Run:
 
         if not claimed:
             with self._lock:
-                self._queue.append((message, content, uploaded))
-                self._held.add(message["id"])
-            self.emit({"type": "queued", "message": {**message, "steer": False}})
+                self._queue.append((message, uploaded))
+                if not steer:
+                    self._held.add(message["id"])
+            self.emit({"type": "queued", "message": {**message, "steer": steer}})
             self._pick_up_queue()
             return
 
@@ -783,10 +793,13 @@ class Run:
         self._push_turn(message["id"], content)
         self._spawn(self._run_turn)
 
+    def _startable(self) -> bool:
+        return bool(self._queue) and not self._queue_held
+
     def _pick_up_queue(self) -> None:
         with self._lock:
-            waiting = bool(self._queue or self._finished_tasks)
-            woken_by = self._finished_tasks[0].id if self._finished_tasks and not self._queue else None
+            waiting = self._startable() or bool(self._finished_tasks)
+            woken_by = self._finished_tasks[0].id if self._finished_tasks and not self._startable() else None
         if waiting and self._claim():
             self._spawn(self._run_turn, woken_by)
 
@@ -836,26 +849,62 @@ class Run:
             self._queue = [q for q in self._queue if q[0]["id"] != message_id]
             self._held.discard(message_id)
         self.emit({"type": "unqueue", "id": message_id})
+        self._settle_queue()
 
     def steer_queued(self, message_id: str) -> None:
         with self._lock:
-            entry = self._queued(message_id)
+            if not self._busy:
+                raise RunError("There is no running turn to steer.")
+            self._queued(message_id)
             self._held.discard(message_id)
-        self.emit({"type": "queued", "message": {**entry[0], "steer": True}})
+        self._emit_queue()
 
     def edit_queued(self, message_id: str, text: str) -> None:
         with self._lock:
-            message, _, uploaded = self._queued(message_id)
+            message, uploaded = self._queued(message_id)
             if not text.strip() and not uploaded:
                 raise RunError("A queued message needs text or files.")
 
             edited = {**message, "text": text}
-            content = self._user_content(text, uploaded)
-            self._queue = [(edited, content, uploaded) if q[0]["id"] == message_id else q for q in self._queue]
+            self._queue = [(edited, uploaded) if q[0]["id"] == message_id else q for q in self._queue]
             steer = message_id not in self._held
         self.emit({"type": "queued", "message": {**edited, "steer": steer}})
 
-    def _queued(self, message_id: str) -> tuple[dict[str, Any], Any, list[dict[str, Any]]]:
+    def move_queued(self, message_id: str, before_id: str | None) -> None:
+        with self._lock:
+            entry = self._queued(message_id)
+            rest = [q for q in self._queue if q is not entry]
+            ids = [q[0]["id"] for q in rest]
+            if before_id is not None and before_id not in ids:
+                raise RunError("That message is no longer queued.")
+
+            rest.insert(len(rest) if before_id is None else ids.index(before_id), entry)
+            self._queue = rest
+        self._emit_queue()
+
+    def resume_queue(self) -> None:
+        with self._lock:
+            if not self._queue:
+                raise RunError("Nothing is queued.")
+            self._queue_held = False
+        self._emit_queue()
+        self._pick_up_queue()
+
+    def _settle_queue(self) -> None:
+        with self._lock:
+            if self._queue or not self._queue_held:
+                return
+            self._queue_held = False
+        self._emit_queue()
+
+    def _emit_queue(self) -> None:
+        with self._lock:
+            order = [q[0]["id"] for q in self._queue]
+            steering = [i for i in order if i not in self._held]
+            held = self._queue_held
+        self.emit({"type": "queue", "order": order, "steering": steering, "held": held})
+
+    def _queued(self, message_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         entry = next((q for q in self._queue if q[0]["id"] == message_id), None)
         if entry is None:
             raise RunError("That message is no longer queued.")
@@ -896,7 +945,7 @@ class Run:
     def _run_turn(self, woken_by: str | None = None) -> None:
         try:
             self._set_status("running", woken_by=woken_by)
-            self._deliver_queued(everything=True)
+            self._deliver_queued(starting_turn=True)
             self._loop("agent" if woken_by else "user")
         except Exception as exc:
             self._fail(exc)
@@ -918,14 +967,16 @@ class Run:
         self._messages.append({"role": "user", "content": stamped(content)})
         self._persist()
 
-    def _deliver_queued(self, everything: bool = False) -> None:
+    def _deliver_queued(self, starting_turn: bool = False) -> None:
         with self._lock:
-            ready = [q for q in self._queue if everything or q[0]["id"] not in self._held]
+            steered = [q for q in self._queue if q[0]["id"] not in self._held]
+            ready = steered or (self._queue[:1] if starting_turn and self._startable() else [])
             self._queue = [q for q in self._queue if q not in ready]
             self._held -= {q[0]["id"] for q in ready}
-        for message, content, _ in ready:
+        for message, uploaded in ready:
             self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
-            self._push_turn(message["id"], content)
+            self._push_turn(message["id"], self._user_content(message["text"], uploaded))
+        self._settle_queue()
 
     def _copy_uploads(self, files: list[dict[str, str]], turn_id: str) -> list[dict[str, Any]]:
         target_dir = attachments_dir(self.id)
@@ -1077,11 +1128,13 @@ class Run:
             return output, images
 
         texts = []
-        for message, content, _ in ready:
+        for message, uploaded in ready:
             self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
+            content = self._user_content(message["text"], uploaded)
             parts = content if isinstance(content, list) else [{"type": "text", "text": content}]
             texts += [p["text"] for p in parts if p["type"] == "text"]
             images += [(message["id"], p["image_url"]["url"]) for p in parts if p["type"] == "image_url"]
+        self._settle_queue()
         return f"{output}\n\n{STEERED.format(text=chr(10).join(texts))}", images
 
     def _ask_model(self, model: str, specs: list[dict[str, Any]], initiator: str) -> list[dict[str, Any]]:

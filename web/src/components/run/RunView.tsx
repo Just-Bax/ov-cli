@@ -1,5 +1,8 @@
 import {
+  ArrowBendUpRight as SteerIcon,
   ArrowSquareOut as ArrowTopRightOnSquareIcon,
+  ListNumbers as QueueIcon,
+  Play as PlayIcon,
   ShieldWarning as ShieldWarningIcon,
 } from '@phosphor-icons/react'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -9,6 +12,7 @@ import type {
   ChatMessage,
   ApprovalQuestion,
   ContextUsage,
+  FollowUp,
   Question,
   RunState,
   ThreadItem,
@@ -18,6 +22,7 @@ import { EditableTitle } from '@/components/common/EditableTitle'
 import { ActionsSkeleton, ComposerSkeleton, useSkeleton } from '@/components/common/skeletons'
 import { reportError } from '@/components/common/Toasts'
 import {
+  Button,
   Dot,
   Markdown,
   Page,
@@ -31,10 +36,12 @@ import { AccessPicker } from '@/components/composer/AccessPicker'
 import { OPEN_FIND } from '@/components/layout/CommandPalette'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { forgetDraft, loadText } from '@/lib/drafts'
 import { inCodeEditor } from '@/lib/dom'
 import { usePresence, useWindowEvent } from '@/lib/hooks'
 import { layerOpen } from '@/lib/layers'
 import { allRuns, useRuns, WORKING } from '@/lib/runs'
+import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
 import { ChangeCard } from './ChangeCard'
 import { CompactionNote, ContextMeter } from './Context'
@@ -296,6 +303,11 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
   }
 }
 
+const FOLLOW_UP_HINT: Record<FollowUp, string> = {
+  queue: 'Queue: sent as its own turn after this one',
+  steer: 'Steer: picked up at the next step',
+}
+
 function Footer({
   runId,
   busy,
@@ -305,6 +317,7 @@ function Footer({
   question,
   tool,
   queued,
+  queueHeld,
   onSend,
 }: {
   runId: string
@@ -315,20 +328,72 @@ function Footer({
   question?: Question
   tool?: ToolActivity
   queued: ChatMessage[]
+  queueHeld: boolean
   onSend: () => void
 }) {
   const [error, setError] = useState<string>()
+  const [editing, setEditing] = useState<ChatMessage>()
+  const [draft, setDraft] = useState<{ text: string; at: number }>()
+  const { settings } = useSettings()
+  const other: FollowUp = settings.followUp === 'queue' ? 'steer' : 'queue'
+  const modeFor = (alternate: boolean) => (alternate ? other : settings.followUp)
+  const runKey = `run-${runId}`
+  const editKey = editing ? `queued-${editing.id}` : runKey
 
-  const send = async (text: string, files: File[] = []) => {
+  const startEdit = (message: ChatMessage) => {
+    setEditing(message)
+    setDraft({ text: message.text, at: Date.now() })
+  }
+
+  const endEdit = () => {
+    forgetDraft(editKey)
+    setEditing(undefined)
+  }
+
+  useEffect(() => {
+    if (!editing || queued.some((m) => m.id === editing.id)) return
+
+    const edited = loadText(editKey)
+    endEdit()
+    if (edited.trim() && edited !== editing.text && !loadText(runKey).trim())
+      setDraft({ text: edited, at: Date.now() })
+  }, [queued, editing])
+
+  const send = async (text: string, files: File[], alternate: boolean) => {
     setError(undefined)
-    onSend()
     try {
+      if (editing) {
+        await api.editQueued(runId, editing.id, text)
+        setEditing(undefined)
+        return
+      }
+
+      onSend()
       const uploaded = files.length ? await api.upload(files) : []
-      await api.message(runId, text, uploaded)
+      await api.message(runId, text, uploaded, modeFor(alternate))
     } catch (e) {
       setError((e as Error).message)
       throw e
     }
+  }
+
+  const shortcut = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (editing && e.key === 'Escape') {
+      endEdit()
+      return true
+    }
+
+    const steerable = queued.find((m) => !m.steer)
+    if (e.key === 'Enter' && e.shiftKey && (e.ctrlKey || e.metaKey) && busy && steerable) {
+      void api.steerQueued(runId, steerable.id).catch(reportError)
+      return true
+    }
+
+    const atStart = e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0
+    const latest = queued.at(-1)
+    if (e.key !== 'ArrowUp' || !e.altKey || !atStart || editing || !latest) return false
+    startEdit(latest)
+    return true
   }
 
   const stop = () => void api.cancel(runId).catch(reportError)
@@ -343,7 +408,16 @@ function Footer({
     <div className={cn('pt-1 pb-4', compact ? 'px-4' : 'px-6')}>
       <div className="mx-auto max-w-[860px]">
         {error ? <div className="text-danger mb-1.5 text-[12px]">{error}</div> : null}
-        <QueuedPanel runId={runId} queued={queued} />
+        <QueuedPanel
+          runId={runId}
+          queued={queued}
+          held={queueHeld}
+          busy={busy}
+          editingId={editing?.id}
+          canEdit={!question}
+          onEdit={startEdit}
+          onCancelEdit={endEdit}
+        />
         {question ? (
           <QuestionComposer
             runId={runId}
@@ -354,20 +428,50 @@ function Footer({
             onStop={stop}
           />
         ) : (
-          <Composer
-            busy={busy}
-            queueWhileBusy
-            allowFiles
-            placeholder={
-              busy
-                ? 'Queue a message for after this turn, or steer it from the queue'
-                : 'Ask a follow-up or give direction'
-            }
-            onSend={send}
-            draftKey={`run-${runId}`}
-            onStop={stop}
-            extras={extras}
-          />
+          <div className="relative">
+            <Composer
+              busy={busy}
+              queueWhileBusy
+              allowFiles={!editing}
+              placeholder={
+                editing
+                  ? 'Edit the queued message. Enter saves, Escape cancels'
+                  : busy
+                    ? `${FOLLOW_UP_HINT[settings.followUp]}. Ctrl+Enter to ${other}`
+                    : 'Ask a follow-up or give direction'
+              }
+              busyAction={(alternate) => {
+                const mode = modeFor(alternate)
+                return {
+                  label: FOLLOW_UP_HINT[mode],
+                  icon:
+                    mode === 'steer' ? (
+                      <SteerIcon weight="bold" className="size-4" />
+                    ) : (
+                      <QueueIcon weight="bold" className="size-4" />
+                    ),
+                }
+              }}
+              idleAction={
+                queueHeld && queued.length ? (
+                  <Button
+                    variant="primary"
+                    onClick={() => void api.resumeQueue(runId).catch(reportError)}
+                  >
+                    <PlayIcon weight="fill" className="size-3" />
+                    Resume
+                  </Button>
+                ) : undefined
+              }
+              submitLabel={editing ? () => 'Save' : undefined}
+              onKeyDown={shortcut}
+              onSend={send}
+              draft={draft}
+              draftKey={editKey}
+              onStop={stop}
+              extras={extras}
+            />
+          </div>
         )}
       </div>
     </div>
@@ -646,6 +750,7 @@ export function RunView({ id }: { id: string }) {
           question={docked}
           tool={state.tools.find((t) => t.id === docked?.toolId)}
           queued={state.queued}
+          queueHeld={state.queueHeld}
           onSend={() => {
             followBottom.current = true
           }}
