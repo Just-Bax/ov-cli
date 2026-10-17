@@ -1,28 +1,6 @@
 from __future__ import annotations
 
-REACH_JS = """
-  const reach = (el) => {
-    const b = el.getBoundingClientRect();
-    const left = Math.max(b.left, 0);
-    const right = Math.min(b.right, innerWidth);
-    const top = Math.max(b.top, 0);
-    const bottom = Math.min(b.bottom, innerHeight);
-    if (right <= left || bottom <= top) return null;
-    for (const fy of [0.5, 0.25, 0.75]) {
-      for (const fx of [0.5, 0.25, 0.75]) {
-        const x = left + (right - left) * fx;
-        const y = top + (bottom - top) * fy;
-        const hit = document.elementFromPoint(x, y);
-        if (hit && (hit === el || el.contains(hit) || hit.contains(el))) return [Math.round(x), Math.round(y)];
-      }
-    }
-    return null;
-  };
-"""
-
-HELPERS = (
-    REACH_JS
-    + """
+HELPERS = """
   const selector = [
     'a', 'button', 'input:not([type=hidden])', 'textarea', 'select', 'summary',
     '[tabindex]:not([tabindex="-1"])',
@@ -104,43 +82,6 @@ HELPERS = (
     y: point[1],
   });
 """
-)
-
-SNAPSHOT_SCRIPT = (
-    "({ start, limit, nameChars, valueChars, attribute }) => {"
-    + HELPERS
-    + """
-  const marked = new Set(document.querySelectorAll(selector));
-  const clickable = new Set();
-  for (const el of document.body ? document.body.querySelectorAll('*') : []) {
-    if (marked.has(el) || !pointer(el) || el.closest(selector)) continue;
-    if (el.parentElement && pointer(el.parentElement)) continue;
-    clickable.add(el);
-  }
-  const ordered = [...marked, ...clickable].sort((a, b) =>
-    a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
-  );
-
-  document.querySelectorAll(`[${attribute}]`).forEach((el) => el.removeAttribute(attribute));
-  const found = [];
-  for (const el of ordered) {
-    if (found.length >= limit) break;
-    const box = el.getBoundingClientRect();
-    if (!box.width || !box.height) continue;
-    const style = getComputedStyle(el);
-    if (style.visibility === 'hidden' || style.display === 'none') continue;
-    const point = reach(el);
-    if (!point) continue;
-    const item = describe(el, point);
-    if (clickable.has(el) && !item.name) continue;
-    const ref = start + found.length;
-    el.setAttribute(attribute, String(ref));
-    found.push({ ref, ...item });
-  }
-  return found;
-}
-"""
-)
 
 POINT_SCRIPT = (
     "({ x, y, nameChars, valueChars }) => {"
@@ -160,12 +101,8 @@ POINT_SCRIPT = (
 )
 
 TEXT_SCRIPT = "() => document.body ? document.body.innerText : ''"
-REACH_SCRIPT = "(el) => {" + REACH_JS + " return reach(el); }"
-COVER_SCRIPT = (
-    "({ el, points }) => points.map(([x, y]) => { const hit = document.elementFromPoint(x, y); "
-    "return hit === el || el.contains(hit); })"
-)
-SHAPE_SCRIPT = "() => document.body ? document.body.innerText.length + document.querySelectorAll('*').length : -1"
+ELEMENT_SCRIPT = "(el, { x, y, nameChars, valueChars }) => {" + HELPERS + " return describe(el, [x, y]); }"
+READY_SCRIPT = "() => document.readyState"
 
 PICKER_SCRIPT = """
 (() => {

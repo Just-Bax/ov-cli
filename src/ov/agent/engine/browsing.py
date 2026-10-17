@@ -43,6 +43,14 @@ class BrowserSlot:
         self._emit = emit
         self._lock = threading.Lock()
         self._open: _Open | None = None
+        self._last_action = ""
+        self._streak = 0
+
+    def repeated(self, action: str) -> int:
+        with self._lock:
+            self._streak = self._streak + 1 if action == self._last_action else 1
+            self._last_action = action
+            return self._streak
 
     @property
     def live(self) -> bool:

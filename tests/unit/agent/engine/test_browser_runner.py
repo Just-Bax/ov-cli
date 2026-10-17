@@ -67,3 +67,15 @@ def test_the_runner_resolves_its_options_before_starting_its_event_loop(tmp_path
     run = FakeRun(tmp_path)
     assert browser_runner.drive(run, "haiku", "Open the grid", Cancel()) == REPORT
     assert run.usage == ["haiku"]
+
+
+def test_the_copilot_runner_keeps_only_the_latest_pages_and_screenshots():
+    page = "x" * (browser_runner.PAGE_OUTPUT_CHARS + 1)
+    messages = [{"role": "tool", "content": page} for _ in range(4)]
+    messages += [{"role": "tool", "content": "Clicked."}]
+    messages += [{"role": "user", "content": [{"type": "text", "text": "shot"}]} for _ in range(3)]
+    browser_runner._drop_old_pages(messages)
+    contents = [m["content"] for m in messages]
+    assert contents[:4] == [browser_runner.OLD_PAGE, browser_runner.OLD_PAGE, page, page]
+    assert contents[4] == "Clicked."
+    assert contents[5] == browser_runner.OLD_SCREENSHOT and isinstance(contents[7], list)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import re
 import tempfile
 import threading
 import time
@@ -9,31 +10,20 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol, TypeVar
 from urllib.parse import urlsplit
 
-from playwright.sync_api import BrowserContext, Frame, Locator, Page, Request, Route, sync_playwright
+from playwright.sync_api import BrowserContext, Frame, Locator, Page, Route, sync_playwright
 from playwright.sync_api import Dialog as PageDialog
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
-from ov.browser.scripts import (
-    COVER_SCRIPT,
-    PICKER_SCRIPT,
-    POINT_SCRIPT,
-    REACH_SCRIPT,
-    SHAPE_SCRIPT,
-    SNAPSHOT_SCRIPT,
-    TEXT_SCRIPT,
-)
+from ov.browser.scripts import ELEMENT_SCRIPT, PICKER_SCRIPT, POINT_SCRIPT, READY_SCRIPT, TEXT_SCRIPT
 from ov.onevizion.login import SCREEN_CHANNEL, browser_is_installed, desktop_user_agent
 
 LAUNCH_ARGS = ["--no-first-run", "--no-default-browser-check"]
 ACTION_TIMEOUT_MS = 15_000
+CLICK_TIMEOUT_MS = 5_000
+SNAPSHOT_TIMEOUT_MS = 10_000
 NAV_TIMEOUT_MS = 45_000
-ACTION_PAUSE_MS = 250
-SETTLE_POLL_MS = 250
-NETWORK_QUIET_SECONDS = 0.5
-BACKGROUND_REQUEST_SECONDS = 5
-ACTION_SETTLE_SECONDS = 3
-PAGE_SETTLE_SECONDS = 10
+ACTION_PAUSE_MS = 150
 WAIT_POLL_MS = 250
 MAX_WAIT_SECONDS = 30
 MS_PER_SECOND = 1000
@@ -45,14 +35,13 @@ ERASE_KEY = "Backspace"
 START_TIMEOUT_SECONDS = 90
 CALL_TIMEOUT_SECONDS = 120
 CALL_POLL_SECONDS = 0.5
-MAX_ELEMENTS = 200
-MIN_FRAME_WIDTH = 200
-MIN_FRAME_HEIGHT = 100
 NAME_CHARS = 80
 VALUE_CHARS = 80
-TEXT_CHARS = 8_000
+TREE_CHARS = 12_000
 SCREENSHOT_QUALITY = 70
-REF_ATTRIBUTE = "data-ov-ref"
+SNAPSHOT_MODE = "ai"
+LOADED = "complete"
+REF_PATTERN = re.compile(r"\[ref=(\w+)\]")
 BLANK_PAGE = "about:blank"
 STAY_PUT_STATUS = 204
 EVERY_REQUEST = "**/*"
@@ -61,11 +50,16 @@ NOT_INSTALLED = "The browser is not installed. Run: ov setup"
 CLOSED = "The browser has closed."
 NO_DIALOG = "No dialog is open on the page."
 ONLY_TAB = "This is the only tab; close the browser instead."
-COVERED = "That element is covered or off screen. Close or scroll what is over it, then try again."
-SLOW_PAGE = (
-    "{url} did not load within {seconds}s; the instance is slow right now. It may still finish: look again shortly."
-)
+UNKNOWN_REF = "There is no {ref} in the last snapshot. Take a new snapshot and use its refs."
+GONE_REF = "{ref} is no longer on the page. Take a new snapshot."
+NO_BOX = "{target} is not visible on the page. Scroll to it or take a new snapshot."
+NOT_SELECT = "That is not a standard dropdown: click it open and click the option instead."
+TREE_CUT = "[{chars} more chars cut. Scroll, or wait or aim with a locator for what you need.]"
+TIMED_OUT = "Timed out: {reason}. Take a new snapshot before trying something else."
+PROGRESS_STEPS = ("waiting", "retrying", "attempting", "scrolling", "element is", "locator resolved", "Call log")
+SLOW_PAGE = "{url} did not load within {seconds}s; the site is slow right now. It may still finish: look again shortly."
 NAVIGATED = ("Execution context was destroyed", "Cannot find context", "Frame was detached")
+NOT_SELECT_HINT = "not a <select>"
 BUTTONS = ("left", "right", "middle")
 MODIFIERS = ("Alt", "Control", "Meta", "Shift")
 
@@ -110,11 +104,6 @@ class Element:
     disabled: bool
     x: float
     y: float
-    ref: int = 0
-
-    @property
-    def point(self) -> Point:
-        return Point(round(self.x), round(self.y))
 
     def describe(self) -> str:
         parts = [f'{self.role} "{self.name}"' if self.name else self.role]
@@ -129,12 +118,12 @@ class Element:
 
 @dataclass(frozen=True)
 class Target:
-    ref: int | None = None
+    ref: str | None = None
     point: Point | None = None
     locator: str | None = None
 
     def __post_init__(self) -> None:
-        given = [self.ref is not None, self.point is not None, bool(self.locator)]
+        given = [bool(self.ref), self.point is not None, bool(self.locator)]
         if given.count(True) != 1:
             raise BrowserError("Aim with exactly one of: ref, x and y, or locator.")
 
@@ -143,15 +132,7 @@ class Target:
 class Aim:
     point: Point
     label: str
-
-
-@dataclass(frozen=True)
-class FrameBox:
-    url: str
-    x: int
-    y: int
-    width: int
-    height: int
+    role: str
 
 
 @dataclass(frozen=True)
@@ -168,10 +149,9 @@ class View:
     title: str
     width: int
     height: int
-    elements: list[Element]
-    frames: list[FrameBox]
+    loading: bool
     tabs: list[Tab]
-    text: str
+    tree: str
 
 
 @dataclass
@@ -192,6 +172,12 @@ def _first_line(exc: Exception) -> str:
     return next(iter(str(exc).splitlines()), type(exc).__name__)
 
 
+def _timeout_reason(exc: Exception) -> str:
+    lines = [line.strip(" -") for line in str(exc).splitlines()[1:]]
+    causes = [line for line in lines if line and not any(step in line for step in PROGRESS_STEPS)]
+    return TIMED_OUT.format(reason=causes[-1] if causes else _first_line(exc))
+
+
 def _inside(box: dict[str, float], point: Point) -> bool:
     return box["x"] <= point.x <= box["x"] + box["width"] and box["y"] <= point.y <= box["y"] + box["height"]
 
@@ -203,24 +189,6 @@ def _viewport(page: Page) -> dict[str, int]:
     return size
 
 
-def _frame_shape(frame: Frame) -> int | None:
-    try:
-        return frame.evaluate(SHAPE_SCRIPT)
-    except PlaywrightError as exc:
-        if not any(hint in str(exc) for hint in NAVIGATED):
-            raise
-    return None
-
-
-def _page_shape(page: Page) -> tuple[tuple[str, int | None], ...]:
-    frames = [f for f in page.frames if not f.is_detached() and f.url not in ("", BLANK_PAGE)]
-    return tuple((f.url, _frame_shape(f)) for f in frames)
-
-
-def _settled(shape: tuple[tuple[str, int | None], ...]) -> bool:
-    return bool(shape) and all(size is not None and size > 0 for _, size in shape)
-
-
 def _evaluate(frame: Frame, script: str, arg: Any = None) -> Any:
     try:
         return frame.evaluate(script, arg)
@@ -229,28 +197,6 @@ def _evaluate(frame: Frame, script: str, arg: Any = None) -> Any:
             raise
     frame.page.wait_for_load_state("load", timeout=NAV_TIMEOUT_MS)
     return frame.evaluate(script, arg)
-
-
-class _Network:
-    def __init__(self, context: BrowserContext) -> None:
-        self._open: dict[Request, float] = {}
-        self._last = time.monotonic()
-        context.on("request", self._started)
-        context.on("requestfinished", self._ended)
-        context.on("requestfailed", self._ended)
-
-    def quiet(self) -> bool:
-        now = time.monotonic()
-        busy = [started for started in self._open.values() if now - started < BACKGROUND_REQUEST_SECONDS]
-        return not busy and now - self._last >= NETWORK_QUIET_SECONDS
-
-    def _started(self, request: Request) -> None:
-        self._open[request] = time.monotonic()
-        self._last = time.monotonic()
-
-    def _ended(self, request: Request) -> None:
-        self._open.pop(request, None)
-        self._last = time.monotonic()
 
 
 class _Dialogs:
@@ -285,9 +231,7 @@ class Driver:
         self._hostname = hostname
         self._size = dict(size)
         self._dialogs = dialogs
-        self._network = _Network(context)
-        self._frames: dict[int, Frame] = {}
-        self._elements: dict[int, Element] = {}
+        self._refs: set[str] = set()
         self._tabs: list[Page] = []
         self._active: Page | None = None
         self._fresh: list[Page] = []
@@ -346,6 +290,7 @@ class Driver:
 
     def switch(self, index: int) -> None:
         self._active = self._tab(index)
+        self._refs = set()
         self._active.bring_to_front()
         self.changed = True
 
@@ -369,131 +314,79 @@ class Driver:
 
     def goto(self, url: str) -> None:
         try:
-            self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+            self.page.goto(url, wait_until="load", timeout=NAV_TIMEOUT_MS)
         except PlaywrightTimeout:
-            raise BrowserError(SLOW_PAGE.format(url=url, seconds=NAV_TIMEOUT_MS // 1000)) from None
-        self._settle(PAGE_SETTLE_SECONDS)
+            raise BrowserError(SLOW_PAGE.format(url=url, seconds=NAV_TIMEOUT_MS // MS_PER_SECOND)) from None
+        self._refs = set()
 
     def snapshot(self) -> View:
         page = self.page
-        self._frames, self._elements = {}, {}
-        texts: list[str] = []
-        for frame in page.frames:
-            if frame.is_detached() or frame.url in ("", BLANK_PAGE):
-                continue
-
-            room = MAX_ELEMENTS - len(self._elements)
-            if room > 0:
-                self._collect(frame, room)
-
-            text = _evaluate(frame, TEXT_SCRIPT).strip()
-            if text:
-                texts.append(text if frame is page.main_frame else f"[frame {frame.name or frame.url}]\n{text}")
-
+        url = page.url
+        tree = self._tree(page)
+        if page.url != url:
+            page.wait_for_load_state("domcontentloaded", timeout=NAV_TIMEOUT_MS)
+            tree = self._tree(page)
+        self._refs = set(REF_PATTERN.findall(tree))
         size = _viewport(page)
-        return View(
-            page.url,
-            page.title(),
-            size["width"],
-            size["height"],
-            list(self._elements.values()),
-            self._frame_boxes(page),
-            self.tabs(),
-            "\n\n".join(texts)[:TEXT_CHARS],
-        )
+        loading = _evaluate(page.main_frame, READY_SCRIPT) != LOADED
 
-    def _frame_boxes(self, page: Page) -> list[FrameBox]:
-        boxes = []
-        for frame in page.frames:
-            if frame.parent_frame is None or frame.is_detached() or frame.url in ("", BLANK_PAGE):
-                continue
-            box = frame.frame_element().bounding_box()
-            if box is not None and box["width"] >= MIN_FRAME_WIDTH and box["height"] >= MIN_FRAME_HEIGHT:
-                boxes.append(FrameBox(frame.url, *(round(box[k]) for k in ("x", "y", "width", "height"))))
-        return boxes
+        extra = len(tree) - TREE_CHARS
+        if extra > 0:
+            tree = f"{tree[:TREE_CHARS]}\n{TREE_CUT.format(chars=extra)}"
+        return View(page.url, page.title(), size["width"], size["height"], loading, self.tabs(), tree)
+
+    def _tree(self, page: Page) -> str:
+        try:
+            return page.aria_snapshot(mode=SNAPSHOT_MODE, timeout=SNAPSHOT_TIMEOUT_MS)
+        except PlaywrightError as exc:
+            if not any(hint in str(exc) for hint in NAVIGATED):
+                raise
+        page.wait_for_load_state("load", timeout=NAV_TIMEOUT_MS)
+        return page.aria_snapshot(mode=SNAPSHOT_MODE, timeout=SNAPSHOT_TIMEOUT_MS)
 
     def _urls(self) -> tuple[str, ...]:
         return tuple(f.url for f in self.page.frames if not f.is_detached())
 
-    def _offset(self, frame: Frame) -> Point:
-        if frame.parent_frame is None:
-            return Point(0, 0)
+    def _ref_locator(self, ref: str) -> Locator:
+        if ref not in self._refs:
+            raise BrowserError(UNKNOWN_REF.format(ref=ref))
 
-        box = frame.frame_element().bounding_box()
-        if box is None:
-            raise BrowserError("A frame on the page is not visible.")
-        return Point(box["x"], box["y"])
-
-    def _collect(self, frame: Frame, room: int) -> None:
-        offset = self._offset(frame)
-        found = _evaluate(
-            frame,
-            SNAPSHOT_SCRIPT,
-            {
-                "start": len(self._elements) + 1,
-                "limit": room,
-                "nameChars": NAME_CHARS,
-                "valueChars": VALUE_CHARS,
-                "attribute": REF_ATTRIBUTE,
-            },
-        )
-        size = _viewport(frame.page)
-        elements = [Element(**{**item, "x": item["x"] + offset.x, "y": item["y"] + offset.y}) for item in found]
-        on_screen = [e for e in elements if 0 <= e.point.x < size["width"] and 0 <= e.point.y < size["height"]]
-        for element in self._uncovered(frame, on_screen):
-            self._elements[element.ref] = element
-            self._frames[element.ref] = frame
-
-    def _uncovered(self, frame: Frame, elements: list[Element]) -> list[Element]:
-        parent = frame.parent_frame
-        if parent is None or not elements:
-            return elements
-
-        origin = self._offset(parent)
-        points = [[e.point.x - origin.x, e.point.y - origin.y] for e in elements]
-        shown = _evaluate(parent, COVER_SCRIPT, {"el": frame.frame_element(), "points": points})
-        return [e for e, visible in zip(elements, shown, strict=True) if visible]
-
-    def _ref_locator(self, ref: int) -> tuple[Frame, Locator]:
-        if ref not in self._elements:
-            raise BrowserError(f"No element [{ref}] in the last snapshot. Take a new snapshot.")
-
-        frame = self._frames[ref]
-        if frame.is_detached():
-            raise BrowserError(f"Element [{ref}] is gone: its frame closed. Take a new snapshot.")
-
-        found = frame.locator(f'[{REF_ATTRIBUTE}="{ref}"]')
+        found = self.page.locator(f"aria-ref={ref}")
         if found.count() == 0:
-            raise BrowserError(f"Element [{ref}] is gone from the page. Take a new snapshot.")
-        return frame, found.first
+            raise BrowserError(GONE_REF.format(ref=ref))
+        return found
 
-    def _selector_locator(self, selector: str) -> tuple[Frame, Locator]:
+    def _selector_locator(self, selector: str) -> Locator:
         for frame in self.page.frames:
             if frame.is_detached():
                 continue
             found = frame.locator(selector)
             if found.count() > 0:
-                return frame, found.first
+                return found.first
 
         raise BrowserError(f"Nothing on the page matches {selector}.")
 
+    def _locator(self, target: Target) -> Locator:
+        if target.ref:
+            return self._ref_locator(target.ref)
+        return self._selector_locator(target.locator or "")
+
     def aim(self, target: Target) -> Aim:
         if target.point is not None:
-            return Aim(target.point, self.describe_at(target.point))
+            return self.describe_at(target.point)
 
-        frame, found = (
-            self._ref_locator(target.ref) if target.ref is not None else self._selector_locator(target.locator or "")
-        )
-        found.scroll_into_view_if_needed()
-        spot = found.evaluate(REACH_SCRIPT)
-        if spot is None:
-            raise BrowserError(COVERED)
+        found = self._locator(target)
+        found.scroll_into_view_if_needed(timeout=CLICK_TIMEOUT_MS)
+        box = found.bounding_box()
+        if box is None:
+            raise BrowserError(NO_BOX.format(target=target.ref or target.locator))
 
-        offset = self._offset(frame)
-        point = Point(round(spot[0] + offset.x), round(spot[1] + offset.y))
-        return Aim(point, self.describe_at(point))
+        point = Point(round(box["x"] + box["width"] / 2), round(box["y"] + box["height"] / 2))
+        args = {"x": point.x, "y": point.y, "nameChars": NAME_CHARS, "valueChars": VALUE_CHARS}
+        element = Element(**found.evaluate(ELEMENT_SCRIPT, args))
+        return Aim(point, f"{element.describe()} at ({point.x}, {point.y})", element.role)
 
-    def describe_at(self, point: Point) -> str:
+    def describe_at(self, point: Point) -> Aim:
         page = self.page
         size = _viewport(page)
         if not (0 <= point.x < size["width"] and 0 <= point.y < size["height"]):
@@ -513,24 +406,40 @@ class Driver:
             {"x": point.x - offset.x, "y": point.y - offset.y, "nameChars": NAME_CHARS, "valueChars": VALUE_CHARS},
         )
         if found is None:
-            return f"empty space at ({point.x}, {point.y})"
-        return f"{Element(**found).describe()} at ({point.x}, {point.y})"
+            return Aim(point, f"empty space at ({point.x}, {point.y})", "")
 
-    def move(self, point: Point) -> None:
-        self.page.mouse.move(point.x, point.y, steps=MOVE_STEPS)
-        self._after(self._urls())
+        element = Element(**found)
+        return Aim(point, f"{element.describe()} at ({point.x}, {point.y})", element.role)
 
-    def click(self, point: Point, button: str, count: int, modifiers: list[str]) -> None:
-        page = self.page
+    def center(self) -> Point:
+        size = _viewport(self.page)
+        return Point(size["width"] // 2, size["height"] // 2)
+
+    def move(self, target: Target, point: Point) -> None:
         before = self._urls()
+        if target.point is None:
+            self._locator(target).hover(timeout=CLICK_TIMEOUT_MS)
+        else:
+            self.page.mouse.move(point.x, point.y, steps=MOVE_STEPS)
+        self._after(before)
+
+    def click(self, target: Target, point: Point, button: str, count: int, modifiers: list[str]) -> None:
+        before = self._urls()
+        self._click(target, point, button, count, modifiers)
+        self._after(before)
+
+    def _click(self, target: Target, point: Point, button: str, count: int, modifiers: list[str]) -> None:
+        if target.point is None:
+            self._locator(target).click(button=button, click_count=count, modifiers=modifiers, timeout=CLICK_TIMEOUT_MS)
+            return
+
+        page = self.page
         page.mouse.move(point.x, point.y, steps=MOVE_STEPS)
         for key in modifiers:
             page.keyboard.down(key)
         page.mouse.click(point.x, point.y, button=button, click_count=count)
         for key in reversed(modifiers):
             page.keyboard.up(key)
-
-        self._after(before)
 
     def press_mouse(self, point: Point, button: str, down: bool) -> None:
         page = self.page
@@ -557,11 +466,13 @@ class Driver:
         page = self.page
         page.mouse.move(point.x, point.y)
         page.mouse.wheel(dx, dy)
-        self._after(self._urls())
+        page.wait_for_timeout(ACTION_PAUSE_MS)
 
-    def type(self, text: str, clear: bool) -> None:
+    def type(self, target: Target | None, point: Point | None, text: str, clear: bool) -> None:
         page = self.page
         before = self._urls()
+        if target is not None and point is not None:
+            self._click(target, point, BUTTONS[0], 1, [])
         if clear:
             page.keyboard.press(SELECT_ALL_KEY)
             page.keyboard.press(ERASE_KEY)
@@ -570,14 +481,18 @@ class Driver:
         self._after(before)
 
     def press(self, key: str) -> None:
-        page = self.page
         before = self._urls()
-        page.keyboard.press(key)
+        self.page.keyboard.press(key)
         self._after(before)
 
-    def select(self, ref: int, option: str) -> None:
+    def select(self, target: Target, option: str) -> None:
         before = self._urls()
-        self._ref_locator(ref)[1].select_option(label=option)
+        try:
+            self._locator(target).select_option(label=option, timeout=CLICK_TIMEOUT_MS)
+        except PlaywrightError as exc:
+            if NOT_SELECT_HINT in str(exc):
+                raise BrowserError(NOT_SELECT) from None
+            raise
         self._after(before)
 
     def pause(self, seconds: float) -> None:
@@ -617,31 +532,14 @@ class Driver:
     def idle(self) -> None:
         self.page.wait_for_timeout(IDLE_LOOP_MS)
 
-    def settle_after_dialog(self) -> None:
-        self._settle(ACTION_SETTLE_SECONDS)
+    def after_dialog(self) -> None:
+        self._after(self._urls())
 
     def _after(self, before: tuple[str, ...]) -> None:
         self.page.wait_for_timeout(ACTION_PAUSE_MS)
-        moved = [f for f in self.page.frames if not f.is_detached() and f.url not in before]
-        if not moved:
-            self._settle(ACTION_SETTLE_SECONDS)
-            return
-
-        for frame in moved:
-            frame.wait_for_load_state("domcontentloaded", timeout=NAV_TIMEOUT_MS)
-        self._settle(PAGE_SETTLE_SECONDS)
-
-    def _settle(self, seconds: float) -> None:
-        page = self.page
-        deadline = time.monotonic() + seconds
-        shape = _page_shape(page)
-
-        while time.monotonic() < deadline:
-            page.wait_for_timeout(SETTLE_POLL_MS)
-            now = _page_shape(page)
-            if now == shape and _settled(now) and self._network.quiet():
-                return
-            shape = now
+        for frame in self.page.frames:
+            if not frame.is_detached() and frame.url not in before:
+                frame.wait_for_load_state("domcontentloaded", timeout=NAV_TIMEOUT_MS)
 
 
 class Pilot:
@@ -713,7 +611,7 @@ class Pilot:
         self._dialogs.answer(accept, text)
         if held is not None:
             self._finish(held)
-        self.call(lambda d: d.settle_after_dialog())
+        self.call(lambda d: d.after_dialog())
 
     def _check(self) -> None:
         if not self.alive:
@@ -756,14 +654,20 @@ class Pilot:
     def where(self) -> tuple[str, str]:
         return self.call(lambda d: d.where())
 
+    def tabs(self) -> list[Tab]:
+        return self.call(lambda d: d.tabs())
+
     def aim(self, target: Target) -> Aim:
         return self.call(lambda d: d.aim(target))
 
-    def move(self, point: Point) -> None:
-        self.call(lambda d: d.move(point))
+    def center(self) -> Point:
+        return self.call(lambda d: d.center())
 
-    def click(self, point: Point, button: str, count: int, modifiers: list[str]) -> None:
-        self.call(lambda d: d.click(point, button, count, modifiers))
+    def move(self, target: Target, point: Point) -> None:
+        self.call(lambda d: d.move(target, point))
+
+    def click(self, target: Target, point: Point, button: str, count: int, modifiers: list[str]) -> None:
+        self.call(lambda d: d.click(target, point, button, count, modifiers))
 
     def press_mouse(self, point: Point, button: str, down: bool) -> None:
         self.call(lambda d: d.press_mouse(point, button, down))
@@ -774,14 +678,14 @@ class Pilot:
     def scroll(self, point: Point, dx: int, dy: int) -> None:
         self.call(lambda d: d.scroll(point, dx, dy))
 
-    def type(self, text: str, clear: bool) -> None:
-        self.call(lambda d: d.type(text, clear))
+    def type(self, target: Target | None, point: Point | None, text: str, clear: bool) -> None:
+        self.call(lambda d: d.type(target, point, text, clear))
 
     def press(self, key: str) -> None:
         self.call(lambda d: d.press(key))
 
-    def select(self, ref: int, option: str) -> None:
-        self.call(lambda d: d.select(ref, option))
+    def select(self, target: Target, option: str) -> None:
+        self.call(lambda d: d.select(target, option))
 
     def pause(self, seconds: float) -> None:
         self.call(lambda d: d.pause(seconds))
@@ -854,8 +758,8 @@ class Pilot:
             job.result = job.work(driver)
         except BrowserError as exc:
             job.error = exc
-        except PlaywrightTimeout:
-            job.error = BrowserError("The page did not respond in time.")
+        except PlaywrightTimeout as exc:
+            job.error = BrowserError(_timeout_reason(exc))
         except PlaywrightError as exc:
             job.error = BrowserError(_first_line(exc))
         finally:

@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
 RUNNER_STEPS = 40
 KEPT_SCREENSHOTS = 2
+KEPT_PAGES = 2
+PAGE_OUTPUT_CHARS = 2_000
 RUNNER_EFFORT = "low"
 MAX_TURNS_SUBTYPE = "error_max_turns"
 STEPS_USED_UP = (
@@ -24,21 +26,27 @@ STEPS_USED_UP = (
     "give it a smaller goal."
 )
 OLD_SCREENSHOT = "[older screenshot removed]"
+OLD_PAGE = "[older page snapshot removed; take a new snapshot to see the page]"
 LATEST_SCREENSHOT = "Screenshot after the last action:"
 INITIATOR = "agent"
 NO_REPORT = "The browser assistant finished without a report."
-RUNNER_PROMPT = """You are the hands of a OneVizion support engineer. You drive a web browser that the user \
-watches live, to reach one goal the engineer gave you. Work like a careful person at the screen:
-- Start with browser_snapshot unless the goal already shows you the screen.
-- After every action look at the screenshot it returns and check it did what you expected before the next step.
-- Aim by element number when the element is listed, otherwise by x and y in the latest screenshot.
+RUNNER_PROMPT = """You are the hands of an engineer. You drive a web browser that the user watches live, to reach \
+one goal the engineer gave you. Work quickly and carefully:
+- Start with browser_snapshot. It lists the page as an accessibility tree; aim at elements by their ref, e.g. \
+ref=e14. Use x and y only from a screenshot you asked for.
+- Actions return only what they did and the URL, not the page. When you know the next steps, do them in a row \
+(type into a field, then click Save) and take a snapshot when you need to see the result.
+- Ask for a screenshot (browser_snapshot with screenshot=true) only when the tree does not tell you enough, such \
+as for layout, colors or charts.
+- When a browser tool fails, read the error: it says what blocked it. Take a new snapshot and try a different way \
+once. If that also fails, stop and report; never repeat the same action hoping for another result.
 - Give every action a short say line in plain words; the user reads it over the browser.
 - Do only what the goal asks. Never save, delete, run or send anything the goal does not ask for. A change that \
 is blocked or rejected is final: stop there.
 - Alerts, confirms and prompts the page shows are real dialogs: answer them with browser_dialog. A page that \
 opens a new window gets a new tab: the snapshot lists tabs, browser_tab switches or closes them.
-- If something unexpected happens (an error message, a dialog you did not expect, a missing button, a read-only \
-field), stop and report it instead of trying another way.
+- If the page itself shows something unexpected (an error message, a dialog you did not expect, a missing \
+button, a read-only field), stop and report it instead of trying another way.
 When you finish or stop, reply with this report and nothing else:
 Result: done | stuck | failed
 Steps: what you did, one short line each
@@ -103,10 +111,14 @@ def _ignore(_: str) -> None:
     return None
 
 
-def _drop_old_screenshots(messages: list[dict[str, Any]]) -> None:
+def _drop_old_pages(messages: list[dict[str, Any]]) -> None:
     shots = [m for m in messages if m["role"] == "user" and isinstance(m["content"], list)]
     for message in shots[:-KEPT_SCREENSHOTS]:
         message["content"] = OLD_SCREENSHOT
+
+    pages = [m for m in messages if m["role"] == "tool" and len(m["content"]) > PAGE_OUTPUT_CHARS]
+    for message in pages[:-KEPT_PAGES]:
+        message["content"] = OLD_PAGE
 
 
 def _copilot_drive(run: Run, model: str, goal: str, cancel: Cancel) -> str:
@@ -117,7 +129,7 @@ def _copilot_drive(run: Run, model: str, goal: str, cancel: Cancel) -> str:
     ]
     for _ in range(RUNNER_STEPS):
         cancel.check()
-        _drop_old_screenshots(messages)
+        _drop_old_pages(messages)
         result = copilot.stream_chat(model, messages, specs, INITIATOR, cancel=cancel, on_text=_ignore)
         run.record_step_usage(model, result.usage)
         reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
