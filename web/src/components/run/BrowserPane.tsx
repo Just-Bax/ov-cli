@@ -55,7 +55,7 @@ function lastBrowserTool(tools: ToolActivity[]): ToolActivity | undefined {
 function Pointer({ pointer, size }: { pointer: BrowserPointer; size: FrameSize }) {
   return (
     <div
-      className="animate-fade-in pointer-events-none absolute z-10 transition-[left,top] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+      className="animate-fade-in pointer-events-none absolute z-10 transition-[left,top] duration-(--duration-travel) ease-out"
       style={{
         left: `${(pointer.x / size.width) * 100}%`,
         top: `${(pointer.y / size.height) * 100}%`,
@@ -410,12 +410,7 @@ export function ShowBrowserButton({
       }
       className={HEADER_PILL}
     >
-      <span className="relative flex size-2">
-        {driving ? (
-          <span className="bg-ok absolute inline-flex size-full animate-ping rounded-full opacity-60" />
-        ) : null}
-        <span className="bg-ok relative inline-flex size-2 rounded-full" />
-      </span>
+      <span className={cn('bg-ok inline-flex size-2 rounded-full', driving && 'live-ring')} />
       Browser
     </button>
   )

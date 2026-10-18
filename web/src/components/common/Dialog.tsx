@@ -99,8 +99,8 @@ export function DialogHost() {
         role="dialog"
         aria-modal="true"
         className={cn(
-          'ease-spring w-full max-w-[420px] rounded-2xl bg-white p-5 shadow-[0_20px_60px_rgba(38,50,56,0.25)] transition-[transform,opacity] duration-300',
-          shown ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-6 scale-[0.97] opacity-0',
+          'modal-enter w-full max-w-[420px] rounded-2xl bg-white p-5 shadow-[0_20px_60px_rgba(38,50,56,0.25)]',
+          shown ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-3 scale-[0.98] opacity-0',
         )}
       >
         <div className="flex gap-3.5">

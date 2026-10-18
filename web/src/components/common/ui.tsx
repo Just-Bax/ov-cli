@@ -22,6 +22,7 @@ import remarkGfm from 'remark-gfm'
 import { Dropdown, type DropdownOption } from '@/components/common/Dropdown'
 import { reportError } from '@/components/common/Toasts'
 import { cn } from '@/lib/cn'
+import { type Indicator, indicatorStyle, useSlidingIndicator } from '@/lib/motion'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type Size = 'sm' | 'md' | 'lg'
@@ -62,7 +63,7 @@ export function Button({
       type="button"
       aria-busy={busy || undefined}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition-colors select-none disabled:pointer-events-none [&_svg]:shrink-0',
+        'press inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap select-none disabled:pointer-events-none [&_svg]:shrink-0',
         VARIANTS[variant],
         SIZES[size],
         busy && 'busy-sweep',
@@ -86,7 +87,7 @@ export function IconButton({
       aria-busy={busy || undefined}
       title={label}
       className={cn(
-        'text-muted hover:bg-raised hover:text-fg inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40 aria-busy:disabled:opacity-100',
+        'press text-muted hover:bg-raised hover:text-fg inline-flex size-8 shrink-0 items-center justify-center rounded-full disabled:opacity-40 aria-busy:disabled:opacity-100',
         busy && 'busy-sweep',
         className,
       )}
@@ -181,6 +182,25 @@ export function SkeletonText({ lines = 3 }: { lines?: number }) {
 
 type SegmentOption<T> = { value: T; label: ReactNode; title?: string }
 
+export function SlideIndicator({
+  indicator,
+  className,
+}: {
+  indicator: Indicator
+  className?: string
+}) {
+  if (!indicator) return null
+
+  return (
+    <span
+      aria-hidden
+      data-moving={indicator.moving || undefined}
+      className={cn('slide-indicator top-0 left-0', className)}
+      style={indicatorStyle(indicator)}
+    />
+  )
+}
+
 export function Segmented<T extends string | number>({
   value,
   options,
@@ -194,23 +214,29 @@ export function Segmented<T extends string | number>({
   label: string
   className?: string
 }) {
+  const group = useRef<HTMLDivElement>(null)
+  const indicator = useSlidingIndicator(group, String(value))
+
   return (
     <div
+      ref={group}
       role="radiogroup"
       aria-label={label}
-      className={cn('bg-raised flex rounded-full p-1', className)}
+      className={cn('bg-raised relative flex rounded-full p-1', className)}
     >
+      <SlideIndicator indicator={indicator} className="rounded-full bg-white shadow-sm" />
       {options.map((o) => (
         <button
           key={String(o.value)}
           type="button"
           role="radio"
           aria-checked={o.value === value}
+          data-active={o.value === value || undefined}
           title={o.title}
           onClick={() => onChange(o.value)}
           className={cn(
-            'h-7 min-w-max flex-1 rounded-full px-3 text-[12.5px] font-medium whitespace-nowrap transition-colors',
-            o.value === value ? 'text-fg bg-white shadow-sm' : 'text-muted hover:text-fg',
+            'relative h-7 min-w-max flex-1 rounded-full px-3 text-[12.5px] font-medium whitespace-nowrap transition-colors',
+            o.value === value ? 'text-fg' : 'text-muted hover:text-fg',
           )}
         >
           {o.label}
@@ -256,7 +282,11 @@ export function CopyButton({
 
   return (
     <Button variant={variant} size="sm" onClick={() => copy(text)}>
-      {copied ? <CheckIcon className="size-3.5" /> : <Square2StackIcon className="size-3.5" />}
+      {copied ? (
+        <CheckIcon className="animate-check size-3.5" />
+      ) : (
+        <Square2StackIcon className="size-3.5" />
+      )}
       {copied ? 'Copied' : label}
     </Button>
   )
@@ -411,14 +441,14 @@ export function GithubMark({ className }: { className?: string }) {
   )
 }
 
-export const SWITCH_TRACK = 'relative h-4 w-7 shrink-0 rounded-full transition-colors'
+export const SWITCH_TRACK = 'group/switch relative h-4 w-7 shrink-0 rounded-full transition-colors'
 
 export function SwitchKnob({ on }: { on: boolean }) {
   return (
     <span
       className={cn(
-        'absolute top-0.5 size-3 rounded-full bg-white shadow transition-all',
-        on ? 'left-3.5' : 'left-0.5',
+        'absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-[left,width] duration-150 ease-out group-active/switch:w-[15px]',
+        on ? 'left-3.5 group-active/switch:left-[11px]' : 'left-0.5',
       )}
     />
   )

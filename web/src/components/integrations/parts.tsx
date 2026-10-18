@@ -166,8 +166,8 @@ export function ConnectModal({
         aria-modal="true"
         aria-label={title}
         className={cn(
-          'ease-spring max-h-[calc(100vh-32px)] w-full max-w-[540px] scrollbar-thin overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-[0_20px_60px_rgba(38,50,56,0.25)] transition-[transform,opacity] duration-300',
-          shown ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-6 scale-[0.97] opacity-0',
+          'modal-enter max-h-[calc(100vh-32px)] w-full max-w-[540px] scrollbar-thin overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-[0_20px_60px_rgba(38,50,56,0.25)]',
+          shown ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-3 scale-[0.98] opacity-0',
         )}
       >
         <div className="flex items-start gap-3.5 px-5 pt-5">

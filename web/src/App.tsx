@@ -106,7 +106,7 @@ export function App() {
         <Sidebar route={route} account={sidebarAccount(status)} />
         <main
           key={route.page === 'thread' ? `run-${route.id}` : route.page}
-          className="animate-fade-in min-w-0 flex-1 bg-white"
+          className="min-w-0 flex-1 bg-white"
         >
           <Suspense fallback={null}>
             {route.page === 'home' && <Home />}

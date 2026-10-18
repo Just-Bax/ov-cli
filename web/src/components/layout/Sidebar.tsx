@@ -21,13 +21,14 @@ import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { EditableTitle } from '@/components/common/EditableTitle'
 import { ProviderLogo } from '@/components/common/ProviderLogo'
-import { type Icon, PulseDot, Shimmer, Skeleton } from '@/components/common/ui'
+import { type Icon, PulseDot, Shimmer, Skeleton, SlideIndicator } from '@/components/common/ui'
 import { OPEN_PALETTE, TOGGLE_SIDEBAR } from '@/components/layout/CommandPalette'
 import { RunMenu, snoozeLabel } from '@/components/run/RunMenu'
 import { RUN_STATUS, StatusIcon } from '@/components/run/RunStatus'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useWindowEvent } from '@/lib/hooks'
+import { type Reveal, useFirstLoadReveal, useSlidingIndicator } from '@/lib/motion'
 import { useLayer } from '@/lib/layers'
 import { go, href, type Route } from '@/lib/route'
 import { refreshRuns, showMoreSettled, sidebarOrder, useRuns, WORKING } from '@/lib/runs'
@@ -177,10 +178,12 @@ function RunItem({
   run,
   active,
   settled,
+  reveal,
 }: {
   run: RunSummary
   active: boolean
   settled?: boolean
+  reveal?: Reveal
 }) {
   const hover = useHoverPrefetch(run.id, active)
 
@@ -192,8 +195,10 @@ function RunItem({
       onMouseLeave={hover.stop}
       onClick={() => go({ page: 'thread', id: run.id })}
       onKeyDown={(e) => e.key === 'Enter' && go({ page: 'thread', id: run.id })}
+      style={reveal?.style}
       className={cn(
-        'group/run animate-slide-in flex h-9 cursor-pointer items-center gap-2 rounded-full text-[12.5px] font-medium transition-colors outline-none',
+        reveal?.className,
+        'group/run flex h-9 cursor-pointer items-center gap-2 rounded-full text-[12.5px] font-medium transition-colors outline-none',
         ROW_INSET,
         active
           ? 'bg-brand-soft text-brand-strong'
@@ -253,7 +258,7 @@ function initials(title: string): string {
   )
 }
 
-function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
+function RailRun({ run, active, reveal }: { run: RunSummary; active: boolean; reveal?: Reveal }) {
   const tip = useRailTip()
   const hover = useHoverPrefetch(run.id, active)
   const busy = BUSY.has(run.status)
@@ -271,7 +276,11 @@ function RailRun({ run, active }: { run: RunSummary; active: boolean }) {
         tip.hide()
         hover.stop()
       }}
-      className="group/rail animate-fade-in relative mx-auto flex size-9 items-center justify-center"
+      style={reveal?.style}
+      className={cn(
+        reveal?.className,
+        'group/rail relative mx-auto flex size-9 items-center justify-center',
+      )}
     >
       <span
         className={cn(
@@ -378,15 +387,13 @@ function NavRow({
         onClick?.(e)
       }}
       aria-label={collapsed ? label : undefined}
+      data-active={active || undefined}
       onMouseEnter={collapsed ? tip.show : undefined}
       onMouseLeave={tip.hide}
       className={cn(
         'group/rail relative flex items-center text-[13px] font-medium transition-colors',
         collapsed
-          ? cn(
-              'mx-auto size-11 justify-center rounded-xl',
-              active ? 'bg-brand-soft' : 'hover:bg-raised',
-            )
+          ? cn('mx-auto size-11 justify-center rounded-xl', !active && 'hover:bg-raised')
           : cn(
               'h-9 w-full gap-3 rounded-full pr-3 pl-3',
               active ? 'text-brand-strong' : 'text-text hover:bg-canvas hover:text-brand-strong',
@@ -573,6 +580,9 @@ export function Sidebar({
   const shown = showAll ? ordered : ordered.slice(0, RECENT_LIMIT)
   const onSettings = route.page === 'settings'
   const isOpen = (id: string) => route.page === 'thread' && route.id === id
+  const reveal = useFirstLoadReveal(!list)
+  const nav = useRef<HTMLElement>(null)
+  const navIndicator = useSlidingIndicator(nav, route.page, String(collapsed))
 
   const toggleSettled = (open = !settledOpen) => {
     localStorage.setItem(SETTLED_OPEN_KEY, open ? '1' : '0')
@@ -683,7 +693,14 @@ export function Sidebar({
             </>
           )}
         </div>
-        <nav className={cn('shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}>
+        <nav
+          ref={nav}
+          className={cn('relative shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}
+        >
+          <SlideIndicator
+            indicator={navIndicator}
+            className={cn('bg-brand-soft', collapsed ? 'rounded-xl' : 'rounded-full')}
+          />
           {collapsed ? (
             <NavRow
               icon={SearchIcon}
@@ -706,8 +723,8 @@ export function Sidebar({
         {collapsed ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="border-line-strong/60 mt-1 min-h-0 flex-1 scrollbar-thin space-y-1.5 overflow-y-auto border-t px-2 pt-3 pb-3">
-              {active.slice(0, RAIL_RUNS).map((r) => (
-                <RailRun key={r.id} run={r} active={isOpen(r.id)} />
+              {active.slice(0, RAIL_RUNS).map((r, i) => (
+                <RailRun key={r.id} run={r} active={isOpen(r.id)} reveal={reveal(i)} />
               ))}
               {active.length > RAIL_RUNS ? (
                 <button
@@ -755,7 +772,12 @@ export function Sidebar({
                   </div>
                   <div className="space-y-0.5">
                     {list.map((r) => (
-                      <RunItem key={r.id} run={r} active={isOpen(r.id)} />
+                      <RunItem
+                        key={r.id}
+                        run={r}
+                        active={isOpen(r.id)}
+                        reveal={reveal(shown.indexOf(r))}
+                      />
                     ))}
                   </div>
                 </div>

@@ -308,7 +308,7 @@ export function LiveScreen({
                 className={BAR_ACTION}
               >
                 {copied ? (
-                  <CheckIcon className="text-ok size-3.5" />
+                  <CheckIcon className="animate-check text-ok size-3.5" />
                 ) : (
                   <CopyIcon className="size-3.5" />
                 )}

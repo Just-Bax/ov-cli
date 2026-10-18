@@ -154,6 +154,23 @@ function buildTurns(state: RunState): Turn[] {
 
 const RESULT_ITEMS = new Set<ThreadItem['kind']>(['change', 'outcome', 'compact'])
 
+function turnKeys(turn: Turn): string[] {
+  return [...(turn.user ? [turn.user.id] : []), ...turn.blocks.map((b) => b.key)]
+}
+
+function useArrivedLive(state: RunState | undefined): (turn: Turn, key: string) => boolean {
+  const opened = useRef<{ from: number; keys: Set<string> }>(undefined)
+  if (state && !opened.current) {
+    const last = toTurns(state).at(-1)
+    opened.current = { from: last?.start ?? state.start, keys: new Set(last ? turnKeys(last) : []) }
+  }
+
+  return (turn, key) =>
+    opened.current !== undefined &&
+    turn.start >= opened.current.from &&
+    !opened.current.keys.has(key)
+}
+
 function splitTurn(blocks: Block[]): { work: Block[]; result: Block[] } {
   const lastTools = blocks.findLastIndex((b) => b.kind === 'tools')
   if (lastTools < 0) return { work: [], result: blocks }
@@ -542,6 +559,7 @@ export function RunView({ id }: { id: string }) {
   const wasOpen = useRef(false)
   const restoreHeight = useRef<number | undefined>(undefined)
   const [finding, setFinding] = useState(false)
+  const arrivedLive = useArrivedLive(state)
 
   useEffect(() => {
     const open = Boolean(state?.browser?.open)
@@ -814,7 +832,7 @@ export function RunView({ id }: { id: string }) {
             <div key={turnId ?? `t${i}`} className="space-y-4">
               {turn.user ? (
                 <div
-                  className="animate-fade-up"
+                  className={cn(arrivedLive(turn, turn.user.id) && 'animate-fade-up')}
                   data-mark="user"
                   data-start={turn.start}
                   data-label={turn.user.text.slice(0, MARK_LABEL_CHARS)}
@@ -837,7 +855,7 @@ export function RunView({ id }: { id: string }) {
                     </Worked>
                   ) : null}
                   {result.map((b) => (
-                    <div key={b.key} className="animate-fade-up">
+                    <div key={b.key} className={cn(arrivedLive(turn, b.key) && 'animate-fade-up')}>
                       <ThreadBlock block={b} state={state} />
                     </div>
                   ))}
