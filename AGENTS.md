@@ -47,6 +47,7 @@ Motion marks a change; it is never decoration. Less is better.
 - Never animate: page-to-page navigation, refetched or polled data, history loaded when a thread opens, hover on cards or fields, number counters, anything that delays reading or clicking.
 - Rows reveal only on their first fetched load, staggered 24ms and capped at 8 (`useFirstLoadReveal` in `web/src/lib/motion.ts`). Stable keys keep rows mounted so refetches stay still.
 - Sliding indicators use `useSlidingIndicator` and `SlideIndicator`: the first measurement does not animate, and layout changes (like collapsing the sidebar) jump instead of slide.
+- The rotating word on the home page keeps its slower blur swap (700ms in, 500ms out) on purpose; it is the one celebratory exception.
 - A pulsing ring (`live-ring`) only marks something happening right now.
 - `prefers-reduced-motion` is handled globally: near-zero durations and no infinite loops. Do not add per-component exceptions.
 

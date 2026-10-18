@@ -268,23 +268,35 @@
 }
 
 .word-in {
-  animation: word-in 280ms var(--ease-out) both;
+  animation: word-blur-in 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 .word-out {
-  animation: word-out 180ms var(--ease-in) both;
+  animation: word-blur-out 0.5s cubic-bezier(0.55, 0, 0.75, 0.3) both;
 }
 
-@keyframes word-in {
+@keyframes word-blur-in {
   from {
     opacity: 0;
+    filter: blur(12px);
     transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
   }
 }
 
-@keyframes word-out {
+@keyframes word-blur-out {
+  from {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
   to {
     opacity: 0;
+    filter: blur(12px);
     transform: translateY(-4px);
   }
 }
