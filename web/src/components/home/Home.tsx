@@ -9,12 +9,13 @@ import { DRAFT_EVENT, takeDraft } from '@/lib/draft'
 import { useWindowEvent } from '@/lib/hooks'
 import { useInstances } from '@/lib/instances'
 import { cn } from '@/lib/cn'
+import { prefersReducedMotion } from '@/lib/motion'
 import { go } from '@/lib/route'
 import { refreshRuns } from '@/lib/runs'
 
 const WORDS = ['troubleshooting', 'investigating', 'configuring', 'automating', 'fixing']
 const WORD_MS = 4500
-const FADE_MS = 500
+const FADE_MS = 180
 const NOON_HOUR = 12
 const EVENING_HOUR = 18
 const CHOICES_KEY = 'ov-agent.new-run-choices'
@@ -24,6 +25,8 @@ function RotatingWord() {
   const [leaving, setLeaving] = useState(false)
 
   useEffect(() => {
+    if (prefersReducedMotion()) return
+
     let swap: ReturnType<typeof setTimeout> | undefined
     const timer = setInterval(() => {
       setLeaving(true)

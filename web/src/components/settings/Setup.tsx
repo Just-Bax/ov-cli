@@ -192,7 +192,7 @@ export function Setup({
               <span
                 key={n}
                 className={cn(
-                  'h-1.5 rounded-full transition-colors duration-500',
+                  'h-1.5 rounded-full transition-colors duration-200',
                   n < current ? 'bg-ok' : n === current ? 'bg-brand' : 'bg-raised',
                 )}
               />

@@ -37,6 +37,19 @@ def resolve(model: str, language: str | None) -> str:
 - Do not overengineer. Simple, clean, maintainable.
 - ASCII only.
 
+## Motion
+
+Motion marks a change; it is never decoration. Less is better.
+
+- Tokens live once in `web/src/index.css`: `--ease-out` (entering), `--ease-in` (leaving, faster), `--ease-back` (tiny overshoot, success marks only), `--duration-small` / `--duration-medium` / `--duration-exit`, `--stagger-step`. No inline `cubic-bezier`, no bounce or elastic curves.
+- Timing: small UI (menus, tooltips, presses) 120-180ms; medium (dialogs, toasts, sliding indicators) 200-280ms. Exits are faster than entrances and may simply fade. Only spinners and progress move at constant speed.
+- Motion belongs on a real state change: a dialog or menu opening, a message arriving live, a value copied, the active nav item or segment moving, a toast.
+- Never animate: page-to-page navigation, refetched or polled data, history loaded when a thread opens, hover on cards or fields, number counters, anything that delays reading or clicking.
+- Rows reveal only on their first fetched load, staggered 24ms and capped at 8 (`useFirstLoadReveal` in `web/src/lib/motion.ts`). Stable keys keep rows mounted so refetches stay still.
+- Sliding indicators use `useSlidingIndicator` and `SlideIndicator`: the first measurement does not animate, and layout changes (like collapsing the sidebar) jump instead of slide.
+- A pulsing ring (`live-ring`) only marks something happening right now.
+- `prefers-reduced-motion` is handled globally: near-zero durations and no infinite loops. Do not add per-component exceptions.
+
 ## Verification
 
 ```sh

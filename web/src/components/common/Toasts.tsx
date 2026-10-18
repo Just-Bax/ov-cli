@@ -1,5 +1,6 @@
 import { Warning as ExclamationTriangleIcon, X as XMarkIcon } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { type AnimationEvent, useEffect, useState } from 'react'
+import { cn } from '@/lib/cn'
 
 const TOAST_MS = 8000
 const RING_RADIUS = 7.5
@@ -9,6 +10,7 @@ type Toast = {
   message: string
   action?: { label: string; run: () => void }
   ms?: number
+  leaving?: boolean
 }
 
 let listeners: ((toast: Toast) => void)[] = []
@@ -35,7 +37,13 @@ export function dismissToast(id: number): void {
 
 export function Toasts() {
   const [toasts, setToasts] = useState<Toast[]>([])
-  const remove = (id: number) => setToasts((all) => all.filter((t) => t.id !== id))
+  const remove = (id: number) =>
+    setToasts((all) => all.map((t) => (t.id === id ? { ...t, leaving: true } : t)))
+  const drop = (id: number) => setToasts((all) => all.filter((t) => t.id !== id))
+  const motion = (t: Toast) =>
+    t.leaving ? 'animate-toast-out pointer-events-none' : 'animate-toast'
+  const dropAfterExit = (t: Toast) => (e: AnimationEvent) =>
+    t.leaving && e.target === e.currentTarget && drop(t.id)
 
   useEffect(() => {
     const timers = new Set<ReturnType<typeof setTimeout>>()
@@ -64,7 +72,11 @@ export function Toasts() {
           <div
             key={t.id}
             role="status"
-            className="animate-toast border-line-strong/70 flex items-center gap-3 rounded-full border bg-white py-1.5 pr-1.5 pl-4 shadow-[0_8px_28px_rgba(38,50,56,0.16)]"
+            onAnimationEnd={dropAfterExit(t)}
+            className={cn(
+              motion(t),
+              'border-line-strong/70 flex items-center gap-3 rounded-full border bg-white py-1.5 pr-1.5 pl-4 shadow-[0_8px_28px_rgba(38,50,56,0.16)]',
+            )}
           >
             <svg viewBox="0 0 20 20" className="text-brand size-4 shrink-0 -rotate-90" aria-hidden>
               <circle
@@ -108,7 +120,11 @@ export function Toasts() {
           <div
             key={t.id}
             role="alert"
-            className="animate-toast border-danger/25 flex items-start gap-2.5 rounded-2xl border bg-white px-4 py-3 text-[12.5px] shadow-[0_8px_28px_rgba(38,50,56,0.16)]"
+            onAnimationEnd={dropAfterExit(t)}
+            className={cn(
+              motion(t),
+              'border-danger/25 flex items-start gap-2.5 rounded-2xl border bg-white px-4 py-3 text-[12.5px] shadow-[0_8px_28px_rgba(38,50,56,0.16)]',
+            )}
           >
             <ExclamationTriangleIcon className="text-danger mt-0.5 size-4 shrink-0" />
             <span className="text-text min-w-0 flex-1 break-words">{t.message}</span>

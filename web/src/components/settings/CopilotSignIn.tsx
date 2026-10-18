@@ -83,7 +83,11 @@ export function CopilotSignIn({ onDone }: { onDone: () => void }) {
             copied ? 'bg-ok-soft text-ok' : 'text-muted hover:text-fg bg-white',
           )}
         >
-          {copied ? <CheckIcon className="size-4" /> : <Square2StackIcon className="size-4" />}
+          {copied ? (
+            <CheckIcon className="animate-check size-4" />
+          ) : (
+            <Square2StackIcon className="size-4" />
+          )}
         </button>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
