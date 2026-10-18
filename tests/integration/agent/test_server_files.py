@@ -30,6 +30,7 @@ def test_attachments_that_could_run_script_are_downloaded(agent_server, monkeypa
     html = httpx.get(f"{agent_server}/api/runs/{run.id}/files/page.html")
     assert html.headers["content-disposition"].startswith("attachment")
     assert html.headers["content-type"] == "application/octet-stream"
+
     png = httpx.get(f"{agent_server}/api/runs/{run.id}/files/shot.png")
     assert png.headers["content-disposition"].startswith("inline")
     assert png.headers["content-security-policy"] == "sandbox"

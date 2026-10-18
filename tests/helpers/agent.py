@@ -11,6 +11,7 @@ from ov.agent.tools.base import APPROVE, Approval
 
 RUN_POLLS = 100
 RUN_POLL_SECONDS = 0.05
+SLOW_POLLS = 200
 
 
 class ClosedBrowser:
@@ -95,11 +96,16 @@ class FakeContext:
         return Verdict(effect, f"it is {effect.value}")
 
 
-def wait_done(run):
-    for _ in range(RUN_POLLS):
-        if run.state["summary"]["status"] in ("done", "error"):
-            break
+def wait_for(check, polls: int = RUN_POLLS) -> None:
+    for _ in range(polls):
+        if check():
+            return
         time.sleep(RUN_POLL_SECONDS)
+    raise AssertionError("condition never held")
+
+
+def wait_done(run):
+    wait_for(lambda: run.state["summary"]["status"] in ("done", "error"))
     assert run.state["summary"]["status"] == "done", run.state.get("error")
 
 
@@ -116,6 +122,8 @@ def workspace_folder(tmp_path: Path):
     (folder / "module" / "node_modules").mkdir(parents=True)
     (folder / "module" / "main.py").write_text("alpha\nRULE_ID = 1\n", encoding="utf-8")
     (folder / "module" / "node_modules" / "skip.js").write_text("RULE_ID", encoding="utf-8")
+
     db.save_preferences({"workspace": str(folder)})
     yield folder
+
     db.save_preferences({"workspace": ""})

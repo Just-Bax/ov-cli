@@ -22,6 +22,7 @@ from ov.agent.tools.datadog import WINDOW_FROM, WINDOW_TO
 
 DEFAULT_INCIDENTS = 25
 ONCALL_LOOKBACK_DAYS = 30
+INCIDENT_STATUSES = ("triggered", "acknowledged", "resolved")
 
 AREA_OF_TOOL = {
     "pd_incidents": "incidents",
@@ -52,7 +53,7 @@ def _pagerduty_rows(args: dict[str, Any], ctx: ToolContext, default: str) -> tup
     alias = "" if args.get("all_instances") else pagerduty.resolve_host(args.get("instance"), ctx.instance)
     start = datadog.to_ms(args.get("from"), default)
     end = datadog.to_ms(args.get("to"), "now")
-    statuses = [s for s in (args.get("statuses") or []) if s in ("triggered", "acknowledged", "resolved")]
+    statuses = [s for s in (args.get("statuses") or []) if s in INCIDENT_STATUSES]
     rows = pagerduty.incidents(start, end, statuses or None)
     if alias:
         rows = pagerduty.for_instance(rows, alias)
@@ -62,6 +63,7 @@ def _pagerduty_rows(args: dict[str, Any], ctx: ToolContext, default: str) -> tup
     head = f"PagerDuty incidents for {where}, {pagerduty.iso_utc(start)} to {pagerduty.iso_utc(end)}"
     if statuses:
         head += f", status {'/'.join(statuses)}"
+
     return head, rows
 
 
@@ -71,6 +73,7 @@ def _pagerduty_incidents(args: dict[str, Any], ctx: ToolContext) -> str:
     if text:
         rows = [r for r in rows if text in f"{r['title']} {r['service']} {r['text']}".lower()]
         head += f", matching {text!r}"
+
     if not rows:
         return f"{head}\nNone."
 
@@ -93,11 +96,14 @@ def _pagerduty_incident(args: dict[str, Any], ctx: ToolContext) -> str:
     i = pagerduty.incident_detail(str(args["incident"]))
     lines = [_incident_line(i), "", "Timeline:"]
     lines += [f"- {pagerduty.short_time(e['time'])} {e['type']}: {e['summary']}" for e in i["timeline"]] or ["- none"]
+
     if i["alerts"]:
         lines += _alert_lines(i["alerts"])
+
     if i["notes"]:
         lines += ["", "Notes:"]
         lines += [f"- {pagerduty.short_time(n['time'])} {n['by']}: {n['text']}" for n in i["notes"]]
+
     return clip("\n".join(lines), ctx, "incident")
 
 
@@ -156,6 +162,7 @@ def _pd_change(what: str, apply: Callable[[], dict[str, Any]], ref: str, ctx: To
     found = pagerduty.describe(ref)
     if not approved(ctx, f"{what} in PagerDuty?", _incident_line(found)):
         raise ToolError("The user rejected this change. Do not retry it.")
+
     if not ctx.can_write():
         raise ToolError("Changes were turned off before this was applied.")
 
@@ -216,6 +223,7 @@ def _pd_directory(args: dict[str, Any], ctx: ToolContext) -> str:
     lines = ["Escalation policies:"] + ([f"- {p['name']} ({p['id']})" for p in found_policies] or ["- none"])
     if query:
         lines += ["", "Users:"] + ([f"- {u['name']} <{u['email']}> ({u['id']})" for u in found_users] or ["- none"])
+
     return clip("\n".join(lines), ctx, "directory")
 
 
@@ -232,7 +240,7 @@ READ_TOOLS = [
             "to": WINDOW_TO,
             "statuses": {
                 "type": "array",
-                "items": {"type": "string", "enum": ["triggered", "acknowledged", "resolved"]},
+                "items": {"type": "string", "enum": list(INCIDENT_STATUSES)},
             },
             "query": string_param("Text the title, service or alert details must contain"),
             "all_instances": {"type": "boolean"},

@@ -102,6 +102,7 @@ class OvService:
             headers=plan.headers or None,
             accept=plan.accept,
         )
+
         if key:
             self.cache.set(key, _record(response))
         return response
@@ -144,4 +145,5 @@ def payload_of(response: httpx.Response) -> Any:
             return response.json()
         except ValueError:
             return response.text
+
     return {"content_type": content_type, "bytes": len(response.content)}

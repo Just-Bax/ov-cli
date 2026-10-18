@@ -63,6 +63,7 @@ def account() -> dict[str, Any]:
     with _lock:
         if _account and time.time() - _account[0] < ACCOUNT_TTL_SECONDS:
             return _account[1]
+
     found = shutil.which(CLI)
     if found is None:
         return {"installed": False, "signedIn": False}
@@ -70,10 +71,12 @@ def account() -> dict[str, Any]:
     result = subprocess.run(
         [found, "auth", "status"], capture_output=True, text=True, timeout=AUTH_TIMEOUT_SECONDS, check=False
     )
+
     try:
         status = json.loads(result.stdout)
     except json.JSONDecodeError:
         raise ClaudeError(f"claude auth status gave no account: {(result.stderr or result.stdout).strip()}") from None
+
     entry = {
         "installed": True,
         "signedIn": bool(status.get("loggedIn")),
@@ -81,8 +84,10 @@ def account() -> dict[str, Any]:
         "plan": status.get("subscriptionType") or "",
         "method": status.get("authMethod") or "",
     }
+
     with _lock:
         _account = (time.time(), entry)
+
     return entry
 
 
@@ -115,6 +120,7 @@ async def _server_models() -> list[dict[str, Any]]:
     )
     async with ClaudeSDKClient(options) as client:
         info = await client.get_server_info()
+
     if not info or not info.get("models"):
         raise ClaudeError(f"Claude Code listed no models. {SIGN_IN_HINT}")
     return [_model_entry(m) for m in info["models"] if m["value"] not in HIDDEN_MODELS]
@@ -125,21 +131,28 @@ def list_models() -> list[dict[str, Any]]:
     with _lock:
         if _models and time.time() - _models[0] < MODELS_TTL_SECONDS:
             return _models[1]
+
     listed = asyncio.run(_server_models())
+
     with _lock:
         _models = (time.time(), listed)
+
     return listed
 
 
 def effort_for(model_id: str, wanted: str) -> str | None:
     if not wanted:
         return None
+
     if wanted not in REASONING_LEVELS:
         raise ClaudeError(f"Unknown reasoning level: {wanted}")
+
     model = next((m for m in list_models() if m["id"] == model_id), None)
     if model is None or not model["reasoning"]:
         return None
+
     rank = REASONING_LEVELS.index(wanted)
+
     return min(
         model["reasoning"],
         key=lambda level: (abs(REASONING_LEVELS.index(level) - rank), -REASONING_LEVELS.index(level)),
@@ -180,6 +193,7 @@ class _Helper:
         self._client: ClaudeSDKClient | None = None
         self._asked = 0
         self._spent = 0.0
+
         threading.Thread(target=self._loop.run_forever, name="claude-helper", daemon=True).start()
 
     def ask(self, text: str) -> tuple[str, Usage]:
@@ -214,8 +228,10 @@ class _Helper:
         options = base_options(self._model, self._system, agent_dir(HELPER_DIR), HELPER_EFFORT)
         options.max_turns = 1
         options.extra_args = dict(NO_TRANSCRIPT)
+
         self._client = ClaudeSDKClient(options)
         await self._client.connect()
+
         self._asked, self._spent = 0, 0.0
 
     async def _close(self) -> None:

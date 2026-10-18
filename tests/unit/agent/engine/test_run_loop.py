@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-import time
 
-from helpers.agent import wait_done
+from helpers.agent import wait_done, wait_for
 from sqlalchemy import select
 
 from ov.agent.instances.ovproc import OvResult
@@ -41,12 +40,8 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
     from ov.agent.engine.run import runs
 
     run = runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, Provider.COPILOT, "test-model")
-    for _ in range(100):
-        if run.state["summary"]["status"] in ("done", "error"):
-            break
-        time.sleep(0.05)
+    wait_done(run)
 
-    assert run.state["summary"]["status"] == "done", run.state.get("error")
     assert [t["status"] for t in run.state["tools"]] == ["ok"]
     assert run.state["chat"][-1]["text"] == "All good."
     assert db.list_threads()[0]["status"] == "done"
@@ -89,12 +84,8 @@ def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch
     from ov.agent.engine.run import runs
 
     run = runs.create({"access": "read", "prompt": "build it", "instance": "acme"}, Provider.COPILOT, "test-model")
-    for _ in range(100):
-        if run.state["summary"]["status"] in ("done", "error"):
-            break
-        time.sleep(0.05)
+    wait_done(run)
 
-    assert run.state["summary"]["status"] == "done", run.state.get("error")
     second = sent[1]
     call = next(m for m in second if m.get("tool_calls"))["tool_calls"][0]
     assert call["function"]["arguments"] == "{}"
@@ -134,10 +125,7 @@ def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypat
     from ov.agent.engine.run import runs
 
     run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
-    for _ in range(100):
-        if run.state["summary"]["status"] in ("done", "error"):
-            break
-        time.sleep(0.05)
+    wait_for(lambda: run.state["summary"]["status"] in ("done", "error"))
 
     kinds = [e["event"]["type"] for e in db.load_events(run.id)]
     assert "text" not in kinds

@@ -37,6 +37,7 @@ def cmd_update(ctx: Context) -> int:
         "commits": found.commits,
         "checkout": str(found.install.checkout) if found.install.checkout else None,
     }
+
     current = found.current == found.latest and not found.reinstall
     if ctx.args.check:
         status = "up_to_date" if current else "available"
@@ -54,6 +55,7 @@ def cmd_update(ctx: Context) -> int:
 
     finishing = update.reinstall(update.install_command(found)) if found.reinstall else False
     migrated = None if finishing else update.migrate()
+
     emit(
         ctx,
         {**data, "status": "updating" if finishing else "updated", "database": migrated},
@@ -81,6 +83,7 @@ def _done_text(found: update.Plan, finishing: bool, migrated: bool | None) -> st
             f"Reinstalling in the background, then upgrading the agent database; it finishes a few seconds "
             f"after this command exits (log: {update.log_file()})."
         )
+
     if migrated is False:
         lines.append(DATABASE_WAITS)
     lines.append("Restart a running 'ov agent' to use the new version.")

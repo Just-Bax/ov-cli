@@ -105,7 +105,7 @@ export interface Outcome {
   reply: string
 }
 
-export interface QuestionOption {
+interface QuestionOption {
   label: string
   description?: string
 }
@@ -522,7 +522,7 @@ export type HealthDatabaseMetricKey =
   | 'sessions'
   | 'tablespace'
 
-export interface HealthDatabase {
+interface HealthDatabase {
   id: string
   engine: string
   endpoint: string

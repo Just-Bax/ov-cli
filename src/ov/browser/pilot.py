@@ -42,7 +42,6 @@ SCREENSHOT_QUALITY = 70
 SNAPSHOT_MODE = "ai"
 LOADED = "complete"
 REF_PATTERN = re.compile(r"\[ref=(\w+)\]")
-BLANK_PAGE = "about:blank"
 STAY_PUT_STATUS = 204
 EVERY_REQUEST = "**/*"
 PROMPT = "prompt"
@@ -195,6 +194,7 @@ def _evaluate(frame: Frame, script: str, arg: Any = None) -> Any:
     except PlaywrightError as exc:
         if not any(hint in str(exc) for hint in NAVIGATED):
             raise
+
     frame.page.wait_for_load_state("load", timeout=NAV_TIMEOUT_MS)
     return frame.evaluate(script, arg)
 
@@ -208,6 +208,7 @@ class _Dialogs:
     def hold(self, dialog: PageDialog) -> None:
         self.open = Dialog(dialog.type, dialog.message, dialog.default_value)
         self._notify({"dialog": asdict(self.open)})
+
         answer = self._answers.get()
         if not answer.accept:
             dialog.dismiss()
@@ -219,7 +220,6 @@ class _Dialogs:
     def answer(self, accept: bool, text: str) -> None:
         if self.open is None:
             raise BrowserError(NO_DIALOG)
-
         self.open = None
         self._notify({"dialog": None})
         self._answers.put(_Answer(accept, text))
@@ -237,7 +237,9 @@ class Driver:
         self._fresh: list[Page] = []
         self._targets: dict[Page, str] = {}
         self.changed = True
+
         context.on("page", self._track)
+
         for page in context.pages:
             self._track(page)
 
@@ -270,6 +272,7 @@ class Driver:
         self._tabs = [t for t in self._tabs if t is not page]
         self._targets.pop(page, None)
         self.changed = True
+
         if self._active is not page:
             return
 
@@ -326,6 +329,7 @@ class Driver:
         if page.url != url:
             page.wait_for_load_state("domcontentloaded", timeout=NAV_TIMEOUT_MS)
             tree = self._tree(page)
+
         self._refs = set(REF_PATTERN.findall(tree))
         size = _viewport(page)
         loading = _evaluate(page.main_frame, READY_SCRIPT) != LOADED
@@ -341,6 +345,7 @@ class Driver:
         except PlaywrightError as exc:
             if not any(hint in str(exc) for hint in NAVIGATED):
                 raise
+
         page.wait_for_load_state("load", timeout=NAV_TIMEOUT_MS)
         return page.aria_snapshot(mode=SNAPSHOT_MODE, timeout=SNAPSHOT_TIMEOUT_MS)
 
@@ -350,7 +355,6 @@ class Driver:
     def _ref_locator(self, ref: str) -> Locator:
         if ref not in self._refs:
             raise BrowserError(UNKNOWN_REF.format(ref=ref))
-
         found = self.page.locator(f"aria-ref={ref}")
         if found.count() == 0:
             raise BrowserError(GONE_REF.format(ref=ref))
@@ -437,7 +441,9 @@ class Driver:
         page.mouse.move(point.x, point.y, steps=MOVE_STEPS)
         for key in modifiers:
             page.keyboard.down(key)
+
         page.mouse.click(point.x, point.y, button=button, click_count=count)
+
         for key in reversed(modifiers):
             page.keyboard.up(key)
 
@@ -473,6 +479,7 @@ class Driver:
         before = self._urls()
         if target is not None and point is not None:
             self._click(target, point, BUTTONS[0], 1, [])
+
         if clear:
             page.keyboard.press(SELECT_ALL_KEY)
             page.keyboard.press(ERASE_KEY)
@@ -493,6 +500,7 @@ class Driver:
             if NOT_SELECT_HINT in str(exc):
                 raise BrowserError(NOT_SELECT) from None
             raise
+
         self._after(before)
 
     def pause(self, seconds: float) -> None:
@@ -504,8 +512,10 @@ class Driver:
             page = self.page
             if self._matches(page, text, selector, url_part):
                 return page.url
+
             if time.monotonic() > deadline:
                 raise BrowserError(f"Waited {seconds:g}s and the page still does not show it.")
+
             page.wait_for_timeout(WAIT_POLL_MS)
 
     def _matches(self, page: Page, text: str, selector: str, url_part: str) -> bool:
@@ -723,6 +733,7 @@ class Pilot:
                 driver = Driver(context, self._hostname, self._size, self._dialogs)
                 if self._cookies:
                     driver.add_cookies(self._cookies)
+
                 self._publish(driver)
                 self._started.set()
                 self._serve(driver)
@@ -738,13 +749,16 @@ class Pilot:
         while True:
             if driver.changed:
                 self._publish(driver)
+
             try:
                 job = self._jobs.get_nowait()
             except queue.Empty:
                 driver.idle()
                 continue
+
             if job is None:
                 return
+
             self._do(job, driver)
 
     def _publish(self, driver: Driver) -> None:
@@ -779,5 +793,4 @@ class Pilot:
             self._blocked.append(request.url)
             route.fulfill(status=STAY_PUT_STATUS)
             return
-
         route.continue_()

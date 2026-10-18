@@ -45,6 +45,7 @@ DEFAULT_SQL_ROWS = 100
 MAX_SQL_ROWS = 1000
 DEFAULT_SEARCH_LIMIT = 50
 MAX_SEARCH_LIMIT = 500
+MAX_SECRET_KEY_CHARS = 60
 MAP_MAX_MATCHES = 5
 MAP_LISTED_MATCHES = 20
 MAX_EXPORT_IDS = 20
@@ -72,7 +73,7 @@ _SELECT = re.compile(r"^(select|with)\b", re.IGNORECASE)
 _PLSQL_IN_WITH = re.compile(r"\bwith\s+(function|procedure)\b", re.IGNORECASE)
 _SECRET_SQL = re.compile(r"\bselect\s+\*\s+from\s+(module|users?|auth_token\w*)\b", re.IGNORECASE)
 _SECRET_NAME = re.compile(r"pass(word|wd)?|secret|token|api_?key|private_?key|credential", re.IGNORECASE)
-_SECRET_KEY = re.compile(r"^[\w.\-]{0,60}$")
+_SECRET_KEY = re.compile(rf"^[\w.\-]{{0,{MAX_SECRET_KEY_CHARS}}}$")
 _SECRET_VALUE = re.compile(r"^\S+$")
 _IDENTIFIER = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
@@ -109,6 +110,7 @@ def _alias_for(target: str, ctx: ToolContext) -> tuple[str, str, str]:
     found = find_instance(target)
     if found is not None:
         return found["alias"], found["host"], found["tenant"] or ""
+
     if not ctx.require_login(host_of(target)):
         raise ToolError(f"Not signed in to {target} and the user skipped sign-in.")
 
@@ -129,11 +131,14 @@ def _confine(path: str, ctx: ToolContext) -> str:
 def _confine_value(flag: str, value: str, ctx: ToolContext) -> str:
     if flag == "--out":
         return _confine(value, ctx)
+
     if flag == "--file":
         field, _, path = value.partition("=")
         return f"{field}=@{_confine(path.strip().lstrip('@'), ctx)}"
+
     if value.startswith("@"):
         return "@" + _confine(value[1:], ctx)
+
     return value
 
 
@@ -156,18 +161,23 @@ def _confine_files(args: list[str], ctx: ToolContext) -> list[str]:
             out.extend(["-d", _confine_value("--data", arg[2:].removeprefix("="), ctx)])
         else:
             out.append(arg)
+
     return out
 
 
 def _check_ov_args(args: list[str], allow_sql: bool) -> None:
     if not args:
         raise ToolError("No ov arguments given.")
+
     if args[0].startswith("-"):
         raise ToolError('Start with the command, e.g. ["request", "GET", "/v3/..."].')
+
     if args[0] in BLOCKED_COMMANDS:
         raise ToolError(f'"{args[0]}" is not allowed from the agent.')
+
     if any(a.startswith("--instance") or (a.startswith("-i") and a[:2] != "--") for a in args):
         raise ToolError("Pass the instance in the instance parameter, not as -i.")
+
     if not allow_sql and (args[0] == "sql" or any(_SQL_ROUTE.search(a) for a in args)):
         raise ToolError("Run SQL with the ov_sql tool, not through ov.")
 
@@ -184,7 +194,9 @@ def run_ov_tool(
     cleaned = [str(a) for a in args]
     if cleaned[:1] == ["ov"]:
         cleaned.pop(0)
+
     _check_ov_args(cleaned, allow_sql)
+
     cleaned = _confine_files(cleaned, ctx)
     target = _target(instance, ctx)
 
@@ -200,10 +212,13 @@ def run_ov_tool(
             if not ctx.require_login(host, tenant):
                 raise ToolError(f"Session for {target} expired and the user skipped sign-in.")
             continue
+
         if result.timed_out:
             raise ToolError(f"ov timed out after {timeout}s")
+
         output = APPLIED + _write(alias, host, cleaned, ctx) if result.code == EXIT_READ_ONLY else _output(result)
         return output if raw else clip(output, ctx, "ov output")
+
     raise ToolError(f"Still not signed in to {target}.")
 
 
@@ -215,12 +230,14 @@ def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
     )
     if not ctx.can_write():
         raise blocked
+
     if ctx.browser.live:
         raise ToolError(UI_ONLY)
 
     command = f"ov -i {host} {_quoted(args)}"
     if not approved(ctx, f"Apply this change on {host}?", command):
         raise ToolError("The user rejected this change. Do not retry it.")
+
     if not ctx.can_write():
         raise blocked
 
@@ -260,6 +277,7 @@ def _masked(columns: list[str], cells: list[Any]) -> list[Any]:
             out.append(SECRET_MASK)
         else:
             out.append(SECRET_JSON.sub(rf'\1"{SECRET_MASK}"', str(cell)))
+
     return out
 
 
@@ -268,8 +286,10 @@ def _format_sql(raw: str) -> str:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         raise ToolError(f"Unexpected SQL response: {raw}") from None
+
     if not isinstance(parsed, dict):
         raise ToolError(f"Unexpected SQL response: {raw}")
+
     if parsed["status"] != "SUCCESS":
         raise ToolError(f"SQL failed: {parsed.get('error_message') or raw}")
 
@@ -286,6 +306,7 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
     query = re.sub(r";\s*$", "", str(args["query"]).strip())
     if not _SELECT.match(query) or _PLSQL_IN_WITH.search(query):
         raise ToolError("Only SELECT / WITH queries are allowed.")
+
     if _SECRET_SQL.search(query):
         raise ToolError(
             "Refused: select * from this table can include credentials. Name the columns you need; "
@@ -317,9 +338,12 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
         took = time.monotonic() - started
         if took >= SQL_TIMEOUT_SECONDS:
             raise ToolError(SQL_TIMED_OUT.format(instance=instance, limit=SQL_TIMEOUT_SECONDS, took=took)) from None
+
         if SQL_UNEXPECTED_ERROR in str(exc):
             raise ToolError(f"{exc}{SQL_UNEXPECTED_HINT}") from None
+
         raise
+
     return clip(f"{table}\n[took {took:.1f}s including the ov call]", ctx, "result")
 
 
@@ -345,6 +369,7 @@ def _export_item(item: Any, component_type: str, ids: set[str], ctx: ToolContext
     filled = [f"{tag} ({count})" for tag, count in components.lists(item).items()]
     if filled:
         lines.append(f"  Lists: {', '.join(filled)}")
+
     return f"{component_type} {ident}\n" + "\n".join(lines)
 
 
@@ -373,12 +398,14 @@ def _import_file(name: str, ctx: ToolContext) -> str:
     in_run = within(ctx.work_dir, Path(name).name)
     if in_run.is_file():
         return in_run.name
+
     if not workspace.configured():
         raise ToolError(f"No file {name} in the run folder, and no workspace is set.")
 
     source = workspace.resolve(name)
     if not source.is_file():
         raise ToolError(f"No file {name} in the run folder or the workspace.")
+
     copy = ctx.work_dir / f"{IMPORT_FILE_PREFIX}{int(time.time() * 1000)}{source.suffix}"
     shutil.copyfile(source, copy)
     return copy.name
@@ -433,6 +460,7 @@ def _ov_map(args: dict[str, Any], ctx: ToolContext) -> str:
     matches = graph.find(data, str(args["object"]))
     if not matches:
         return f"Nothing named like {args['object']!r} on the {found['alias']} map."
+
     if len(matches) > MAP_MAX_MATCHES:
         listed = "\n".join(f"- {m['type']} {m['name']} ({m['ref']})" for m in matches[:MAP_LISTED_MATCHES])
         return f"{len(matches)} matches; pass the exact name or id:\n{listed}"

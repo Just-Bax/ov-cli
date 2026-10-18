@@ -179,6 +179,7 @@ function splitTurn(blocks: Block[]): { work: Block[]; result: Block[] } {
   const cut = lastText > lastTools || lastText < 0 ? lastTools + 1 : lastText
   const done = blocks.slice(0, cut)
   const kept = (b: Block) => b.kind === 'item' && RESULT_ITEMS.has(b.item.kind)
+
   return {
     work: done.filter((b) => !kept(b)),
     result: [...done.filter(kept), ...blocks.slice(cut)],
@@ -187,10 +188,12 @@ function splitTurn(blocks: Block[]): { work: Block[]; result: Block[] } {
 
 function workSummary(work: Block[], state: RunState): string {
   const tools = work.flatMap((b) => (b.kind === 'tools' ? b.tools : []))
+
   const updates = work.filter(
     (b) =>
       b.kind === 'item' && b.item.kind === 'text' && chatById(state).get(b.item.id)?.text.trim(),
   ).length
+
   const said = updates ? [`${updates} ${updates === 1 ? 'update' : 'updates'}`] : []
   return [summarize(tools), ...said].filter(Boolean).join(', ')
 }
@@ -200,6 +203,7 @@ function turnSpan(turn: Turn, state: RunState): number | undefined {
   const texts = turn.blocks.flatMap((b) =>
     b.kind === 'item' && b.item.kind === 'text' ? [chatById(state).get(b.item.id)?.ts ?? 0] : [],
   )
+
   const starts = tools.flatMap((t) => (t.startedAt ? [t.startedAt] : []))
   const start = turn.user?.ts ?? Math.min(...starts, ...texts.filter(Boolean))
   const end = Math.max(...texts, ...tools.map((t) => (t.startedAt ?? 0) + (t.ms ?? 0)))
@@ -231,6 +235,7 @@ function turnTime(turn: Turn, state: RunState): number | undefined {
     const b = turn.blocks[i]
     if (b.kind === 'item' && b.item.kind === 'text') return chatById(state).get(b.item.id)?.ts
   }
+
   return undefined
 }
 
@@ -242,6 +247,7 @@ function browserQuestion(state: RunState): ApprovalQuestion | undefined {
   if (!state.browser?.open || !LIVE_QUESTION.has(state.summary.status)) return undefined
 
   const tools = new Map(state.tools.map((t) => [t.id, t.name]))
+
   return state.questions.find(
     (q): q is ApprovalQuestion =>
       q.kind === 'approval' &&
@@ -369,7 +375,6 @@ function Footer({
 
   useEffect(() => {
     if (!editing || queued.some((m) => m.id === editing.id)) return
-
     const edited = loadText(editKey)
     endEdit()
     if (edited.trim() && edited !== editing.text && !loadText(runKey).trim())
@@ -378,6 +383,7 @@ function Footer({
 
   const send = async (text: string, files: File[], alternate: boolean) => {
     setError(undefined)
+
     try {
       if (editing) {
         await api.editQueued(runId, editing.id, text)
@@ -409,6 +415,7 @@ function Footer({
     const atStart = e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0
     const latest = queued.at(-1)
     if (e.key !== 'ArrowUp' || !e.altKey || !atStart || editing || !latest) return false
+
     startEdit(latest)
     return true
   }
@@ -524,6 +531,7 @@ function OlderTurns({
       )
       observer.observe(el)
     }, OLDER_ARM_MS)
+
     return () => {
       clearTimeout(arm)
       observer?.disconnect()
@@ -825,6 +833,7 @@ export function RunView({ id }: { id: string }) {
           const toolIds = new Set(
             turn.blocks.flatMap((b) => (b.kind === 'tools' ? b.tools.map((x) => x.id) : [])),
           )
+
           const edits = state.edits.filter((e) => toolIds.has(e.toolId))
           const turnId = turn.user?.id
 
@@ -895,6 +904,7 @@ export function RunView({ id }: { id: string }) {
   if (!modal.shown) return page
 
   const shownBrowser = modal.shown
+
   return createPortal(
     <div className={cn('fixed inset-0 z-[90]', modal.leaving && 'pointer-events-none')}>
       <BrowserBackdrop leaving={modal.leaving} />

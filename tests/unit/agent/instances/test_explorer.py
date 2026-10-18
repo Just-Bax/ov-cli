@@ -77,6 +77,7 @@ def test_hints_flag_risky_code():
             "end;",
         ]
     )
+
     titles = hint_titles(code)
     for title in [
         "Nested loops",

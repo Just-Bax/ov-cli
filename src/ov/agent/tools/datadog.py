@@ -115,6 +115,7 @@ def _metric_query(raw: str, scope: str) -> str:
     tags = datadog.metric_scope(scope) if scope else "*"
     if "{$scope}" in query:
         return query.replace("{$scope}", "{" + tags + "}")
+
     if "{" not in query:
         return f"{query}{{{tags}}}"
     return query
@@ -138,10 +139,12 @@ def _datadog_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
     databases = datadog.known_databases(alias) if scope else []
     needles = datadog.database_needles(alias) if databases else []
     rows = datadog.monitors_for(scope, include_ok=bool(args.get("include_ok")), database_needles=needles)
+
     target = scope or "the org"
     if databases:
         names = [f"{d['id']} ({d['endpoint']})" if d["endpoint"] else d["id"] for d in databases]
         target += f" and databases {', '.join(names)}"
+
     if not rows:
         return f"No {'' if args.get('include_ok') else 'alerting or warning '}monitors for {target}."
 
@@ -150,6 +153,7 @@ def _datadog_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
     for m in rows[:MAX_MONITORS_SHOWN]:
         groups = f" groups: {', '.join(m['groups'])}" if m["groups"] else ""
         lines.append(f"[{m['state']}] {m['name']} ({base}/monitors/{m['id']}){groups}")
+
     return clip(f"Monitors for {target}:\n" + "\n".join(lines), ctx, "monitors")
 
 

@@ -70,6 +70,7 @@ def _require_write(ctx: ToolContext) -> None:
 
 def _ws_edit(args: dict[str, Any], ctx: ToolContext) -> str:
     _require_write(ctx)
+
     path, old, new = str(args["path"]), str(args["old"]), str(args["new"])
     with _file_lock(path):
         before = project.text_of(path)
@@ -81,6 +82,7 @@ def _ws_edit(args: dict[str, Any], ctx: ToolContext) -> str:
 
 def _ws_write(args: dict[str, Any], ctx: ToolContext) -> str:
     _require_write(ctx)
+
     path, content = str(args["path"]), str(args["content"])
     with _file_lock(path):
         existed = project.resolve(path).is_file()
@@ -104,6 +106,7 @@ def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
     verdict = ctx.judge_command(command, folder)
     if verdict.effect != Effect.READ and not ctx.can_write():
         raise ToolError(COMMAND_OFF.format(reason=verdict.reason))
+
     if verdict.effect != Effect.READ and ctx.browser.live:
         raise ToolError(UI_ONLY)
 

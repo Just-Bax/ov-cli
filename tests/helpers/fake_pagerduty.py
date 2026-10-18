@@ -89,11 +89,13 @@ class FakePagerDuty:
         if "read-only" in self.denied:
             return httpx.Response(403, json={"error": {"message": "Access Denied"}})
         assert request.headers["From"] == "bax@example.test"
+
         if request.url.path == "/incidents/PINC7":
             changed = json.loads(request.content)["incident"]
             return httpx.Response(
                 200, json={"incident": {**INCIDENTS[0], "status": changed.get("status", "triggered")}}
             )
+
         return httpx.Response(201, json={})
 
     @staticmethod

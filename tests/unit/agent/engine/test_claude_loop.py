@@ -1,29 +1,24 @@
 from __future__ import annotations
 
 import json
-import time
+from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import pytest
 from claude_agent_sdk import ResultMessage, StreamEvent, SystemMessage, UserMessage
+from helpers.agent import RUN_POLL_SECONDS, SLOW_POLLS, wait_for
 
 from ov.agent.storage import db
 from ov.agent.storage.models import Provider
 
-POLLS = 200
-POLL_SECONDS = 0.05
 SESSION_UUID_LENGTH = 36
 CONTEXT_USAGE = {"totalTokens": 52_000, "rawMaxTokens": 200_000, "autoCompactThreshold": 167_000}
 
-BREAK = chr(10) * 2
+BREAK = "\n\n"
 
 
 def _wait_for(check):
-    for _ in range(POLLS):
-        if check():
-            return
-        time.sleep(POLL_SECONDS)
-    raise AssertionError("condition never held")
+    wait_for(check, polls=SLOW_POLLS)
 
 
 def _text_events(text: str) -> list[StreamEvent]:
@@ -88,8 +83,6 @@ class FakeClient:
 
 
 def _transcript(session: str, directory: str) -> list[Any]:
-    from types import SimpleNamespace
-
     return [SimpleNamespace(uuid=f"tail-{len(FakeClient.prompts)}")] if FakeClient.prompts else []
 
 
@@ -171,7 +164,7 @@ def test_claude_calls_our_tools_through_the_in_process_server(claude_thread):
     async def call_skill(options):
         assert "ov" in options.mcp_servers
         while "run" not in started:
-            await asyncio.sleep(POLL_SECONDS)
+            await asyncio.sleep(RUN_POLL_SECONDS)
         FakeClient.tool_reply = await claude_loop.tool_handler(started["run"], "skill_read")({"name": "ov-cli"})
 
     FakeClient.replies = [[call_skill, *_text_events("Read it."), _result()]]

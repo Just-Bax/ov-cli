@@ -61,6 +61,7 @@ const WITH_ACTIVITY = new Set<GraphNodeType>(['rule', 'import', 'report', 'modul
 const GROUP_LIMIT = 300
 const FIELD_ROWS = 200
 const TREE_INDENT = 14
+const FAILED_RUN_STATUS = /error|exception|interrupt/i
 const ITEM_PAD_PX = 12
 const GROUP_PAD_PX = 6
 const MORE_PAD_PX = 26
@@ -418,7 +419,7 @@ function Inspector({
             ) : activity.value.length ? (
               <div className="space-y-1">
                 {activity.value.map((a, i) => {
-                  const failed = /error|exception|interrupt/i.test(a.status ?? '')
+                  const failed = FAILED_RUN_STATUS.test(a.status ?? '')
 
                   return (
                     <div key={i} className="rounded-2xl px-2.5 py-1.5">
@@ -610,7 +611,9 @@ export function ExplorerPage() {
     const track = <T,>(set: SetLoaded<T>, load: () => Promise<T>) => {
       const settle = (next: Loaded<T>) =>
         currentAlias.current === alias && set((all) => ({ ...all, [node.id]: next }))
+
       settle({ state: 'loading' })
+
       load().then(
         (value) => settle({ state: 'ready', value }),
         (e: Error) => settle({ state: 'error', error: e.message }),
@@ -630,6 +633,7 @@ export function ExplorerPage() {
       const links = idx?.links.get(n.id) ?? []
       const count = (kind: string, out: boolean) =>
         links.filter((l) => l.kind === kind && l.out === out).length
+
       const owner = links.find((l) => l.kind === 'field_of' && l.out)?.other
       const usedBy = count('uses', false)
       const calledBy = count('calls', false)

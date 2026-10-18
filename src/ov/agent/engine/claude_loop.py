@@ -55,6 +55,7 @@ def content_blocks(contents: list[Any]) -> list[dict[str, Any]]:
                 blocks.append({"type": "text", "text": part["text"]})
             else:
                 blocks.append(_image_block(part["image_url"]["url"]))
+
     return blocks
 
 
@@ -93,16 +94,17 @@ def _last_uuid(session: str | None, cwd: str) -> str | None:
 
 def _options(run: Run) -> tuple[Any, str, dict[str, Any] | None]:
     model = run.state["summary"]["model"]
+    preferences = db.get_preferences()
     options = claude.base_options(
         model,
         system_prompt(run.access, run.instance),
         run.work_dir,
-        claude.effort_for(model, db.get_preferences()["reasoning"]),
+        claude.effort_for(model, preferences["reasoning"]),
     )
+
     options.mcp_servers = {claude.SERVER_NAME: tool_server(run)}
     options.allowed_tools = [f"{claude.TOOL_PREFIX}*"]
     options.include_partial_messages = True
-    preferences = db.get_preferences()
     options.max_turns = int(preferences["maxSteps"])
     options.extra_args = dict(REPLAY_PROMPTS)
     if preferences["compactWindow"]:
@@ -216,9 +218,11 @@ async def _session(run: Run, options: Any, session: str, fork_point: str | None)
                     return
                 before = fork_point or _last_uuid(session, str(run.work_dir))
                 fork_point = None
+
                 await client.query(_prompt(content_blocks(contents), session))
                 await _receive(client, Stream(run, session, turn, before))
                 await _record_context(client, run)
+
                 run.cancel.check()
                 if not run.has_news():
                     return
@@ -249,6 +253,7 @@ async def _compact(run: Run, options: Any, session: str) -> None:
                     run.record_claude_usage(session, message)
                     if message.is_error and not run.cancel.is_set():
                         raise claude.ClaudeError(claude.result_error(message))
+
             run.cancel.check()
             run.compaction_failed(COMPACT_UNREPORTED)
             await _record_context(client, run)

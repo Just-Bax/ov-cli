@@ -60,9 +60,11 @@ def usage_of(body: dict[str, Any]) -> Usage | None:
     billed = body.get("copilot_usage")
     if not billed:
         return None
+
     tokens: dict[str, int] = {}
     for detail in billed.get("token_details") or []:
         tokens[detail["token_type"]] = tokens.get(detail["token_type"], 0) + int(detail["token_count"])
+
     return Usage(tokens=tokens, nano=int(billed["total_nano_aiu"]))
 
 
@@ -94,6 +96,7 @@ def start_device_flow() -> dict[str, Any]:
         raise CopilotError(f"GitHub device code request failed: {response.status_code}")
 
     body = response.json()
+
     return {
         "deviceCode": body["device_code"],
         "userCode": body["user_code"],
@@ -121,12 +124,14 @@ def poll_device_flow(device_code: str) -> dict[str, Any]:
         credentials.put(CREDENTIAL_KEY, {"github_token": body["access_token"], "user": login})
         with _lock:
             _token = None
+
         _copilot_token()
         return {"status": "ok", "user": login}
 
     error = body.get("error")
     if error in PENDING_STATUSES:
         return {"status": PENDING_STATUSES[error]}
+
     if error is None:
         raise CopilotError(f"GitHub sign-in returned neither a token nor an error ({response.status_code}).")
 
@@ -162,6 +167,7 @@ def _copilot_token() -> dict[str, Any]:
     if response.status_code == 401:
         sign_out()
         raise CopilotError("GitHub sign-in expired. Open Setup to sign in again.")
+
     if response.status_code >= 400:
         raise CopilotError(
             f"Copilot token exchange failed ({response.status_code}). Does this GitHub account have Copilot?"
@@ -169,13 +175,16 @@ def _copilot_token() -> dict[str, Any]:
 
     body = response.json()
     token = {"token": body["token"], "expires_at": float(body["expires_at"]), "api": body["endpoints"]["api"]}
+
     with _lock:
         _token = token
+
     return token
 
 
 def _headers(**extra: str) -> tuple[str, dict[str, str]]:
     token = _copilot_token()
+
     headers = {
         "Authorization": f"Bearer {token['token']}",
         "Content-Type": "application/json",
@@ -188,6 +197,7 @@ def _headers(**extra: str) -> tuple[str, dict[str, str]]:
 
 def _usable(model: dict[str, Any]) -> bool:
     capabilities = model.get("capabilities") or {}
+
     return bool(
         capabilities.get("type") == "chat"
         and (capabilities.get("supports") or {}).get("tool_calls")
@@ -199,6 +209,7 @@ def _usable(model: dict[str, Any]) -> bool:
 def _model_entry(model: dict[str, Any]) -> dict[str, Any]:
     supports = model["capabilities"].get("supports") or {}
     limits = model["capabilities"].get("limits") or {}
+
     return {
         "id": model["id"],
         "name": model.get("name") or model["id"],
@@ -227,20 +238,26 @@ def list_models() -> list[dict[str, Any]]:
             models[model["id"]] = _model_entry(model)
 
     listed = list(models.values())
+
     with _lock:
         _models = (time.time(), listed)
+
     return listed
 
 
 def reasoning_for(model_id: str, wanted: str) -> str | None:
     if not wanted:
         return None
+
     if wanted not in REASONING_LEVELS:
         raise CopilotError(f"Unknown reasoning level: {wanted}")
+
     model = next((m for m in list_models() if m["id"] == model_id), None)
     if model is None or not model["reasoning"]:
         return None
+
     rank = REASONING_LEVELS.index(wanted)
+
     return min(
         model["reasoning"],
         key=lambda level: (abs(REASONING_LEVELS.index(level) - rank), -REASONING_LEVELS.index(level)),
@@ -298,11 +315,13 @@ def _send_with_retries(
         except httpx.TransportError:
             cancel.wait(_backoff_seconds(attempt))
             continue
+
         if not _retryable(response):
             return response
 
         response.close()
         cancel.wait(_backoff_seconds(attempt))
+
     return _post(http, url, headers, payload, cancel)
 
 
@@ -319,6 +338,7 @@ def stream_chat(
     extra = {"X-Initiator": initiator}
     if _has_images(messages):
         extra["Copilot-Vision-Request"] = "true"
+
     api, headers = _headers(**extra)
     payload = {
         "model": model,
@@ -344,9 +364,12 @@ def stream_chat(
         except httpx.TransportError as exc:
             if cancel.is_set():
                 raise Cancelled from None
+
             if streamed or attempt == CHAT_ATTEMPTS - 1:
                 raise CopilotError(f"Lost the connection to Copilot: {exc}. Send a message to continue.") from exc
+
             cancel.wait(_backoff_seconds(attempt))
+
     raise CopilotError("Copilot chat retries ran out.")
 
 
@@ -363,6 +386,7 @@ def _stream_once(
             if response.status_code >= 400:
                 detail = response.read().decode("utf-8", "replace")[:ERROR_DETAIL_CHARS]
                 raise CopilotError(f"Copilot chat failed ({response.status_code}): {detail}")
+
             try:
                 return _read_stream(response, on_text)
             except httpx.HTTPError:
@@ -388,6 +412,7 @@ def complete(
 
     with httpx.Client(timeout=httpx.Timeout(HTTP_TIMEOUT_SECONDS, read=read_timeout)) as http:
         response = http.post(f"{api}/chat/completions", json=payload, headers=headers)
+
     if response.status_code >= 400:
         raise CopilotError(f"Copilot chat failed ({response.status_code}): {response.text[:ERROR_DETAIL_CHARS]}")
 
@@ -402,6 +427,7 @@ def account() -> dict[str, Any]:
     auth = credentials.get(CREDENTIAL_KEY)
     if auth is None:
         raise CopilotError("Not signed in to GitHub Copilot. Open Setup to sign in.")
+
     response = httpx.get(
         COPILOT_USER_URL,
         headers={"Authorization": f"token {auth['github_token']}", **EDITOR_HEADERS},
@@ -412,6 +438,7 @@ def account() -> dict[str, Any]:
 
     body = response.json()
     premium = body["quota_snapshots"]["premium_interactions"]
+
     return {
         "plan": body.get("copilot_plan") or "",
         "resetDate": body.get("quota_reset_date") or None,
@@ -428,9 +455,11 @@ def _chunks(response: httpx.Response) -> Iterator[dict[str, Any]]:
         stripped = line.strip()
         if not stripped.startswith("data:"):
             continue
+
         data = stripped[len("data:") :].strip()
         if data == "[DONE]":
             continue
+
         try:
             yield json.loads(data)
         except json.JSONDecodeError:
@@ -442,6 +471,7 @@ def _merge_tool_call(calls: dict[tuple[int, int], dict[str, Any]], choice: int, 
     call = calls.setdefault(key, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
     if part.get("id"):
         call["id"] = part["id"]
+
     function = part.get("function") or {}
     call["function"]["name"] += function.get("name") or ""
     call["function"]["arguments"] += function.get("arguments") or ""
@@ -457,6 +487,7 @@ def _read_stream(response: httpx.Response, on_text: Callable[[str], None]) -> St
             if delta.get("content"):
                 result.text += delta["content"]
                 on_text(delta["content"])
+
             for part in delta.get("tool_calls") or []:
                 _merge_tool_call(calls, choice.get("index") or 0, part)
 
@@ -464,4 +495,5 @@ def _read_stream(response: httpx.Response, on_text: Callable[[str], None]) -> St
     for index, call in enumerate(c for c in calls.values() if c["function"]["name"]):
         call["id"] = call["id"] or f"call_{stamp}_{index}"
         result.tool_calls.append(call)
+
     return result

@@ -127,6 +127,7 @@ class Screen:
             pages = [pg for pg in context.pages if not pg.is_closed()]
             if not pages:
                 return
+
             shown = self._shown(context, pages, targets, feed.page)
             if shown is not feed.page:
                 cdp = feed.watch(context, shown, cdp)
@@ -174,6 +175,7 @@ class _Feed:
         if old is not None:
             with contextlib.suppress(PlaywrightError):
                 old.detach()
+
         self.page = page
         self._acks.clear()
         cdp = context.new_cdp_session(page)

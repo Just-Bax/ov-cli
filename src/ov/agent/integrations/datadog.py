@@ -192,6 +192,7 @@ def client() -> Client:
 
 def _probe_request(area: str) -> tuple[str, str, dict[str, Any]]:
     now = int(time.time())
+
     requests: dict[str, tuple[str, str, dict[str, Any]]] = {
         "logs": (
             "POST",
@@ -212,6 +213,7 @@ def _probe_request(area: str) -> tuple[str, str, dict[str, Any]]:
         "apm": ("POST", "/api/v2/spans/events/search", {"json": _spans_body("*", "now-15m", "now", 1)}),
         "hosts": ("GET", "/api/v1/hosts", {"params": {"count": 1}}),
     }
+
     return requests[area]
 
 
@@ -232,6 +234,7 @@ def _validate(dd: Client) -> None:
             "Datadog rejected the API key. Check that it is copied whole and that the site "
             "matches where you log in to Datadog."
         ) from None
+
     if not valid:
         raise DatadogError("Datadog says the API key is not valid for this site.")
 
@@ -245,6 +248,7 @@ def check(site: str, api_key: str, app_key: str) -> dict[str, bool]:
         _validate(dd)
         with ThreadPoolExecutor(max_workers=len(AREAS)) as pool:
             found = dict(zip(AREAS, pool.map(partial(_probe, dd), AREAS), strict=True))
+
     if not any(found.values()):
         raise DatadogError(
             "The API key works, but the application key cannot read anything. Check that it is "
@@ -287,6 +291,7 @@ def retest() -> dict[str, Any]:
         state["error"] = None
     except DatadogError as exc:
         state["error"] = str(exc)
+
     state["checkedAt"] = now_ms()
     _save_state(state)
     clear_caches()
@@ -381,6 +386,7 @@ def role_of(host: str) -> str:
         if part.isalpha():
             words.append(part)
             continue
+
         leading_letters = re.sub(r"[^a-z].*", "", part)
         if leading_letters and not words:
             words.append(leading_letters)
@@ -485,6 +491,7 @@ def to_ms(value: Any, default: str) -> int:
         parsed = datetime.fromisoformat(text.replace("z", "+00:00"))
     except ValueError:
         raise DatadogError(f'Not a time: "{value}". Use now-2h, an ISO date, or epoch.') from None
+
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return int(parsed.timestamp() * 1000)
@@ -516,8 +523,10 @@ def search_logs(query: str, start: int, end: int, limit: int) -> list[dict[str, 
         "page": {"limit": max(1, min(limit, MAX_LOG_PAGE))},
         "sort": "-timestamp",
     }
+
     with client() as dd:
         data = dd.call("POST", "/api/v2/logs/events/search", "logs", json=body)
+
     return [_log_row(row) for row in _field(data, "data")]
 
 
@@ -579,6 +588,7 @@ def log_timeseries(query: str, start: int, end: int, interval: str) -> list[dict
         "compute": [{"aggregation": "count", "type": "timeseries", "interval": interval}],
         "filter": {"from": str(start), "to": str(end), "query": query},
     }
+
     with client() as dd:
         data = dd.call("POST", "/api/v2/logs/analytics/aggregate", "logs", json=body)
 
@@ -640,15 +650,19 @@ def summarize_series(series: dict[str, Any], samples: int = SUMMARY_SAMPLES) -> 
 def _num(value: float) -> str:
     if abs(value) >= 1e9:
         return f"{value / 1e9:.2f}G"
+
     if abs(value) >= 1e6:
         return f"{value / 1e6:.2f}M"
+
     if abs(value) >= 1e3:
         return f"{value / 1e3:.2f}k"
+
     return f"{value:.3g}"
 
 
 def monitors_for(scope: str, include_ok: bool, database_needles: list[str] | None = None) -> list[dict[str, Any]]:
     params = {"group_states": "alert,warn,no data", "page": 0, "page_size": MONITORS_PAGE}
+
     with client() as dd:
         data = dd.call("GET", "/api/v1/monitor", "monitors", params=params)
 
@@ -657,6 +671,7 @@ def monitors_for(scope: str, include_ok: bool, database_needles: list[str] | Non
     rows = [_monitor_row(mon) for mon in data if _mentions(mon, needles, exact)]
     if not include_ok:
         rows = [m for m in rows if m["state"] not in QUIET_STATES]
+
     return sorted(rows, key=lambda m: (MONITOR_ORDER.get(m["state"], len(MONITOR_ORDER)), m["name"]))
 
 
@@ -698,8 +713,10 @@ def events_for(query: str, start: int, end: int, limit: int) -> list[dict[str, A
         "page[limit]": max(1, min(limit, MAX_EVENTS)),
         "sort": "-timestamp",
     }
+
     with client() as dd:
         data = dd.call("GET", "/api/v2/events", "events", params=params)
+
     return [_event_row(row) for row in _field(data, "data")]
 
 
@@ -751,8 +768,10 @@ def slow_endpoints(query: str, start: int, end: int, limit: int = SLOW_ENDPOINTS
             },
         }
     }
+
     with client() as dd:
         data = dd.call("POST", "/api/v2/spans/analytics/aggregate", "apm", json=body)
+
     return [_endpoint_row(bucket) for bucket in _field(data, "data")]
 
 
@@ -935,6 +954,7 @@ def _servers_section(_alias: str, scope: str, start: int, end: int, _interval: s
     for name in names:
         metrics = {metric: _series_metric(found[metric], "host", name) for metric, _ in METRICS}
         servers.append({"host": name, "role": role_of(name), "metrics": {k: v for k, v in metrics.items() if v}})
+
     return {"servers": servers}
 
 
@@ -973,6 +993,7 @@ def _discover_databases(alias: str, scope: str) -> list[dict[str, str]]:
     jobs = {"rds": partial(query_metric, RDS_PROBE, start, end)}
     if agents != "*":
         jobs["oracle"] = partial(query_metric, ORACLE_PROBE % agents, start, end)
+
     probes = _parallel(jobs)
 
     found: dict[str, dict[str, str]] = {}
@@ -984,6 +1005,7 @@ def _discover_databases(alias: str, scope: str) -> list[dict[str, str]]:
         ident = (_tag_of(series, RDS_TAG) or "").lower()
         if not ident or (ident not in found and not owns(ident)):
             continue
+
         engine = _tag_of(series, RDS_ENGINE_TAG) or found.get(ident, {}).get("engine", "")
         found[ident] = {**found.get(ident, {"id": ident, "endpoint": ""}), "engine": engine}
 
@@ -1032,6 +1054,7 @@ def _database_section(alias: str, _scope: str, start: int, end: int, _interval: 
         RDS_TAG: [d["id"] for d in databases if not d["endpoint"] or d["endpoint"].endswith(RDS_ENDPOINT_SUFFIX)],
         ORACLE_TAG: [d["endpoint"] for d in databases if d["endpoint"]],
     }
+
     jobs = {
         name: partial(query_metric, template % {"scope": tag_filter(tag, values[tag])}, start, end)
         for name, tag, template in DATABASE_METRICS
@@ -1046,6 +1069,7 @@ def _database_section(alias: str, _scope: str, start: int, end: int, _interval: 
             name: _series_metric(found[name], tag, keys[tag]) for name, tag, _ in DATABASE_METRICS if name in found
         }
         rows.append({**db, "metrics": {k: v for k, v in metrics.items() if v}})
+
     return {"databases": rows}
 
 
@@ -1072,6 +1096,7 @@ def downsample(points: list[dict[str, float]], buckets: int = CHART_POINTS) -> l
     for i in range(buckets):
         chunk = points[int(i * size) : int((i + 1) * size)]
         out.append({"t": chunk[0]["t"], "v": sum(p["v"] for p in chunk) / len(chunk)})
+
     return out
 
 
@@ -1099,6 +1124,7 @@ def _span_series(query: str, start: int, end: int, interval: str) -> dict[str, A
             },
         }
     }
+
     with client() as dd:
         data = dd.call("POST", "/api/v2/spans/analytics/aggregate", "apm", json=body)
 

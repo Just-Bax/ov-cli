@@ -18,6 +18,7 @@ def test_the_api_never_returns_keys(linked):
     httpd = AgentServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
     try:
         status = httpx.get(f"{base}/api/datadog")
         assert status.status_code == 200 and status.json()["connected"]
@@ -28,13 +29,16 @@ def test_the_api_never_returns_keys(linked):
 
         saved = httpx.put(f"{base}/api/datadog/matches", json={"matches": {"acme": "host:a*"}})
         assert saved.json()["matches"] == {"acme": "host:a*"}
+
         meta = httpx.get(f"{base}/api/instance-health/meta", params={"instance": "acme"}).json()
         assert meta["scope"] == "host:a*"
         params = {"instance": "acme", "to": meta["to"]}
+
         logs = httpx.get(f"{base}/api/instance-health/logs", params=params).json()
         assert logs["topErrors"]
         missing = httpx.get(f"{base}/api/instance-health/incidents", params=params).json()
         assert missing == {"unavailable": "PagerDuty is not connected."}
+
         assert httpx.delete(f"{base}/api/datadog").json()["connected"] is False
     finally:
         httpd.shutdown()

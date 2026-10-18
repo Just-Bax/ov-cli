@@ -18,8 +18,10 @@ export function runUndo(): void {
 
 export function remember(message: string, undo: () => Promise<void>): void {
   if (last) dismissToast(last.toast)
+
   const entry = { undo, at: Date.now(), toast: 0 }
   last = entry
+
   entry.toast = notifyAction(
     message,
     'Undo',

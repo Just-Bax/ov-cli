@@ -26,6 +26,7 @@ def test_an_upgrade_waits_while_another_process_has_the_database_open(ov_home, m
         for statement in baseline.LEGACY_SCHEMA:
             legacy.execute(statement)
     legacy.close()
+
     holder = subprocess.Popen(
         [sys.executable, "-c", HOLD_DATABASE.format(path=path)], stdout=subprocess.PIPE, text=True
     )

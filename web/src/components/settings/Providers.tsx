@@ -22,7 +22,9 @@ export function providerSummary(status: Status): string {
     return status.copilot.signedIn
       ? `GitHub as ${status.copilot.user}, paid in Copilot credits.`
       : 'Not signed in to GitHub.'
+
   if (!status.claude.installed) return 'Claude Code is not installed.'
+
   return status.claude.signedIn
     ? `Claude Code as ${status.claude.email}, ${planLabel(status.claude.plan)}.`
     : 'Claude Code is not signed in.'

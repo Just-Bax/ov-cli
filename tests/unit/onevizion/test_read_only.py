@@ -22,7 +22,6 @@ from ov.onevizion.client import Client
     ],
 )
 def test_read_only_guard(monkeypatch, method, path, allowed):
-    from ov.core.errors import ReadOnlyBlocked
     from ov.onevizion.client import guard_read_only
 
     monkeypatch.setenv("OV_READONLY", "1")

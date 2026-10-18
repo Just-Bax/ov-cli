@@ -48,6 +48,7 @@ def test_a_legacy_database_is_backed_up_and_migrated_to_the_thread_schema(ov_hom
         tables = {r[0] for r in migrated.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         attachments = migrated.execute("SELECT thread_id, turn_id, name FROM attachment").fetchall()
     migrated.close()
+
     assert attachments == [("r1", "u_start", "a.png")]
     assert {"thread", "attachment", "event", "message", "usage", "preference", "skill"} <= tables
     assert not tables & {"run", "runs", "conversation", "settled", "pinned", "snoozed", "feedback", "setting"}
@@ -83,6 +84,7 @@ def test_old_case_reply_usage_is_kept_as_naming_cost(ov_home, monkeypatch):
             "INSERT INTO usage (thread_id, model, kind, input_tokens, cached_tokens, cache_write_tokens, "
             "output_tokens, cost_nano, created_at) VALUES ('r1', 'm', 'reply', 1, 0, 0, 2, 7, 1)"
         )
+
     engine.dispose()
 
     assert db.migrate() is True
@@ -112,6 +114,7 @@ def test_write_access_becomes_an_access_mode_and_keeps_thread_events(ov_home, mo
             "INSERT INTO event (thread_id, position, type, data, created_at) "
             """VALUES ('rw', 0, 'access', '{"type": "access", "write": true}', 1)"""
         )
+
     engine.dispose()
 
     assert db.migrate() is True
@@ -130,6 +133,7 @@ def test_old_questions_become_asks_and_approvals():
         "items": [{"header": "", "question": "Which?", "options": [{"label": "a"}, {"label": "b"}], "multiple": False}],
         "answers": ["b"],
     }
+
     detail = "rm x\n\nAuto mode asks because this looks risky: deletes"
     approval = _converted({"id": "q2", "question": "Run?", "detail": detail, "toolId": "c1"})
     assert approval == {
@@ -140,5 +144,6 @@ def test_old_questions_become_asks_and_approvals():
         "reason": "deletes",
         "toolId": "c1",
     }
+
     stopped = _converted({"id": "q3", "question": "Which?", "options": [], "answer": "(not answered: the run stopped)"})
     assert stopped["stopped"] is True and "answers" not in stopped

@@ -49,6 +49,7 @@ def _newest(listed: list[dict[str, Any]], pattern: re.Pattern[str]) -> str:
 def default_models(provider: Provider) -> tuple[str | None, str | None]:
     if provider == Provider.CLAUDE:
         return CLAUDE_MODELS
+
     if copilot.user() is None:
         return None, None
 

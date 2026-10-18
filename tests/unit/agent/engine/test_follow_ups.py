@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
-from helpers.agent import wait_done
+from helpers.agent import SLOW_POLLS, wait_done, wait_for
 
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult
 from ov.agent.storage import db
 from ov.agent.storage.models import Access, Provider
 
-BREAK = chr(10) * 2
+BREAK = "\n\n"
 
 
 def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(logged_in, monkeypatch):
@@ -28,17 +27,17 @@ def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(l
 
     run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
+
     call = {"id": "c9", "type": "function", "function": {"name": "ov_sql", "arguments": "{}"}}
     run._messages.append({"role": "assistant", "content": None, "tool_calls": [call]})
     run.emit({"type": "tool", "tool": {"id": "c9", "name": "ov_sql", "label": "SQL", "status": "running"}})
     run._fail(RuntimeError("tool thread died"))
+
     assert run.state["tools"][-1]["status"] == "error"
 
     run.follow_up("continue", [], steer=False)
-    for _ in range(100):
-        if len(sent) == 2:
-            break
-        time.sleep(0.05)
+    wait_for(lambda: len(sent) == 2)
+
     last = sent[-1]
     at = next(i for i, m in enumerate(last) if m.get("tool_calls") == [call])
     assert last[at + 1] == {"role": "tool", "tool_call_id": "c9", "content": "Error: interrupted."}
@@ -61,10 +60,8 @@ def test_the_system_prompt_follows_the_access_mode(logged_in, monkeypatch):
     wait_done(run)
     run.set_access(Access.AUTO)
     run.follow_up("go", [], steer=False)
-    for _ in range(100):
-        if len(sent) == 2:
-            break
-        time.sleep(0.05)
+    wait_for(lambda: len(sent) == 2)
+
     assert "currently OFF: read-only" in sent[0]
     assert "changes run without asking the user" in sent[1]
 
@@ -90,17 +87,11 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
     from ov.agent.engine.run import runs
 
     run = runs.create({"access": "read", "prompt": "start", "instance": "acme"}, Provider.COPILOT, "test-model")
-    for _ in range(100):
-        if seen:
-            break
-        time.sleep(0.05)
+    wait_for(lambda: seen)
     run.follow_up("later", [], steer=False)
     run.follow_up("now", [], steer=True)
     gate.set()
-    for _ in range(200):
-        if len(seen) >= 3 and run.state["summary"]["status"] == "done":
-            break
-        time.sleep(0.05)
+    wait_for(lambda: len(seen) >= 3 and run.state["summary"]["status"] == "done", polls=SLOW_POLLS)
 
     assert seen[1][-1].endswith(BREAK + "now") and not any(m.endswith("later") for m in seen[1])
     assert seen[2][-1].startswith("[Sent ") and seen[2][-1].endswith(BREAK + "later")
@@ -123,17 +114,11 @@ def test_queued_messages_are_sent_one_turn_at_a_time(logged_in, monkeypatch):
     from ov.agent.engine.run import runs
 
     run = runs.create({"access": "read", "prompt": "start", "instance": "acme"}, Provider.COPILOT, "test-model")
-    for _ in range(100):
-        if seen:
-            break
-        time.sleep(0.05)
+    wait_for(lambda: seen)
     run.follow_up("one", [], steer=False)
     run.follow_up("two", [], steer=False)
     gate.set()
-    for _ in range(200):
-        if len(seen) >= 3 and run.state["summary"]["status"] == "done":
-            break
-        time.sleep(0.05)
+    wait_for(lambda: len(seen) >= 3 and run.state["summary"]["status"] == "done", polls=SLOW_POLLS)
 
     assert [m.rsplit(BREAK, 1)[-1] for m in seen[1:]] == ["one", "two"]
     assert not run.state["queued"]

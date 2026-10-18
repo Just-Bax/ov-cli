@@ -87,6 +87,7 @@ function Caption({ tool, access }: { tool: ToolActivity | undefined; access: Acc
   if (tool.status !== 'running' && !blocked) return null
 
   const change = tool.verdict?.effect === 'write'
+
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-6">
       <div
@@ -131,6 +132,7 @@ function Tabs({ runId, tabs }: { runId: string; tabs: BrowserTab[] }) {
 
   const act = (index: number, close: boolean) =>
     void api.browserTab(runId, index, close).catch(reportError)
+
   return (
     <div
       role="tablist"

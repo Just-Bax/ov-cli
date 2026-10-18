@@ -135,7 +135,6 @@ def test_a_snapshot_lists_refs_and_attaches_a_screenshot_only_on_request(tmp_pat
     ctx = BrowserContext(tmp_path)
     out = tool_named("browser_snapshot").handler({}, ctx)
     assert '- button "Save" [ref=e2]' in out and not ctx.images
-
     out = tool_named("browser_snapshot").handler({"screenshot": True}, ctx)
     assert len(ctx.images) == 1 and "Screenshot attached: 1280x800" in out
 
@@ -206,7 +205,6 @@ def test_typing_is_only_judged_when_it_submits(tmp_path):
     ctx = BrowserContext(tmp_path)
     tool_named("browser_type").handler({"ref": "e1", "text": "WO-1", "clear": True, "say": "Searching"}, ctx)
     assert ctx.actions == [] and ctx.pilot.done == ["type at 110,20 WO-1 (clear)"]
-
     tool_named("browser_type").handler({"text": "WO-2", "submit": True, "say": "Searching"}, ctx)
     assert len(ctx.actions) == 1 and ctx.pilot.done[-2:] == ["type WO-2", "press Enter"]
 
@@ -266,7 +264,7 @@ def test_a_run_stores_browser_events_and_forgets_them_on_reload(logged_in, monke
 
 
 def test_a_browser_that_dies_is_reported_closed_once():
-    from ov.agent.engine.browsing import BrowserSlot, _Open
+    from ov.agent.engine.browsing import _Open
 
     class DeadPilot:
         failure = "The browser stopped: crashed"
@@ -281,6 +279,7 @@ def test_a_browser_that_dies_is_reported_closed_once():
     slot._open = _Open("acme", dead, StoppedScreen())
     slot.exited(dead)
     slot.exited(dead)
+
     closed = {"open": False, "dialog": None, "tabs": [], "error": "The browser stopped: crashed"}
     assert events == [{"type": "browser", "browser": closed}]
     assert not slot.live

@@ -74,6 +74,7 @@ function announce(change: StatusChange, message: string) {
     icon: NOTIFICATION_ICON,
     tag: `ov-${change.id}`,
   })
+
   note.onclick = () => {
     window.focus()
     go({ page: 'thread', id: change.id })
@@ -92,7 +93,6 @@ function viewing(id: string): boolean {
 function markSeen() {
   const id = openThread()
   if (!id || document.visibilityState !== 'visible') return
-
   unseen.delete(id)
   refresh()
 }
@@ -110,6 +110,7 @@ async function paint(show: boolean) {
     link,
     href: link.href,
   }))
+
   const href = show ? await badgeIcon() : undefined
   if (show !== shown) return
 
@@ -123,6 +124,7 @@ function badgeIcon(): Promise<string> {
     image.onerror = () => reject(new Error(`Could not load ${ICON_URL} for the tab badge.`))
     image.src = ICON_URL
   })
+
   return badged
 }
 
@@ -134,6 +136,7 @@ function drawBadge(image: HTMLImageElement): string {
 
   context.drawImage(image, 0, 0, BADGE_SIZE, BADGE_SIZE)
   const center = BADGE_SIZE - DOT_RADIUS
+
   context.beginPath()
   context.arc(center, center, DOT_RADIUS, 0, 2 * Math.PI)
   context.fillStyle = RING_COLOR
@@ -142,6 +145,7 @@ function drawBadge(image: HTMLImageElement): string {
   context.arc(center, center, DOT_RADIUS - DOT_RING, 0, 2 * Math.PI)
   context.fillStyle = DOT_COLOR
   context.fill()
+
   return canvas.toDataURL()
 }
 

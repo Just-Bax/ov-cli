@@ -104,8 +104,10 @@ def test_sql_results_mask_secrets_without_refusing_the_query(logged_in, tmp_path
             {"cells": ["settings", '{"url": "x", "client_secret": "s3"}', None, 13]},
         ],
     }
+
     big = json.dumps(body) + " " * 30_000
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, big, ""))
+
     out = tool_named("ov_sql").handler(
         {"query": "select name, value from module_param where name not like '%PASS%'"}, FakeContext(tmp_path)
     )
@@ -124,6 +126,7 @@ def test_a_token_field_name_does_not_hide_the_rule_beside_it(logged_in, tmp_path
         "columns": ["RULE_ID", "RULE_NAME", "FIELD_NAME"],
         "rows": [{"cells": ["100026670", "UDL Trigger Token", "C_GENERATE_TOKEN"]}],
     }
+
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, json.dumps(body), ""))
     out = tool_named("ov_sql").handler({"query": "select rule_id from rule"}, FakeContext(tmp_path))
     assert out.splitlines()[2] == "100026670\tUDL Trigger Token\tC_GENERATE_TOKEN"

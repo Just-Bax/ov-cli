@@ -18,7 +18,6 @@ export function useClickOutside(
 
   useEffect(() => {
     if (!active) return
-
     const onDown = (e: MouseEvent) => {
       if (!inside.some((ref) => ref.current?.contains(e.target as Node))) handler.current()
     }
@@ -94,7 +93,6 @@ export function usePresence<T>(value: T | undefined, exitMs: number) {
       setKept(value)
       return
     }
-
     const timer = setTimeout(() => setKept(undefined), exitMs)
     return () => clearTimeout(timer)
   }, [value, exitMs])

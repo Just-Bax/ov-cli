@@ -26,6 +26,7 @@ def repos(tmp_path):
 
     clone = tmp_path / "clone"
     git("clone", "-q", str(origin), str(clone), cwd=tmp_path)
+
     (origin / "app.py").write_text("x = 1", encoding="utf-8")
     git("add", ".", cwd=origin)
     git("commit", "-q", "-m", "second", cwd=origin)

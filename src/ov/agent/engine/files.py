@@ -65,9 +65,11 @@ def unique_path(directory: Path, name: str) -> Path:
     candidate = directory / safe_name(name)
     stem, suffix = candidate.stem, candidate.suffix
     index = 2
+
     while candidate.exists():
         candidate = directory / f"{stem}-{index}{suffix}"
         index += 1
+
     return candidate
 
 
@@ -102,6 +104,7 @@ def describe(path: Path, source: str) -> dict[str, Any]:
     kind = kind_of(path.name)
     if kind == "email" and path.suffix.lower() == ".eml":
         _expand_email(path)
+
     return {
         "name": path.name,
         "path": str(path),
@@ -120,6 +123,7 @@ def _expand_email(path: Path) -> None:
 
     lines = [f"{header}: {message.get(header, '')}" for header in ("From", "To", "Cc", "Date")]
     lines += [f"Subject: {message.get('Subject', '')}", "", text.strip()]
+
     for part in message.iter_attachments():
         payload = part.get_payload(decode=True)
         if not payload:
@@ -127,4 +131,5 @@ def _expand_email(path: Path) -> None:
         target = unique_path(path.parent, part.get_filename() or "email-attachment")
         target.write_bytes(payload)
         lines += ["", f"[attachment saved: {target.name}]"]
+
     Path(f"{path}.txt").write_text("\n".join(lines), encoding="utf-8")

@@ -6,11 +6,9 @@ import { api } from '@/lib/api'
 export function useInstances() {
   const [instances, setInstances] = useState<Instance[]>()
   const reload = useCallback(() => api.instances().then(setInstances, reportError), [])
-
   useEffect(() => {
     void reload()
   }, [reload])
-
   return { instances, setInstances, reload }
 }
 

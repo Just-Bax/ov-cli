@@ -47,11 +47,9 @@ export function refreshRuns(): Promise<void> {
     .runs(settledLimit)
     .then((next) => {
       if (ticket < applied) return
-
       applied = ticket
       const text = JSON.stringify(next)
       if (text === raw) return
-
       raw = text
       publish(next)
     })
@@ -86,7 +84,6 @@ function start() {
 
 function stopIfIdle() {
   if (listeners.size) return
-
   source?.close()
   source = undefined
   clearInterval(poll)
@@ -123,6 +120,7 @@ function moveLocally(id: string, settled: boolean) {
   const moved = { ...run, settled }
   const active = list.active.filter((r) => r.id !== id)
   const done = list.settled.filter((r) => r.id !== id)
+
   publish({
     ...list,
     active: settled ? active : [...active, moved].sort(byNewest),
@@ -134,6 +132,7 @@ function moveLocally(id: string, settled: boolean) {
 
 export async function setSettled(id: string, settled: boolean, undoable = true): Promise<void> {
   moveLocally(id, settled)
+
   try {
     await api.settleRun(id, settled)
   } finally {
@@ -155,8 +154,10 @@ export async function setPinned(id: string, pinned: boolean, undoable = true): P
 
 export async function setSnoozed(id: string, until: number | null, undoable = true): Promise<void> {
   const before = list?.snoozed.find((r) => r.id === id)?.snoozedUntil ?? null
+
   await api.snoozeRun(id, until)
   await refreshRuns()
+
   if (undoable)
     remember(until ? 'Thread snoozed' : 'Thread woken up', () =>
       setSnoozed(id, before && before > Date.now() ? before : null, false),

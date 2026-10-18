@@ -211,10 +211,12 @@ def _copy_threads(bind: sa.Connection) -> set[str]:
             "LEFT JOIN snoozed z ON z.run_id = r.id"
         )
     ).mappings()
+
     threads: set[str] = set()
     for row in rows:
         data = json.loads(row["input"])
         merged = _merged(events.get(row["id"], []))
+
         bind.execute(
             sa.text(
                 "INSERT INTO thread VALUES (:id, :title, :instance, :status, :model, :prompt, :allow_write, "
@@ -227,16 +229,19 @@ def _copy_threads(bind: sa.Connection) -> set[str]:
                 "allow_write": int(_allow_write(data, merged)),
             },
         )
+
         for seq, ts, kind, event in merged:
             bind.execute(
                 sa.text("INSERT INTO event VALUES (:thread, :position, :type, :data, :created_at)"),
                 {"thread": row["id"], "position": seq, "type": kind, "data": json.dumps(event), "created_at": ts},
             )
+
         for attachment in data.get("attachments") or []:
             bind.execute(
                 sa.text("INSERT INTO attachment (thread_id, turn_id, name, created_at) VALUES (:t, :turn, :name, :at)"),
                 {"t": row["id"], "turn": START_TURN, "name": str(attachment["name"]), "at": row["created_at"]},
             )
+
         threads.add(row["id"])
     return threads
 
@@ -247,12 +252,15 @@ def _copy_messages(bind: sa.Connection, threads: set[str]) -> None:
     for thread_id in threads:
         if thread_id not in stored:
             continue
+
         turns = json.loads(stored.get(thread_id + TURNS_SUFFIX) or "{}")
         turn_at = {turn["index"]: turn_id for turn_id, turn in turns.items()}
+
         for position, message in enumerate(json.loads(stored[thread_id])):
             extra = set(message) - MESSAGE_KEYS
             if extra:
                 raise ValueError(f"Thread {thread_id} has a model message with unknown fields: {sorted(extra)}")
+
             bind.execute(
                 sa.text("INSERT INTO message VALUES (:t, :p, :role, :content, :calls, :call_id, :turn, :at)"),
                 {
@@ -274,11 +282,14 @@ def _copy_usage(bind: sa.Connection, threads: set[str]) -> None:
     ):
         if run_id not in threads:
             continue
+
         counts = json.loads(tokens)
         unknown = set(counts) - set(TOKEN_COLUMNS)
         if unknown:
             raise ValueError(f"Usage row of {run_id} has unknown token types: {sorted(unknown)}")
+
         columns = {column: int(counts.get(key, 0)) for key, column in TOKEN_COLUMNS.items()}
+
         bind.execute(
             sa.text(
                 "INSERT INTO usage (thread_id, model, kind, input_tokens, cached_tokens, cache_write_tokens, "
@@ -291,6 +302,7 @@ def _copy_usage(bind: sa.Connection, threads: set[str]) -> None:
 
 def _copy_preferences(bind: sa.Connection, now: int) -> None:
     stored = {key: json.loads(value) for key, value in bind.execute(sa.text("SELECT key, value FROM setting"))}
+
     bind.execute(
         sa.text(
             "INSERT INTO preference VALUES (1, :default_model, :fast_model, :reasoning, :max_steps, :follow_up, "
@@ -319,6 +331,7 @@ def _copy_skills(bind: sa.Connection, now: int) -> None:
             bind.execute(
                 insert, {"name": f"{row['name']}-edited", "source": "custom", "enabled": 1, "now": now, **copy}
             )
+
         values = {
             "name": row["name"],
             "source": "bundled" if bundled else "custom",
@@ -328,16 +341,19 @@ def _copy_skills(bind: sa.Connection, now: int) -> None:
             "enabled": 0 if bundled and row["content"] is not None else int(bool(row["enabled"])),
             "now": now,
         }
+
         bind.execute(insert, values)
 
 
 def upgrade() -> None:
     bind = op.get_bind()
     now = int(time.time() * 1000)
+
     for table in OLD_TABLES:
         op.rename_table(table, f"{table}_old")
     op.execute("DROP INDEX IF EXISTS usage_by_run")
     op.execute("DROP INDEX IF EXISTS usage_by_time")
+
     _create_thread()
     _create_children()
     _create_settings()

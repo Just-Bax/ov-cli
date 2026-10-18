@@ -11,6 +11,7 @@ def test_instance_sign_in_keeps_the_url_and_tenant(agent_server, monkeypatch):
     monkeypatch.setattr(
         "ov.agent.instances.ovproc.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", "")
     )
+
     url = "http://portal.customer.example:8443/ov"
     res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "tenant": "North"})
     assert res.json()["ok"]
@@ -33,6 +34,7 @@ def test_instance_sign_in_passes_a_token_on_stdin(agent_server, monkeypatch):
     res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "token": "K:S"})
     assert res.json()["ok"]
     assert seen[-1] == (["login", url, "--keep-current", "--timeout", "280", "--token", "-"], "K:S")
+
     both = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "token": "K:S", "tenant": "x"})
     assert both.status_code == 400
 
@@ -52,6 +54,7 @@ def test_an_instance_can_be_removed(agent_server, monkeypatch):
     monkeypatch.setattr("ov.agent.api.server.run_ov", fake)
     rows = httpx.post(f"{agent_server}/api/instances/logout", json={"alias": "acme"}).json()
     assert seen == [["logout", "acme", "--json"]] and rows == []
+
     missing = httpx.post(f"{agent_server}/api/instances/logout", json={"alias": "acme"})
     assert missing.status_code == 404
 

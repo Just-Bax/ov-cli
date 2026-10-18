@@ -112,6 +112,7 @@ def _read_file(args: dict[str, Any], ctx: ToolContext) -> str:
     expanded = Path(f"{path}{TEXT_COPY_SUFFIX}")
     if path.suffix.lower() == ".eml" and expanded.exists():
         path = expanded
+
     raw = path.read_bytes()
     if b"\0" in raw[:BINARY_SNIFF_BYTES]:
         return f"Binary file {path.name} ({len(raw)} bytes); cannot be read as text."
@@ -127,14 +128,18 @@ def _text_arg(args: dict[str, Any], key: str, ctx: ToolContext) -> str:
     source = args.get(f"{key}_file")
     if not source:
         return str(args.get(key) or "")
+
     if args.get(key):
         raise ToolError(f"Pass {key} or {key}_file, not both.")
+
     name = str(source)
     run_file = within(ctx.work_dir, name)
     if run_file.is_file():
         return run_file.read_text(encoding="utf-8", errors="replace")
+
     if project.configured():
         return project.text_of(name)
+
     raise ToolError(f"No such file in the run folder: {name}")
 
 
@@ -142,6 +147,7 @@ def _propose_change(args: dict[str, Any], ctx: ToolContext) -> str:
     entity_type = str(args["entity_type"]).strip().lower()
     if entity_type not in ENTITY_TYPES:
         raise ToolError(f"entity_type must be one of: {', '.join(ENTITY_TYPES)}. Put details in the title or what.")
+
     entity_id = str(args["entity_id"]) if args.get("entity_id") else None
     instance = str(args.get("instance") or ctx.instance) or None
     change = {

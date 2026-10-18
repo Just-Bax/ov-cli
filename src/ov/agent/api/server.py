@@ -68,6 +68,8 @@ DEFAULT_RANGE = "24h"
 SECONDS_PER_DAY = 86_400
 FAILED_PROCESS_STATUSES = "3, 14, 21"
 FAILED_PROCESS_TYPES_SHOWN = 20
+FAILURE_TIMES_SHOWN = 500
+UTC_OFFSET_SQL = "select round((sysdate - cast(sys_extract_utc(systimestamp) as date)) * 1440) m from dual"
 APP_ID = "ov-agent"
 SCREEN_APPEAR_SECONDS = 10
 INSTANCE_CHECK_TIMEOUT_SECONDS = 20
@@ -179,6 +181,7 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw) if raw else {}
         except json.JSONDecodeError:
             raise HttpError(400, "Body is not JSON.") from None
+
         if not isinstance(data, dict):
             raise HttpError(400, "Body must be a JSON object.")
         return data
@@ -192,9 +195,11 @@ class Handler(BaseHTTPRequestHandler):
         extra: dict[str, str] | None = None,
     ) -> None:
         self._drain()
+
         if len(body) > GZIP_MIN_BYTES and "gzip" in (self.headers.get("Accept-Encoding") or ""):
             body = gzip.compress(body, compresslevel=GZIP_LEVEL)
             extra = {**(extra or {}), "Content-Encoding": "gzip"}
+
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -202,6 +207,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         for name, value in (extra or {}).items():
             self.send_header(name, value)
+
         self.end_headers()
         self.wfile.write(body)
 
@@ -218,6 +224,7 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin and origin not in self._origins():
             return False
+
         if method in ("POST", "PUT"):
             content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             return content_type in _BODY_TYPES
@@ -229,6 +236,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method: str) -> None:
         self._unread = max(int(self.headers.get("Content-Length") or 0), 0)
+
         try:
             self._handle(method, urlsplit(self.path).path)
         except HttpError as exc:
@@ -256,6 +264,7 @@ class Handler(BaseHTTPRequestHandler):
                 if result is not None:
                     self.send_json(result)
                 return
+
         raise HttpError(404, "Not found.")
 
     def _static(self, path: str) -> None:
@@ -267,6 +276,7 @@ class Handler(BaseHTTPRequestHandler):
         target = within(STATIC_DIR, rel) if rel else index
         if not target.is_file():
             target = index
+
         cache = ASSET_CACHE if "/assets/" in path else "no-cache"
         content_type = CONTENT_TYPES.get(target.suffix.lower(), "application/octet-stream")
         self.send(200, target.read_bytes(), content_type, cache)
@@ -320,6 +330,7 @@ def status(_: Handler) -> dict[str, Any]:
     rows = instances()
     settings = db.get_preferences()
     signed_in = account["signedIn"] if settings["provider"] == Provider.CLAUDE else bool(user)
+
     return {
         "provider": settings["provider"],
         "copilot": {"signedIn": bool(user), "user": user},
@@ -419,6 +430,7 @@ def check_instance(h: Handler) -> dict[str, Any]:
         page = httpx.get(f"{url}{LOGIN_PATH}", timeout=INSTANCE_CHECK_TIMEOUT_SECONDS, follow_redirects=True)
     except httpx.HTTPError as exc:
         raise HttpError(502, f"{url} did not answer: {exc}") from None
+
     took = int((time.monotonic() - started) * 1000)
     if page.status_code >= 400:
         raise HttpError(502, f"{url} answered {page.status_code}.")
@@ -562,10 +574,6 @@ def datadog_matches(h: Handler) -> dict[str, Any]:
     return datadog.save_matches({str(k): str(v) for k, v in matches.items()})
 
 
-FAILURE_TIMES_SHOWN = 500
-UTC_OFFSET_SQL = "select round((sysdate - cast(sys_extract_utc(systimestamp) as date)) * 1440) m from dual"
-
-
 def _failed_runs(alias: str, start: int, end: int) -> dict[str, Any]:
     sql = graph.SqlReader(alias, Cancel())
     days = round((end - start) / 1000 / SECONDS_PER_DAY, 4)
@@ -573,6 +581,7 @@ def _failed_runs(alias: str, start: int, end: int) -> dict[str, Any]:
         "from process p join process_type t on t.process_type_id = p.process_type_id "
         f"where p.status_id in ({FAILED_PROCESS_STATUSES}) and p.submission_date > sysdate - {days}"
     )
+
     queries = {
         "byType": (
             "select t.process_type, count(*) n, to_char(max(p.submission_date), 'YYYY-MM-DD HH24:MI') last_at "
@@ -586,6 +595,7 @@ def _failed_runs(alias: str, start: int, end: int) -> dict[str, Any]:
         ),
         "offset": (UTC_OFFSET_SQL, 1),
     }
+
     with ThreadPoolExecutor(max_workers=len(queries)) as pool:
         futures = {name: pool.submit(sql.page, query, 0, size) for name, (query, size) in queries.items()}
         found = {name: future.result() for name, future in futures.items()}
@@ -666,6 +676,7 @@ def pagerduty_disconnect(_: Handler) -> dict[str, Any]:
 def list_runs(h: Handler) -> dict[str, Any]:
     settled = min(max(int(h.query.get("settled", str(SETTLED_PAGE))), 1), db.RUN_LIST_LIMIT)
     open_runs = db.list_threads(settled=False)
+
     return {
         "active": [r for r in open_runs if "snoozedUntil" not in r],
         "snoozed": [r for r in open_runs if "snoozedUntil" in r],
@@ -698,6 +709,7 @@ def start_run(h: Handler) -> dict[str, str]:
         provider,
         model,
     )
+
     return {"id": run.id}
 
 
@@ -750,9 +762,11 @@ def compact(_: Handler, run_id: str) -> dict[str, bool]:
 @route("POST", "/api/runs/([a-z0-9]+)/pin")
 def pin(h: Handler, run_id: str) -> dict[str, bool]:
     _known(run_id)
+
     pinned = h.json().get("pinned")
     if not isinstance(pinned, bool):
         raise HttpError(400, "Give pinned as true or false.")
+
     db.set_pinned(run_id, pinned)
     status_feed.publish({"kind": "list"})
     return {"ok": True}
@@ -767,11 +781,13 @@ def _not_waiting(run_id: str, action: str) -> None:
 @route("POST", "/api/runs/([a-z0-9]+)/snooze")
 def snooze(h: Handler, run_id: str) -> dict[str, bool]:
     _known(run_id)
+
     until = h.json().get("until")
     if until is not None and not isinstance(until, int):
         raise HttpError(400, "Give until as a time in milliseconds, or null.")
     if until is not None:
         _not_waiting(run_id, "snoozing")
+
     db.set_snoozed(run_id, until)
     status_feed.publish({"kind": "list"})
     return {"ok": True}
@@ -788,6 +804,7 @@ def seen(_: Handler, run_id: str) -> dict[str, bool]:
 @route("POST", "/api/runs/([a-z0-9]+)/settle")
 def settle(h: Handler, run_id: str) -> dict[str, bool]:
     _known(run_id)
+
     settled = h.json().get("settled")
     if not isinstance(settled, bool):
         raise HttpError(400, "Give settled as true or false.")
@@ -842,6 +859,7 @@ def _screen_of(h: Handler) -> Any:
         if time.monotonic() > deadline:
             raise HttpError(404, "No sign-in browser is open for this instance.")
         time.sleep(SCREEN_APPEAR_POLL_SECONDS)
+
     return screen
 
 
@@ -854,8 +872,10 @@ def _stream_screen(h: Handler, screen: Screen) -> None:
                 _write_stream(h, SSE_PING)
                 continue
             seen = screen.seq
+
             if screen.frame is not None:
                 _write_stream(h, f"data: {json.dumps(screen.frame)}\n\n")
+
         _write_stream(h, f"event: end\ndata: {json.dumps({'error': screen.failure})}\n\n")
     except OSError:
         pass
@@ -942,6 +962,7 @@ def message(h: Handler, run_id: str) -> dict[str, bool]:
     mode = _required(data, "mode")
     if mode not in db.FOLLOW_UPS:
         raise HttpError(400, f"mode must be one of {', '.join(db.FOLLOW_UPS)}.")
+
     _run(run_id).follow_up(str(data.get("text", "")), files, mode == FollowUp.STEER)
     db.set_settled(run_id, False)
     db.set_snoozed(run_id, None)
@@ -1004,6 +1025,7 @@ def run_cost(_: Handler, run_id: str) -> dict[str, Any]:
 def export_run(h: Handler, run_id: str) -> None:
     run = _run(run_id)
     name = _UNSAFE_FILE_CHARS.sub("", run.state["summary"]["title"]).strip()[:EXPORT_NAME_CHARS] or run_id
+
     h.send(
         200,
         to_markdown(run.state).encode("utf-8"),
@@ -1024,9 +1046,11 @@ def run_file(h: Handler, run_id: str, name: str) -> None:
         content_type, disposition = CONTENT_TYPES[suffix], "inline"
     else:
         content_type, disposition = "application/octet-stream", "attachment"
+
     headers = {"Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(path.name)}"}
     if suffix != ".pdf":
         headers["Content-Security-Policy"] = "sandbox"
+
     h.send(200, path.read_bytes(), content_type, extra=headers)
 
 
@@ -1088,6 +1112,7 @@ def browser_tab(h: Handler, run_id: str) -> dict[str, bool]:
         browser.close_tab(int(data["index"]))
     else:
         browser.switch_tab(int(data["index"]))
+
     return {"ok": True}
 
 
@@ -1154,6 +1179,7 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool
 
     if open_browser:
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+
     _serve_until_stopped(server)
     return 0
 

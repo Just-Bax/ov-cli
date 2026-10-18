@@ -18,6 +18,7 @@ CSRF_HEADER = "X-CSRF-TOKEN"
 CSRF_VALUE = "csrf-mock"
 BEARER = "MOCKACCESS:MOCKSECRET"
 EXPIRES = "2100-01-01T00:00:00"
+LOGIN_TIMEOUT_MS = 30_000
 
 
 LATE_REDIRECT = (
@@ -45,6 +46,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         for name, value in headers.items():
             self.send_header(name.replace("_", "-"), value)
+
         self.end_headers()
         if body:
             self.wfile.write(body)
@@ -102,6 +104,7 @@ def instance():
     Handler.signed_in = False
     Handler.slow_redirect = False
     Handler.new_tab = False
+
     server = HTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -116,7 +119,7 @@ def test_a_real_browser_completes_the_token_exchange(instance, ov_home):
     progress: list[str] = []
     session = interactive_login(
         instance,
-        timeout_ms=30_000,
+        timeout_ms=LOGIN_TIMEOUT_MS,
         on_progress=progress.append,
         headless=True,
     )
@@ -129,11 +132,11 @@ def test_a_real_browser_completes_the_token_exchange(instance, ov_home):
 
 def test_a_sign_in_that_completes_after_goto_is_still_noticed(instance, ov_home):
     Handler.slow_redirect = True
-    session = interactive_login(instance, timeout_ms=30_000, headless=True)
+    session = interactive_login(instance, timeout_ms=LOGIN_TIMEOUT_MS, headless=True)
     assert session.bearer_token == BEARER
 
 
 def test_the_app_arriving_in_a_second_tab_is_found(instance, ov_home):
     Handler.new_tab = True
-    session = interactive_login(instance, timeout_ms=30_000, headless=True)
+    session = interactive_login(instance, timeout_ms=LOGIN_TIMEOUT_MS, headless=True)
     assert session.bearer_token == BEARER

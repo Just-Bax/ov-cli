@@ -114,6 +114,7 @@ def listing(rel: str, pattern: str) -> str:
             found.append(rel_path)
             if len(found) >= MAX_LIST_ENTRIES:
                 break
+
     return "\n".join(found) or f"No files match {pattern}."
 
 
@@ -172,6 +173,7 @@ def _grep_folder(folder: Path, pattern: str, globs: list[str], ignore_case: bool
     hits = [hit for batch in found for hit in batch]
     for path in loose:
         hits += _matches(path, regex)
+
     if len(hits) > MAX_MATCHES:
         return "\n".join(hits[:MAX_MATCHES]) + f"\n[{len(hits)} matches; narrow the search]"
     return "\n".join(hits) or "No matches."
@@ -202,6 +204,7 @@ def _repos_and_loose_files(folder: Path, globs: list[str]) -> tuple[list[Path], 
             continue
         dirs[:] = sorted(d for d in dirs if not _skipped(d))
         loose += [here / name for name in sorted(files) if _wanted(here / name, globs)]
+
     return repos, loose
 
 
@@ -227,6 +230,7 @@ def _git_grep(repo: Path, pattern: str, globs: list[str], ignore_case: bool) -> 
     ]
     args += ["-i"] if ignore_case else []
     args += ["-e", pattern, "--", *([f"*{g}" if "/" not in g else g for g in globs] or ["."])]
+
     result = subprocess.run(
         args,
         cwd=repo,
@@ -246,6 +250,7 @@ def _git_grep(repo: Path, pattern: str, globs: list[str], ignore_case: bool) -> 
         number, _, text = rest.partition(":")
         full = f"{prefix}/{path}" if prefix else path
         lines.append(f"{full}:{number}: {text.strip()[:MAX_LINE_CHARS]}")
+
     return lines
 
 
@@ -262,6 +267,7 @@ def _ripgrep(pattern: str, folder: Path, globs: list[str], ignore_case: bool) ->
     args = ["rg", "-n", "--no-heading", "--max-columns", str(MAX_LINE_CHARS), "-m", str(MAX_MATCHES_PER_FILE)]
     args += ["-i"] if ignore_case else []
     args += [arg for glob in globs for arg in ("-g", glob)]
+
     result = subprocess.run(
         [*args, "-e", pattern, "."], cwd=folder, capture_output=True, text=True, encoding="utf-8", errors="replace"
     )
@@ -283,8 +289,10 @@ def read(rel: str, start: int, end: int | None) -> str:
         raise ProjectError(f"{rel} is binary or larger than {MAX_FILE_BYTES} bytes.")
 
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+
     first = max(start, 1)
     last = min(end or first + MAX_READ_LINES - 1, first + MAX_READ_LINES - 1, len(lines))
+
     body = "\n".join(f"{n}: {lines[n - 1]}" for n in range(first, last + 1))
     more = f"\n[lines {first}-{last} of {len(lines)}; read on with start={last + 1}]" if last < len(lines) else ""
     return f"{relative(path)} ({len(lines)} lines)\n{body}{more}"
@@ -327,12 +335,15 @@ def escapes(command: str, cwd: Path) -> list[str]:
         target = Path(match.group(1)).expanduser().resolve()
         if target != base and base not in target.parents:
             found.append(f"touches {match.group(1)} outside the workspace")
+
     for match in _PARENT_PATH.finditer(command):
         target = (cwd / match.group(1).replace("\\", "/")).resolve()
         if target != base and base not in target.parents:
             found.append("climbs out of the workspace")
+
     if _ENV_PATH.search(command):
         found.append("uses a path from an environment variable")
+
     return list(dict.fromkeys(found))
 
 
@@ -355,6 +366,7 @@ def run(command: str, rel: str, timeout: int, cancel: Cancel) -> str:
         raise ProjectError(f"Not a folder: {rel}")
 
     limit = min(max(timeout, 1), MAX_TIMEOUT_SECONDS)
+
     with tempfile.TemporaryFile() as out:
         process = subprocess.Popen(
             _shell(command),
@@ -365,11 +377,13 @@ def run(command: str, rel: str, timeout: int, cancel: Cancel) -> str:
             env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1", "OV_READONLY": "1"},
             **spawn_options(),
         )
+
         timed_out = _wait(process, limit, cancel)
         out.seek(0)
         text = out.read().decode("utf-8", "replace")
 
     head = f"$ {command}\n(in {relative(cwd) or '.'}, exit {process.returncode}{', timed out' if timed_out else ''})\n"
+
     if len(text) > MAX_OUTPUT_CHARS:
         text = text[: MAX_OUTPUT_CHARS // 2] + "\n...[output cut]...\n" + text[-MAX_OUTPUT_CHARS // 2 :]
     return head + (text.strip() or "(no output)")

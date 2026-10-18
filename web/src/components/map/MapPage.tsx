@@ -48,6 +48,7 @@ const FIT_MAX_ZOOM = 1.1
 const MIN_ZOOM = 0.15
 const MAX_ZOOM = 1.6
 const GRID_GAP_PX = 22
+const GRID_COLOR = '#cfd8dc'
 const EDGE_WIDTH = 1.2
 const LIT_EDGE_WIDTH = 1.8
 const DIM_OPACITY = 0.35
@@ -144,10 +145,12 @@ function Canvas({
         .filter((n): n is GraphNode => Boolean(n) && !hiddenTypes.has(n!.type)),
     [visible, hiddenTypes, idx],
   )
+
   const shownEdges = useMemo(() => {
     const ids = new Set(shownNodes.map((n) => n.id))
     return graph.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
   }, [shownNodes, graph])
+
   const positions = useMemo(() => layout(shownNodes, shownEdges), [shownNodes, shownEdges])
 
   const related = useMemo(() => {
@@ -167,6 +170,7 @@ function Canvas({
       data: { node: n, hidden: total - onCanvas, dim: Boolean(related && !related.has(n.id)) },
     }
   })
+
   const edges: Edge[] = shownEdges.map((e) => {
     const lit = selected && (e.source === selected || e.target === selected)
 
@@ -197,6 +201,7 @@ function Canvas({
         }),
       FIT_DELAY_MS,
     )
+
     first.current = false
 
     return () => clearTimeout(timer)
@@ -215,7 +220,7 @@ function Canvas({
       maxZoom={MAX_ZOOM}
       proOptions={{ hideAttribution: true }}
     >
-      <Background color="#cfd8dc" gap={GRID_GAP_PX} size={1} />
+      <Background color={GRID_COLOR} gap={GRID_GAP_PX} size={1} />
     </ReactFlow>
   )
 }
@@ -236,8 +241,10 @@ function StartPoints({
       .filter((x) => x.s > 0)
       .sort((a, b) => b.s - a.s)
       .slice(0, START_POINT_ROWS)
+
   const count = (id: string, kind: string) =>
     (idx.links.get(id) ?? []).filter((l) => l.kind === kind).length
+
   const typesByFields = top('trackor_type', (n) => count(n.id, 'field_of'))
   const hotFields = top('field', (n) => count(n.id, 'uses') + count(n.id, 'triggered_by'))
   const packages = top('db_package', (n) => (idx.links.get(n.id) ?? []).length)
@@ -438,6 +445,7 @@ function TypeMenu({
     for (const n of graph.nodes) c.set(n.type, (c.get(n.type) ?? 0) + 1)
     return c
   }, [graph])
+
   const types = (Object.keys(TYPES) as GraphNodeType[]).filter((t) => counts.get(t))
   const shown = types.filter((t) => !hidden.has(t)).length
 

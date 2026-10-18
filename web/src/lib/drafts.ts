@@ -60,6 +60,7 @@ export async function saveFiles(key: string, files: File[]): Promise<void> {
     lastModified: f.lastModified,
     data: f,
   }))
+
   await run('readwrite', (s) => s.put(stored, key))
 }
 

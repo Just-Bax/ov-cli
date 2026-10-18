@@ -51,6 +51,7 @@ class Service:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise self.error(f"Cannot read the {self.name} settings in {path}: {exc}") from None
+
         if isinstance(data, dict):
             return data
 
@@ -132,6 +133,7 @@ def explain(
     code = response.status_code
     if code in messages:
         return messages[code]
+
     if code == httpx.codes.FORBIDDEN:
         return forbidden
 
@@ -139,4 +141,5 @@ def explain(
         detail = errors_in(response.json())
     except ValueError:
         detail = ""
+
     return f"{service.name} returned {code}: {detail or response.text[:ERROR_BODY_CHARS]}"

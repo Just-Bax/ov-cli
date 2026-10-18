@@ -74,7 +74,9 @@ def test_the_copilot_runner_keeps_only_the_latest_pages_and_screenshots():
     messages = [{"role": "tool", "content": page} for _ in range(4)]
     messages += [{"role": "tool", "content": "Clicked."}]
     messages += [{"role": "user", "content": [{"type": "text", "text": "shot"}]} for _ in range(3)]
+
     browser_runner._drop_old_pages(messages)
+
     contents = [m["content"] for m in messages]
     assert contents[:4] == [browser_runner.OLD_PAGE, browser_runner.OLD_PAGE, page, page]
     assert contents[4] == "Clicked."

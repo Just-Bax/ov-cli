@@ -33,15 +33,19 @@ def emit(
         return
 
     out = console(ctx)
+
     if text is not None:
         out.print(text)
         return
+
     if not data and empty:
         out.print(empty)
         return
+
     if table is not None:
         out.print(table())
         return
+
     emit_payload(ctx, data)
 
 
@@ -50,9 +54,11 @@ def emit_payload(ctx: Context, payload: Any) -> None:
     if ctx.as_json:
         print(rendered)
         return
+
     if isinstance(payload, str):
         console(ctx).print(payload)
         return
+
     console(ctx).print(JSON(rendered))
 
 
@@ -78,8 +84,10 @@ def build_table(title: str | None, columns: list[dict[str, Any]], rows: list[lis
 def rows_from(payload: Any) -> Table | None:
     if not isinstance(payload, list):
         return None
+
     if not payload:
         return build_table(None, [{"header": "no rows"}], [])
+
     if not all(isinstance(item, dict) for item in payload):
         return None
 

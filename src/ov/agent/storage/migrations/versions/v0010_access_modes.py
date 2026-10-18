@@ -26,6 +26,7 @@ def upgrade() -> None:
         "UPDATE event SET data = json_set(json_remove(data, '$.write'), '$.access', CASE WHEN "
         f"json_extract(data, '$.write') THEN '{ASK_FIRST}' ELSE '{READ_ONLY}' END) WHERE type = 'access'"
     )
+
     with op.batch_alter_table("thread") as batch:
         batch.drop_constraint("allow_write_valid", type_="check")
         batch.drop_column("allow_write")
@@ -41,6 +42,7 @@ def downgrade() -> None:
         "UPDATE event SET data = json_set(json_remove(data, '$.access'), '$.write', json(CASE WHEN "
         f"json_extract(data, '$.access') = '{READ_ONLY}' THEN 'false' ELSE 'true' END)) WHERE type = 'access'"
     )
+
     with op.batch_alter_table("thread") as batch:
         batch.drop_constraint("access_valid", type_="check")
         batch.drop_column("access")

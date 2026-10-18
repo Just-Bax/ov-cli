@@ -67,11 +67,14 @@ def cmd_tags(ctx: Context) -> int:
 def cmd_list(ctx: Context) -> int:
     spec = ctx.service.spec(refresh=ctx.refresh)
     operations = spec.search(ctx.args.grep) if ctx.args.grep else list(spec.operations)
+
     if ctx.args.tag:
         operations = [o for o in operations if o.tag == ctx.args.tag]
+
     if ctx.args.method:
         wanted = ctx.args.method.upper()
         operations = [o for o in operations if o.method == wanted]
+
     if ctx.args.deprecated:
         operations = [o for o in operations if o.deprecated]
 
@@ -123,13 +126,16 @@ def _show_rows(operation: Operation, usage: str) -> list[list[str]]:
         ["call", f"{operation.method} {operation.path}"],
         ["usage", usage],
     ]
+
     if operation.summary:
         rows.append(["summary", operation.summary])
     if operation.description:
         rows.append(["description", operation.description])
     if operation.deprecated:
         rows.append(["deprecated", "yes"])
+
     rows.extend([f"{param.location} {param.name}", _param_detail(param)] for param in operation.params)
+
     if operation.body:
         required = " required" if operation.body.required else ""
         rows.append(["body", f"{operation.body.content_type}{required} (ov api schema shows its shape)"])

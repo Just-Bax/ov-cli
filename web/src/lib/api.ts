@@ -44,6 +44,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })
+
   const text = await res.text()
   if (!res.ok) throw new Error(errorIn(text) ?? `${res.status} ${res.statusText}`)
 

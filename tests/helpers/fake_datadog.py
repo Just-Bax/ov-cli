@@ -125,11 +125,13 @@ class FakeDatadog:
         if compute.get("type") == "timeseries":
             points = [{"time": "2026-10-04T10:00:00Z", "value": 5}]
             return {"data": {"buckets": [{"computes": {"c0": points}}]}}
+
         if group:
             counts: dict[str, int] = {}
             for row in self.logs:
                 counts[row[group]] = counts.get(row[group], 0) + 100
             return {"data": {"buckets": [{"by": {group: k}, "computes": {"c0": v}} for k, v in counts.items()]}}
+
         return {"data": {"buckets": [{"computes": {"c0": 300}}]}}
 
     def _monitors(self) -> list[dict[str, Any]]:

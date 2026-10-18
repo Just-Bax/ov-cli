@@ -27,6 +27,7 @@ export function CopilotSignIn({ onDone }: { onDone: () => void }) {
 
   const poll = async (deviceCode: string, seconds: number) => {
     let interval = seconds * SECOND_MS
+
     while (mounted.current) {
       await new Promise((r) => setTimeout(r, interval))
       const res = await api.devicePoll(deviceCode)
@@ -39,6 +40,7 @@ export function CopilotSignIn({ onDone }: { onDone: () => void }) {
   const start = async () => {
     setError(undefined)
     setStarting(true)
+
     try {
       const flow = await api.deviceStart()
       setCode(flow)

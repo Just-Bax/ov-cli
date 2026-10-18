@@ -34,9 +34,11 @@ def _header(state: dict[str, Any]) -> list[str]:
     facts = [f"Model: {summary['model']} ({summary['provider']})"]
     if summary.get("instance"):
         facts.append(f"Instance: {summary['instance']}")
+
     facts.append(f"Started: {_when(summary['createdAt'])}")
     facts.append(f"Updated: {_when(summary['updatedAt'])}")
     facts.append(f"Status: {summary['status']}")
+
     cost = db.thread_cost(summary["id"])
     facts.append(f"Cost: {_cost(cost)}")
     return [f"# {summary['title']}", "", " | ".join(facts)]

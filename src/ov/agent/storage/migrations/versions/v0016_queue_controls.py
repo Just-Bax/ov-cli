@@ -37,6 +37,7 @@ def upgrade() -> None:
     with op.batch_alter_table("event") as batch:
         batch.drop_constraint("type_valid", type_="check")
         batch.create_check_constraint("type_valid", _check("type", (*EVENT_TYPES, "queue")))
+
     op.execute(
         "ALTER TABLE preference ADD COLUMN follow_up TEXT NOT NULL DEFAULT 'queue' "
         f"CONSTRAINT follow_up_valid CHECK ({_check('follow_up', FOLLOW_UPS)})"
@@ -47,7 +48,9 @@ def downgrade() -> None:
     with op.batch_alter_table("preference") as batch:
         batch.drop_constraint("follow_up_valid", type_="check")
         batch.drop_column("follow_up")
+
     op.execute("DELETE FROM event WHERE type = 'queue'")
+
     with op.batch_alter_table("event") as batch:
         batch.drop_constraint("type_valid", type_="check")
         batch.create_check_constraint("type_valid", _check("type", EVENT_TYPES))

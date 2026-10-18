@@ -53,15 +53,19 @@ def test_the_run_judges_each_command_once_and_records_it(logged_in, monkeypatch)
 
     run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
     wait_done(run)
+
     run.emit({"type": "tool", "tool": {"id": "t1", "name": "ws_run", "label": "$ mvn", "status": "running"}})
     run._local.tool = "t1"
+
     first = run.judge_command("mvn package", "module")
     again = run.judge_command("mvn package", "module")
     assert first == again == Verdict(Effect.CHANGE, "writes build output")
     assert len([c for c in calls if "<command>" in c]) == 1
     assert "<folder>module</folder>" in calls[-1]
+
     tool = next(t for t in run.state["tools"] if t["id"] == "t1")
     assert tool["verdict"] == {"effect": "change", "reason": "writes build output"}
+
     with db._begin() as conn:
         kinds = {row[0] for row in conn.exec_driver_sql("select kind from usage").all()}
     assert "guard" in kinds

@@ -6,7 +6,7 @@ const SECOND_MS = 1000
 const MINUTE_S = 60
 const HOUR_S = 3600
 
-export function formatDuration(ms: number): string {
+function formatDuration(ms: number): string {
   const total = Math.max(1, Math.round(ms / SECOND_MS))
   if (total < MINUTE_S) return `${total}s`
 

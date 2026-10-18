@@ -67,7 +67,6 @@ export function useRun(id: string): {
         if (!event.live && event.seq <= seq) return
         if (!event.live) seq = event.seq
         if (!current.current) return
-
         current.current = reduce(current.current, event)
         frame ??= requestAnimationFrame(flush)
       }

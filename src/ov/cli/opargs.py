@@ -57,6 +57,7 @@ def _flag_options(param: Param) -> dict[str, Any]:
     options: dict[str, Any] = {"dest": dest_name(param), "help": _describe(param)}
     if param.type.startswith("array"):
         options["action"] = "append"
+
     if param.enum:
         options["choices"] = param.enum
     else:
@@ -98,11 +99,13 @@ def run_operation(ctx: Context, operation: Operation) -> int:
         return emit_response(ctx, ctx.service.run(plan))
 
     saved = ctx.service.download(plan, destination)
+
     emit(
         ctx,
         {"operation": operation.ref, "path": str(saved), "bytes": saved.stat().st_size},
         text=f"[green]Saved[/green] {saved}",
     )
+
     return 0
 
 

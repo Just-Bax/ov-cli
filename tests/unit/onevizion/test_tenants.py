@@ -69,6 +69,7 @@ def test_tenants_on_one_host_are_separate_sessions(ov_home):
             bearer_token="M:K",
         )
     )
+
     session_store.save(
         Session(
             base_url=BASE_URL,
@@ -161,6 +162,7 @@ def test_naming_the_host_means_its_default_tenant(ov_home):
             bearer_token="M:K",
         )
     )
+
     session_store.save(
         Session(
             base_url=BASE_URL,

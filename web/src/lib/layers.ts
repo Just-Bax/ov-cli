@@ -27,6 +27,7 @@ export function useLayer(onClose: () => void, open = true): void {
     const layer: Layer = { close: () => close.current() }
     const returnTo = document.activeElement as HTMLElement | null
     stack.push(layer)
+
     return () => {
       stack.splice(stack.indexOf(layer), 1)
       if (returnTo?.isConnected) returnTo.focus({ preventScroll: true })

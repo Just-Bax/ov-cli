@@ -59,8 +59,10 @@ def _on_meta(state: State, stored: Stored) -> None:
     for key in ("title", "instance", "caseKey"):
         if event.get(key) is not None:
             state["summary"][key] = event[key]
+
     if event.get("caseUrl"):
         state["caseUrl"] = event["caseUrl"]
+
     anchor = event.get("claude")
     if anchor:
         if anchor["session"] != state["claude"]["session"]:
@@ -88,6 +90,7 @@ def _on_text(state: State, stored: Stored) -> None:
         state["chat"].append(
             {"id": event["messageId"], "role": "assistant", "text": event["delta"], "ts": stored["ts"]}
         )
+
     _add_item(state, "text", event["messageId"])
 
 
@@ -105,8 +108,10 @@ def _on_message(state: State, stored: Stored) -> None:
             "ts": event.get("ts", stored["ts"]),
         }
         state["chat"].append(message)
+
     if event.get("links"):
         message["links"] = event["links"]
+
     _add_item(state, "text", event["messageId"])
 
 
@@ -160,6 +165,7 @@ def _on_rewind(state: State, stored: Stored) -> None:
     state["items"] = state["items"][:index]
     keep = {f"{x['kind']}:{x['id']}" for x in state["items"]}
     state["chat"] = [m for m in state["chat"] if f"{'user' if m['role'] == 'user' else 'text'}:{m['id']}" in keep]
+
     if not (state.get("outcomeId") and f"outcome:{state['outcomeId']}" in keep):
         state.pop("outcome", None)
         state.pop("outcomeId", None)
@@ -230,6 +236,7 @@ def outline(state: State, end: int) -> list[dict[str, Any]]:
     chat = {m["id"]: m for m in state["chat"]}
     starts = [s for s in _turn_starts(items) if s < end]
     marks: list[dict[str, Any]] = []
+
     for index, start in enumerate(starts):
         stop = starts[index + 1] if index + 1 < len(starts) else end
         part = items[start:stop]
@@ -239,6 +246,7 @@ def outline(state: State, end: int) -> list[dict[str, Any]]:
         rest = [x for x in part if x["kind"] != "user"]
         if rest:
             marks.append({"kind": "agent", "start": start, "label": _agent_label(state, rest, chat)})
+
     return marks
 
 
@@ -248,6 +256,7 @@ def window(state: State, end: int, turns: int) -> State:
     start = starts[-turns] if len(starts) > turns else 0
     part = items[start:end]
     keys = {(x["kind"], x["id"]) for x in part}
+
     return {
         "items": part,
         "start": start,
@@ -291,10 +300,12 @@ def _searchable(state: State) -> dict[tuple[str, str], str]:
         )
     for question in state["questions"]:
         texts[("question", question["id"])] = question_text(question)
+
     outcome = state.get("outcome")
     if outcome and state.get("outcomeId"):
         parts = [outcome.get("reply") or "", *(f"{i['title']} {i['summary']}" for i in outcome.get("issues") or [])]
         texts[("outcome", state["outcomeId"])] = " ".join(parts)
+
     return texts
 
 

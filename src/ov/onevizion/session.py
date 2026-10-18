@@ -197,6 +197,7 @@ def unique_alias(base_url: str, preferred: str = "", tenant: str = "", tenant_id
     taken = sessions.get(candidate)
     if taken is None or is_same_target(taken, base_url, tenant_id):
         return candidate
+
     if preferred:
         raise Ambiguous(f"Alias {preferred!r} already points at {taken.base_url}.")
 
@@ -219,11 +220,13 @@ def resolve(ref: str) -> str:
     needle = ref.strip().rstrip("/")
     if not needle:
         raise NotFound("No instance given.")
+
     if needle in sessions:
         return needle
 
     lowered = needle.lower()
     stripped = lowered.split("://", 1)[-1]
+
     exact = [
         alias
         for alias, session in sessions.items()
@@ -247,6 +250,7 @@ def resolve(ref: str) -> str:
     picked = _prefer_default_tenant(partial, sessions)
     if picked:
         return picked
+
     if len(partial) > 1:
         listed = "\n".join(f"  {a}  {sessions[a].base_url}" for a in sorted(partial))
         raise Ambiguous(f"{ref!r} matches {len(partial)} instances:\n{listed}")
@@ -266,10 +270,12 @@ def _prefer_default_tenant(matches: list[str], sessions: dict[str, Session]) -> 
 
 def save(session: Session, make_current: bool = True) -> Session:
     session.saved_at = time.time()
+
     with store.lock():
         taken = _read_all().get(session.alias)
         if taken is not None and not is_same_target(taken, session.base_url, session.tenant_id):
             session.alias = unique_alias(session.base_url, tenant=session.tenant, tenant_id=session.tenant_id)
+
         credentials.put(session.credential_key, session.secrets())
 
         def change(data: dict[str, Any]) -> None:
@@ -278,6 +284,7 @@ def save(session: Session, make_current: bool = True) -> Session:
                 data[store.CURRENT_KEY] = session.alias
 
         store.mutate(change)
+
     return session
 
 
@@ -324,6 +331,7 @@ def remove(ref: str) -> Session:
         remaining = _from_entries(store.mutate(change))
         if not any(s.credential_key == removed.credential_key for s in remaining.values()):
             credentials.delete(removed.credential_key)
+
     return removed
 
 

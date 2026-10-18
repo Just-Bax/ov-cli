@@ -22,6 +22,7 @@ function addRefTypeStyles() {
   if (refTypeStylesAdded) return
 
   refTypeStylesAdded = true
+
   const css = (Object.keys(TYPES) as GraphNodeType[])
     .map((type) => {
       const color = TYPES[type].color
@@ -120,6 +121,7 @@ export function CodeView({
       scrollbar: { verticalScrollbarSize: SCROLLBAR_PX, horizontalScrollbarSize: SCROLLBAR_PX },
       fixedOverflowWidgets: true,
     })
+
     editorRef.current = editor
     linksRef.current = editor.createDecorationsCollection()
     activeRef.current = editor.createDecorationsCollection()
@@ -160,11 +162,13 @@ export function CodeView({
             left: at.left,
           }
         })
+
       clearTimeout(switchTimer.current)
       const switchingAwayFromOpenCard = shown.current && shown.current.ref !== ref
       if (switchingAwayFromOpenCard) switchTimer.current = setTimeout(show, SWITCH_DELAY_MS)
       else show()
     })
+
     const leave = editor.onMouseLeave(hideSoon)
     const scroll = editor.onDidScrollChange(() => setHover(undefined))
     const openOnPlainClick = editor.onMouseUp((e) => {
@@ -200,6 +204,7 @@ export function CodeView({
       if (!found.length) continue
 
       byLine.current.set(line, found)
+
       for (const r of found)
         decorations.push({
           range: new monaco.Range(line, r.start + 1, line, r.end + 1),
@@ -229,6 +234,7 @@ export function CodeView({
         }
       }),
     )
+
     editor.setScrollTop(0)
   }, [code, hints, refs])
 

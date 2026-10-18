@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from helpers.agent import FakeContext
 
 
@@ -19,14 +20,12 @@ def test_finish_keeps_existing_matches_and_the_reply(tmp_path):
         },
         ctx,
     )
+
     assert outcomes[0]["existing"] == [{"key": "IT-1", "title": "x", "covers": "partly"}]
     assert outcomes[0]["reply"] == "Yes, fixed."
 
 
 def test_a_change_card_takes_only_known_object_types(tmp_path):
-    import pytest
-    from helpers.agent import FakeContext
-
     from ov.agent.tools import tool_named
     from ov.agent.tools.base import ToolError
 

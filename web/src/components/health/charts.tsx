@@ -19,6 +19,15 @@ const BOTTOM_PAD = 4
 const BAR_GAP = 2
 const SPARK_PAD_RATIO = 0.15
 const SPARK_FLAT_PAD_RATIO = 0.1
+const GRID_COLOR = '#eceff1'
+const CURSOR_COLOR = '#90a4ae'
+const BAR_RADIUS = 3
+const BAR_OPACITY = 0.55
+const DIMMED_BAR_OPACITY = 0.25
+const DIMMED_DOT_OPACITY = 0.55
+const LINE_WIDTH = 2
+const SPARK_LINE_WIDTH = 1.5
+const SPARK_FILL_OPACITY = 0.1
 
 type Series = {
   label: string
@@ -95,7 +104,6 @@ export function Timeline({
       const i = bucketOf(item.t, from, width)
       if (i !== undefined) buckets[i].push(item)
     }
-
     return buckets
   })
 
@@ -144,7 +152,7 @@ export function Timeline({
                 x2={WIDTH}
                 y1={HEIGHT * f}
                 y2={HEIGHT * f}
-                stroke="#eceff1"
+                stroke={GRID_COLOR}
                 vectorEffect="non-scaling-stroke"
               />
             ))}
@@ -158,9 +166,9 @@ export function Timeline({
                       y={top}
                       width={slot - BAR_GAP * 2}
                       height={Math.max(0, HEIGHT - BOTTOM_PAD - top)}
-                      rx={3}
+                      rx={BAR_RADIUS}
                       fill={bars.color}
-                      opacity={at === -1 || at === i ? 0.55 : 0.25}
+                      opacity={at === -1 || at === i ? BAR_OPACITY : DIMMED_BAR_OPACITY}
                     />
                   )
                 })
@@ -171,7 +179,7 @@ export function Timeline({
                 d={linePath(lineValues[k], Math.max(1, ...lineValues[k].map((v) => v ?? 0)))}
                 fill="none"
                 stroke={l.color}
-                strokeWidth={2}
+                strokeWidth={LINE_WIDTH}
                 strokeLinejoin="round"
                 vectorEffect="non-scaling-stroke"
               />
@@ -182,7 +190,7 @@ export function Timeline({
                 x2={at * slot + slot / 2}
                 y1={0}
                 y2={HEIGHT}
-                stroke="#90a4ae"
+                stroke={CURSOR_COLOR}
                 strokeDasharray="3 3"
                 vectorEffect="non-scaling-stroke"
               />
@@ -209,7 +217,7 @@ export function Timeline({
                         background: lane.color,
                         width: Math.min(DOT_MAX, DOT_MIN + items.length) * 2,
                         height: Math.min(DOT_MAX, DOT_MIN + items.length) * 2,
-                        opacity: at === -1 || at === i ? 1 : 0.55,
+                        opacity: at === -1 || at === i ? 1 : DIMMED_DOT_OPACITY,
                       }}
                     />
                   ) : null,
@@ -286,6 +294,7 @@ export function Sparkline({
   const [y0, y1] = [lo - pad, hi + pad]
   const x = (i: number) => (i / (points.length - 1)) * SPARK_WIDTH
   const y = (v: number) => SPARK_HEIGHT - ((v - y0) / (y1 - y0)) * SPARK_HEIGHT
+
   const line = points
     .map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`)
     .join(' ')
@@ -300,13 +309,13 @@ export function Sparkline({
       <path
         d={`${line} L${SPARK_WIDTH},${SPARK_HEIGHT} L0,${SPARK_HEIGHT} Z`}
         fill={color}
-        opacity={0.1}
+        opacity={SPARK_FILL_OPACITY}
       />
       <path
         d={line}
         fill="none"
         stroke={color}
-        strokeWidth={1.5}
+        strokeWidth={SPARK_LINE_WIDTH}
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
       />

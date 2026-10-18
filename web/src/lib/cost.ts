@@ -32,6 +32,7 @@ export function formatTokens(count: number): string {
 
 export function orderedTokens(tokens: Record<string, number>): [string, number][] {
   const known = Object.keys(TOKEN_LABELS)
+
   return Object.entries(tokens)
     .filter(([, count]) => count > 0)
     .sort(([a], [b]) => {

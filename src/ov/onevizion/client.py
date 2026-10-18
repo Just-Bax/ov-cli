@@ -100,6 +100,7 @@ class Client:
             headers={"User-Agent": USER_AGENT},
             transport=transport,
         )
+
         for name, value in session.cookies.items():
             self._http.cookies.set(name, value, domain=self.host, path="/")
 
@@ -125,6 +126,7 @@ class Client:
         accept: str = "application/json",
     ) -> httpx.Response:
         guard_read_only(method, path, params)
+
         if self.session.needs_refresh():
             self.refresh_token()
 
@@ -147,6 +149,7 @@ class Client:
         request_headers = {"Accept": accept}
         if self.session.bearer_token:
             request_headers["Authorization"] = f"Bearer {self.session.bearer_token}"
+
         if headers:
             request_headers.update(headers)
 
@@ -155,6 +158,7 @@ class Client:
 
     def web_get(self, path: str, accept: str = "application/json") -> httpx.Response:
         guard_web_read_only(path)
+
         self._require_web_session()
 
         with _reachable(self.base_url):

@@ -304,6 +304,7 @@ function DatadogMatches({
     () => onePerHost(instances ?? []).map((i) => ({ alias: i.alias, host: i.host })),
     [instances],
   )
+
   const dirty = rows.some((r) => (draft[r.alias] ?? '') !== (status.matches[r.alias] ?? ''))
   const unclaimed = (found?.hosts ?? []).filter((h) => !h.alias).length
 

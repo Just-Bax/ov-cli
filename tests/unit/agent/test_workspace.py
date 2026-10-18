@@ -38,6 +38,7 @@ def test_ws_search_takes_a_file_path_and_brace_globs(workspace):
     (root / "a.sql").write_text("create index i1 on xitor (x);\n")
     (root / "b.sql").write_text("create index i2 on cv (y);\n")
     (root / "c.txt").write_text("create index i3;\n")
+
     assert project.expand_glob("{a,b}.sql") == ["a.sql", "b.sql"]
     found = project.search("create index", "", "{a,b}.sql", False)
     assert "a.sql:1" in found and "b.sql:1" in found and "c.txt" not in found

@@ -30,6 +30,7 @@ function collect(content: HTMLElement): Mark[] {
       el.dataset.label ?? '',
     ]),
   )
+
   return [...content.querySelectorAll<HTMLElement>('[data-mark="user"]')].map((el) => {
     const box = el.getBoundingClientRect()
     return {
@@ -45,6 +46,7 @@ function collect(content: HTMLElement): Mark[] {
 
 function fromOutline(outline: OutlineMark[]): Mark[] {
   const replies = new Map(outline.filter((m) => m.kind === 'agent').map((m) => [m.start, m.label]))
+
   return outline
     .filter((m) => m.kind === 'user')
     .map((m) => ({
@@ -95,11 +97,13 @@ export function ThreadRail({
 
   const measure = useCallback(() => {
     frame.current = undefined
+
     const content = contentRef.current
     const scroller = content?.parentElement
     if (!content || !scroller) return
 
     setMarks(collect(content))
+
     const top = scroller.getBoundingClientRect().top - content.getBoundingClientRect().top
     setView({ top, bottom: top + scroller.clientHeight, height: scroller.clientHeight })
   }, [contentRef])
@@ -117,6 +121,7 @@ export function ThreadRail({
     const resize = new ResizeObserver(schedule)
     resize.observe(scroller)
     scroller.addEventListener('scroll', schedule, { passive: true })
+
     return () => {
       resize.disconnect()
       scroller.removeEventListener('scroll', schedule)
@@ -145,11 +150,13 @@ export function ThreadRail({
 
   const jump = async (m: Mark) => {
     onJump()
+
     if (m.el) return m.el.scrollIntoView({ block: 'start', behavior: 'smooth' })
 
     await onLoadUntil(m.start)
     await nextFrame()
     await nextFrame()
+
     contentRef.current
       ?.querySelector<HTMLElement>(`[data-mark="user"][data-start="${m.start}"]`)
       ?.scrollIntoView({ block: 'start' })

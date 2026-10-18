@@ -37,8 +37,10 @@ def resolve_tenant(tenants: dict[str, str], ref: str) -> tuple[str, str]:
     needle = ref.strip()
     if not needle:
         raise NotFound("No tenant given.")
+
     if not tenants:
         raise OvError(NO_TENANTS)
+
     if needle in tenants:
         return needle, tenants[needle]
 

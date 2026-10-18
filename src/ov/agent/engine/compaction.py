@@ -49,6 +49,7 @@ def _message_tokens(message: dict[str, Any]) -> int:
     if isinstance(content, list):
         images = sum(1 for part in content if part.get("type") == "image_url")
         content = [part for part in content if part.get("type") != "image_url"]
+
     text = json.dumps({**message, "content": content})
     return len(text) // CHARS_PER_TOKEN + images * IMAGE_TOKENS
 
@@ -66,6 +67,7 @@ def cut_point(messages: list[dict[str, Any]], keep_tokens: int) -> int | None:
             break
         if index in boundaries:
             chosen = index
+
     return chosen or boundaries[-1]
 
 
@@ -87,6 +89,7 @@ def _line(message: dict[str, Any]) -> str:
         f"Agent called {c['function']['name']}({c['function']['arguments'][:TRANSCRIPT_ARGS_CHARS]})"
         for c in message.get("tool_calls") or []
     ]
+
     return "\n".join([*([f"Agent:\n{said}"] if said else []), *calls])
 
 

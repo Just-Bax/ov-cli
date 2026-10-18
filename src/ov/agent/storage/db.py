@@ -29,7 +29,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import Session, aliased
 
 from ov.agent.storage.models import (
     Access,
@@ -202,9 +202,11 @@ def _engine_now() -> Engine:
     close()
     engine = _new_engine(path)
     _migrate(engine, path)
+
     with engine.begin() as conn:
         _close_orphans(conn)
         _ensure_preferences(conn)
+
     _engine, _engine_path = engine, str(path)
     return engine
 
@@ -261,9 +263,11 @@ def _close_open_tools(conn: Connection) -> None:
         _tool(later, "id") == _tool(Event, "id"),
         _tool(later, "status") != "running",
     )
+
     query = select(Event.thread_id, Event.data).where(
         Event.type == EventType.TOOL, _tool(Event, "status") == "running", ~finished
     )
+
     for thread_id, data in conn.execute(query).all():
         tool = {**data["tool"], "status": "error", "output": INTERRUPTED_TOOL}
         _append_next(conn, thread_id, EventType.TOOL, {"tool": tool})
@@ -278,6 +282,7 @@ def _ensure_preferences(conn: Connection) -> None:
         "notify": False,
         "tab_badge": True,
     }
+
     statement = insert(Preference).values(id=PREFERENCE_ROW, updated_at=now_ms(), **values)
     conn.execute(statement.on_conflict_do_nothing(index_elements=[Preference.id]))
 
@@ -285,7 +290,9 @@ def _ensure_preferences(conn: Connection) -> None:
 def get_preferences() -> dict[str, Any]:
     with _begin() as conn:
         row = conn.execute(select(Preference).where(Preference.id == PREFERENCE_ROW)).one()
+
     values = {key: getattr(row, column) for key, column in PREFERENCE_COLUMNS.items()}
+
     return {
         **values,
         **{key: values[key] or "" for key in (*TEXT_PREFERENCES, "reasoning")},
@@ -325,6 +332,7 @@ def _check_preferences(patch: dict[str, Any]) -> None:
 
 def _preference_values(patch: dict[str, Any]) -> dict[str, Any]:
     _check_preferences(patch)
+
     values = {PREFERENCE_COLUMNS[key]: value for key, value in patch.items()}
     if "maxSteps" in patch:
         values["max_steps"] = _max_steps(patch["maxSteps"])
@@ -337,9 +345,11 @@ def _preference_values(patch: dict[str, Any]) -> dict[str, Any]:
         from ov.agent.workspace import validate_folder
 
         values["workspace"] = validate_folder(str(patch["workspace"]))
+
     for key in (*TEXT_PREFERENCES, "reasoning"):
         if key in patch:
             values[PREFERENCE_COLUMNS[key]] = str(values[PREFERENCE_COLUMNS[key]] or "").strip() or None
+
     return values
 
 
@@ -372,10 +382,8 @@ def _attention(thread: Thread) -> str | None:
     snoozed = thread.snoozed_until
     if snoozed is not None and snoozed <= now_ms() and _unseen_since(thread, snoozed):
         return "woke"
-
     if not _unseen_since(thread, thread.status_at):
         return None
-
     return ATTENTION_OF_STATUS.get(thread.status)
 
 
@@ -389,6 +397,7 @@ def _summary(thread: Thread, copilot: int | None, claude: int | None, requests: 
         "createdAt": thread.created_at,
         "updatedAt": thread.updated_at,
     }
+
     if thread.instance:
         summary["instance"] = thread.instance
     if thread.settled_at:
@@ -397,17 +406,18 @@ def _summary(thread: Thread, copilot: int | None, claude: int | None, requests: 
         summary["pinned"] = True
     if thread.snoozed_until and thread.snoozed_until > now_ms():
         summary["snoozedUntil"] = thread.snoozed_until
+
     attention = _attention(thread)
     if attention:
         summary["attention"] = attention
+
     if requests:
         summary["cost"] = _amounts(copilot, claude, requests)
+
     return summary
 
 
 def _rows(query: Any) -> list[dict[str, Any]]:
-    from sqlalchemy.orm import Session
-
     with _begin() as conn, Session(bind=conn) as session:
         return [_summary(*row) for row in session.execute(query).all()]
 
@@ -431,10 +441,12 @@ def create_thread(
         "instance": instance,
         "access": access,
     }
+
     with _begin() as conn:
         conn.execute(
             insert(Thread).values(id=thread_id, status=ThreadStatus.QUEUED, created_at=now, updated_at=now, **values)
         )
+
     summary = get_thread(thread_id)
     if summary is None:
         raise ValueError(f"Thread {thread_id} was not saved.")
@@ -445,10 +457,12 @@ def update_thread(thread_id: str, **patch: Any) -> None:
     unknown = set(patch) - set(THREAD_COLUMNS)
     if unknown:
         raise ValueError(f"Threads have no {', '.join(sorted(unknown))}.")
+
     values = {k: v for k, v in patch.items() if v is not None}
     now = now_ms()
     if "status" in values:
         values["status_at"] = now
+
     with _begin() as conn:
         conn.execute(update(Thread).where(Thread.id == thread_id).values(updated_at=now, **values))
 
@@ -507,10 +521,12 @@ def append_event(thread_id: str, position: int, data: dict[str, Any]) -> dict[st
     created = now_ms()
     kind = EventType(data["type"])
     body = {k: v for k, v in data.items() if k != "type"}
+
     with _begin() as conn:
         conn.execute(
             insert(Event).values(thread_id=thread_id, position=position, type=kind, data=body, created_at=created)
         )
+
     return {"seq": position, "ts": created, "event": data}
 
 
@@ -525,8 +541,6 @@ def load_events(thread_id: str, after: int = -1) -> list[dict[str, Any]]:
 
 def load_messages(thread_id: str) -> tuple[list[dict[str, Any]], dict[str, int]]:
     query = select(Message).where(Message.thread_id == thread_id).order_by(Message.position)
-    from sqlalchemy.orm import Session
-
     with _begin() as conn, Session(bind=conn) as session:
         rows = session.scalars(query).all()
     messages = [_message_dict(row) for row in rows]
@@ -558,8 +572,10 @@ def save_messages(thread_id: str, start: int, messages: list[dict[str, Any]], tu
         }
         for offset, message in enumerate(messages)
     ]
+
     with _begin() as conn:
         conn.execute(delete(Message).where(Message.thread_id == thread_id, Message.position >= start))
+
         if rows:
             conn.execute(insert(Message), rows)
 
@@ -582,8 +598,10 @@ def skill_rows() -> dict[str, dict[str, Any]]:
 def sync_bundled(skills: list[dict[str, str]]) -> None:
     now = now_ms()
     names = [skill["name"] for skill in skills]
+
     with _begin() as conn:
         conn.execute(delete(Skill).where(Skill.source == SkillSource.BUNDLED, Skill.name.not_in(names)))
+
         for skill in skills:
             text = {k: skill[k] for k in ("title", "description", "content")}
             statement = insert(Skill).values(
@@ -599,6 +617,7 @@ def sync_bundled(skills: list[dict[str, str]]) -> None:
 def add_skill(name: str, title: str, description: str, content: str) -> None:
     now = now_ms()
     values = {"title": title, "description": description, "content": content}
+
     with _begin() as conn:
         conn.execute(
             insert(Skill).values(
@@ -634,7 +653,9 @@ def add_usage(
     unknown = set(tokens) - set(TOKEN_COLUMNS)
     if unknown:
         raise ValueError(f"The model reported token types this version cannot store: {', '.join(sorted(unknown))}.")
+
     counts = {column: int(tokens.get(key, 0)) for key, column in TOKEN_COLUMNS.items()}
+
     with _begin() as conn:
         conn.execute(
             insert(Usage).values(
@@ -647,20 +668,24 @@ def add_usage(
                 **counts,
             )
         )
+
         copilot, claude, requests = conn.execute(
             select(_nano_of(Provider.COPILOT), _nano_of(Provider.CLAUDE), func.count()).where(
                 Usage.thread_id == thread_id
             )
         ).one()
+
     return _amounts(copilot, claude, requests)
 
 
 def _summarize(where: Any) -> dict[str, Any]:
     token_sums = [func.coalesce(func.sum(getattr(Usage, column)), 0) for column in TOKEN_COLUMNS.values()]
+
     with _begin() as conn:
         copilot, claude, requests, *tokens = conn.execute(
             select(_nano_of(Provider.COPILOT), _nano_of(Provider.CLAUDE), func.count(), *token_sums).where(where)
         ).one()
+
         models = conn.execute(
             select(
                 Usage.provider,
@@ -672,6 +697,7 @@ def _summarize(where: Any) -> dict[str, Any]:
             .group_by(Usage.provider, Usage.model)
             .order_by(desc("nano"))
         ).all()
+
     return {
         **_amounts(copilot, claude, requests),
         "tokens": {kind: count for kind, count in zip(TOKEN_COLUMNS, tokens, strict=True) if count},
@@ -703,6 +729,7 @@ def _daily(since: int, scope: Any) -> dict[str, tuple[int, int]]:
         rows = conn.execute(
             select(label, _nano_of(Provider.COPILOT), _nano_of(Provider.CLAUDE)).where(scope).group_by(label)
         ).all()
+
     return {**days, **{day: (copilot or 0, claude or 0) for day, copilot, claude in rows}}
 
 
@@ -722,8 +749,10 @@ def cost_report(since: int, provider: Provider) -> dict[str, Any]:
         .order_by(desc(func.sum(Usage.cost_nano)))
         .limit(TOP_THREADS)
     )
+
     with _begin() as conn:
         top = conn.execute(threads).all()
+
     return {
         **_summarize(scope),
         "days": [{"day": d, **_amounts(*nano, 0)} for d, nano in _daily(since, scope).items()],

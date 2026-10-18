@@ -153,6 +153,7 @@ class Spec:
             ([o for o in self.operations if o.name == needle], True),
             ([o for o in self.operations if needle.lower() in o.ref.lower()], True),
         )
+
         for matches, decisive in tiers:
             if len(matches) == 1:
                 return matches[0]
@@ -224,6 +225,7 @@ def parse(document: dict[str, Any], group: str) -> Spec:
 def _parse(document: dict[str, Any], group: str) -> Spec:
     info = document["info"]
     servers = document.get("servers")
+
     spec = Spec(
         title=info["title"],
         version=info["version"],
@@ -238,6 +240,7 @@ def _parse(document: dict[str, Any], group: str) -> Spec:
         for method in METHODS:
             if method not in item:
                 continue
+
             operation = _operation(item[method], method, path, document, shared)
             operation.name = _unique_name(operation, used)
             spec.operations.append(operation)
@@ -305,6 +308,7 @@ def _params(raw: list[Any], document: dict[str, Any]) -> list[Param]:
 
 def _param(entry: dict[str, Any], document: dict[str, Any]) -> Param:
     schema = resolve(entry.get("schema", {}), document)
+
     return Param(
         name=str(entry["name"]),
         location=str(entry["in"]),
@@ -336,12 +340,14 @@ def _body(raw: Any, document: dict[str, Any]) -> Body | None:
 def expand(node: Any, document: dict[str, Any], depth: int = 0, seen: tuple[str, ...] = ()) -> Any:
     if depth > MAX_EXPAND_DEPTH or not isinstance(node, (dict, list)):
         return node
+
     if isinstance(node, list):
         return [expand(item, document, depth + 1, seen) for item in node]
 
     ref = node.get("$ref")
     if not isinstance(ref, str):
         return {key: expand(value, document, depth + 1, seen) for key, value in node.items()}
+
     if ref in seen:
         return {"$ref": ref, "description": "recursive, see above"}
     return expand(resolve(node, document), document, depth + 1, (*seen, ref))
@@ -402,6 +408,7 @@ def save_cached(base_url: str, group: str, document: dict[str, Any]) -> Path:
         "fetched_at": time.time(),
         "document": document,
     }
+
     write_atomic(path, json.dumps(record))
     return path
 

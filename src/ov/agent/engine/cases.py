@@ -167,6 +167,7 @@ def _field_texts(row: dict[str, Any], labels: dict[str, str]) -> dict[str, str]:
             text = text[:MAX_FIELD_CHARS] + "\n...[truncated]"
         if text:
             fields[f"{labels.get(name, name)} [{name}]"] = text
+
     return fields
 
 
@@ -187,6 +188,7 @@ def _file_attachments(
             target = unique_path(attach_dir, item["file_name"])
             target.write_bytes(base64.b64decode(item["data"]))
             attachments.append(describe(target, labels.get(name, name)))
+
     return attachments
 
 
@@ -210,6 +212,7 @@ def load_case(ref: str, work_dir: Path, cancel: Cancel) -> dict[str, Any]:
     chat, downloads = _read_chats(trackor, chats, attach_dir)
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
         attachments += pool.map(lambda download: download(), downloads)
+
     chat.sort(key=lambda m: m["ts"])
 
     return {
@@ -238,6 +241,7 @@ def _chat_message(
         target = _reserve(attach_dir, item["file_name"])
         names.append(target.name)
         downloads.append(_downloader(trackor, item["blob_data_id"], target, message["ts"]))
+
     return {
         "user": message.get("user_name") or "",
         "ts": message["ts"],
@@ -260,6 +264,7 @@ def _read_chats(
             cursor = page.get("before_cursor")
             if not page.get("hasBefore") or not cursor:
                 break
+
     return chat, downloads
 
 

@@ -135,6 +135,7 @@ class Client(HttpClient):
                 "PagerDuty refused this change. The token may be read-only, or your role cannot do it: "
                 "create a full-access User API token and reconnect PagerDuty in Settings > Integrations."
             )
+
         if response.status_code >= httpx.codes.BAD_REQUEST:
             raise PagerDutyError(_explain(response, "incidents"))
         return payload(response)
@@ -147,6 +148,7 @@ class Client(HttpClient):
             out += rows
             if not _field(data, "more") or not rows:
                 break
+
         return out
 
 
@@ -187,8 +189,10 @@ def check(region: str, api_key: str) -> tuple[dict[str, Any], dict[str, bool]]:
             me = _field(pd.get("/users/me"), "user")
         except PagerDutyError as exc:
             raise PagerDutyError(f"{exc} Use a User API token from My Profile > User Settings.") from None
+
         with ThreadPoolExecutor(max_workers=len(AREAS)) as pool:
             found = dict(zip(AREAS, pool.map(lambda a: _probe(pd, a), AREAS), strict=True))
+
     return me, found
 
 
@@ -229,6 +233,7 @@ def retest() -> dict[str, Any]:
         state["error"] = None
     except PagerDutyError as exc:
         state["error"] = str(exc)
+
     state["checkedAt"] = now_ms()
     _save_state(state)
     _health_cache.clear()
@@ -323,6 +328,7 @@ def learn_databases(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
 
     for site, db in new:
         known.setdefault(site, []).append(db)
+
     state["databases"] = known
     _save_state(state)
     return known
@@ -351,8 +357,10 @@ def _named_in_text(text: str, host: str, label: str, alias: str, databases: list
     hosts = set(_HOST.findall(text))
     if host in hosts or _named_by_datadog(hosts, alias):
         return True
+
     if any(datadog.database_id(h) in databases for h in hosts):
         return True
+
     pairs = set(_PAIR.findall(text))
     return any(tag.strip() == label for tag in _TAG.findall(text)) or bool(pairs & {label, *databases})
 
@@ -360,10 +368,13 @@ def _named_in_text(text: str, host: str, label: str, alias: str, databases: list
 def belongs_to(incident: dict[str, Any], host: str, alias: str, databases: list[str]) -> bool:
     host = host.split(":")[0].lower()
     label = host.split(".")[0]
+
     if incident["websites"]:
         return host in incident["websites"]
+
     if incident["database"]:
         return incident["database"] in {label, *databases}
+
     return _named_in_text(incident["text"], host, label, alias, databases)
 
 
@@ -416,11 +427,13 @@ def incidents(
         "time_zone": "UTC",
         "include[]": ["first_trigger_log_entries"],
     }
+
     if statuses:
         params["statuses[]"] = statuses
 
     with client() as pd:
         rows = [_incident(r) for r in pd.pages("/incidents", "incidents", "incidents", limit, **params)]
+
     learn_databases(rows)
     return rows
 
@@ -483,6 +496,7 @@ def incident_detail(ref: str) -> dict[str, Any]:
             (f"{base}/alerts", "alerts", {"limit": ALERTS_LIMIT}),
             (f"{base}/notes", "notes", {}),
         ]
+
         with ThreadPoolExecutor(max_workers=len(sections)) as pool:
             parts = {key: pool.submit(pd.get, path, "incidents", **params) for path, key, params in sections}
             found = {key: _field(part.result(), key) for key, part in parts.items()}
@@ -506,12 +520,14 @@ def oncall(policy_ids: list[str], at: int | None = None) -> list[dict[str, Any]]
     params: dict[str, Any] = {"earliest": "true"}
     if policy_ids:
         params["escalation_policy_ids[]"] = sorted(set(policy_ids))
+
     if at is not None:
         params["since"] = iso_utc(at)
         params["until"] = iso_utc(at + ONCALL_WINDOW_MS)
 
     with client() as pd:
         rows = pd.pages("/oncalls", "oncalls", "oncall", ONCALLS_LIMIT, **params)
+
     out = [
         {
             "user": (r.get("user") or {}).get("summary") or "",
@@ -561,6 +577,7 @@ def health(alias: str, start: int, end: int, key: str) -> dict[str, Any] | None:
     allowed = permissions()
     if allowed["incidents"]:
         _add_incidents(report, alias, start, end)
+
     if allowed["oncall"]:
         _add_oncall(report)
 
@@ -610,6 +627,7 @@ def add_note(ref: str, text: str) -> dict[str, Any]:
     with client() as pd:
         found = _target(pd, ref)
         pd.write("POST", f"/incidents/{found['id']}/notes", {"note": {"content": text.strip()}}, _email())
+
     _health_cache.clear()
     return found
 
@@ -643,7 +661,9 @@ def snooze(ref: str, minutes: int) -> dict[str, Any]:
         found = _target(pd, ref)
         if found["status"] != "acknowledged":
             raise PagerDutyError("Only an acknowledged incident can be snoozed. Acknowledge it first.")
+
         pd.write("POST", f"/incidents/{found['id']}/snooze", {"duration": minutes * SECONDS_PER_MINUTE}, _email())
+
     _health_cache.clear()
     return found
 

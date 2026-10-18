@@ -69,6 +69,7 @@ export function Composer({
     let alive = true
     filesLoaded.current = false
     setText(loadText(draftKey))
+
     loadFiles(draftKey)
       .then((found) => {
         if (!alive) return
@@ -101,8 +102,10 @@ export function Composer({
 
     const value = text.trim()
     const attached = files
+
     setText('')
     setFiles([])
+
     try {
       await onSend(value, attached, alternate)
       forgetDraft(draftKey)
@@ -116,6 +119,7 @@ export function Composer({
     if (!draft) return
 
     setText(draft.text)
+
     requestAnimationFrame(() => {
       const el = textRef.current
       if (!el) return
@@ -143,6 +147,7 @@ export function Composer({
         .toISOString()
         .slice(...ISO_TIME_CHARS)
         .replace(/:/g, '')
+
       found.push(
         unnamedScreenshot
           ? new File([file], `pasted-${stamp}-${++pasteCounter}.${ext}`, { type: file.type })
@@ -164,6 +169,7 @@ export function Composer({
       e.preventDefault()
       textRef.current?.focus()
     }
+
     document.addEventListener('paste', onPagePaste)
     return () => document.removeEventListener('paste', onPagePaste)
   }, [allowFiles])

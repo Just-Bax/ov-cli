@@ -59,21 +59,10 @@ const MIN_BAR_PERCENT = 3
 
 type Tone = 'danger' | 'warn' | null
 
-const THRESHOLDS: Record<string, { title: string; unit: string; tone: (v: number) => Tone }> = {
-  cpu: { title: 'CPU', unit: '%', tone: (v) => (v >= 85 ? 'danger' : v >= 65 ? 'warn' : null) },
-  memory: {
-    title: 'Memory free',
-    unit: '%',
-    tone: (v) => (v <= 10 ? 'danger' : v <= 20 ? 'warn' : null),
-  },
-  disk: {
-    title: 'Disk used',
-    unit: '%',
-    tone: (v) => (v >= 90 ? 'danger' : v >= 80 ? 'warn' : null),
-  },
-  load: { title: 'Load', unit: '', tone: (v) => (v >= 1.5 ? 'danger' : v >= 1 ? 'warn' : null) },
-  heap: { title: 'JVM heap', unit: 'B', tone: () => null },
-}
+const SERVER_CPU = { warn: 65, danger: 85 }
+const SERVER_FREE_MEMORY = { warn: 20, danger: 10 }
+const SERVER_DISK = { warn: 80, danger: 90 }
+const SERVER_LOAD = { warn: 1, danger: 1.5 }
 
 const DB_CPU = { warn: 65, danger: 85 }
 const DB_STORAGE = { warn: 80, danger: 90 }
@@ -82,6 +71,18 @@ const DB_TABLESPACE = { warn: 80, danger: 90 }
 
 function atLeast(limits: { warn: number; danger: number }): (v: number) => Tone {
   return (v) => (v >= limits.danger ? 'danger' : v >= limits.warn ? 'warn' : null)
+}
+
+function atMost(limits: { warn: number; danger: number }): (v: number) => Tone {
+  return (v) => (v <= limits.danger ? 'danger' : v <= limits.warn ? 'warn' : null)
+}
+
+const THRESHOLDS: Record<string, { title: string; unit: string; tone: (v: number) => Tone }> = {
+  cpu: { title: 'CPU', unit: '%', tone: atLeast(SERVER_CPU) },
+  memory: { title: 'Memory free', unit: '%', tone: atMost(SERVER_FREE_MEMORY) },
+  disk: { title: 'Disk used', unit: '%', tone: atLeast(SERVER_DISK) },
+  load: { title: 'Load', unit: '', tone: atLeast(SERVER_LOAD) },
+  heap: { title: 'JVM heap', unit: 'B', tone: () => null },
 }
 
 const percent = (v: number) => fmt(v, '%')
@@ -313,6 +314,7 @@ function Stat<K extends HealthSection>({
   value: (v: HealthSections[K]) => { main: ReactNode; sub?: ReactNode; tone?: Tone }
 }) {
   const showSkeleton = useSkeleton(slot.state === 'loading')
+
   const shown =
     slot.state === 'ready'
       ? value(slot.value)
@@ -354,6 +356,7 @@ function Stat<K extends HealthSection>({
 export function Summary({ ctx, busy }: { ctx: Context; busy: boolean }) {
   const { slots } = ctx
   const found = signals(slots)
+
   const verdict: { tone: BadgeTone; title: string; icon: typeof CheckCircleIcon } = found.some(
     (s) => s.tone === 'danger',
   )
@@ -407,6 +410,7 @@ export function Summary({ ctx, busy }: { ctx: Context; busy: boolean }) {
           slot={slots.incidents}
           value={(v) => {
             const open = v.open ?? []
+
             return {
               main: open.length,
               sub: `${(v.incidents ?? []).length} in this window`,
@@ -423,6 +427,7 @@ export function Summary({ ctx, busy }: { ctx: Context; busy: boolean }) {
           slot={slots.monitors}
           value={(v) => {
             const alerting = v.monitors.filter((m) => m.state !== 'OK')
+
             return {
               main: alerting.length,
               sub: v.monitors.length ? `of ${v.monitors.length} watching` : 'None set up',
@@ -439,6 +444,7 @@ export function Summary({ ctx, busy }: { ctx: Context; busy: boolean }) {
           slot={slots.logs}
           value={(v) => {
             const change = errorChange(v)
+
             return {
               main: count(total(v.errorSeries)),
               sub:
@@ -478,6 +484,7 @@ export function Summary({ ctx, busy }: { ctx: Context; busy: boolean }) {
           slot={slots.servers}
           value={(v) => {
             const top = busiest(v.servers)
+
             return top
               ? {
                   main: fmt(top.metrics.cpu!.latest, '%'),
@@ -701,6 +708,7 @@ export function IncidentsCard({ ctx }: { ctx: Context }) {
                 const age = resolved
                   ? `resolved after ${span(utcMs(i.created), utcMs(i.changed))}`
                   : `open ${span(utcMs(i.created), Date.now())}`
+
                 return (
                   <div key={i.id}>
                     <button
@@ -769,6 +777,7 @@ export function ServersCard({ ctx }: { ctx: Context }) {
           const shown = keys.filter((k) =>
             v.servers.some((s) => s.metrics[k as keyof HealthServer['metrics']]),
           )
+
           if (!v.servers.length) return <Quiet>No server metrics in this window.</Quiet>
 
           return (
@@ -795,6 +804,7 @@ export function ServersCard({ ctx }: { ctx: Context }) {
                       </td>
                       {shown.map((k) => {
                         const m = s.metrics[k as keyof HealthServer['metrics']]
+
                         return (
                           <MetricCell
                             key={k}
@@ -891,6 +901,7 @@ export function DatabaseCard({ ctx }: { ctx: Context }) {
                       </td>
                       {shown.map((k) => {
                         const m = d.metrics[k]
+
                         return (
                           <MetricCell
                             key={k}
@@ -938,6 +949,7 @@ export function TopErrorsCard({ ctx }: { ctx: Context }) {
           if (!v.topErrors.length) return <Quiet>No error logs.</Quiet>
 
           const max = Math.max(...v.topErrors.map((e) => e.count))
+
           return (
             <div className="space-y-3">
               {v.topErrors.slice(0, TOP_ERROR_ROWS).map((e) => (
@@ -978,6 +990,7 @@ export function FailedRunsCard({ ctx }: { ctx: Context }) {
           if (!v.byType.length) return <Quiet>No failed processes in this window.</Quiet>
 
           const max = Math.max(...v.byType.map((f) => f.count))
+
           return (
             <div className="space-y-3">
               {v.byType.map((f) => (
@@ -1018,6 +1031,7 @@ export function SlowEndpointsCard({ ctx }: { ctx: Context }) {
           if (!v.slowEndpoints.length) return <Quiet>No traces in this window.</Quiet>
 
           const max = Math.max(...v.slowEndpoints.map((s) => s.p95Ms))
+
           return (
             <div className="space-y-3">
               {v.slowEndpoints.map((s) => (
