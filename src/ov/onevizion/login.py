@@ -29,6 +29,7 @@ HTTP_MINT_TIMEOUT_SECONDS = 30.0
 POLL_INTERVAL_SECONDS = 1.0
 PROGRESS_EVERY_SECONDS = 5.0
 STUCK_AFTER_ROUNDS = 20
+MS_PER_SECOND = 1000
 
 BROWSERS_PATH_ENV = "PLAYWRIGHT_BROWSERS_PATH"
 SCREEN_PORT_ENV = "OV_LOGIN_SCREEN_PORT"
@@ -159,7 +160,7 @@ def _await_token(
     verify: bool = True,
 ) -> dict[str, Any]:
     started = time.monotonic()
-    deadline = started + timeout_ms / 1000
+    deadline = started + timeout_ms / MS_PER_SECOND
     next_report = started + PROGRESS_EVERY_SECONDS
     refused = 0
     last_error = ""
@@ -168,6 +169,7 @@ def _await_token(
     while time.monotonic() < deadline:
         if _parent_gone.is_set():
             raise LoginFailed(PARENT_GONE)
+
         pages = _live_pages(context)
         seen = [page.url for page in pages]
         minted, last_error, signed_in = _try_signed_in_tabs(context, pages, seen, base_url, verify)
@@ -228,10 +230,11 @@ def _stuck_message(base_url: str, last_error: str, seen: list[str]) -> str:
 def _pause(pages: list[Any]) -> None:
     for page in pages:
         try:
-            page.wait_for_timeout(POLL_INTERVAL_SECONDS * 1000)
+            page.wait_for_timeout(POLL_INTERVAL_SECONDS * MS_PER_SECOND)
             return
         except PlaywrightError:
             continue
+
     time.sleep(POLL_INTERVAL_SECONDS)
 
 
@@ -353,11 +356,13 @@ def _launch(p: Any, headless: bool, report: Progress) -> Any:
         "headless": headless,
         "args": ["--no-first-run", "--no-default-browser-check"],
     }
+
     port = os.environ.get(SCREEN_PORT_ENV)
     if port:
         options.update(_screen_options(os.environ[SCREEN_SIZE_ENV]))
         options["args"].append(f"--remote-debugging-port={port}")
         threading.Thread(target=_watch_parent, daemon=True).start()
+
     try:
         return p.chromium.launch_persistent_context(**options)
     except PlaywrightError as exc:
@@ -394,8 +399,12 @@ def desktop_user_agent() -> str:
     return f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
 
 
+def _browser_entries() -> list[dict[str, Any]]:
+    return json.loads(_browsers_manifest().read_text(encoding="utf-8"))["browsers"]
+
+
 def _pinned_version() -> str:
-    entries = json.loads(_browsers_manifest().read_text(encoding="utf-8"))["browsers"]
+    entries = _browser_entries()
     return next(entry["browserVersion"] for entry in entries if entry["name"] == SCREEN_CHANNEL)
 
 
@@ -432,7 +441,7 @@ def _browsers_root() -> Path:
 
 
 def _pinned_builds() -> list[str]:
-    entries = json.loads(_browsers_manifest().read_text(encoding="utf-8"))["browsers"]
+    entries = _browser_entries()
     return [
         f"{entry['name'].replace('-', '_')}-{entry['revision']}"
         for entry in entries

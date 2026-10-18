@@ -33,6 +33,7 @@ function sidebarAccount(status: Status): SidebarAccount {
         ? `Claude ${status.claude.plan[0].toUpperCase()}${status.claude.plan.slice(1)}`
         : 'Claude',
     }
+
   return {
     provider: 'copilot',
     name: status.copilot.user,
@@ -61,6 +62,7 @@ export function App() {
   useEffect(() => {
     if (status) configureAttention(status.settings)
   }, [status?.settings.notify, status?.settings.tabBadge])
+
   useEffect(() => {
     if (status && !status.ready) setInSetup(true)
   }, [status?.ready])

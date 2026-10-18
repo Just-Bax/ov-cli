@@ -297,6 +297,7 @@ function Instances() {
         a.host.localeCompare(b.host) ||
         (a.tenant ?? '').localeCompare(b.tenant ?? ''),
     )
+
   const signedIn = instances?.filter((i) => i.valid).length ?? 0
 
   return (
@@ -453,6 +454,7 @@ function Skills() {
   const creating = selected === NEW
   const bundled = current?.source === 'bundled'
   const editable = creating || (current !== undefined && !bundled)
+
   const dirty = creating
     ? Boolean(draft.title.trim())
     : current && !bundled

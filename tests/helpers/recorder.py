@@ -17,9 +17,11 @@ class Recorder:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+
         status, payload = self.routes.get((request.method, request.url.path), self.default)
         if isinstance(payload, str):
             return httpx.Response(status, text=payload, request=request)
+
         return httpx.Response(
             status,
             content=json.dumps(payload).encode(),

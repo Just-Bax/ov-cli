@@ -18,6 +18,7 @@ def test_forgetting_an_instance_removes_its_local_data_but_keeps_runs(logged_in)
     db.create_thread(
         "rcase", "t", Provider.COPILOT, "m", prompt="x", instance="acme.onevizion.test", access=Access.READ
     )
+
     datadog.save_matches({"acme": "host:a", "gone": "host:b"})
 
     prune()

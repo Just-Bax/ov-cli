@@ -36,9 +36,11 @@ def upgrade() -> None:
     with op.batch_alter_table("event") as batch:
         batch.drop_constraint("type_valid", type_="check")
         batch.create_check_constraint("type_valid", _check("type", (*EVENT_TYPES, *NEW_EVENT_TYPES)))
+
     with op.batch_alter_table("usage") as batch:
         batch.drop_constraint("kind_valid", type_="check")
         batch.create_check_constraint("kind_valid", _check("kind", (*USAGE_KINDS, "compact")))
+
     op.execute(
         "ALTER TABLE preference ADD COLUMN notify INTEGER NOT NULL DEFAULT 0 "
         "CONSTRAINT notify_valid CHECK (notify IN (0, 1))"
@@ -58,11 +60,15 @@ def downgrade() -> None:
         for column in ("notify", "tab_badge", "compact_window"):
             batch.drop_constraint(f"{column}_valid", type_="check")
             batch.drop_column(column)
+
     op.execute("DELETE FROM usage WHERE kind = 'compact'")
+
     with op.batch_alter_table("usage") as batch:
         batch.drop_constraint("kind_valid", type_="check")
         batch.create_check_constraint("kind_valid", _check("kind", USAGE_KINDS))
+
     op.execute("DELETE FROM event WHERE type IN ('compact', 'context')")
+
     with op.batch_alter_table("event") as batch:
         batch.drop_constraint("type_valid", type_="check")
         batch.create_check_constraint("type_valid", _check("type", EVENT_TYPES))

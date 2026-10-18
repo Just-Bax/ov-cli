@@ -7,7 +7,7 @@ from helpers.openapi import OPENAPI
 
 from ov.core.errors import OvError
 from ov.onevizion.invoke import build_plan, dest_name, flag_name
-from ov.onevizion.spec import Param, parse
+from ov.onevizion.spec import Operation, Param, parse
 
 
 @pytest.fixture
@@ -129,8 +129,6 @@ def test_a_file_upload_becomes_multipart(spec, tmp_path):
 
 
 def test_a_non_json_content_type_sends_data_verbatim():
-    from ov.onevizion.spec import Operation
-
     operation = Operation(name="request", tag="raw", method="POST", path="/v3/x/search")
     condition = 'greater(C_CREATED_AT, "2026-04-01T00:00:00")'
     plan = build_plan(operation, {}, headers=["Content-Type: text/plain"], data=condition)
@@ -139,8 +137,6 @@ def test_a_non_json_content_type_sends_data_verbatim():
 
 
 def test_a_raw_body_is_read_from_a_file(tmp_path):
-    from ov.onevizion.spec import Operation
-
     path = tmp_path / "q.txt"
     path.write_text('equal(A, "x")', encoding="utf-8")
     operation = Operation(name="request", tag="raw", method="POST", path="/v3/x/search")
@@ -149,8 +145,6 @@ def test_a_raw_body_is_read_from_a_file(tmp_path):
 
 
 def test_json_is_still_parsed_without_a_content_type():
-    from ov.onevizion.spec import Operation
-
     operation = Operation(name="request", tag="raw", method="POST", path="/v3/x")
     with pytest.raises(OvError, match="not valid JSON"):
         build_plan(operation, {}, data="equal(A, 1)")

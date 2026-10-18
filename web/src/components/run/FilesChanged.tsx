@@ -73,6 +73,7 @@ function FileRow({ runId, file }: { runId: string; file: FileSummary }) {
     take(DETAIL_SLOT, key, () => api.runDetails(runId, [], lazyIds))
       .then((d) => !stale && setDetail(d.edits))
       .catch(reportError)
+
     return () => {
       stale = true
     }
@@ -103,12 +104,10 @@ function FileRow({ runId, file }: { runId: string; file: FileSummary }) {
         ) : null}
         <LineCounts added={file.added} removed={file.removed} />
       </button>
-      {open && lazy && !detail ? (
-        loading ? (
-          <div className="mt-1 mb-2 px-1">
-            <Skeleton className="h-24 w-full rounded-2xl" />
-          </div>
-        ) : null
+      {open && lazy && !detail && loading ? (
+        <div className="mt-1 mb-2 px-1">
+          <Skeleton className="h-24 w-full rounded-2xl" />
+        </div>
       ) : null}
       {open && (!lazy || detail) ? (
         <div className="mt-1 mb-2 space-y-2 px-1">

@@ -3,8 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import os
-import secrets as random
 from pathlib import Path
+from secrets import token_bytes
 from typing import Any
 
 from cryptography.exceptions import InvalidTag
@@ -84,7 +84,7 @@ def _read() -> dict[str, Any]:
 
 def _write(vault: dict[str, Any]) -> None:
     key = _stored_key() or _new_key()
-    nonce = random.token_bytes(NONCE_BYTES)
+    nonce = token_bytes(NONCE_BYTES)
     data = AESGCM(key).encrypt(nonce, json.dumps(vault, separators=(",", ":")).encode(), ASSOCIATED_DATA)
 
     envelope = {
@@ -92,6 +92,7 @@ def _write(vault: dict[str, Any]) -> None:
         "nonce": base64.b64encode(nonce).decode(),
         "data": base64.b64encode(data).decode(),
     }
+
     write_atomic(vault_file(), json.dumps(envelope))
 
 
@@ -108,7 +109,7 @@ def _stored_key() -> bytes | None:
 
 
 def _new_key() -> bytes:
-    key = random.token_bytes(KEY_BYTES)
+    key = token_bytes(KEY_BYTES)
     encoded = base64.b64encode(key).decode()
     if _uses_file():
         write_atomic(key_file(), encoded)

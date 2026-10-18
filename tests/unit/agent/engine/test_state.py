@@ -31,6 +31,7 @@ def test_reducer_rewind_drops_later_items():
         {"type": "user", "message": {"id": "u2", "role": "user", "text": "b", "ts": 2}},
         {"type": "text", "messageId": "a2", "delta": "x"},
     ]
+
     for seq, event in enumerate(events):
         state.reduce(s, {"seq": seq, "ts": seq, "event": event})
     assert s["chat"][1]["text"] == "hello"
@@ -93,6 +94,7 @@ def test_a_thread_is_searched_across_messages_changes_and_questions():
             },
         },
     ]
+
     for seq, event in enumerate(events):
         state.reduce(s, {"seq": seq, "ts": seq, "event": event})
     assert state.search(s, "RULE") == [0, 1, 4]

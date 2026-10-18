@@ -130,12 +130,12 @@ def test_a_read_only_block_has_its_own_exit_code(capsys, logged_in, server, monk
 
 
 def test_login_with_a_token_stores_a_static_session(capsys, ov_home, server, monkeypatch):
+    from ov.onevizion import session as session_store
+
     code, data = payload(capsys, "login", BASE_URL, "--token", "KEY:SECRET", "--no-spec", "--json")
     assert code == 0
     assert data["mode"] == "token"
     assert data["access_key"] == "KEY"
-    from ov.onevizion import session as session_store
-
     assert session_store.load().is_static
 
 

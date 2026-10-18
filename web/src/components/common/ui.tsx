@@ -159,6 +159,8 @@ export function PulseDot({ className }: { className?: string }) {
 
 const SIZED = /(^|\s)(h|size)-/
 
+const SKELETON_TEXT_WIDTHS = ['w-11/12', 'w-full', 'w-4/5', 'w-2/3', 'w-5/6']
+
 export function Skeleton({ className, style }: { className?: string; style?: CSSProperties }) {
   return (
     <div
@@ -169,12 +171,15 @@ export function Skeleton({ className, style }: { className?: string; style?: CSS
 }
 
 export function SkeletonText({ lines = 3 }: { lines?: number }) {
-  const widths = ['w-11/12', 'w-full', 'w-4/5', 'w-2/3', 'w-5/6']
-
   return (
     <div className="space-y-2">
       {Array.from({ length: lines }, (_, i) => (
-        <Skeleton key={i} className={i === lines - 1 ? 'w-1/2' : widths[i % widths.length]} />
+        <Skeleton
+          key={i}
+          className={
+            i === lines - 1 ? 'w-1/2' : SKELETON_TEXT_WIDTHS[i % SKELETON_TEXT_WIDTHS.length]
+          }
+        />
       ))}
     </div>
   )
@@ -364,10 +369,12 @@ function mentionPattern(links: MessageLinks) {
   if (found) return found
 
   const alternatives = links.mentions.map((m) => escaped(m.text)).join('|')
+
   const made = {
     pattern: new RegExp(`(?<![\\[\\w/=])(${alternatives})(?![\\w\\]])`, 'g'),
     urls: new Map(links.mentions.map((m) => [m.text, m.url])),
   }
+
   mentionPatterns.set(links, made)
   return made
 }
@@ -376,6 +383,7 @@ function withMentions(text: string, links?: MessageLinks): string {
   if (!links?.mentions.length) return text
 
   const { pattern, urls } = mentionPattern(links)
+
   return text
     .split(CODE_SPANS)
     .map((part, i) =>

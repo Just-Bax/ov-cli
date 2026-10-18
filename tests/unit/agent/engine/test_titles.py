@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import time
-
 import pytest
+from helpers.agent import wait_for
 
 from ov.agent.integrations.copilot import StreamResult, Usage
 from ov.agent.storage import db
@@ -46,10 +45,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
         Provider.COPILOT,
         "main-model",
     )
-    for _ in range(100):
-        if run.state["summary"]["title"] == "Tag listing question":
-            break
-        time.sleep(0.05)
+    wait_for(lambda: run.state["summary"]["title"] == "Tag listing question")
 
     assert run.state["summary"]["title"] == "Tag listing question"
     assert seen == ["fast-model"]

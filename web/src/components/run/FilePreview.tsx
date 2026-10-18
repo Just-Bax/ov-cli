@@ -58,7 +58,7 @@ function useText(runId: string, file: MessageFile): Text {
     setText({ state: 'loading' })
     fetch(api.fileUrl(runId, source), { signal: abort.signal })
       .then(async (res) => {
-        if (!res.ok) return setText({ state: 'none' })
+        if (!res.ok) throw new Error(`Cannot preview ${source}: ${res.status} ${res.statusText}`)
 
         const raw = await res.text()
         setText({
@@ -72,6 +72,7 @@ function useText(runId: string, file: MessageFile): Text {
         setText({ state: 'none' })
         reportError(e)
       })
+
     return () => abort.abort()
   }, [runId, source])
 

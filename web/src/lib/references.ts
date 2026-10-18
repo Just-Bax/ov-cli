@@ -63,6 +63,7 @@ function idKind(before: string): GraphNodeType | undefined {
   const text = (before.split(/[;\n]/).at(-1) ?? '')
     .replace(/'[^']*'/g, "''")
     .replace(/\/\*.*?\*\//g, ' ')
+
   if (enclosingCall(text)?.toLowerCase().endsWith('byid')) return 'field'
 
   for (const token of [...text.matchAll(IDENT)].map((m) => m[0].toLowerCase()).reverse()) {
@@ -78,7 +79,6 @@ function byId(index: RefIndex, number: string, before: string, after: string) {
   const candidates = index.byRef.get(Number(number)) ?? []
   const kind = idKind(before)
   if (kind) return candidates.find((n) => n.type === kind)
-
   const m = NAME_COMMENT.exec(after)
   const name = m ? (m[1] ?? m[2]).toLowerCase() : undefined
   return name ? candidates.find((n) => n.name.toLowerCase() === name) : undefined
@@ -95,6 +95,7 @@ function unique<K>(entries: [K, GraphNode][]): Map<K, GraphNode> {
   }
 
   for (const k of taken) out.delete(k)
+
   return out
 }
 

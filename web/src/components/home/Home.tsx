@@ -87,14 +87,17 @@ export function Home() {
   const submit = async (text: string, files: File[]) => {
     setStarting(true)
     setError(undefined)
+
     try {
       const attachments = files.length ? await api.upload(files) : []
+
       const { id } = await api.startRun({
         prompt: text.trim(),
         instance: instance || undefined,
         attachments,
         access,
       })
+
       void refreshRuns()
       go({ page: 'thread', id })
     } catch (e) {

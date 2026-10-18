@@ -248,8 +248,6 @@ DATABASE_SCOPES = {
 
 @pytest.fixture
 def with_databases(linked):
-    from helpers.sessions import seed_session
-
     seed_session("https://acme-north.onevizion.test")
     datadog.save_matches({"acme": ACME_HOSTS})
     linked.metric_scopes = dict(DATABASE_SCOPES)

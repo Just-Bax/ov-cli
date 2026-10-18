@@ -70,6 +70,7 @@ def write_atomic(path: Path, text: str) -> None:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+
         restrict(Path(temp))
         _replace_when_unlocked(temp, path)
     except BaseException:

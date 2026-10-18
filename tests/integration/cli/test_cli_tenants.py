@@ -47,11 +47,9 @@ def test_login_with_a_tenant_is_refused_for_an_api_token(capsys, ov_home, tenant
 
 
 def test_a_tenant_login_is_stored_under_a_tenant_alias(capsys, ov_home, tenant_server, monkeypatch):
-    from ov.onevizion.session import Session as S
-
     monkeypatch.setattr(
         "ov.cli.commands.auth._browser_login",
-        lambda ctx, base_url: S(base_url=base_url, cookies={"JSESSIONID": "abc"}, bearer_token="SIGNIN:KEY"),
+        lambda ctx, base_url: Session(base_url=base_url, cookies={"JSESSIONID": "abc"}, bearer_token="SIGNIN:KEY"),
     )
 
     code, data = payload(capsys, "login", BASE_URL, "--tenant", "North", "--no-spec", "--json")

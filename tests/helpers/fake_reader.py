@@ -20,6 +20,7 @@ class FakeReader:
         self.queries.append(sql)
         if "process" in sql:
             return [{"TS": "2026-10-01 10:00", "STATUS": "Error", "RUNTIME": 3, "MESSAGE": "ORA-1"}]
+
         row: dict[str, object] = {}
         for match in re.finditer(r"dbms_lob\.getlength\((\w+)\) n", sql):
             row["N"] = len(self.clobs.get(match.group(1), ""))
@@ -38,7 +39,10 @@ def install_fake_reader(monkeypatch):
             "sql_text": "begin\n  select value into v from t where id = 4242;\nend;",
         }
     )
+
     monkeypatch.setattr(explorer, "_reader", lambda alias: fake)
     explorer.forget("acme")
+
     yield fake
+
     explorer.forget("acme")

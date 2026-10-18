@@ -211,6 +211,7 @@ class Run:
             uploaded = [describe(attachments_dir(self.id) / f["name"], "upload") for f in files]
             self._queue.append((message, uploaded))
             self._held.add(message["id"])
+
         self._queue_held = bool(self._queue)
         self.state["queued"] = [{**m, "steer": False} for m in self.state["queued"]]
         self.state["queueHeld"] = self._queue_held
@@ -235,6 +236,7 @@ class Run:
         )
         if start == len(current) == len(self._saved):
             return
+
         turns = {index: turn_id for turn_id, index in self._turns.items()}
         db.save_messages(self.id, start, self._messages[start:], turns)
         self._saved = current
@@ -300,6 +302,7 @@ class Run:
     def stream_text(self, message_id: str, delta: str) -> None:
         with self._lock:
             self._streaming = message_id
+
             live = {
                 "seq": self.seq,
                 "ts": db.now_ms(),
@@ -307,6 +310,7 @@ class Run:
                 "event": {"type": "text", "messageId": message_id, "delta": delta},
             }
             reduce(self.state, live)
+
             for channel in self._listeners:
                 channel.put(live)
 
@@ -316,24 +320,28 @@ class Run:
             message = next((m for m in self.state["chat"] if m["id"] == message_id), None)
         if message is None:
             return
+
         event: dict[str, Any] = {
             "type": "message",
             "messageId": message_id,
             "text": message["text"],
             "ts": message["ts"],
         }
+
         found = find_instance(self.instance) if self.instance else None
         if found is not None:
             with self._lock:
                 linked = links_for(message["text"], found["url"], seen_ids(self.state))
             if linked["mentions"] or linked["unverified"]:
                 event["links"] = linked
+
         self.emit(event)
 
     def _record_usage(self, model: str, kind: str, usage: copilot.Usage | None) -> None:
         if usage is None:
             return
         cost = db.add_usage(self.id, self.provider, model, kind, tokens=usage.tokens, nano=usage.nano)
+
         with self._lock:
             self.state["summary"]["cost"] = cost
             live = {"seq": self.seq, "ts": db.now_ms(), "live": True, "event": {"type": "cost", "cost": cost}}
@@ -344,8 +352,10 @@ class Run:
         with self._lock:
             self.touched = db.now_ms()
             self.seq += 1
+
             stored = db.append_event(self.id, self.seq, event)
             reduce(self.state, stored)
+
             kind = event["type"]
             if kind == "status":
                 db.update_thread(self.id, status=event["status"])
@@ -355,6 +365,7 @@ class Run:
                 status_feed.publish({"kind": "meta", "id": self.id})
             elif kind == "access":
                 db.update_thread(self.id, access=event["access"])
+
             for channel in self._listeners:
                 channel.put(stored)
 
@@ -388,6 +399,7 @@ class Run:
             if woken_by:
                 event["wokenBy"] = woken_by
             self.emit(event)
+
         status_feed.publish(
             {"kind": "status", "id": self.id, "status": status, "title": self.state["summary"]["title"]}
         )
@@ -508,6 +520,7 @@ class Run:
             raise RunError("No such question in this run.")
 
         _check_answers(question, answers)
+
         with self._lock:
             waiter = self._questions.pop(question_id, None)
         if waiter is None:
@@ -558,12 +571,14 @@ class Run:
             first = self._waits == 1
         if first:
             self._set_status("waiting")
+
         try:
             event.wait()
         finally:
             with self._lock:
                 self._waits -= 1
                 last = self._waits == 0
+
         self.cancel.check()
         if last:
             self._set_status("running")
@@ -580,6 +595,7 @@ class Run:
                 ),
                 None,
             )
+
             login_id = existing["id"] if existing else _uid("login")
             waiter = self._logins.setdefault(login_id, (threading.Event(), []))
             if existing is None:
@@ -591,6 +607,7 @@ class Run:
                     **({"tenant": tenant} if tenant else {}),
                 }
                 self.emit({"type": "login", "login": prompt})
+
             self.cancel.check()
 
         self._wait_for(waiter[0])
@@ -608,12 +625,14 @@ class Run:
             return {"ok": False, "message": "Skipped"}
 
         self.emit({"type": "login", "login": {**prompt, "state": "running"}})
+
         result = ov_login(prompt["url"], prompt.get("tenant") or "", token, screen)
         ok = result.code == 0
         message = "" if ok else result.message[-LOGIN_MESSAGE_CHARS:] or "Sign-in failed."
         update = {**prompt, "state": "done" if ok else "failed"}
         if not ok:
             update["message"] = message
+
         self.emit({"type": "login", "login": update})
         if ok:
             self._resolve_login(login_id, True)
@@ -640,6 +659,7 @@ class Run:
             "after": after[:EDIT_CHARS],
             "truncated": truncated,
         }
+
         self.emit({"type": "edit", "edit": edit})
 
     def attach_image(self, name: str, url: str) -> None:
@@ -831,6 +851,7 @@ class Run:
     def retitle(self) -> str:
         with self._lock:
             chat = list(self.state["chat"])
+
         asked = next((m["text"] for m in chat if m["role"] == "user"), "")
         answered = next((m["text"] for m in reversed(chat) if m["role"] == "assistant" and m["text"].strip()), "")
         body = f"<message>\n{asked[:NAMING_INPUT_CHARS]}\n</message>\n\n<answer>\n{answered[:RETITLE_CHARS]}\n</answer>"
@@ -932,6 +953,7 @@ class Run:
         self._stop_tasks()
         with self._lock:
             self._finished_tasks = []
+
         self._claude_fork = anchor
 
         content = self._messages[index]["content"]
@@ -991,6 +1013,7 @@ class Run:
             target = unique_path(target_dir, str(item["name"]))
             shutil.move(source, target)
             copied.append(describe(target, "upload"))
+
         db.add_attachments(self.id, turn_id, [item["name"] for item in copied])
         return copied
 
@@ -1002,6 +1025,7 @@ class Run:
         body = f"{text or 'See the attached files.'}\n\nAttached files (open with run_read):\n" + "\n".join(
             f"- {line}" for line in lines
         )
+
         images = [a for a in uploaded if a["name"].lower().endswith(tuple(IMAGE_EXTS))]
         if not images or not self.vision:
             return body
@@ -1021,10 +1045,13 @@ class Run:
 
     def _fail(self, exc: Exception) -> None:
         self.compaction_failed(str(exc) or type(exc).__name__)
+
         with self._lock:
             live = set(self._tasks)
+
         for tool in [t for t in self.state["tools"] if t["status"] == "running" and t["id"] not in live]:
             self.emit({"type": "tool", "tool": {"id": tool["id"], "status": "error", "output": "Interrupted."}})
+
         if self.cancel.is_set():
             self._set_status("cancelled")
             return
@@ -1044,6 +1071,7 @@ class Run:
         self.vision = copilot.supports_vision(model)
         self._finished = False
         nudged = False
+
         for step in range(max_steps):
             self._prepare_step(model)
             specs = tool_specs(self.can_write())
@@ -1081,19 +1109,23 @@ class Run:
         for task in finished:
             result = TASK_FINISHED.format(label=task.label, result=task.result)
             self._messages.append({"role": "user", "content": result})
+
         if self._steering():
             self._deliver_queued()
             self._finished = False
 
     def claude_input(self) -> tuple[str | None, list[Any]]:
         self._take_input()
+
         last_reply = max((i for i, m in enumerate(self._messages) if m["role"] == "assistant"), default=-1)
         pending = range(last_reply + 1, len(self._messages))
         turn = next((t for t, i in self._turns.items() if i in pending), None)
+
         contents = [self._messages[i]["content"] for i in pending if self._messages[i]["role"] == "user"]
         if contents:
             self._messages.append({"role": "assistant", "content": None})
             self._persist()
+
         return turn, contents
 
     def take_claude_fork(self) -> dict[str, Any] | None:
@@ -1143,6 +1175,7 @@ class Run:
         for message in self._messages:
             if message.get("tool_calls"):
                 message["tool_calls"] = _repaired(message["tool_calls"])
+
         try:
             result = copilot.stream_chat(
                 model,
@@ -1155,6 +1188,7 @@ class Run:
             )
         finally:
             self.commit_text(message_id)
+
         self._record_usage(model, "turn" if initiator == "user" else "step", result.usage)
         if result.usage is not None:
             self._context_tokens = sum(result.usage.tokens.get(kind, 0) for kind in CONTEXT_TOKEN_KINDS)
@@ -1165,6 +1199,7 @@ class Run:
         if result.tool_calls:
             self._cut_off.update(c["id"] for c in result.tool_calls if not _valid_arguments(c))
             reply["tool_calls"] = _repaired(result.tool_calls)
+
         self._messages.append(reply)
         self._persist()
         return result.tool_calls
@@ -1172,6 +1207,7 @@ class Run:
     def _run_tools(self, calls: list[dict[str, Any]]) -> None:
         with ThreadPoolExecutor(max_workers=TOOL_WORKERS) as pool:
             outputs = list(pool.map(self._call_tool, calls))
+
         for call, content in zip(calls, outputs, strict=True):
             self._messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
 
@@ -1180,6 +1216,7 @@ class Run:
             parts: list[dict[str, Any]] = [{"type": "text", "text": f"Attached: {', '.join(n for n, _ in images)}"}]
             parts += [{"type": "image_url", "image_url": {"url": url}} for _, url in images]
             self._messages.append({"role": "user", "content": parts})
+
         self._persist()
 
     def _call_tool(self, call: dict[str, Any]) -> str:
@@ -1227,6 +1264,7 @@ class Run:
             "input": json.dumps(args, indent=2)[:TOOL_INPUT_CHARS],
         }
         task = Task(base, db.now_ms())
+
         with self._lock:
             if background:
                 self._check_background_room()
@@ -1237,6 +1275,7 @@ class Run:
         running = {**base, "status": "running", "startedAt": task.started_at}
         if task.backgrounded_at is not None:
             running["backgroundedAt"] = task.backgrounded_at
+
         self.emit({"type": "tool", "tool": running})
         self._spawn(self._work, tool, args, task)
         return task
@@ -1258,6 +1297,7 @@ class Run:
         done = {**task.tool, "status": status, "ms": db.now_ms() - task.started_at, "output": output[:limit]}
         if task.stopped_at is not None:
             done["stoppedAt"] = task.stopped_at
+
         self.emit({"type": "tool", "tool": done})
 
         with self._lock:
@@ -1266,6 +1306,7 @@ class Run:
             deliver = task.backgrounded_at is not None and task.stopped_at is None
             if deliver:
                 self._finished_tasks.append(task)
+
         task.settled.set()
         if deliver:
             self._pick_up_queue()
@@ -1369,6 +1410,7 @@ def _tool_args(tool: Tool, raw: str) -> dict[str, Any]:
         args = json.loads(raw) if raw else {}
     except json.JSONDecodeError:
         raise ToolError(f"arguments are not valid JSON: {raw[:BAD_ARGS_CHARS]}") from None
+
     if not isinstance(args, dict):
         raise ToolError("arguments must be a JSON object.")
 
@@ -1383,7 +1425,6 @@ def _check_answers(question: dict[str, Any], answers: list[str]) -> None:
         if answers not in APPROVAL_ANSWERS:
             raise RunError(f"Answer an approval with {APPROVE} or {REJECT}.")
         return
-
     if len(answers) != len(question["items"]) or not all(a.strip() for a in answers):
         raise RunError(f"Answer all {len(question['items'])} questions.")
 
@@ -1391,6 +1432,7 @@ def _check_answers(question: dict[str, Any], answers: list[str]) -> None:
 def _line_changes(before: str, after: str) -> tuple[int, int]:
     added = removed = 0
     matcher = difflib.SequenceMatcher(None, before.splitlines(), after.splitlines(), autojunk=False)
+
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag != "equal":
             removed += i2 - i1
@@ -1424,6 +1466,7 @@ def _answered(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         fixed += [_interrupted(call_id) for call_id in pending]
         pending = [c["id"] for c in message.get("tool_calls") or []]
         fixed.append(message)
+
     return fixed + [_interrupted(call_id) for call_id in pending]
 
 
@@ -1501,6 +1544,7 @@ class RunManager:
         finally:
             with self._lock:
                 self._deleting.discard(run_id)
+
         folder = run_dir(run_id)
         claude_loop.forget_sessions(sessions, str(folder))
         if folder.exists():
@@ -1529,7 +1573,8 @@ def short_title(text: str, limit: int) -> str:
     words = " ".join(text.split())
     if len(words) <= limit:
         return words
-    cut = words[:limit].rsplit(" ", 1)[0] if " " in words[:limit] else words[:limit]
+    head = words[:limit]
+    cut = head.rsplit(" ", 1)[0] if " " in head else head
     return cut.rstrip(_TITLE_NOISE)
 
 

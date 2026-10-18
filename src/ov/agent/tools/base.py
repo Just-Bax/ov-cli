@@ -42,7 +42,6 @@ def brief(text: object) -> str:
     flat = re.sub(r"\s+", " ", str(text)).strip()
     if len(flat) <= LABEL_CHARS:
         return flat
-
     return flat[: LABEL_CHARS - len(LABEL_CUT)] + LABEL_CUT
 
 

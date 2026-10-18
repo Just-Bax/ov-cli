@@ -94,6 +94,7 @@ async def _claude_drive(run: Run, model: str, options: Any, goal: str, cancel: C
         raise claude.ClaudeError(NO_REPORT)
 
     run.record_step_usage(model, claude.usage_of(result, 0))
+
     if result.subtype == MAX_TURNS_SUBTYPE:
         return STEPS_USED_UP.format(steps=RUNNER_STEPS)
     if result.is_error:
@@ -115,7 +116,6 @@ def _drop_old_pages(messages: list[dict[str, Any]]) -> None:
     shots = [m for m in messages if m["role"] == "user" and isinstance(m["content"], list)]
     for message in shots[:-KEPT_SCREENSHOTS]:
         message["content"] = OLD_SCREENSHOT
-
     pages = [m for m in messages if m["role"] == "tool" and len(m["content"]) > PAGE_OUTPUT_CHARS]
     for message in pages[:-KEPT_PAGES]:
         message["content"] = OLD_PAGE
@@ -127,11 +127,14 @@ def _copilot_drive(run: Run, model: str, goal: str, cancel: Cancel) -> str:
         {"role": "system", "content": RUNNER_PROMPT},
         {"role": "user", "content": goal},
     ]
+
     for _ in range(RUNNER_STEPS):
         cancel.check()
         _drop_old_pages(messages)
+
         result = copilot.stream_chat(model, messages, specs, INITIATOR, cancel=cancel, on_text=_ignore)
         run.record_step_usage(model, result.usage)
+
         reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
         if result.tool_calls:
             reply["tool_calls"] = result.tool_calls

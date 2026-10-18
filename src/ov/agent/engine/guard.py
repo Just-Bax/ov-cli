@@ -113,6 +113,7 @@ def parse(reply: str, model: str, allowed: frozenset[Effect]) -> Verdict:
     effect = str(data.get("effect", "")).strip().lower()
     if effect not in {e.value for e in allowed}:
         raise GuardError(f"{model} gave an unknown effect: {effect or 'none'}")
+
     reason = " ".join(str(data.get("reason") or "").split())
     if not reason:
         raise GuardError(f"{model} gave a judgement without a reason.")

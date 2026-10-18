@@ -288,6 +288,7 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
     take(DETAIL_SLOT, key, () => api.runDetails(runId, [tool.id], []))
       .then((d) => !stale && setDetail(d.tools[tool.id] ?? {}))
       .catch(reportError)
+
     return () => {
       stale = true
     }

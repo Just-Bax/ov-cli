@@ -5,6 +5,7 @@ import threading
 import time
 
 import pytest
+from helpers.agent import wait_for
 
 from ov.agent.integrations.copilot import StreamResult
 from ov.agent.storage import db
@@ -34,17 +35,11 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
     run = runs.create({"access": "read", "prompt": "help", "instance": "acme"}, Provider.COPILOT, "test-model")
-    for _ in range(100):
-        if run.state["questions"]:
-            break
-        time.sleep(0.05)
+    wait_for(lambda: run.state["questions"])
 
     question = run.state["questions"][0]
     run.stop()
-    for _ in range(100):
-        if run.state["questions"][0].get("stopped"):
-            break
-        time.sleep(0.05)
+    wait_for(lambda: run.state["questions"][0].get("stopped"))
 
     assert run.state["questions"][0]["stopped"] and "answers" not in run.state["questions"][0]
     with pytest.raises(RunError, match="no longer waiting"):
@@ -60,10 +55,8 @@ def test_two_open_questions_keep_the_run_waiting(logged_in):
     threads = [threading.Thread(target=lambda q=q: answers.extend(run.ask_user([_item(q)]))) for q in ("one", "two")]
     for t in threads:
         t.start()
-    for _ in range(100):
-        if len(run.state["questions"]) == 2:
-            break
-        time.sleep(0.02)
+    wait_for(lambda: len(run.state["questions"]) == 2)
+
     assert run.state["summary"]["status"] == "waiting"
     run.answer(run.state["questions"][0]["id"], ["a"])
     time.sleep(0.2)
@@ -89,10 +82,7 @@ def _asking(run, ask):
     holder: list = []
     thread = threading.Thread(target=lambda: holder.append(ask()))
     thread.start()
-    for _ in range(100):
-        if run.state["questions"]:
-            break
-        time.sleep(0.02)
+    wait_for(lambda: run.state["questions"])
     return thread, holder
 
 

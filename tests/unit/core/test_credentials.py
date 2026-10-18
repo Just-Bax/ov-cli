@@ -59,6 +59,7 @@ def test_the_keyring_holds_only_the_vault_key(ov_home, keyring):
                 bearer_token="A:B",
             )
         )
+
     credentials.put("agent:datadog", {"api_key": "k"})
     assert list(keyring.entries) == [("ov-cli", "vault-key")]
     assert session_store.load("i3").cookies == {"c": "x" * 4000}

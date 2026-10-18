@@ -60,6 +60,7 @@ def cmd_fetch(ctx: Context) -> int:
         "tags": len(spec.tags),
         "path": str(path),
     }
+
     emit(
         ctx,
         data,

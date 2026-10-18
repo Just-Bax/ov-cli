@@ -31,8 +31,8 @@ const RESIZE_SETTLE_MS = 200
 
 type Frame = { data: string; url: string; width: number; height: number }
 export type FrameSize = { width: number; height: number }
-export type ScreenEvent = Record<string, unknown> & { type: string }
-export type SendScreen = (events: ScreenEvent[]) => Promise<{ open: boolean }>
+type ScreenEvent = Record<string, unknown> & { type: string }
+type SendScreen = (events: ScreenEvent[]) => Promise<{ open: boolean }>
 type Phase = 'starting' | 'live' | 'gone'
 
 type Address = { host: string; rest: string; secure: boolean; href?: string }
@@ -45,6 +45,7 @@ function splitAddress(address: string): Address {
   if (!URL.canParse(full)) return { host: address, rest: '', secure: false }
 
   const url = new URL(full)
+
   return {
     host: url.host,
     rest: `${url.pathname === '/' ? '' : url.pathname}${url.search}${url.hash}`,
@@ -80,8 +81,10 @@ function useSender(deliver: SendScreen) {
     busy.current = true
     const events = pending.current
     pending.current = []
+
     const sent = await deliver(events).catch(reportError)
     if (sent && !sent.open) closed.current = true
+
     busy.current = false
     void flush()
   }
@@ -177,6 +180,7 @@ export function LiveScreen({
       }, RESIZE_SETTLE_MS)
     })
     observer.observe(el)
+
     return () => {
       clearTimeout(timer)
       observer.disconnect()
@@ -199,7 +203,6 @@ export function LiveScreen({
   const point = (e: { clientX: number; clientY: number }) => {
     const rect = surface.current?.getBoundingClientRect()
     if (!rect || !frame) return undefined
-
     return {
       x: ((e.clientX - rect.left) * frame.width) / rect.width,
       y: ((e.clientY - rect.top) * frame.height) / rect.height,

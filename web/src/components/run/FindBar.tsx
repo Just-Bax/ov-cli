@@ -108,6 +108,7 @@ export function FindBar({
           if (!abort.signal.aborted) setSearching(false)
         })
     }, SEARCH_DELAY_MS)
+
     return () => {
       abort.abort()
       clearTimeout(timer)
@@ -118,7 +119,6 @@ export function FindBar({
     const root = contentRef.current
     const wanted = query.trim()
     if (!root || !wanted) return
-
     const found = textRanges(root, wanted)
     setRanges(found)
     setCurrent(found.length ? found.length - 1 : 0)

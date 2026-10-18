@@ -66,6 +66,7 @@ def build_parser(argv: list[str]) -> argparse.ArgumentParser:
         epilog=_epilog(config, argv),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+
     parser.hint = _unknown_group_hint(config, argv)
     parser.add_argument("--version", action="version", version=f"ov {__version__}")
     parser.add_argument("--home", action="store_true", help="print the config directory and exit")
@@ -99,8 +100,10 @@ def _first_positional(argv: list[str]) -> str | None:
         if skip or token == "--":
             skip = False
             continue
+
         if not token.startswith("-"):
             return token
+
         skip = token in _INSTANCE_FLAGS
     return None
 
@@ -109,8 +112,10 @@ def _instance_in(argv: list[str]) -> str | None:
     for index, token in enumerate(argv):
         if token in _INSTANCE_FLAGS:
             return argv[index + 1] if index + 1 < len(argv) else None
+
         if token.startswith("--instance="):
             return token.partition("=")[2] or None
+
         if token.startswith("-i") and len(token) > 2 and not token.startswith("--"):
             return token[2:]
     return os.environ.get(INSTANCE_ENV) or None
@@ -129,6 +134,7 @@ def _unknown_group_hint(config: config_module.Config, argv: list[str]) -> str:
             f"No API schema is cached for {named}. "
             "Run 'ov spec fetch', or 'ov login <url>' if you have not signed in to it."
         )
+
     if wanted in spec.tags:
         return ""
     return f"'{wanted}' is not a group on {named}. Groups: {', '.join(spec.tags)}."
@@ -143,6 +149,7 @@ def _epilog(config: config_module.Config, argv: list[str]) -> str:
         )
 
     tags = ", ".join(spec.tags)
+
     return (
         f"Generated groups ({len(spec.operations)} operations): {tags}\n"
         "Run 'ov <tag>' to list its commands, or 'ov api list' to search them all.\n"
@@ -170,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.home:
         print(home())
         return 0
+
     if not getattr(args, "func", None):
         parser.print_help()
         return EXIT_USAGE
@@ -205,9 +213,6 @@ def _report(ctx: Context, exc: OvError) -> None:
 
     out = console(ctx, stderr=True)
     out.print(f"[red]{exc}[/red]")
+
     if isinstance(exc, ApiError) and exc.body:
         out.print(f"[dim]{json.dumps(exc.body, ensure_ascii=False, default=str)[:ERROR_BODY_SHOWN]}[/dim]")
-
-
-if __name__ == "__main__":
-    sys.exit(main())

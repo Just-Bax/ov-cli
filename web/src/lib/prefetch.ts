@@ -25,6 +25,7 @@ export function prefetch<T>(name: string, key: string, load: () => Promise<T>): 
   promise.catch(() => {
     if (slot.get(key)?.promise === promise) drop(name, key)
   })
+
   slot.set(key, { promise, timer: setTimeout(() => drop(name, key), PREFETCH_TTL_MS) })
 }
 

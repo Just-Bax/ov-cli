@@ -139,6 +139,7 @@ def test_ids_resolve_by_context_or_name_comment():
             ],
         )
     )
+
     edges = {(e["source"], e["target"]) for e in g["edges"]}
     assert not any(s == "rule:1" for s, _ in edges)
     assert {("rule:2", "field:1000240"), ("rule:2", "automation:1000240")} <= edges

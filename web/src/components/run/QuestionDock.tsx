@@ -110,9 +110,11 @@ function AskComposer({
     }
 
     setError(undefined)
+
     const answers = items.map((_, i) =>
       i === step ? answer : typed[i] || picks[i].join(ANSWER_JOINER),
     )
+
     setTyped((all) => all.map((t, i) => (i === step ? text : t)))
     if (last) send(answers)
     else goTo(step + 1)

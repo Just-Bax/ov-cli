@@ -84,6 +84,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       return { ...state, edits: upsert(state.edits, event.edit) }
     case 'outcome': {
       const id = `o${seq}`
+
       return {
         ...state,
         outcome: event.outcome,
@@ -113,6 +114,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
         const message = byId.get(id)
         return message ? [{ ...message, steer: event.steering.includes(id) }] : []
       })
+
       return { ...state, queued, queueHeld: event.held }
     }
     case 'rewind': {

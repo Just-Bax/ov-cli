@@ -174,6 +174,7 @@ export function HealthPage() {
   else {
     const ctx: Context = { meta, label, alias, range, slots }
     const matched = Boolean(meta.scope)
+
     body = (
       <div className="space-y-4 p-6">
         {matched ? null : (

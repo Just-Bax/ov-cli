@@ -76,6 +76,7 @@ export function Dropdown({
       minWidth: r.width,
       up,
     })
+
     setActive(
       Math.max(
         0,
@@ -92,6 +93,7 @@ export function Dropdown({
     const onScroll = (e: Event) => {
       if (!menuRef.current?.contains(e.target as Node)) setOpen(false)
     }
+
     const onResize = () => setOpen(false)
     window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', onResize)

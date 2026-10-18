@@ -24,7 +24,7 @@ interface Mode {
 
 const METER_STEPS = 4
 
-export const ACCESS_MODES: Mode[] = [
+const ACCESS_MODES: Mode[] = [
   {
     value: 'read',
     label: 'Read-only',
@@ -65,7 +65,7 @@ export function accessMode(value: Access): Mode {
   return found
 }
 
-export function AccessMeter({ value, className }: { value: Access; className?: string }) {
+function AccessMeter({ value, className }: { value: Access; className?: string }) {
   const mode = accessMode(value)
   const level = ACCESS_MODES.indexOf(mode) + 1
 
@@ -131,6 +131,7 @@ export function AccessPicker({
 
   const pick = async (next: Access) => {
     setOpen(false)
+
     if (next === local) return
 
     const confirm = CONFIRM[next]
@@ -139,6 +140,7 @@ export function AccessPicker({
     const previous = local
     setLocal(next)
     setSaving(true)
+
     try {
       await onChange(next)
     } catch (e) {

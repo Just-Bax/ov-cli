@@ -18,6 +18,7 @@ CSRF = {"headerName": "X-CSRF-TOKEN", "token": "csrf-1", "parameterName": "_csrf
 MINTED = {"bearerToken": "ACCESS:SECRET", "expirationTime": "2100-01-01T00:00:00"}
 
 DESTROYED = "Page.evaluate: Execution context was destroyed, most likely because of a navigation"
+WAIT_TIMEOUT_MS = 10_000
 
 
 def ignore(_message: str) -> None:
@@ -99,7 +100,7 @@ class FakeContext:
         return self.browser_cookies
 
 
-def wait(context: FakeContext, timeout_ms: int = 10_000, report=None) -> dict[str, Any]:
+def wait(context: FakeContext, timeout_ms: int = WAIT_TIMEOUT_MS, report=None) -> dict[str, Any]:
     return _await_token(context, BASE_URL, timeout_ms, report or ignore)
 
 

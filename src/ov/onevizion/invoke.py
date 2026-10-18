@@ -91,6 +91,7 @@ def build_plan(
         headers=request_headers,
         accept=accept or _accept_for(operation),
     )
+
     _attach_body(plan, operation, data, fields, files)
     return plan
 
@@ -163,6 +164,7 @@ def _attach_body(
 
     if body is not None and built:
         raise OvError("--data and --field both set a body; use one of them.")
+
     if body is None and not built:
         if operation.body and operation.body.required:
             raise OvError(
@@ -229,6 +231,7 @@ def _read_data(data: str | None, parse_json: bool) -> Any:
     raw = _data_text(data).strip()
     if not raw:
         return None
+
     if not parse_json:
         return raw
 
@@ -241,6 +244,7 @@ def _read_data(data: str | None, parse_json: bool) -> Any:
 def _data_text(data: str) -> str:
     if data == "-":
         return sys.stdin.read()
+
     if not data.startswith("@"):
         return data
 
@@ -281,4 +285,5 @@ def _assign(target: dict[str, Any], keys: list[str], value: Any) -> None:
             nested = {}
             cursor[key] = nested
         cursor = nested
+
     cursor[keys[-1]] = value

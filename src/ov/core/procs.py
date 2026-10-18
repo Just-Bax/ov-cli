@@ -40,6 +40,7 @@ def wait_or_stop(
 def kill_tree(process: subprocess.Popen[Any]) -> None:
     if process.poll() is not None:
         return
+
     if sys.platform == "win32":
         subprocess.run(
             ["taskkill", "/T", "/F", "/PID", str(process.pid)],
@@ -50,4 +51,5 @@ def kill_tree(process: subprocess.Popen[Any]) -> None:
         )
     else:
         os.killpg(process.pid, signal.SIGKILL)
+
     process.wait()

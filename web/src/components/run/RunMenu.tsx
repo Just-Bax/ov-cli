@@ -239,7 +239,6 @@ export function RunMenu({
 
   useLayoutEffect(() => {
     if (!pos || !menu.current) return
-
     const box = menu.current.getBoundingClientRect()
     const top = Math.min(pos.top, window.innerHeight - box.height - EDGE_PX)
     const left = Math.min(Math.max(EDGE_PX, pos.left), window.innerWidth - box.width - EDGE_PX)

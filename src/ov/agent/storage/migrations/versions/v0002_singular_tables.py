@@ -23,6 +23,7 @@ TEXT_KEYS = (
 
 def upgrade() -> None:
     op.execute("DROP TABLE IF EXISTS watches")
+
     for old, new in RENAMES:
         op.rename_table(old, new)
     for table, key in TEXT_KEYS:
@@ -33,10 +34,12 @@ def upgrade() -> None:
         "CREATE TABLE usage_new (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, "
         "ts INTEGER NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, tokens TEXT NOT NULL, nano INTEGER NOT NULL)"
     )
+
     op.execute(
         "INSERT INTO usage_new (run_id, ts, model, kind, tokens, nano) "
         "SELECT run_id, ts, model, kind, tokens, nano FROM usage ORDER BY rowid"
     )
+
     op.execute("DROP TABLE usage")
     op.rename_table("usage_new", "usage")
     op.create_index("usage_by_run", "usage", ["run_id"])
@@ -48,10 +51,12 @@ def downgrade() -> None:
         "CREATE TABLE usage_old (run_id TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL, "
         "kind TEXT NOT NULL, tokens TEXT NOT NULL, nano INTEGER NOT NULL)"
     )
+
     op.execute(
         "INSERT INTO usage_old (run_id, ts, model, kind, tokens, nano) "
         "SELECT run_id, ts, model, kind, tokens, nano FROM usage ORDER BY id"
     )
+
     op.execute("DROP TABLE usage")
     op.rename_table("usage_old", "usage")
     op.create_index("usage_by_run", "usage", ["run_id"])

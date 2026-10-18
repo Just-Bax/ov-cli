@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import copy
-import time
 
 import pytest
-from helpers.agent import wait_done
+from helpers.agent import wait_done, wait_for
 
 from ov.agent.engine import compaction
 from ov.agent.instances.ovproc import OvResult
@@ -12,8 +11,6 @@ from ov.agent.integrations.copilot import StreamResult, Usage
 from ov.agent.storage import db
 from ov.agent.storage.models import Provider
 
-POLLS = 100
-POLL_SECONDS = 0.05
 PROMPT_LIMIT = 200_000
 FULL_CONTEXT = Usage(tokens={"input": 2, "cache_read": 175_000, "output": 50}, nano=0)
 SUMMARY = "The user asked about tags. The agent listed them."
@@ -115,10 +112,8 @@ def test_compacting_a_copilot_thread_on_request_summarizes_it(copilot_thread, mo
     assert not run.state["compactions"]
 
     run.compact()
-    for _ in range(POLLS):
-        if run.state["compactions"] and not run._busy:
-            break
-        time.sleep(POLL_SECONDS)
+    wait_for(lambda: run.state["compactions"] and not run._busy)
+
     [compacted] = run.state["compactions"]
     assert compacted["trigger"] == "manual" and compacted["status"] == "done"
     assert run._messages[1]["content"].endswith(SUMMARY) and run.state["summary"]["status"] == "done"

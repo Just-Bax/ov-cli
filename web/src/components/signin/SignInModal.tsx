@@ -150,6 +150,7 @@ export function SignInModal({
     if (streaming && target) void api.cancelSignIn(target.url, target.tenant).catch(reportError)
     onClose()
   }
+
   useLayer(dismiss, Boolean(target))
 
   if (!target) return null
@@ -171,8 +172,10 @@ export function SignInModal({
       byToken ? `${accessKey.trim()}:${secretKey.trim()}` : undefined,
       byToken || inWindow ? undefined : screenSize(),
     ).catch((e: Error) => ({ ok: false, message: e.message }))
+
     onFinished(t, res.ok)
     startedAt.current = 0
+
     if (!stillShowing(t)) return
 
     if (res.ok) {
@@ -191,6 +194,7 @@ export function SignInModal({
 
   if (embedded) {
     const size = screenSize()
+
     return createPortal(
       <div
         className={cn(

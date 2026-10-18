@@ -4,20 +4,16 @@ import json
 import threading
 import time
 
+from helpers.agent import RUN_POLL_SECONDS, SLOW_POLLS, wait_for
+
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult
+from ov.agent.storage import db
 from ov.agent.storage.models import Provider
-
-POLLS = 200
-POLL_SECONDS = 0.05
 
 
 def _wait_for(check):
-    for _ in range(POLLS):
-        if check():
-            return
-        time.sleep(POLL_SECONDS)
-    raise AssertionError("condition never held")
+    wait_for(check, polls=SLOW_POLLS)
 
 
 def _call(call_id, args, name="ov"):
@@ -42,7 +38,7 @@ def _slow_ov(monkeypatch, gate):
         while not gate.is_set():
             if cancel is not None and cancel.is_set():
                 return OvResult(1, "", "killed")
-            time.sleep(POLL_SECONDS)
+            time.sleep(RUN_POLL_SECONDS)
         return OvResult(0, "slow result\n", "")
 
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", fake_run_ov)
@@ -76,7 +72,6 @@ def test_a_background_call_returns_at_once_and_wakes_the_idle_run_with_its_resul
     _wait_for(lambda: run.state["summary"]["status"] == "done" and len(seen) == 3)
     assert "[Background task finished:" in seen[2][-1]["content"] and "slow result" in seen[2][-1]["content"]
     assert _tool(run, "c1")["status"] == "ok"
-    from ov.agent.storage import db
 
     statuses = [e["event"] for e in db.load_events(run.id) if e["event"]["type"] == "status"]
     assert any(s.get("wokenBy") == "c1" for s in statuses)

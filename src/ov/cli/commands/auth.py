@@ -21,6 +21,7 @@ from ov.onevizion.tenants import NO_TENANTS, resolve_tenant, tenant_rows
 LOGOFF_PATH = "/LogOff.do"
 LOGIN_TIMEOUT_SECONDS = 300
 BEARER_PREFIX = "bearer "
+MS_PER_SECOND = 1000
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
@@ -122,6 +123,7 @@ def cmd_login(ctx: Context) -> int:
         "operations": fetched or None,
         "config_file": str(config_file()),
     }
+
     emit(ctx, data, text=_login_text(session, fetched, current=current))
     return 0
 
@@ -132,14 +134,17 @@ def _signed_in_session(ctx: Context) -> Session:
     session_store.unique_alias(base_url, args.alias or "")
 
     session = _token_login(ctx, base_url) if args.token else _browser_login(ctx, base_url)
+
     if args.tenant:
         _choose_tenant(ctx, session, args.tenant)
 
     session.alias = session_store.unique_alias(session.base_url, args.alias or "", session.tenant, session.tenant_id)
+
     if args.tenant:
         note(ctx, f"Switching to tenant [cyan]{session.tenant}[/cyan]...")
         with build_client(ctx.config, session) as client:
             client.refresh_token()
+
     return session
 
 
@@ -173,13 +178,16 @@ def _login_text(session: Session, fetched: int, current: bool) -> str:
     lines = [f"[green]Logged in[/green] to {where} as [cyan]{session.alias}[/cyan] ({session.mode} credential)."]
     if session.expires_text:
         lines.append(f"Token expires {session.expires_text}.")
+
     if fetched:
         lines.append(f"{fetched} API operations available. Try 'ov api tags'.")
+
     lines.append(
         "[dim]Now the default instance. Target another with 'ov -i <alias> ...'.[/dim]"
         if current
         else f"[dim]Stored, but not the default. Use it with 'ov -i {session.alias} ...'.[/dim]"
     )
+
     return "\n".join(lines)
 
 
@@ -203,9 +211,10 @@ def _browser_login(ctx: Context, base_url: str) -> Session:
         "[dim]Your password goes into the real login page, never through this tool. "
         "Only the resulting session token is stored.[/dim]",
     )
+
     return interactive_login(
         base_url,
-        timeout_ms=ctx.args.timeout * 1000,
+        timeout_ms=ctx.args.timeout * MS_PER_SECOND,
         on_progress=_progress(ctx),
         verify=ctx.config.verify_tls,
     )
@@ -239,6 +248,7 @@ def _prefetch_spec(ctx: Context, session: Session) -> int:
                 spec_group=ctx.config.spec_group,
                 spec_ttl_seconds=ctx.config.spec_ttl_seconds,
             )
+
             return len(service.fetch_spec().operations)
     except OvError as exc:
         warn(
@@ -266,6 +276,7 @@ def cmd_logout(ctx: Context) -> int:
     cleared = ctx.cache.clear()
 
     remaining = session_store.current_alias()
+
     emit(
         ctx,
         {
@@ -300,6 +311,7 @@ def _logout_text(session: Session, revoked: bool, remaining: str | None) -> str:
         else f"[green]Forgot[/green] {session.alias} ({session.base_url}). "
         "[dim]The token stays valid on the server until it expires.[/dim]"
     )
+
     tail = f"\nCurrent instance is now [cyan]{remaining}[/cyan]." if remaining else ""
     return head + tail
 
@@ -309,6 +321,7 @@ def _logout_all(ctx: Context) -> int:
         {"alias": session.alias, "base_url": session.base_url, "token_revoked": _revoke(ctx, session)}
         for session in session_store.listed().values()
     ]
+
     session_store.clear()
     _prune()
     reset_cache()
@@ -331,6 +344,7 @@ def _revoke(ctx: Context, session: Session) -> bool:
             client.web_get(LOGOFF_PATH, accept="text/html")
     except OvError:
         return False
+
     return True
 
 
@@ -394,6 +408,7 @@ def _instances_table(rows: list[dict[str, Any]], check: bool) -> Any:
         if check:
             cells.append("yes" if row["authorized"] else "no")
         body.append(cells)
+
     return build_table(None, columns, body)
 
 

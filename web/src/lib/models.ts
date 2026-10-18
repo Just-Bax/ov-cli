@@ -25,6 +25,7 @@ export function useModels(provider: Provider): ModelInfo[] {
       (found) => !stale && setModels(found),
       (e: unknown) => reportError(e),
     )
+
     return () => {
       stale = true
     }

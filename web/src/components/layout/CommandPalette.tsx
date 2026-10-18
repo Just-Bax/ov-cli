@@ -233,10 +233,12 @@ export function CommandPalette({ route }: { route: Route }) {
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   const shown = commands.filter((c) => matches(c, words))
+
   const visible = [
     ...shown.filter((c) => c.group !== 'Threads'),
     ...shown.filter((c) => c.group === 'Threads').slice(0, MAX_THREADS),
   ]
+
   if (query.trim())
     visible.push({
       id: 'draft',
@@ -259,6 +261,7 @@ export function CommandPalette({ route }: { route: Route }) {
   if (!open) return null
 
   let group = ''
+
   return createPortal(
     <div
       className="fixed inset-0 z-[150] flex items-center justify-center bg-[#263238]/25 p-4 backdrop-blur-[2px]"
@@ -298,6 +301,7 @@ export function CommandPalette({ route }: { route: Route }) {
         <div ref={listRef} className="min-h-0 flex-1 scrollbar-thin overflow-y-auto p-2">
           {visible.map((c, i) => {
             const header = c.group !== group ? (group = c.group) : undefined
+
             return (
               <div key={c.id}>
                 {header ? (
