@@ -200,6 +200,7 @@ def _remember(ctx: Context, session: Session, days: int) -> Session:
         mode="remembered",
         tenant=session.tenant,
         tenant_id=session.tenant_id,
+        cookies=session.cookies,
         bearer_token=token,
         expires_text=expires,
         expires_at=session_store.deadline_of(expires),

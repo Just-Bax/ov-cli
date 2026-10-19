@@ -235,7 +235,7 @@ def test_login_remember_swaps_the_session_token_for_a_long_api_token(capsys, ov_
     assert minted.url.params["token_type"] == "API" and minted.url.params["expiration_time"]
 
     stored = session_store.load()
-    assert stored.is_static and not stored.cookies and stored.bearer_token == "LONG:LIVED"
+    assert stored.is_static and stored.cookies == {"JSESSIONID": "web"} and stored.bearer_token == "LONG:LIVED"
     assert stored.expires_text == "2100-02-01T00:00:00"
     assert stored.seconds_left() > 0
 

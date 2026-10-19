@@ -281,7 +281,7 @@ class Driver:
 
     def _paused(self, session: CDPSession, event: dict[str, Any]) -> None:
         request = event["requestId"]
-        if self._allows(event["request"]["url"]):
+        if "redirectedRequestId" in event or self._allows(event["request"]["url"]):
             session.send("Fetch.continueRequest", {"requestId": request})
         else:
             session.send("Fetch.fulfillRequest", {"requestId": request, "responseCode": STAY_PUT_STATUS})
