@@ -12,6 +12,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
@@ -29,7 +30,8 @@ const MODIFIER = { alt: 1, ctrl: 2, meta: 4, shift: 8 }
 const BUTTON_NAMES = ['left', 'middle', 'right'] as const
 const RESIZE_SETTLE_MS = 200
 
-type Frame = { data: string; url: string; width: number; height: number }
+type Frame = { url: string; width: number; height: number }
+type Streamed = Frame & { data: string }
 export type FrameSize = { width: number; height: number }
 type ScreenEvent = Record<string, unknown> & { type: string }
 type SendScreen = (events: ScreenEvent[]) => Promise<{ open: boolean }>
@@ -128,6 +130,8 @@ export function LiveScreen({
   loading?: string | null
 }) {
   const [frame, setFrame] = useState<Frame>()
+  const unpainted = useRef<string | undefined>(undefined)
+  const paintRequest = useRef(0)
   const [phase, setPhase] = useState<Phase>('starting')
   const [focused, setFocused] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
@@ -140,11 +144,27 @@ export function LiveScreen({
   const send = (event: ScreenEvent) => sendTo(event, phase === 'live')
   const size = frame ?? screenSize()
 
+  const paint = () => {
+    paintRequest.current = 0
+    if (!surface.current || unpainted.current === undefined) return
+    surface.current.src = `data:image/jpeg;base64,${unpainted.current}`
+    unpainted.current = undefined
+  }
+
+  useLayoutEffect(paint, [Boolean(frame)])
+
   useEffect(() => {
     const source = new EventSource(streamUrl)
     source.onmessage = (e) => {
-      setFrame(JSON.parse(e.data as string) as Frame)
+      const { data, ...next } = JSON.parse(e.data as string) as Streamed
+      unpainted.current = data
+      setFrame((current) =>
+        current?.url === next.url && current.width === next.width && current.height === next.height
+          ? current
+          : next,
+      )
       setPhase('live')
+      if (!paintRequest.current) paintRequest.current = requestAnimationFrame(paint)
     }
     source.addEventListener('end', (e) => {
       setFailure((JSON.parse((e as MessageEvent<string>).data) as { error: string | null }).error)
@@ -154,7 +174,11 @@ export function LiveScreen({
     source.onerror = () => {
       if (source.readyState === EventSource.CLOSED) setPhase('gone')
     }
-    return () => source.close()
+    return () => {
+      source.close()
+      cancelAnimationFrame(paintRequest.current)
+      paintRequest.current = 0
+    }
   }, [streamUrl])
 
   useEffect(() => {
@@ -357,7 +381,6 @@ export function LiveScreen({
           {frame ? (
             <img
               ref={surface}
-              src={`data:image/jpeg;base64,${frame.data}`}
               alt={label}
               draggable={false}
               onMouseDown={mouse('mousePressed')}

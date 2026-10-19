@@ -9,6 +9,7 @@ import {
 } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import type {
+  DatadogStatus,
   HealthDatabaseMetricKey,
   HealthMeta,
   HealthPoint,
@@ -27,6 +28,7 @@ import { openDraft } from '@/lib/draft'
 import { shortHost } from '@/lib/servers'
 import { MINUTE_MS } from '@/lib/time'
 import { type Lane, Sparkline, Timeline } from './charts'
+import { DatabasePicker } from './DatabasePicker'
 import {
   count,
   duration,
@@ -97,6 +99,8 @@ const DATABASE_METRICS: Record<
   connections: { title: 'Connections', format: count, tone: () => null },
   readLatency: { title: 'Read latency', format: duration, tone: () => null },
   writeLatency: { title: 'Write latency', format: duration, tone: () => null },
+  activeSessions: { title: 'Active sessions', format: (v) => fmt(v, ''), tone: () => null },
+  responseTime: { title: 'Response time', format: duration, tone: () => null },
   sessions: { title: 'Session limit', format: percent, tone: atLeast(DB_SESSIONS) },
   tablespace: { title: 'Tablespace', format: percent, tone: atLeast(DB_TABLESPACE) },
 }
@@ -136,6 +140,7 @@ function Panel({
   link,
   linkLabel = 'Datadog',
   onAsk,
+  actions,
   className,
   children,
 }: {
@@ -144,6 +149,7 @@ function Panel({
   link?: string
   linkLabel?: string
   onAsk?: () => void
+  actions?: ReactNode
   className?: string
   children: ReactNode
 }) {
@@ -154,6 +160,7 @@ function Panel({
           <div className="text-fg text-[13.5px] font-semibold">{title}</div>
           {hint ? <div className="text-muted mt-0.5 text-[12px]">{hint}</div> : null}
         </div>
+        {actions}
         {onAsk ? (
           <button
             type="button"
@@ -856,20 +863,53 @@ function MetricCell({
   )
 }
 
-export function DatabaseCard({ ctx }: { ctx: Context }) {
+export function DatabaseCard({
+  ctx,
+  status,
+  onSaved,
+}: {
+  ctx: Context
+  status: DatadogStatus
+  onSaved: (s: DatadogStatus) => void
+}) {
   const keys = Object.keys(DATABASE_METRICS) as HealthDatabaseMetricKey[]
+  const [picking, setPicking] = useState(false)
+  const notFound = ctx.slots.database.state === 'unavailable' && !status.databases[ctx.alias]
 
   return (
     <Panel
       title="Database"
       hint="RDS and Oracle metrics over the window, latest value on the right"
+      actions={
+        notFound ? null : (
+          <button
+            type="button"
+            onClick={() => setPicking((v) => !v)}
+            className="text-muted hover:text-brand-strong hover:bg-brand-soft inline-flex h-7 shrink-0 items-center rounded-full px-2.5 text-[12px] font-medium"
+          >
+            {picking ? 'Done' : 'Change'}
+          </button>
+        )
+      }
       onAsk={() =>
         ask(
           ctx,
-          'Check the database of this instance: CPU, free memory, storage, connections, read and write latency, Oracle session limit and tablespace use, and any database monitors or incidents. Say what stands out and why.',
+          'Check the database of this instance: CPU, free memory, storage, connections, read and write latency, active sessions and response time, Oracle session limit and tablespace use, and any database monitors or incidents. If the database is shared with other instances, say how much of the load is likely this one. Say what stands out and why.',
         )
       }
     >
+      {picking || notFound ? (
+        <div className="mb-3">
+          <DatabasePicker
+            alias={ctx.alias}
+            status={status}
+            onSaved={(s) => {
+              setPicking(false)
+              onSaved(s)
+            }}
+          />
+        </div>
+      ) : null}
       <Body slot={ctx.slots.database} skeleton={<RowsSkeleton rows={2} />}>
         {(v) => {
           const shown = keys.filter((k) => v.databases.some((d) => d.metrics[k]))
@@ -898,6 +938,14 @@ export function DatabaseCard({ ctx }: { ctx: Context }) {
                           </span>
                         ) : null}
                         <span className="text-fg">{d.id}</span>
+                        {d.shared ? (
+                          <span
+                            title="Other instances use this database too, so its load is not only this instance's"
+                            className="bg-raised text-muted ml-2 rounded-full px-1.5 py-0.5 text-[10.5px] font-medium"
+                          >
+                            shared
+                          </span>
+                        ) : null}
                       </td>
                       {shown.map((k) => {
                         const m = d.metrics[k]

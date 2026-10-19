@@ -300,7 +300,8 @@ def retest() -> dict[str, Any]:
 
 def disconnect() -> dict[str, Any]:
     credentials.delete(CREDENTIAL_KEY)
-    _save_state({"matches": load_state().get("matches", {})})
+    state = load_state()
+    _save_state({"matches": state.get("matches", {}), "databases": state.get("databases", {})})
     clear_caches()
     return status()
 
@@ -319,6 +320,7 @@ def status() -> dict[str, Any]:
         **details,
         "permissions": permissions() if on else dict.fromkeys(AREAS, False),
         "matches": state.get("matches", {}),
+        "databases": state.get("databases", {}),
         "sites": [{"id": s, "app": SITES[s][1]} for s in SITES],
         "scopes": SCOPES,
     }
@@ -332,31 +334,48 @@ def save_matches(matches: dict[str, str]) -> dict[str, Any]:
     return status()
 
 
+def save_databases(databases: dict[str, list[str]]) -> dict[str, Any]:
+    state = load_state()
+    picked = {alias: sorted({i.strip().lower() for i in ids if i.strip()}) for alias, ids in databases.items()}
+    state["databases"] = {alias: ids for alias, ids in picked.items() if ids}
+    _save_state(state)
+    clear_caches()
+    return status()
+
+
 def forget(alias: str) -> None:
     state = load_state()
-    matches = state.get("matches", {})
-    if alias not in matches:
+    tables = [state.get("matches", {}), state.get("databases", {})]
+    if not any(alias in table for table in tables):
         return
 
-    del matches[alias]
+    for table in tables:
+        table.pop(alias, None)
     _save_state(state)
     clear_caches()
 
 
-def filter_for(alias: str) -> str:
-    matches = load_state().get("matches", {})
-    if alias in matches:
-        return matches[alias]
+def _instance_entry(table: dict[str, Any], alias: str) -> Any:
+    if alias in table:
+        return table[alias]
 
     found = find_instance(alias)
     if found is None:
         raise DatadogError(f"No signed-in instance matches {alias}.")
 
     tenants_last = sorted(
-        (i for i in instances() if i["host"] == found["host"] and i["alias"] in matches),
+        (i for i in instances() if i["host"] == found["host"] and i["alias"] in table),
         key=lambda i: bool(i["tenant"]),
     )
-    return matches[tenants_last[0]["alias"]] if tenants_last else ""
+    return table[tenants_last[0]["alias"]] if tenants_last else None
+
+
+def filter_for(alias: str) -> str:
+    return _instance_entry(load_state().get("matches", {}), alias) or ""
+
+
+def picked_databases(alias: str) -> list[str]:
+    return _instance_entry(load_state().get("databases", {}), alias) or []
 
 
 _HOSTS = re.compile(r"^host:\(([^()]+)\)$")
@@ -822,9 +841,11 @@ ORACLE_HOST_TAG = "ddagenthostname"
 ORACLE_ENGINE = "oracle"
 RDS_ENDPOINT_SUFFIX = ".rds.amazonaws.com"
 ORACLE_PROBE = "avg:oracle.session_count{%s} by {server}"
+CATALOG_KEY = "catalog"
 RDS_PROBE = "avg:aws.rds.cpuutilization{*} by {dbinstanceidentifier,engine}"
 DATABASE_METRICS = [
     ("cpu", RDS_TAG, "avg:aws.rds.cpuutilization{%(scope)s} by {dbinstanceidentifier}"),
+    ("cpu", ORACLE_TAG, "avg:oracle.host_cpu_utilization{%(scope)s} by {server}"),
     ("memory", RDS_TAG, "avg:aws.rds.freeable_memory{%(scope)s} by {dbinstanceidentifier}"),
     (
         "storage",
@@ -835,6 +856,8 @@ DATABASE_METRICS = [
     ("connections", RDS_TAG, "avg:aws.rds.database_connections{%(scope)s} by {dbinstanceidentifier}"),
     ("readLatency", RDS_TAG, "avg:aws.rds.read_latency{%(scope)s} by {dbinstanceidentifier}*1000"),
     ("writeLatency", RDS_TAG, "avg:aws.rds.write_latency{%(scope)s} by {dbinstanceidentifier}*1000"),
+    ("activeSessions", ORACLE_TAG, "avg:oracle.active_sessions{%(scope)s} by {server}"),
+    ("responseTime", ORACLE_TAG, "avg:oracle.service_response_time{%(scope)s} by {server}*1000"),
     ("sessions", ORACLE_TAG, "max:oracle.session_limit_usage{%(scope)s} by {server}"),
     ("tablespace", ORACLE_TAG, "max:oracle.tablespace.in_use{%(scope)s} by {server}"),
 ]
@@ -986,45 +1009,73 @@ def _database_owner(alias: str, scope: str) -> Callable[[str], bool]:
     return lambda ident: ident in host_labels or (mine is not None and _owner_of_parts([ident], by_label) == mine)
 
 
-def _discover_databases(alias: str, scope: str) -> list[dict[str, str]]:
+def _probes(jobs: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
     end = now_ms()
     start = end - DATABASE_LOOKBACK_SECONDS * 1000
-    agents = metric_scope(scope, ORACLE_HOST_TAG)
-    jobs = {"rds": partial(query_metric, RDS_PROBE, start, end)}
-    if agents != "*":
-        jobs["oracle"] = partial(query_metric, ORACLE_PROBE % agents, start, end)
+    return _parallel({name: partial(query_metric, query, start, end) for name, query in jobs.items()})
 
-    probes = _parallel(jobs)
 
-    found: dict[str, dict[str, str]] = {}
-    for server in sorted({_tag_of(s, ORACLE_TAG) for s in probes.get("oracle", [])} - {None}):
+def _merge_databases(
+    oracle: list[dict[str, Any]], rds: list[dict[str, Any]], keep: Callable[[str], bool]
+) -> dict[str, dict[str, Any]]:
+    found: dict[str, dict[str, Any]] = {}
+    for server in sorted({_tag_of(s, ORACLE_TAG) for s in oracle} - {None}):
         found[database_id(server)] = {"id": database_id(server), "engine": ORACLE_ENGINE, "endpoint": server.lower()}
 
-    owns = _database_owner(alias, scope)
-    for series in probes["rds"]:
+    for series in rds:
         ident = (_tag_of(series, RDS_TAG) or "").lower()
-        if not ident or (ident not in found and not owns(ident)):
+        if not ident or (ident not in found and not keep(ident)):
             continue
 
         engine = _tag_of(series, RDS_ENGINE_TAG) or found.get(ident, {}).get("engine", "")
         found[ident] = {**found.get(ident, {"id": ident, "endpoint": ""}), "engine": engine}
 
-    return [found[k] for k in sorted(found)]
+    return found
 
 
-def databases_for(alias: str) -> list[dict[str, str]]:
+def database_catalog() -> list[dict[str, Any]]:
+    cached = _database_cache.get(CATALOG_KEY)
+    if cached is not None:
+        return cached
+
+    probes = _probes({"rds": RDS_PROBE, "oracle": ORACLE_PROBE % "*"})
+    found = _merge_databases(probes["oracle"], probes["rds"], lambda _: True)
+    catalog = [found[k] for k in sorted(found)]
+    _database_cache.put(CATALOG_KEY, catalog)
+    return catalog
+
+
+def _picked(ids: list[str]) -> dict[str, dict[str, Any]]:
+    catalog = {db["id"]: db for db in database_catalog()}
+    return {i: catalog.get(i, {"id": i, "engine": "", "endpoint": ""}) for i in ids}
+
+
+def _detected(scope: str, owns: Callable[[str], bool]) -> dict[str, dict[str, Any]]:
+    agents = metric_scope(scope, ORACLE_HOST_TAG)
+    jobs = {"rds": RDS_PROBE}
+    if agents != "*":
+        jobs["oracle"] = ORACLE_PROBE % agents
+
+    probes = _probes(jobs)
+    return _merge_databases(probes.get("oracle", []), probes["rds"], owns)
+
+
+def databases_for(alias: str) -> list[dict[str, Any]]:
     scope = filter_for(alias)
-    if not scope:
+    picked = picked_databases(alias)
+    if not scope and not picked:
         return []
 
-    key = (alias, scope)
+    key = (alias, scope, tuple(picked))
     cached = _database_cache.get(key)
     if cached is not None:
         return cached
 
-    found = _discover_databases(alias, scope)
-    _database_cache.put(key, found)
-    return found
+    owns = _database_owner(alias, scope)
+    found = _picked(picked) if picked else _detected(scope, owns)
+    rows = [{**found[k], "shared": not owns(k)} for k in sorted(found)]
+    _database_cache.put(key, rows)
+    return rows
 
 
 def known_databases(alias: str) -> list[dict[str, str]]:
@@ -1047,7 +1098,7 @@ def _database_section(alias: str, _scope: str, start: int, end: int, _interval: 
     if not databases:
         raise Unavailable(
             "No database found for this instance in Datadog: its servers send no Oracle metrics "
-            "and no RDS instance is named after it."
+            "and no RDS instance is named after it. If it runs on a shared database, pick it."
         )
 
     values = {
@@ -1056,7 +1107,7 @@ def _database_section(alias: str, _scope: str, start: int, end: int, _interval: 
     }
 
     jobs = {
-        name: partial(query_metric, template % {"scope": tag_filter(tag, values[tag])}, start, end)
+        f"{name}/{tag}": partial(query_metric, template % {"scope": tag_filter(tag, values[tag])}, start, end)
         for name, tag, template in DATABASE_METRICS
         if values[tag]
     }
@@ -1065,10 +1116,14 @@ def _database_section(alias: str, _scope: str, start: int, end: int, _interval: 
     rows = []
     for db in databases:
         keys = {RDS_TAG: db["id"], ORACLE_TAG: db["endpoint"]}
-        metrics = {
-            name: _series_metric(found[name], tag, keys[tag]) for name, tag, _ in DATABASE_METRICS if name in found
-        }
-        rows.append({**db, "metrics": {k: v for k, v in metrics.items() if v}})
+        metrics: dict[str, dict[str, Any]] = {}
+        for name, tag, _ in DATABASE_METRICS:
+            series = found.get(f"{name}/{tag}")
+            metric = None if name in metrics or series is None else _series_metric(series, tag, keys[tag])
+            if metric:
+                metrics[name] = metric
+
+        rows.append({**db, "metrics": metrics})
 
     return {"databases": rows}
 

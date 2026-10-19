@@ -19,7 +19,10 @@ def test_instance_sign_in_keeps_the_url_and_tenant(agent_server, monkeypatch):
     assert seen[-1][-2:] == ["--tenant", "North"]
 
     httpx.post(f"{agent_server}/api/instances/login", json={"url": url})
-    assert "--tenant" not in seen[-1]
+    assert "--tenant" not in seen[-1] and "--remember" not in seen[-1]
+
+    httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "remember": True})
+    assert seen[-1][-2:] == ["--remember", "30"]
 
 
 def test_instance_sign_in_passes_a_token_on_stdin(agent_server, monkeypatch):
@@ -31,7 +34,7 @@ def test_instance_sign_in_passes_a_token_on_stdin(agent_server, monkeypatch):
 
     monkeypatch.setattr("ov.agent.instances.ovproc.run_ov", fake)
     url = "https://acme.onevizion.test"
-    res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "token": "K:S"})
+    res = httpx.post(f"{agent_server}/api/instances/login", json={"url": url, "token": "K:S", "remember": True})
     assert res.json()["ok"]
     assert seen[-1] == (["login", url, "--keep-current", "--timeout", "280", "--token", "-"], "K:S")
 

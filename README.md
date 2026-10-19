@@ -150,6 +150,24 @@ Tokens are short-lived. The CLI re-mints one automatically from your session whe
 old one is close to expiry or the server rejects it, so you rarely see this. Once the web
 session itself ends, commands exit 3 and you run `ov login` again.
 
+### Staying signed in
+
+```bash
+ov login https://acme.onevizion.com --remember 30
+```
+
+With `--remember DAYS` you still sign in through the browser. Then the CLI uses that session
+to create a regular API token in your name (the same kind as Admin > Auth Tokens) that
+expires after DAYS days, and stores it instead of the web session token. You are not asked
+to sign in again until it expires, even after the web session ends. It shows as mode
+`remembered`. The agent's sign-in window has the same option, "Stay signed in for 30
+days", which is on by default.
+
+The token carries your privileges and the tenant you signed in to. OneVizion has no API to
+revoke it, so `ov logout` only forgets it locally. Deactivate it in Admin > Auth Tokens
+(named `ov-cli <date>`) if you need it gone sooner. If your account may not create API
+tokens, sign-in stops with that message: sign in without `--remember` instead.
+
 ### More than one system
 
 Sign in to as many instances as you like. Each is stored separately, named after the

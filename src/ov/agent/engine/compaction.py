@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-COMPACT_SHARE = 0.85
+AUTO_COMPACT_PERCENT = 90
+COMPACT_SHARE = AUTO_COMPACT_PERCENT / 100
 KEEP_RECENT_SHARE = 0.2
 CHARS_PER_TOKEN = 4
 IMAGE_TOKENS = 1500
@@ -35,8 +36,8 @@ Keep identifiers, numbers, SQL and file paths exact. Do not invent anything. Rep
 only."""
 
 
-def compact_at(window: int | None, limit: int) -> int:
-    return int(min(window or limit, limit) * COMPACT_SHARE)
+def compact_at(limit: int) -> int:
+    return int(limit * COMPACT_SHARE)
 
 
 def estimate_tokens(messages: list[dict[str, Any]]) -> int:

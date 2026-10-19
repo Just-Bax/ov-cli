@@ -1,5 +1,6 @@
 import {
   SignOut as ArrowRightStartOnRectangleIcon,
+  CaretDown as CaretDownIcon,
   Check as CheckIcon,
   CopySimple as CopyIcon,
   Folder as FolderIcon,
@@ -81,13 +82,6 @@ function Section({
 }
 
 const STEP_LIMITS = [40, 80, 150, 300]
-const MODEL_WINDOW = 0
-const COMPACT_WINDOWS = [
-  { value: 100_000, label: '100K', title: 'Cheapest and quickest; summarizes often' },
-  { value: 200_000, label: '200K', title: 'Recommended balance of memory, speed and cost' },
-  { value: 400_000, label: '400K', title: 'Keeps more history; each step costs more' },
-  { value: MODEL_WINDOW, label: 'Model max', title: 'Only when the model runs out of room' },
-]
 const NOTIFY_HINT =
   'A desktop notification when a thread needs your answer, finishes or fails while you are looking elsewhere.'
 const BLOCKED_HINT =
@@ -111,8 +105,30 @@ function reasoningHint(levels: ReasoningLevel[] | undefined, wanted: ReasoningLe
   return base
 }
 
-function modelOption(m: ModelInfo) {
-  return { value: m.id, label: m.name }
+const MODEL_FIELD = 'w-[260px]'
+
+function ModelSelect({
+  models,
+  value,
+  placeholder,
+  onChange,
+}: {
+  models: ModelInfo[] | undefined
+  value: string
+  placeholder: string
+  onChange: (value: string) => void
+}) {
+  if (!models) return <Skeleton className={cn(MODEL_FIELD, 'h-9 rounded-full')} />
+
+  return (
+    <Select
+      className={MODEL_FIELD}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      options={models.map((m) => ({ value: m.id, label: m.name }))}
+    />
+  )
 }
 
 function Row({
@@ -138,6 +154,7 @@ function Row({
 function Preferences({ status, onChange }: { status?: Status; onChange: () => void }) {
   const { settings, update } = useSettings()
   const models = useModels(settings.provider)
+  const [advanced, setAdvanced] = useState(false)
 
   const pickProvider = (provider: Provider) => {
     update({ provider }).then(onChange, reportError)
@@ -165,18 +182,17 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
         </div>
       ) : null}
       <Row title="Main model" hint="Used for every new thread.">
-        <Select
-          className="w-[260px]"
+        <ModelSelect
+          models={models}
           value={settings.defaultModel}
+          placeholder="Pick a model"
           onChange={(v) => void update({ defaultModel: v })}
-          placeholder={models.length ? 'Pick a model' : 'Loading models...'}
-          options={models.map(modelOption)}
         />
       </Row>
       <Row
         title="Reasoning"
         hint={reasoningHint(
-          models.find((m) => m.id === settings.defaultModel)?.reasoning,
+          models?.find((m) => m.id === settings.defaultModel)?.reasoning,
           settings.reasoning,
         )}
       >
@@ -191,55 +207,11 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
         title="Fast model"
         hint="Writes thread titles, drives the browser and checks every command and change before it runs. Pick a quick, cheap model such as Haiku."
       >
-        <Select
-          className="w-[260px]"
+        <ModelSelect
+          models={models}
           value={settings.fastModel}
+          placeholder="Pick a fast model"
           onChange={(v) => void update({ fastModel: v })}
-          placeholder={models.length ? 'Pick a fast model' : 'Loading models...'}
-          options={models.map(modelOption)}
-        />
-      </Row>
-      <Row
-        title="Follow-up behavior"
-        hint="What Enter does while the agent works. Ctrl+Enter does the other one."
-      >
-        <Segmented
-          label="Follow-up behavior"
-          value={settings.followUp}
-          options={[
-            { value: 'queue', label: 'Queue', title: 'Sent as its own turn after the current one' },
-            {
-              value: 'steer',
-              label: 'Steer',
-              title: 'Picked up at the next step of the current turn',
-            },
-          ]}
-          onChange={(v) => void update({ followUp: v })}
-        />
-      </Row>
-      <Row
-        title="Step limit"
-        hint="How many tool steps a thread may take before it stops. Big investigations need more."
-      >
-        <Segmented
-          label="Step limit"
-          value={settings.maxSteps}
-          options={(STEP_LIMITS.includes(settings.maxSteps)
-            ? STEP_LIMITS
-            : [...STEP_LIMITS, settings.maxSteps].sort((a, b) => a - b)
-          ).map((n) => ({ value: n, label: n }))}
-          onChange={(v) => void update({ maxSteps: v })}
-        />
-      </Row>
-      <Row
-        title="Compact context at"
-        hint="When a thread's history reaches this size, older turns are summarized so the agent keeps working without paying to resend everything. You can also compact any thread from its menu."
-      >
-        <Segmented
-          label="Compact context at"
-          value={settings.compactWindow ?? MODEL_WINDOW}
-          options={COMPACT_WINDOWS}
-          onChange={(v) => void update({ compactWindow: v === MODEL_WINDOW ? null : v })}
         />
       </Row>
       <Row title="Desktop notifications" hint={notificationsBlocked() ? BLOCKED_HINT : NOTIFY_HINT}>
@@ -259,16 +231,35 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
           label="Tab badge"
         />
       </Row>
-      <Row
-        title="Show every step"
-        hint="List every step the agent took in each turn instead of a one-line summary. Click a step to see its SQL or API call."
-      >
-        <Switch
-          on={settings.expandTools}
-          onChange={() => void update({ expandTools: !settings.expandTools })}
-          label="Show every step"
-        />
-      </Row>
+      <div>
+        <button
+          type="button"
+          aria-expanded={advanced}
+          onClick={() => setAdvanced((v) => !v)}
+          className="text-muted hover:text-fg flex w-full items-center gap-1.5 px-5 py-3 text-[12.5px] font-medium transition-colors"
+        >
+          Advanced
+          <CaretDownIcon className={cn('size-3 transition-transform', advanced && 'rotate-180')} />
+        </button>
+        {advanced ? (
+          <div className="border-line border-t">
+            <Row
+              title="Step limit"
+              hint="How many tool steps a thread may take before it stops. Big investigations need more."
+            >
+              <Segmented
+                label="Step limit"
+                value={settings.maxSteps}
+                options={(STEP_LIMITS.includes(settings.maxSteps)
+                  ? STEP_LIMITS
+                  : [...STEP_LIMITS, settings.maxSteps].sort((a, b) => a - b)
+                ).map((n) => ({ value: n, label: n }))}
+                onChange={(v) => void update({ maxSteps: v })}
+              />
+            </Row>
+          </div>
+        ) : null}
+      </div>
     </Card>
   )
 }

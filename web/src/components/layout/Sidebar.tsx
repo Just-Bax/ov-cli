@@ -283,7 +283,7 @@ function RailRun({ run, active, reveal }: { run: RunSummary; active: boolean; re
     >
       <span
         className={cn(
-          'flex size-8 items-center justify-center rounded-full text-[11px] font-semibold tracking-tight transition-colors',
+          'flex size-7 items-center justify-center rounded-full text-[10.5px] font-semibold tracking-tight transition-colors',
           active
             ? 'bg-brand text-white'
             : 'bg-raised text-text group-hover/rail:bg-brand-soft group-hover/rail:text-brand-strong',
@@ -292,11 +292,11 @@ function RailRun({ run, active, reveal }: { run: RunSummary; active: boolean; re
         {initials(run.title)}
       </span>
       {busy || signal ? (
-        <span className="absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full bg-white">
+        <span className="absolute right-0 bottom-0 flex size-3.5 items-center justify-center rounded-full bg-white">
           {busy ? (
             <PulseDot className="size-2" />
           ) : signal ? (
-            <signal.icon weight="bold" className={cn('size-3', signal.tone)} />
+            <signal.icon weight="bold" className={cn('size-2.5', signal.tone)} />
           ) : null}
         </span>
       ) : null}
@@ -392,7 +392,7 @@ function NavRow({
       className={cn(
         'group/rail relative flex items-center text-[13px] font-medium transition-colors',
         collapsed
-          ? cn('mx-auto size-11 justify-center rounded-xl', !active && 'hover:bg-raised')
+          ? cn('mx-auto size-9 justify-center rounded-full', !active && 'hover:bg-canvas')
           : cn(
               'h-9 w-full gap-3 rounded-full pr-3 pl-3',
               active ? 'text-brand-strong' : 'text-text hover:bg-canvas hover:text-brand-strong',
@@ -693,14 +693,8 @@ export function Sidebar({
             </>
           )}
         </div>
-        <nav
-          ref={nav}
-          className={cn('relative shrink-0 px-3 pb-2', collapsed ? 'space-y-1.5' : 'space-y-0.5')}
-        >
-          <SlideIndicator
-            indicator={navIndicator}
-            className={cn('bg-brand-soft', collapsed ? 'rounded-xl' : 'rounded-full')}
-          />
+        <nav ref={nav} className="relative shrink-0 space-y-0.5 px-3 pb-2">
+          <SlideIndicator indicator={navIndicator} className="bg-brand-soft rounded-full" />
           {collapsed ? (
             <NavRow
               icon={SearchIcon}
@@ -722,7 +716,7 @@ export function Sidebar({
 
         {collapsed ? (
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="border-line-strong/60 mt-1 min-h-0 flex-1 scrollbar-thin space-y-1.5 overflow-y-auto border-t px-2 pt-3 pb-3">
+            <div className="border-line-strong/60 mt-1 min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto border-t px-2 pt-3 pb-3">
               {active.slice(0, RAIL_RUNS).map((r, i) => (
                 <RailRun key={r.id} run={r} active={isOpen(r.id)} reveal={reveal(i)} />
               ))}
@@ -842,7 +836,7 @@ export function Sidebar({
               onMouseEnter={settingsTip.show}
               onMouseLeave={settingsTip.hide}
               className={cn(
-                'relative flex size-11 items-center justify-center rounded-full transition-colors',
+                'relative flex size-10 items-center justify-center rounded-full transition-colors',
                 onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
               )}
             >

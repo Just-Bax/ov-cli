@@ -17,6 +17,7 @@ from claude_agent_sdk import (
     tool,
 )
 
+from ov.agent.engine import compaction
 from ov.agent.engine.prompt import system_prompt
 from ov.agent.integrations import claude
 from ov.agent.storage import db
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 REPLAY_PROMPTS = {"replay-user-messages": None}
 ERROR_PREFIX = "Error:"
 DATA_URL_PREFIX = "data:"
-COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+AUTO_COMPACT_ENV = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
 COMPACT_COMMAND = "/compact"
 COMPACTING = "compacting"
 COMPACT_SUCCESS = "success"
@@ -107,8 +108,7 @@ def _options(run: Run) -> tuple[Any, str, dict[str, Any] | None]:
     options.include_partial_messages = True
     options.max_turns = int(preferences["maxSteps"])
     options.extra_args = dict(REPLAY_PROMPTS)
-    if preferences["compactWindow"]:
-        options.env = {COMPACT_WINDOW_ENV: str(preferences["compactWindow"])}
+    options.env = {AUTO_COMPACT_ENV: str(compaction.AUTO_COMPACT_PERCENT)}
 
     fork = run.take_claude_fork()
     current = run.state["claude"]["session"]

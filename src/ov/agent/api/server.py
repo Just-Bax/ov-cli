@@ -411,7 +411,7 @@ def login_instance(h: Handler) -> dict[str, Any]:
     if token and tenant:
         raise HttpError(400, "An API token is tied to its own tenant; leave the tenant out.")
 
-    result = login(url, tenant, token, _screen_size(data))
+    result = login(url, tenant, token, _screen_size(data), bool(data.get("remember")))
     return {"ok": result.code == 0, "message": result.message[-LOGIN_MESSAGE_CHARS:]}
 
 
@@ -572,6 +572,19 @@ def datadog_matches(h: Handler) -> dict[str, Any]:
     if not isinstance(matches, dict):
         raise HttpError(400, "Give matches as an object of instance alias to Datadog filter.")
     return datadog.save_matches({str(k): str(v) for k, v in matches.items()})
+
+
+@route("GET", "/api/datadog/databases")
+def datadog_databases(_: Handler) -> dict[str, Any]:
+    return {"databases": datadog.database_catalog()}
+
+
+@route("PUT", "/api/datadog/databases")
+def datadog_pick_databases(h: Handler) -> dict[str, Any]:
+    databases = h.json().get("databases")
+    if not isinstance(databases, dict) or not all(isinstance(v, list) for v in databases.values()):
+        raise HttpError(400, "Give databases as an object of instance alias to a list of database ids.")
+    return datadog.save_databases({str(k): [str(i) for i in v] for k, v in databases.items()})
 
 
 def _failed_runs(alias: str, start: int, end: int) -> dict[str, Any]:
@@ -952,7 +965,7 @@ def run_login(h: Handler, run_id: str) -> dict[str, Any]:
     run = _run(run_id)
     login_id = _required(data, "loginId")
     token = str(data.get("token") or "").strip()
-    return run.login(login_id, bool(data.get("skip")), token, _screen_size(data))
+    return run.login(login_id, bool(data.get("skip")), token, _screen_size(data), bool(data.get("remember")))
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/message")

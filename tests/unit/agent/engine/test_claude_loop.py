@@ -279,13 +279,12 @@ def _compacted(trigger: str) -> list[SystemMessage]:
     ]
 
 
-def test_claude_compacts_at_the_chosen_window_and_shows_it_in_the_thread(claude_thread):
-    db.save_preferences({"compactWindow": 200_000})
+def test_claude_compacts_at_ninety_percent_and_shows_it_in_the_thread(claude_thread):
     FakeClient.replies = [[*_compacted("auto"), *_text_events("Carrying on."), _result()]]
     run = _start("a long investigation")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
 
-    assert FakeClient.sessions[0].env == {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000"}
+    assert FakeClient.sessions[0].env == {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "90"}
     [compacted] = run.state["compactions"]
     assert compacted["status"] == "done" and compacted["trigger"] == "auto"
     assert (compacted["before"], compacted["after"]) == (170_000, 9_000)
@@ -316,10 +315,3 @@ def test_a_thread_without_a_session_has_nothing_to_compact(claude_thread):
     run.state["claude"]["session"] = None
     with pytest.raises(RunError, match="nothing to compact"):
         run.compact()
-
-
-def test_the_model_window_leaves_claude_code_to_pick_when_to_compact(claude_thread):
-    FakeClient.replies = [[_result()]]
-    run = _start("first")
-    _wait_for(lambda: run.state["summary"]["status"] == "done")
-    assert FakeClient.sessions[0].env == {}

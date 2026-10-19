@@ -614,7 +614,12 @@ class Run:
         return waiter[1][0]
 
     def login(
-        self, login_id: str, skip: bool, token: str = "", screen: tuple[int, int] | None = None
+        self,
+        login_id: str,
+        skip: bool,
+        token: str = "",
+        screen: tuple[int, int] | None = None,
+        remember: bool = False,
     ) -> dict[str, Any]:
         prompt = next((item for item in self.state["logins"] if item["id"] == login_id), None)
         if prompt is None:
@@ -626,7 +631,7 @@ class Run:
 
         self.emit({"type": "login", "login": {**prompt, "state": "running"}})
 
-        result = ov_login(prompt["url"], prompt.get("tenant") or "", token, screen)
+        result = ov_login(prompt["url"], prompt.get("tenant") or "", token, screen, remember)
         ok = result.code == 0
         message = "" if ok else result.message[-LOGIN_MESSAGE_CHARS:] or "Sign-in failed."
         update = {**prompt, "state": "done" if ok else "failed"}
@@ -1376,7 +1381,7 @@ class Run:
             self.emit({"type": "compact", "compact": {**entry, "status": "error", "error": error}})
 
     def _copilot_compact_at(self, model: str) -> int:
-        return compaction.compact_at(db.get_preferences()["compactWindow"], copilot.prompt_limit(model))
+        return compaction.compact_at(copilot.prompt_limit(model))
 
     def _summarize(self, model: str, trigger: str) -> None:
         threshold = self._copilot_compact_at(model)

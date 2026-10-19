@@ -180,7 +180,10 @@ class _Feed:
         self._acks.clear()
         cdp = context.new_cdp_session(page)
         cdp.on("Page.screencastFrame", self._on_frame)
-        cdp.send("Page.startScreencast", {"format": "jpeg", "quality": JPEG_QUALITY})
+        cdp.send(
+            "Page.startScreencast",
+            {"format": "jpeg", "quality": JPEG_QUALITY, "maxWidth": MAX_WIDTH, "maxHeight": MAX_HEIGHT},
+        )
         return cdp
 
     def _on_frame(self, event: dict[str, Any]) -> None:
@@ -194,12 +197,14 @@ class _Feed:
         }
 
     def flush(self, cdp: Any) -> None:
+        if self._latest is None or time.monotonic() - self._shown_at < FRAME_INTERVAL_SECONDS:
+            return
+
+        self._publish(self._latest)
+        self._latest = None
+        self._shown_at = time.monotonic()
         while self._acks:
             cdp.send("Page.screencastFrameAck", {"sessionId": self._acks.pop(0)})
-        if self._latest is not None and time.monotonic() - self._shown_at >= FRAME_INTERVAL_SECONDS:
-            self._publish(self._latest)
-            self._latest = None
-            self._shown_at = time.monotonic()
 
 
 def _number(event: dict[str, Any], key: str, kind: type = float) -> Any:

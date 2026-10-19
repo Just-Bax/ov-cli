@@ -7,6 +7,7 @@ import type {
   CostRange,
   CostReport,
   RunCost,
+  DatadogDatabase,
   DatadogDiscovery,
   DatadogStatus,
   GraphStatus,
@@ -99,7 +100,15 @@ export const api = {
     tenant?: string,
     token?: string,
     screen?: { width: number; height: number },
-  ) => post<{ ok: boolean; message: string }>('/instances/login', { url, tenant, token, screen }),
+    remember?: boolean,
+  ) =>
+    post<{ ok: boolean; message: string }>('/instances/login', {
+      url,
+      tenant,
+      token,
+      screen,
+      remember,
+    }),
   cancelSignIn: (url: string, tenant?: string) =>
     post(`/signin/cancel?${signInQuery(url, tenant)}`),
   signInInput: (url: string, tenant: string | undefined, events: unknown[]) =>
@@ -114,6 +123,9 @@ export const api = {
   datadogDiscover: () => request<DatadogDiscovery>('/datadog/discover'),
   datadogMatches: (matches: Record<string, string>) =>
     put<DatadogStatus>('/datadog/matches', { matches }),
+  datadogDatabases: () => request<{ databases: DatadogDatabase[] }>('/datadog/databases'),
+  datadogPickDatabases: (databases: Record<string, string[]>) =>
+    put<DatadogStatus>('/datadog/databases', { databases }),
   pagerduty: () => request<PagerDutyStatus>('/pagerduty'),
   pagerdutyConnect: (account: string, apiKey: string) =>
     post<PagerDutyStatus>('/pagerduty/connect', { account, apiKey }),
@@ -186,7 +198,12 @@ export const api = {
   login: (
     id: string,
     loginId: string,
-    options: { skip?: boolean; token?: string; screen?: { width: number; height: number } } = {},
+    options: {
+      skip?: boolean
+      token?: string
+      screen?: { width: number; height: number }
+      remember?: boolean
+    } = {},
   ) => post<{ ok: boolean; message: string }>(`/runs/${id}/login`, { loginId, ...options }),
   message: (id: string, text: string, files: Upload[], mode: FollowUp) =>
     post(`/runs/${id}/message`, { text, files, mode }),

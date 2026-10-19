@@ -355,11 +355,8 @@ export interface Settings {
   workspaceNotes: string
   maxSteps: number
   reasoning: ReasoningLevel | ''
-  followUp: FollowUp
-  expandTools: boolean
   notify: boolean
   tabBadge: boolean
-  compactWindow: number | null
 }
 
 export interface SkillInfo {
@@ -395,7 +392,7 @@ export interface Instance {
   current: boolean
   expires?: string
   valid: boolean
-  mode: 'session' | 'token'
+  mode: 'session' | 'token' | 'remembered'
 }
 
 export interface Status {
@@ -491,8 +488,15 @@ export interface DatadogStatus {
   checkedAt?: number | null
   error?: string | null
   matches: Record<string, string>
+  databases: Record<string, string[]>
   sites: { id: string; app: string }[]
   scopes: string[]
+}
+
+export interface DatadogDatabase {
+  id: string
+  engine: string
+  endpoint: string
 }
 
 export interface DatadogDiscovery {
@@ -519,13 +523,13 @@ export type HealthDatabaseMetricKey =
   | 'connections'
   | 'readLatency'
   | 'writeLatency'
+  | 'activeSessions'
+  | 'responseTime'
   | 'sessions'
   | 'tablespace'
 
-interface HealthDatabase {
-  id: string
-  engine: string
-  endpoint: string
+interface HealthDatabase extends DatadogDatabase {
+  shared: boolean
   metrics: Partial<Record<HealthDatabaseMetricKey, HealthServerMetric>>
 }
 

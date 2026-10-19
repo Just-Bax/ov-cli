@@ -41,7 +41,6 @@ import { inCodeEditor } from '@/lib/dom'
 import { usePresence, useWindowEvent } from '@/lib/hooks'
 import { layerOpen } from '@/lib/layers'
 import { allRuns, useRuns, WORKING } from '@/lib/runs'
-import { useSettings } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
 import { ChangeCard } from './ChangeCard'
 import { CompactionNote, ContextMeter } from './Context'
@@ -357,9 +356,7 @@ function Footer({
   const [error, setError] = useState<string>()
   const [editing, setEditing] = useState<ChatMessage>()
   const [draft, setDraft] = useState<{ text: string; at: number }>()
-  const { settings } = useSettings()
-  const other: FollowUp = settings.followUp === 'queue' ? 'steer' : 'queue'
-  const modeFor = (alternate: boolean) => (alternate ? other : settings.followUp)
+  const modeFor = (alternate: boolean): FollowUp => (alternate ? 'steer' : 'queue')
   const runKey = `run-${runId}`
   const editKey = editing ? `queued-${editing.id}` : runKey
 
@@ -461,7 +458,7 @@ function Footer({
                 editing
                   ? 'Edit the queued message. Enter saves, Escape cancels'
                   : busy
-                    ? `${FOLLOW_UP_HINT[settings.followUp]}. Ctrl+Enter to ${other}`
+                    ? `${FOLLOW_UP_HINT.queue}. Ctrl+Enter to steer`
                     : 'Ask a follow-up or give direction'
               }
               busyAction={(alternate) => {

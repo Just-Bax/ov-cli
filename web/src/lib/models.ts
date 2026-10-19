@@ -15,12 +15,12 @@ export function loadModels(provider: Provider): Promise<ModelInfo[]> {
   return loading
 }
 
-export function useModels(provider: Provider): ModelInfo[] {
-  const [models, setModels] = useState<ModelInfo[]>([])
+export function useModels(provider: Provider): ModelInfo[] | undefined {
+  const [models, setModels] = useState<ModelInfo[]>()
 
   useEffect(() => {
     let stale = false
-    setModels([])
+    setModels(undefined)
     loadModels(provider).then(
       (found) => !stale && setModels(found),
       (e: unknown) => reportError(e),
@@ -34,6 +34,6 @@ export function useModels(provider: Provider): ModelInfo[] {
   return models
 }
 
-export function modelName(models: ModelInfo[], id: string): string {
-  return models.find((m) => m.id === id)?.name ?? id
+export function modelName(models: ModelInfo[] | undefined, id: string): string {
+  return models?.find((m) => m.id === id)?.name ?? id
 }

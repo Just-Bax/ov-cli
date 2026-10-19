@@ -20,6 +20,7 @@ CLOSED_ITSELF = "The browser closed by itself."
 
 _sessions = itertools.count(1)
 _steps = itertools.count(1)
+_stage = {"width": BROWSER_WIDTH, "height": BROWSER_HEIGHT}
 
 
 def browser_key(run_id: str) -> Key:
@@ -65,7 +66,7 @@ class BrowserSlot:
             return current.pilot
 
         self.close()
-        screen = open_screen(self._key, BROWSER_WIDTH, BROWSER_HEIGHT)
+        screen = open_screen(self._key, _stage["width"], _stage["height"])
         try:
             pilot = Pilot(base_url, cookies, screen.port, (screen.width, screen.height), self)
         except BrowserError:
@@ -116,7 +117,8 @@ class BrowserSlot:
         self.pilot().close_tab(index)
 
     def resize(self, width: int, height: int) -> None:
-        self.pilot().resize(_clamp(width, MAX_WIDTH), _clamp(height, MAX_HEIGHT))
+        _stage.update(width=_clamp(width, MAX_WIDTH), height=_clamp(height, MAX_HEIGHT))
+        self.pilot().resize(_stage["width"], _stage["height"])
 
     def close(self) -> None:
         current = self._take(None)

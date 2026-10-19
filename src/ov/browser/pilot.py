@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol, TypeVar
 from urllib.parse import urlsplit
 
-from playwright.sync_api import BrowserContext, Frame, Locator, Page, Route, sync_playwright
+from playwright.sync_api import BrowserContext, CDPSession, Frame, Locator, Page, sync_playwright
 from playwright.sync_api import Dialog as PageDialog
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
@@ -43,7 +43,7 @@ SNAPSHOT_MODE = "ai"
 LOADED = "complete"
 REF_PATTERN = re.compile(r"\[ref=(\w+)\]")
 STAY_PUT_STATUS = 204
-EVERY_REQUEST = "**/*"
+PAGE_REQUESTS = [{"urlPattern": "*", "resourceType": "Document", "requestStage": "Request"}]
 PROMPT = "prompt"
 NOT_INSTALLED = "The browser is not installed. Run: ov setup"
 CLOSED = "The browser has closed."
@@ -64,6 +64,8 @@ MODIFIERS = ("Alt", "Control", "Meta", "Shift")
 
 T = TypeVar("T")
 Notify = Callable[[dict[str, Any]], None]
+Allows = Callable[[str], bool]
+Frames = tuple[Page, tuple[str, ...]]
 
 
 class Owner(Protocol):
@@ -226,18 +228,21 @@ class _Dialogs:
 
 
 class Driver:
-    def __init__(self, context: BrowserContext, hostname: str, size: dict[str, int], dialogs: _Dialogs) -> None:
+    def __init__(
+        self, context: BrowserContext, hostname: str, size: dict[str, int], dialogs: _Dialogs, allows: Allows
+    ) -> None:
         self._context = context
         self._hostname = hostname
         self._size = dict(size)
         self._dialogs = dialogs
+        self._allows = allows
         self._refs: set[str] = set()
         self._tabs: list[Page] = []
         self._active: Page | None = None
-        self._fresh: list[Page] = []
         self._targets: dict[Page, str] = {}
         self.changed = True
 
+        self._fence()
         context.on("page", self._track)
 
         for page in context.pages:
@@ -249,21 +254,37 @@ class Driver:
             self._context.new_page()
         if self._active is None:
             raise BrowserError(CLOSED)
-
-        for fresh in self._fresh:
-            if not fresh.is_closed():
-                fresh.set_viewport_size(self._size)
-        self._fresh = []
         return self._active
 
     def _track(self, page: Page) -> None:
+        session = self._context.new_cdp_session(page)
+        self._targets[page] = session.send("Target.getTargetInfo")["targetInfo"]["targetId"]
+        session.detach()
+
         self._tabs.append(page)
-        self._fresh.append(page)
         self._active = page
         self.changed = True
         page.on("close", self._forget)
         page.on("load", self._loaded)
         page.on("dialog", self._dialogs.hold)
+        if page.viewport_size != self._size:
+            page.set_viewport_size(self._size)
+
+    def _fence(self) -> None:
+        browser = self._context.browser
+        if browser is None:
+            raise BrowserError("The browser has no control session to keep pages on the instance.")
+
+        session = browser.new_browser_cdp_session()
+        session.on("Fetch.requestPaused", lambda event: self._paused(session, event))
+        session.send("Fetch.enable", {"patterns": PAGE_REQUESTS})
+
+    def _paused(self, session: CDPSession, event: dict[str, Any]) -> None:
+        request = event["requestId"]
+        if self._allows(event["request"]["url"]):
+            session.send("Fetch.continueRequest", {"requestId": request})
+        else:
+            session.send("Fetch.fulfillRequest", {"requestId": request, "responseCode": STAY_PUT_STATUS})
 
     def _loaded(self, _: Page) -> None:
         self.changed = True
@@ -303,12 +324,7 @@ class Driver:
         self._tab(index).close()
 
     def active_target(self) -> str:
-        page = self.page
-        if page not in self._targets:
-            session = self._context.new_cdp_session(page)
-            self._targets[page] = session.send("Target.getTargetInfo")["targetInfo"]["targetId"]
-            session.detach()
-        return self._targets[page]
+        return self._targets[self.page]
 
     def add_cookies(self, cookies: dict[str, str]) -> None:
         self._context.add_cookies(
@@ -317,7 +333,7 @@ class Driver:
 
     def goto(self, url: str) -> None:
         try:
-            self.page.goto(url, wait_until="load", timeout=NAV_TIMEOUT_MS)
+            self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
         except PlaywrightTimeout:
             raise BrowserError(SLOW_PAGE.format(url=url, seconds=NAV_TIMEOUT_MS // MS_PER_SECOND)) from None
         self._refs = set()
@@ -349,8 +365,9 @@ class Driver:
         page.wait_for_load_state("load", timeout=NAV_TIMEOUT_MS)
         return page.aria_snapshot(mode=SNAPSHOT_MODE, timeout=SNAPSHOT_TIMEOUT_MS)
 
-    def _urls(self) -> tuple[str, ...]:
-        return tuple(f.url for f in self.page.frames if not f.is_detached())
+    def _frames(self) -> Frames:
+        page = self.page
+        return page, tuple(f.url for f in page.frames if not f.is_detached())
 
     def _ref_locator(self, ref: str) -> Locator:
         if ref not in self._refs:
@@ -420,7 +437,7 @@ class Driver:
         return Point(size["width"] // 2, size["height"] // 2)
 
     def move(self, target: Target, point: Point) -> None:
-        before = self._urls()
+        before = self._frames()
         if target.point is None:
             self._locator(target).hover(timeout=CLICK_TIMEOUT_MS)
         else:
@@ -428,7 +445,7 @@ class Driver:
         self._after(before)
 
     def click(self, target: Target, point: Point, button: str, count: int, modifiers: list[str]) -> None:
-        before = self._urls()
+        before = self._frames()
         self._click(target, point, button, count, modifiers)
         self._after(before)
 
@@ -449,7 +466,7 @@ class Driver:
 
     def press_mouse(self, point: Point, button: str, down: bool) -> None:
         page = self.page
-        before = self._urls()
+        before = self._frames()
         page.mouse.move(point.x, point.y, steps=MOVE_STEPS)
         if down:
             page.mouse.down(button=button)
@@ -460,7 +477,7 @@ class Driver:
 
     def drag(self, start: Point, end: Point) -> None:
         page = self.page
-        before = self._urls()
+        before = self._frames()
         page.mouse.move(start.x, start.y, steps=MOVE_STEPS)
         page.mouse.down()
         page.mouse.move(end.x, end.y, steps=DRAG_STEPS)
@@ -476,7 +493,7 @@ class Driver:
 
     def type(self, target: Target | None, point: Point | None, text: str, clear: bool) -> None:
         page = self.page
-        before = self._urls()
+        before = self._frames()
         if target is not None and point is not None:
             self._click(target, point, BUTTONS[0], 1, [])
 
@@ -488,12 +505,12 @@ class Driver:
         self._after(before)
 
     def press(self, key: str) -> None:
-        before = self._urls()
+        before = self._frames()
         self.page.keyboard.press(key)
         self._after(before)
 
     def select(self, target: Target, option: str) -> None:
-        before = self._urls()
+        before = self._frames()
         try:
             self._locator(target).select_option(label=option, timeout=CLICK_TIMEOUT_MS)
         except PlaywrightError as exc:
@@ -534,7 +551,11 @@ class Driver:
         return page.title(), page.url
 
     def resize(self, width: int, height: int) -> None:
-        self._size = {"width": width, "height": height}
+        size = {"width": width, "height": height}
+        if size == self._size:
+            return
+
+        self._size = size
         for page in self._tabs:
             if not page.is_closed():
                 page.set_viewport_size(self._size)
@@ -543,12 +564,16 @@ class Driver:
         self.page.wait_for_timeout(IDLE_LOOP_MS)
 
     def after_dialog(self) -> None:
-        self._after(self._urls())
+        self._after(self._frames())
 
-    def _after(self, before: tuple[str, ...]) -> None:
-        self.page.wait_for_timeout(ACTION_PAUSE_MS)
-        for frame in self.page.frames:
-            if not frame.is_detached() and frame.url not in before:
+    def _after(self, before: Frames) -> None:
+        page, urls = before
+        page.wait_for_timeout(ACTION_PAUSE_MS)
+        if page.is_closed():
+            return
+
+        for frame in page.frames:
+            if not frame.is_detached() and frame.url not in urls:
                 frame.wait_for_load_state("domcontentloaded", timeout=NAV_TIMEOUT_MS)
 
 
@@ -729,8 +754,7 @@ class Pilot:
 
                 context.set_default_timeout(ACTION_TIMEOUT_MS)
                 context.add_init_script(PICKER_SCRIPT)
-                context.route(EVERY_REQUEST, self._fence)
-                driver = Driver(context, self._hostname, self._size, self._dialogs)
+                driver = Driver(context, self._hostname, self._size, self._dialogs, self._allows)
                 if self._cookies:
                     driver.add_cookies(self._cookies)
 
@@ -787,10 +811,8 @@ class Pilot:
                 job.error = BrowserError(self._failure or CLOSED)
                 job.done.set()
 
-    def _fence(self, route: Route) -> None:
-        request = route.request
-        if request.is_navigation_request() and not self.on_host(request.url):
-            self._blocked.append(request.url)
-            route.fulfill(status=STAY_PUT_STATUS)
-            return
-        route.continue_()
+    def _allows(self, url: str) -> bool:
+        if self.on_host(url):
+            return True
+        self._blocked.append(url)
+        return False

@@ -45,7 +45,6 @@ import { CopyButton, type Icon, Shimmer, Skeleton } from '@/components/common/ui
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { prefetch, take } from '@/lib/prefetch'
-import { useSettings } from '@/lib/settings'
 import { seconds } from '@/lib/time'
 
 const ICONS: Record<string, Icon> = {
@@ -411,11 +410,8 @@ export const ToolGroup = memo(function ToolGroup({
     (t) => t.status === 'running' && t.backgroundedAt !== undefined,
   ).length
   const failed = tools.filter((t) => t.status === 'error').length
-  const { expandTools } = useSettings().settings
-  const [open, setOpen] = useState(expandTools)
+  const [open, setOpen] = useState(false)
   const total = tools.reduce((s, t) => s + (t.ms ?? 0), 0)
-
-  useEffect(() => setOpen(expandTools), [expandTools])
 
   return (
     <div>

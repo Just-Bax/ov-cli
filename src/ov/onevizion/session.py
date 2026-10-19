@@ -15,6 +15,7 @@ REFRESH_MARGIN_SECONDS = 300
 MIN_PLAUSIBLE_TTL = 60
 MAX_PLAUSIBLE_TTL = 7 * 24 * 3600
 ASSUMED_TTL_SECONDS = 900
+STATIC_MODES = ("token", "remembered")
 
 _UNSAFE_ALIAS = re.compile(r"[^a-z0-9._-]+")
 
@@ -47,7 +48,7 @@ class Session:
 
     @property
     def is_static(self) -> bool:
-        return self.mode == "token"
+        return self.mode in STATIC_MODES
 
     @property
     def credential_key(self) -> str:
@@ -344,12 +345,15 @@ def clear() -> int:
     return len(sessions)
 
 
-def expiry_to_epoch(text: str) -> float:
+def deadline_of(text: str) -> float:
     try:
-        deadline = datetime.fromisoformat(text.strip()).timestamp()
+        return datetime.fromisoformat(text.strip()).timestamp()
     except ValueError as exc:
         raise OvError(f"Unreadable token expiry: {text!r}") from exc
 
+
+def expiry_to_epoch(text: str) -> float:
+    deadline = deadline_of(text)
     ttl = deadline - time.time()
     if MIN_PLAUSIBLE_TTL <= ttl <= MAX_PLAUSIBLE_TTL:
         return deadline

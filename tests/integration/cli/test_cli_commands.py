@@ -202,3 +202,54 @@ def test_table_renders_an_empty_list_rather_than_failing(capsys, logged_in, serv
     code, out = run(capsys, "request", "GET", "/v3/users", "--table")
     assert code == 0
     assert "no rows" in out
+
+
+def _browser_session(monkeypatch):
+    from ov.onevizion.session import Session
+
+    def signed_in(base_url, **_):
+        return Session(
+            base_url=base_url,
+            cookies={"JSESSIONID": "web"},
+            bearer_token="WEB:SESSION",
+            expires_at=4102444800.0,
+            expires_text="2100-01-01T00:00:00",
+        )
+
+    monkeypatch.setattr("ov.onevizion.login.interactive_login", signed_in)
+
+
+def test_login_remember_swaps_the_session_token_for_a_long_api_token(capsys, ov_home, server, monkeypatch):
+    from ov.onevizion import session as session_store
+
+    _browser_session(monkeypatch)
+    created = {"access_key": "LONG", "secret_key": "LIVED", "expiration_ts": "2100-02-01T00:00:00"}
+    server.route("POST", "/api/v3/auth_token", 201, created)
+
+    code, data = payload(capsys, "login", BASE_URL, "--remember", "30", "--no-spec", "--json")
+    assert code == 0
+    assert data["mode"] == "remembered" and data["access_key"] == "LONG"
+
+    minted = next(r for r in server.requests if r.url.path == "/api/v3/auth_token")
+    assert minted.headers["Authorization"] == "Bearer WEB:SESSION"
+    assert minted.url.params["token_type"] == "API" and minted.url.params["expiration_time"]
+
+    stored = session_store.load()
+    assert stored.is_static and not stored.cookies and stored.bearer_token == "LONG:LIVED"
+    assert stored.expires_text == "2100-02-01T00:00:00"
+    assert stored.seconds_left() > 0
+
+
+def test_login_remember_explains_an_account_that_may_not_create_tokens(capsys, ov_home, server, monkeypatch):
+    _browser_session(monkeypatch)
+    server.route("POST", "/api/v3/auth_token", 403, {"message": "Forbidden"})
+
+    code, data = payload(capsys, "login", BASE_URL, "--remember", "30", "--no-spec", "--json")
+    assert code == 3
+    assert "without --remember" in data["error"]
+
+
+def test_login_remember_needs_a_browser_sign_in(capsys, ov_home, server):
+    code, data = payload(capsys, "login", BASE_URL, "--token", "K:S", "--remember", "30", "--json")
+    assert code == 1
+    assert "browser sign-in" in data["error"]

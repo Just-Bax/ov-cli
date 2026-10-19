@@ -25,6 +25,7 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 DEFAULT_TIMEOUT_SECONDS = 120
 LOGIN_TIMEOUT_SECONDS = 300
 BROWSER_LOGIN_TIMEOUT_SECONDS = 280
+REMEMBER_DAYS = 30
 STOP_GRACE_SECONDS = 10
 TIMEOUT_GRACE_SECONDS = 15
 SIGN_IN_CANCELLED = "Sign-in cancelled."
@@ -133,7 +134,7 @@ def instances() -> list[dict[str, Any]]:
                 "tenant": session.tenant or None,
                 "current": alias == current,
                 "expires": session.expires_text or None,
-                "valid": session.is_static or (left is not None and left > 0),
+                "valid": left > 0 if left is not None else session.is_static,
                 "mode": session.mode,
             }
         )
@@ -163,7 +164,9 @@ _logins: dict[tuple[str, str], tuple[threading.Event, list[OvResult]]] = {}
 _logins_lock = threading.Lock()
 
 
-def login(url: str, tenant: str = "", token: str = "", screen: tuple[int, int] | None = None) -> OvResult:
+def login(
+    url: str, tenant: str = "", token: str = "", screen: tuple[int, int] | None = None, remember: bool = False
+) -> OvResult:
     url = url.strip().rstrip("/")
     tenant = tenant.strip()
     key = screen_key(url, tenant)
@@ -181,7 +184,7 @@ def login(url: str, tenant: str = "", token: str = "", screen: tuple[int, int] |
 
     shown = open_screen(key, *screen) if screen and not token else None
     try:
-        holder.append(_run_login(url, tenant, token, shown))
+        holder.append(_run_login(url, tenant, token, shown, remember and not token))
     finally:
         if shown:
             close_screen(key, shown)
@@ -193,7 +196,7 @@ def login(url: str, tenant: str = "", token: str = "", screen: tuple[int, int] |
     return holder[0]
 
 
-def _run_login(url: str, tenant: str, token: str, shown: Screen | None) -> OvResult:
+def _run_login(url: str, tenant: str, token: str, shown: Screen | None, remember: bool) -> OvResult:
     result = run_ov(
         [
             "login",
@@ -203,6 +206,7 @@ def _run_login(url: str, tenant: str, token: str, shown: Screen | None) -> OvRes
             str(BROWSER_LOGIN_TIMEOUT_SECONDS),
             *(["--tenant", tenant] if tenant else []),
             *(["--token", "-"] if token else []),
+            *(["--remember", str(REMEMBER_DAYS)] if remember else []),
         ],
         timeout=LOGIN_TIMEOUT_SECONDS,
         read_only=False,

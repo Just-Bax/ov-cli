@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { LoginPrompt, Outcome, Verdict } from '@shared/types.ts'
 import { Button, Chip, CopyButton, Markdown, Shimmer, type Tone } from '@/components/common/ui'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/cn'
 import { reportError } from '@/components/common/Toasts'
 import { SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 
@@ -139,36 +140,47 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
     )
   }
 
+  const failed = login.state === 'failed'
+
   return (
-    <div className="border-warn/50 bg-warn-soft/40 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3">
-      <KeyIcon className="text-warn size-4" />
+    <div className="border-line-strong flex flex-wrap items-center gap-3 rounded-2xl border bg-white py-2.5 pr-2.5 pl-3 shadow-[0_1px_4px_rgba(38,50,56,0.05)]">
+      <span
+        className={cn(
+          'flex size-8 shrink-0 items-center justify-center rounded-full',
+          failed ? 'bg-danger-soft text-danger' : 'bg-brand-soft text-brand-strong',
+        )}
+      >
+        <KeyIcon weight="bold" className="size-4" />
+      </span>
       <div className="min-w-0 flex-1">
-        <div className="text-fg flex flex-wrap items-center gap-1.5 text-[13.5px] font-medium">
-          Sign in to {login.instance}
+        <div className="text-text flex min-w-0 items-center gap-1.5 text-[13.5px]">
+          <span className="shrink-0">Sign in to</span>
+          <span className="text-fg truncate font-semibold">{login.instance}</span>
           {login.tenant ? <Chip tone="brand">{login.tenant}</Chip> : null}
         </div>
-        <div className="text-muted text-[12px]">
+        <div className={cn('text-[12px]', failed ? 'text-danger' : 'text-muted')}>
           {login.state === 'running' ? (
-            <Shimmer>Signing in. Open the sign-in window to continue.</Shimmer>
-          ) : login.state === 'failed' ? (
+            <Shimmer tone="brand">Waiting for the sign-in window</Shimmer>
+          ) : failed ? (
             (login.message ?? 'Sign-in failed.')
           ) : login.tenant ? (
-            `Needed to continue. Sign in as usual; ov switches to ${login.tenant} afterwards. Access is read-only.`
+            `The agent needs it to continue. ov switches to ${login.tenant} after you sign in.`
           ) : (
-            'Needed to continue. Access is read-only.'
+            'The agent needs it to continue.'
           )}
         </div>
       </div>
       {login.state === 'running' ? (
         open ? null : (
           <Button variant="ghost" onClick={() => setOpen(true)}>
-            Show
+            Show window
           </Button>
         )
       ) : (
         <>
           <Button
             variant="ghost"
+            className="text-muted"
             onClick={() => void api.login(runId, login.id, { skip: true }).catch(reportError)}
           >
             Skip
@@ -184,7 +196,9 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
         onClose={() => setOpen(false)}
         onStart={() => undefined}
         onFinished={() => undefined}
-        submit={(_, token, screen) => api.login(runId, login.id, { token, screen })}
+        submit={(_, token, screen, remember) =>
+          api.login(runId, login.id, { token, screen, remember })
+        }
       />
     </div>
   )

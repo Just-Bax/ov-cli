@@ -201,12 +201,9 @@ class Preference(Base):
         CheckConstraint("id = 1", name="single_row"),
         one_of("reasoning", Reasoning, nullable=True),
         one_of("provider", Provider),
-        one_of("follow_up", FollowUp),
         CheckConstraint("max_steps BETWEEN 1 AND 500", name="max_steps_valid"),
-        CheckConstraint("expand_tools IN (0, 1)", name="expand_tools_valid"),
         CheckConstraint("notify IN (0, 1)", name="notify_valid"),
         CheckConstraint("tab_badge IN (0, 1)", name="tab_badge_valid"),
-        CheckConstraint("compact_window IS NULL OR compact_window > 0", name="compact_window_valid"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
@@ -215,13 +212,10 @@ class Preference(Base):
     fast_model: Mapped[str | None] = mapped_column(Text)
     reasoning: Mapped[str | None] = mapped_column(Text)
     max_steps: Mapped[int] = mapped_column(Integer)
-    follow_up: Mapped[str] = mapped_column(Text)
     workspace: Mapped[str | None] = mapped_column(Text)
     workspace_notes: Mapped[str | None] = mapped_column(Text)
-    expand_tools: Mapped[bool] = mapped_column(Integer)
     notify: Mapped[bool] = mapped_column(Integer)
     tab_badge: Mapped[bool] = mapped_column(Integer)
-    compact_window: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[int] = mapped_column(Integer)
 
 

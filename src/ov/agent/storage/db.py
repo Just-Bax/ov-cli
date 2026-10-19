@@ -36,7 +36,6 @@ from ov.agent.storage.models import (
     Attachment,
     Event,
     EventType,
-    FollowUp,
     Message,
     Preference,
     Provider,
@@ -63,21 +62,15 @@ PREFERENCE_COLUMNS = {
     "fastModel": "fast_model",
     "reasoning": "reasoning",
     "maxSteps": "max_steps",
-    "followUp": "follow_up",
     "workspace": "workspace",
     "workspaceNotes": "workspace_notes",
-    "expandTools": "expand_tools",
     "notify": "notify",
     "tabBadge": "tab_badge",
-    "compactWindow": "compact_window",
 }
-BOOLEAN_PREFERENCES = ("expandTools", "notify", "tabBadge")
-MIN_COMPACT_WINDOW = 50_000
-MAX_COMPACT_WINDOW = 1_000_000
+BOOLEAN_PREFERENCES = ("notify", "tabBadge")
 TEXT_PREFERENCES = ("defaultModel", "fastModel", "workspace", "workspaceNotes")
 REASONING_LEVELS = tuple(level.value for level in Reasoning)
 PROVIDERS = tuple(provider.value for provider in Provider)
-FOLLOW_UPS = tuple(mode.value for mode in FollowUp)
 NANO_PER_USD = 1_000_000_000
 NANO_PER_CREDIT = 1_000_000_000
 TOP_THREADS = 5
@@ -277,8 +270,6 @@ def _ensure_preferences(conn: Connection) -> None:
     values = {
         "provider": Provider.COPILOT,
         "max_steps": DEFAULT_MAX_STEPS,
-        "follow_up": FollowUp.QUEUE,
-        "expand_tools": False,
         "notify": False,
         "tab_badge": True,
     }
@@ -308,24 +299,12 @@ def _max_steps(value: Any) -> int:
     return min(max(steps, 1), MAX_STEPS_LIMIT)
 
 
-def _compact_window(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or not MIN_COMPACT_WINDOW <= value <= MAX_COMPACT_WINDOW:
-        raise ValueError(
-            f"compactWindow must be null or a number of tokens from {MIN_COMPACT_WINDOW} to {MAX_COMPACT_WINDOW}."
-        )
-    return value
-
-
 def _check_preferences(patch: dict[str, Any]) -> None:
     unknown = set(patch) - set(PREFERENCE_COLUMNS)
     if unknown:
         raise ValueError(f"Unknown settings: {', '.join(sorted(unknown))}.")
     if patch.get("reasoning") and patch["reasoning"] not in REASONING_LEVELS:
         raise ValueError(f"Unknown reasoning level: {patch['reasoning']}")
-    if "followUp" in patch and patch["followUp"] not in FOLLOW_UPS:
-        raise ValueError(f"followUp must be one of {', '.join(FOLLOW_UPS)}.")
     if "provider" in patch and patch["provider"] not in PROVIDERS:
         raise ValueError(f"provider must be one of {', '.join(PROVIDERS)}.")
 
@@ -339,8 +318,6 @@ def _preference_values(patch: dict[str, Any]) -> dict[str, Any]:
     for key in BOOLEAN_PREFERENCES:
         if key in patch:
             values[PREFERENCE_COLUMNS[key]] = bool(patch[key])
-    if "compactWindow" in patch:
-        values["compact_window"] = _compact_window(patch["compactWindow"])
     if "workspace" in patch:
         from ov.agent.workspace import validate_folder
 

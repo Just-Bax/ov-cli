@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ov.cli.context import Context, build_client
@@ -10,7 +11,7 @@ from ov.cli.dynamic import reset_cache
 from ov.cli.output import build_table, emit, note, warn
 from ov.core.cache import Cache
 from ov.core.config import normalize_base_url
-from ov.core.errors import EXIT_AUTH, LoginFailed, NotConfigured, NotLoggedIn, OvError, SessionExpired
+from ov.core.errors import EXIT_AUTH, Forbidden, LoginFailed, NotConfigured, NotLoggedIn, OvError, SessionExpired
 from ov.core.paths import config_file
 from ov.onevizion import session as session_store
 from ov.onevizion.client import Client
@@ -22,50 +23,15 @@ LOGOFF_PATH = "/LogOff.do"
 LOGIN_TIMEOUT_SECONDS = 300
 BEARER_PREFIX = "bearer "
 MS_PER_SECOND = 1000
+AUTH_TOKEN_PATH = "/v3/auth_token"
+AUTH_TOKEN_TYPE = "API"
+AUTH_TOKEN_NAME = "ov-cli"
+AUTH_TOKEN_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
+MAX_REMEMBER_DAYS = 365
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
-    login = subparsers.add_parser("login", parents=[common], help="sign in to a OneVizion instance through a browser")
-    login.add_argument(
-        "url",
-        nargs="?",
-        help="instance URL or hostname, e.g. https://acme.onevizion.com. "
-        "Omit to sign in again to the current instance.",
-    )
-    login.add_argument(
-        "--as",
-        dest="alias",
-        metavar="ALIAS",
-        help="name this instance, instead of the first label of its hostname",
-    )
-    login.add_argument(
-        "--token",
-        help="skip the browser and use an accessKey:secretKey pair from Admin > Auth Tokens; - reads it from stdin",
-    )
-    login.add_argument(
-        "--timeout",
-        type=int,
-        default=LOGIN_TIMEOUT_SECONDS,
-        help=f"seconds to wait for sign-in (default {LOGIN_TIMEOUT_SECONDS})",
-    )
-    login.add_argument("--no-spec", action="store_true", help="do not download the OpenAPI schema after signing in")
-    login.add_argument(
-        "--tenant",
-        metavar="NAME",
-        help="sign in to this tenant instead of your default one (name or pid); "
-        "needs a user with your email address in it",
-    )
-    login.add_argument(
-        "--verbose",
-        action="store_true",
-        help="print every sign-in poll, for diagnosing a login that never completes",
-    )
-    login.add_argument(
-        "--keep-current",
-        action="store_true",
-        help="store the credentials without making this the current instance",
-    )
-    login.set_defaults(func=cmd_login)
+    _register_login(subparsers, common)
 
     logout = subparsers.add_parser("logout", parents=[common], help="revoke the token and forget one instance")
     logout.add_argument("instance_ref", nargs="?", metavar="INSTANCE", help="defaults to current")
@@ -94,10 +60,63 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     use.set_defaults(func=cmd_use)
 
 
+def _register_login(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
+    login = subparsers.add_parser("login", parents=[common], help="sign in to a OneVizion instance through a browser")
+    login.add_argument(
+        "url",
+        nargs="?",
+        help="instance URL or hostname, e.g. https://acme.onevizion.com. "
+        "Omit to sign in again to the current instance.",
+    )
+    login.add_argument(
+        "--as",
+        dest="alias",
+        metavar="ALIAS",
+        help="name this instance, instead of the first label of its hostname",
+    )
+    login.add_argument(
+        "--token",
+        help="skip the browser and use an accessKey:secretKey pair from Admin > Auth Tokens; - reads it from stdin",
+    )
+    login.add_argument(
+        "--timeout",
+        type=int,
+        default=LOGIN_TIMEOUT_SECONDS,
+        help=f"seconds to wait for sign-in (default {LOGIN_TIMEOUT_SECONDS})",
+    )
+    login.add_argument(
+        "--remember",
+        type=int,
+        metavar="DAYS",
+        help="after the browser sign-in, create an API token in your name that lasts DAYS days "
+        "and keep that instead of the short session token",
+    )
+    login.add_argument("--no-spec", action="store_true", help="do not download the OpenAPI schema after signing in")
+    login.add_argument(
+        "--tenant",
+        metavar="NAME",
+        help="sign in to this tenant instead of your default one (name or pid); "
+        "needs a user with your email address in it",
+    )
+    login.add_argument(
+        "--verbose",
+        action="store_true",
+        help="print every sign-in poll, for diagnosing a login that never completes",
+    )
+    login.add_argument(
+        "--keep-current",
+        action="store_true",
+        help="store the credentials without making this the current instance",
+    )
+    login.set_defaults(func=cmd_login)
+
+
 def cmd_login(ctx: Context) -> int:
     args = ctx.args
     current = not args.keep_current
     session = _signed_in_session(ctx)
+    if args.remember is not None:
+        session = _remember(ctx, session, args.remember)
 
     note(ctx, "Checking the credentials...")
     _check_credentials(ctx, session)
@@ -146,6 +165,45 @@ def _signed_in_session(ctx: Context) -> Session:
             client.refresh_token()
 
     return session
+
+
+def _remember(ctx: Context, session: Session, days: int) -> Session:
+    if session.is_static:
+        raise OvError("--remember needs a browser sign-in. An API token already has its own expiry.")
+    if not 1 <= days <= MAX_REMEMBER_DAYS:
+        raise OvError(f"--remember takes 1 to {MAX_REMEMBER_DAYS} days.")
+
+    note(ctx, f"Creating an API token that lasts {days} days...")
+    now = datetime.now(UTC)
+    params = [
+        ("name", f"{AUTH_TOKEN_NAME} {now:%Y-%m-%d %H:%M}"),
+        ("token_type", AUTH_TOKEN_TYPE),
+        ("expiration_time", (now + timedelta(days=days)).strftime(AUTH_TOKEN_TIME_FORMAT)),
+    ]
+    with build_client(ctx.config, session) as client:
+        try:
+            created = client.api("POST", AUTH_TOKEN_PATH, params=params).json()
+        except Forbidden as exc:
+            raise LoginFailed(
+                f"Signed in, but this account may not create API tokens: {exc}. "
+                "Sign in without --remember to keep a session token instead."
+            ) from None
+
+    token = f"{created.get('access_key') or ''}:{created.get('secret_key') or ''}"
+    expires = str(created.get("expiration_ts") or "")
+    if token.startswith(":") or token.endswith(":") or not expires:
+        raise LoginFailed("The instance created a token but did not return its keys and expiry.")
+
+    return Session(
+        base_url=session.base_url,
+        alias=session.alias,
+        mode="remembered",
+        tenant=session.tenant,
+        tenant_id=session.tenant_id,
+        bearer_token=token,
+        expires_text=expires,
+        expires_at=session_store.deadline_of(expires),
+    )
 
 
 def _check_credentials(ctx: Context, session: Session) -> None:

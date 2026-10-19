@@ -142,7 +142,10 @@ def _datadog_monitors(args: dict[str, Any], ctx: ToolContext) -> str:
 
     target = scope or "the org"
     if databases:
-        names = [f"{d['id']} ({d['endpoint']})" if d["endpoint"] else d["id"] for d in databases]
+        names = [
+            (f"{d['id']} ({d['endpoint']})" if d["endpoint"] else d["id"]) + (" [shared]" if d["shared"] else "")
+            for d in databases
+        ]
         target += f" and databases {', '.join(names)}"
 
     if not rows:

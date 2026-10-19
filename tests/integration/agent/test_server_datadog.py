@@ -43,3 +43,21 @@ def test_the_api_never_returns_keys(linked):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_databases_can_be_listed_and_picked(linked):
+    from ov.agent.api.server import AgentServer, Handler
+
+    httpd = AgentServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    try:
+        assert "databases" in httpx.get(f"{base}/api/datadog/databases").json()
+        picked = httpx.put(f"{base}/api/datadog/databases", json={"databases": {"acme": ["shared01"]}})
+        assert picked.json()["databases"] == {"acme": ["shared01"]}
+        bad = httpx.put(f"{base}/api/datadog/databases", json={"databases": {"acme": "shared01"}})
+        assert bad.status_code == 400
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

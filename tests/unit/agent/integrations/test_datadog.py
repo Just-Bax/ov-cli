@@ -257,9 +257,9 @@ def with_databases(linked):
 def test_databases_come_from_oracle_agents_and_rds_names(with_databases):
     found = datadog.databases_for("acme")
     assert found == [
-        {"id": "acme-archive", "endpoint": "", "engine": "oracle-se2"},
-        {"id": "acme-vpc", "engine": "oracle-ee", "endpoint": ACME_ENDPOINT},
-        {"id": "db01.shared.example", "engine": "oracle", "endpoint": "db01.shared.example"},
+        {"id": "acme-archive", "endpoint": "", "engine": "oracle-se2", "shared": False},
+        {"id": "acme-vpc", "engine": "oracle-ee", "endpoint": ACME_ENDPOINT, "shared": False},
+        {"id": "db01.shared.example", "engine": "oracle", "endpoint": "db01.shared.example", "shared": True},
     ]
     probe = next(r.url.params["query"] for r in with_databases.requests if "session_count" in str(r.url))
     assert "ddagenthostname IN (app01.acme-vpc.example,web01.acme-vpc.example)" in probe
@@ -279,10 +279,18 @@ def test_database_section_maps_rds_and_oracle_metrics_back_to_each_database(with
         "connections",
         "readLatency",
         "writeLatency",
+        "activeSessions",
+        "responseTime",
         "sessions",
         "tablespace",
     }
-    assert set(rows["db01.shared.example"]["metrics"]) == {"sessions", "tablespace"}
+    assert set(rows["db01.shared.example"]["metrics"]) == {
+        "cpu",
+        "activeSessions",
+        "responseTime",
+        "sessions",
+        "tablespace",
+    }
     assert rows["acme-vpc"]["metrics"]["cpu"] == {
         "latest": 30.0,
         "max": 30.0,
@@ -291,6 +299,34 @@ def test_database_section_maps_rds_and_oracle_metrics_back_to_each_database(with
     queries = [r.url.params.get("query", "") for r in with_databases.requests]
     assert any("total_storage_space{dbinstanceidentifier IN (acme-archive,acme-vpc)}" in q for q in queries)
     assert not any("dbinstanceidentifier IN" in q and "db01" in q for q in queries)
+
+
+def test_cpu_comes_from_rds_before_the_oracle_agent(with_databases):
+    meta = datadog.health_meta("acme", "24h")
+    datadog.health_section("acme", "24h", "database", meta["to"])
+    queries = [r.url.params.get("query", "") for r in with_databases.requests]
+    assert any("oracle.host_cpu_utilization{server IN (" in q for q in queries)
+    assert any("aws.rds.cpuutilization{dbinstanceidentifier IN (acme-archive,acme-vpc)}" in q for q in queries)
+
+
+def test_a_picked_shared_database_replaces_the_detected_ones(with_databases):
+    catalog = {d["id"]: d for d in datadog.database_catalog()}
+    assert {"acme-vpc", "globex", "db01.shared.example"} <= set(catalog)
+
+    status = datadog.save_databases({"acme": [" DB01.shared.example ", ""]})
+    assert status["databases"] == {"acme": ["db01.shared.example"]}
+    assert datadog.databases_for("acme") == [
+        {"id": "db01.shared.example", "engine": "oracle", "endpoint": "db01.shared.example", "shared": True}
+    ]
+
+    datadog.save_databases({"acme": []})
+    assert "acme-vpc" in {d["id"] for d in datadog.databases_for("acme")}
+
+
+def test_picked_databases_are_forgotten_with_the_instance(with_databases):
+    datadog.save_databases({"acme": ["globex"]})
+    datadog.forget("acme")
+    assert datadog.status()["databases"] == {}
 
 
 def test_an_instance_without_a_database_says_so(linked):
@@ -323,4 +359,7 @@ def test_rds_monitors_match_the_instance_by_database_group(with_databases, tmp_p
     assert "RDS CPU" in names and "RDS CPU old" not in names
 
     out = TOOLS_BY_NAME["dd_monitors"].handler({}, Ctx(tmp_path))
-    assert f"databases acme-archive, acme-vpc ({ACME_ENDPOINT})" in out and "[Alert] RDS CPU (" in out
+    assert (
+        f"databases acme-archive, acme-vpc ({ACME_ENDPOINT}), db01.shared.example (db01.shared.example) [shared]" in out
+        and "[Alert] RDS CPU (" in out
+    )

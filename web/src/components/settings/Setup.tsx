@@ -16,7 +16,7 @@ import {
 } from '@/components/settings/Providers'
 import { AddInstanceForm, SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Card, Label, Select } from '@/components/common/ui'
+import { Button, Card, Label, Select, Skeleton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { loadModels } from '@/lib/models'
@@ -127,7 +127,7 @@ export function Setup({
   onDone: () => void
   onFinish: () => void
 }) {
-  const [models, setModels] = useState<ModelInfo[]>([])
+  const [models, setModels] = useState<ModelInfo[]>()
   const [model, setModel] = useState(status.settings.defaultModel)
   const [saving, setSaving] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -258,13 +258,17 @@ export function Setup({
                 <div className="grid gap-4">
                   <div>
                     <Label>Default model</Label>
-                    <Select
-                      className="w-full"
-                      value={model}
-                      onChange={setModel}
-                      placeholder={models.length ? 'Pick a model' : 'Loading models...'}
-                      options={models.map((m) => ({ value: m.id, label: m.name }))}
-                    />
+                    {models ? (
+                      <Select
+                        className="w-full"
+                        value={model}
+                        onChange={setModel}
+                        placeholder="Pick a model"
+                        options={models.map((m) => ({ value: m.id, label: m.name }))}
+                      />
+                    ) : (
+                      <Skeleton className="h-9 w-full rounded-full" />
+                    )}
                   </div>
                   <Button
                     variant="primary"

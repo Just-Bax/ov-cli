@@ -194,7 +194,7 @@ def test_a_run_records_what_each_request_cost(logged_in, monkeypatch):
     wait_done(run)
 
     assert run.state["summary"]["cost"] == {"credits": 3.0, "usd": 0.0, "requests": 2}
-    assert run.state["context"] == {"tokens": 1010, "limit": 200_000, "compactAt": 170_000}
+    assert run.state["context"] == {"tokens": 1010, "limit": 200_000, "compactAt": 180_000}
     assert db.list_threads()[0]["cost"] == {"credits": 3.0, "usd": 0.0, "requests": 2}
     cost = db.thread_cost(run.id)
     assert cost["tokens"] == {"input": 2000, "output": 20}

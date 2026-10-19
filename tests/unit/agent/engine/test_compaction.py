@@ -12,7 +12,7 @@ from ov.agent.storage import db
 from ov.agent.storage.models import Provider
 
 PROMPT_LIMIT = 200_000
-FULL_CONTEXT = Usage(tokens={"input": 2, "cache_read": 175_000, "output": 50}, nano=0)
+FULL_CONTEXT = Usage(tokens={"input": 2, "cache_read": 185_000, "output": 50}, nano=0)
 SUMMARY = "The user asked about tags. The agent listed them."
 CALL = {"id": "c1", "type": "function", "function": {"name": "ov", "arguments": '{"args": ["api", "tags"]}'}}
 
@@ -51,10 +51,8 @@ def test_the_summary_replaces_everything_before_the_cut():
     assert rebuilt[1] == {"role": "user", "content": compaction.SUMMARY_HEADER + SUMMARY}
 
 
-def test_the_compact_point_is_a_share_of_the_smaller_window():
-    assert compaction.compact_at(None, PROMPT_LIMIT) == 170_000
-    assert compaction.compact_at(100_000, PROMPT_LIMIT) == 85_000
-    assert compaction.compact_at(400_000, PROMPT_LIMIT) == 170_000
+def test_the_compact_point_is_ninety_percent_of_the_window():
+    assert compaction.compact_at(PROMPT_LIMIT) == 180_000
 
 
 @pytest.fixture
@@ -101,7 +99,7 @@ def test_a_full_copilot_context_is_summarized_before_the_next_step(copilot_threa
     assert second[2]["tool_calls"][0]["id"] == "c1" and second[3]["role"] == "tool"
     [compacted] = run.state["compactions"]
     assert compacted["trigger"] == "auto" and compacted["status"] == "done"
-    assert compacted["before"] == 175_052 and compacted["after"] < FULL_CONTEXT.tokens["cache_read"] // 10
+    assert compacted["before"] == 185_052 and compacted["after"] < FULL_CONTEXT.tokens["cache_read"] // 10
     assert db.thread_cost(run.id)["requests"] == 2
 
 

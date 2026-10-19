@@ -68,7 +68,7 @@ export function HealthPage() {
   const [tick, setTick] = useState(0)
   const label = signedIn.find((i) => i.alias === alias)?.host ?? ''
   const enabled = Boolean(status?.connected)
-  const refresh = `${tick}|${JSON.stringify(status?.matches ?? {})}`
+  const refresh = `${tick}|${JSON.stringify([status?.matches, status?.databases])}`
   const { meta, metaError, slots, busy } = useHealth(alias, range, enabled, refresh)
   const showSkeleton = useSkeleton(enabled && Boolean(alias) && !meta && !metaError)
 
@@ -183,7 +183,7 @@ export function HealthPage() {
         <Summary ctx={ctx} busy={busy} />
         <TimelineCard ctx={ctx} />
         <IncidentsCard ctx={ctx} />
-        {matched ? <DatabaseCard ctx={ctx} /> : null}
+        {matched ? <DatabaseCard ctx={ctx} status={status} onSaved={setStatus} /> : null}
         {matched ? <ServersCard ctx={ctx} /> : null}
         <div className="grid gap-4 xl:grid-cols-2">
           {matched ? <TopErrorsCard ctx={ctx} /> : null}

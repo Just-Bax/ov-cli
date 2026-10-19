@@ -2,6 +2,7 @@ import {
   ArrowsClockwise as ArrowPathIcon,
   Check as CheckIcon,
   Globe as GlobeAltIcon,
+  Info as InfoIcon,
   Key as KeyIcon,
   Lock as LockClosedIcon,
   X as XMarkIcon,
@@ -9,7 +10,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Input } from '@/components/common/ui'
+import { Button, Input, SWITCH_TRACK, SwitchKnob } from '@/components/common/ui'
 import { LiveScreen, SCREEN_BAR_PX, screenSize } from '@/components/screen/LiveScreen'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -26,18 +27,53 @@ type SignInSubmit = (
   target: SignInTarget,
   token?: string,
   screen?: { width: number; height: number },
+  remember?: boolean,
 ) => Promise<{ ok: boolean; message: string }>
 
-const signInInstance: SignInSubmit = (target, token, screen) =>
-  api.loginInstance(target.url, target.tenant, token, screen)
+const signInInstance: SignInSubmit = (target, token, screen, remember) =>
+  api.loginInstance(target.url, target.tenant, token, screen, remember)
 
 export const signInKey = (t: SignInTarget) => `${t.host}|${(t.tenant ?? '').toLowerCase()}`
 
 type Phase = 'intro' | 'waiting' | 'done' | 'error'
 
 const LIMIT_MINUTES = 5
+const REMEMBER_DAYS = 30
+const REMEMBER_KEY = 'ov-agent.signin-remember'
 const CLOSE_AFTER_SUCCESS_MS = 1400
 const SECONDS_PER_MINUTE = MINUTE_MS / SECOND_MS
+
+const REMEMBER_INFO = `After you sign in, ov creates an API token in your name that lasts ${REMEMBER_DAYS} days and keeps it instead of the short web session, so you are not asked again until it expires. You can see it in Admin > Auth Tokens. Turn this off to keep only the web session.`
+
+function RememberInfo() {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <span
+      className="relative flex"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        aria-label="How staying signed in works"
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="text-faint hover:text-muted flex size-5 items-center justify-center rounded-full"
+      >
+        <InfoIcon className="size-3.5" />
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          className="animate-tip border-line-strong/70 text-text absolute bottom-full left-1/2 z-10 mb-1.5 -ml-28 w-56 rounded-xl border bg-white px-3 py-2 text-[11.5px] leading-relaxed shadow-[0_6px_20px_rgba(38,50,56,0.14)]"
+        >
+          {REMEMBER_INFO}
+        </span>
+      ) : null}
+    </span>
+  )
+}
 
 function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
@@ -64,6 +100,11 @@ const FIXES: { pattern: RegExp; tip: (tenant?: string) => string | undefined }[]
   {
     pattern: /accesskey|auth tokens|not accepted|401|unauthori/,
     tip: () => 'Check both keys in Admin > Auth Tokens, and that the token is still active.',
+  },
+  {
+    pattern: /may not create api tokens/,
+    tip: () =>
+      `Turn off "Stay signed in for ${REMEMBER_DAYS} days" to sign in with a session token instead.`,
   },
   {
     pattern: /widget|token endpoint|refus/,
@@ -112,6 +153,7 @@ export function SignInModal({
   const [separate, setSeparate] = useState(false)
   const [accessKey, setAccessKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
+  const [remember, setRemember] = useState(() => localStorage.getItem(REMEMBER_KEY) !== 'false')
   const startedAt = useRef(0)
   const current = useRef(target)
   current.current = target
@@ -171,6 +213,7 @@ export function SignInModal({
       t,
       byToken ? `${accessKey.trim()}:${secretKey.trim()}` : undefined,
       byToken || inWindow ? undefined : screenSize(),
+      !byToken && remember,
     ).catch((e: Error) => ({ ok: false, message: e.message }))
 
     onFinished(t, res.ok)
@@ -357,13 +400,33 @@ export function SignInModal({
             <div className="bg-raised text-muted mx-5 mt-4 flex gap-2.5 rounded-2xl px-3.5 py-3 text-[12px] leading-relaxed">
               <LockClosedIcon className="mt-0.5 size-3.5 shrink-0" />
               <span>
-                Your password only goes into the instance's own page. ov keeps just a session token,
-                with your privileges.
+                Your password only goes into the instance's own page, and ov works with your
+                privileges.
                 {tenant
                   ? ` Switching needs a user with your email address in ${tenant}.`
                   : ' For another tenant on this host, add it with a tenant name.'}
               </span>
             </div>
+            {phase === 'intro' ? (
+              <div className="mx-5 mt-3 flex items-center gap-1.5 px-3.5 text-[12.5px]">
+                <span className="text-text">Stay signed in for {REMEMBER_DAYS} days</span>
+                <RememberInfo />
+                <span className="flex-1" />
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={remember}
+                  aria-label={`Stay signed in for ${REMEMBER_DAYS} days`}
+                  onClick={() => {
+                    localStorage.setItem(REMEMBER_KEY, String(!remember))
+                    setRemember(!remember)
+                  }}
+                  className={cn(SWITCH_TRACK, remember ? 'bg-brand' : 'bg-line-strong')}
+                >
+                  <SwitchKnob on={remember} />
+                </button>
+              </div>
+            ) : null}
           </>
         ) : null}
 
