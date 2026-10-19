@@ -973,8 +973,8 @@ def message(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     files = _objects(data, "files")
     mode = _required(data, "mode")
-    if mode not in db.FOLLOW_UPS:
-        raise HttpError(400, f"mode must be one of {', '.join(db.FOLLOW_UPS)}.")
+    if mode not in FollowUp:
+        raise HttpError(400, f"mode must be one of {', '.join(FollowUp)}.")
 
     _run(run_id).follow_up(str(data.get("text", "")), files, mode == FollowUp.STEER)
     db.set_settled(run_id, False)
