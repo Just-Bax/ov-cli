@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 import httpx
 
 from ov import __version__
-from ov.agent import skills
+from ov.agent import providers, skills
 from ov.agent import workspace as project
 from ov.agent.api.screen import Screen, ScreenError, find_screen, screen_key
 from ov.agent.engine.browsing import browser_key
@@ -32,14 +32,12 @@ from ov.agent.engine.run import STREAM_END, RunError, runs, status_feed
 from ov.agent.instances import explorer, graph
 from ov.agent.instances.explorer import ExplorerError
 from ov.agent.instances.ovproc import find_instance, instances, login, run_ov, url_for, version
-from ov.agent.integrations import claude, copilot, datadog, pagerduty, providers
-from ov.agent.integrations.claude import ClaudeError
-from ov.agent.integrations.copilot import CopilotError
+from ov.agent.integrations import claude, copilot, datadog, pagerduty
 from ov.agent.integrations.datadog import DatadogError
 from ov.agent.integrations.pagerduty import PagerDutyError
 from ov.agent.skills import SkillError
 from ov.agent.storage import db
-from ov.agent.storage.models import Access, FollowUp, Provider
+from ov.agent.storage.models import Access, FollowUp
 from ov.browser.pilot import BrowserError
 from ov.core.errors import OvError
 from ov.onevizion.auth import LOGIN_PATH
@@ -106,8 +104,7 @@ CLIENT_ERRORS = (
     RunError,
     SkillError,
     project.ProjectError,
-    CopilotError,
-    ClaudeError,
+    *providers.errors(),
     ExplorerError,
     DatadogError,
     PagerDutyError,
@@ -325,16 +322,15 @@ def health(_: Handler) -> dict[str, Any]:
 
 @route("GET", "/api/status")
 def status(_: Handler) -> dict[str, Any]:
-    user = copilot.user()
-    account = claude.account()
     rows = instances()
     settings = db.get_preferences()
-    signed_in = account["signedIn"] if settings["provider"] == Provider.CLAUDE else bool(user)
+    listed = [provider.describe() for provider in providers.every()]
+    current = providers.get(settings["provider"])
+    signed_in = next(p["account"]["signedIn"] for p in listed if p["id"] == current.id)
 
     return {
-        "provider": settings["provider"],
-        "copilot": {"signedIn": bool(user), "user": user},
-        "claude": account,
+        "provider": current.id,
+        "providers": listed,
         "ov": {"version": version()},
         "instances": {"total": len(rows), "valid": sum(1 for r in rows if r["valid"])},
         "settings": settings,
@@ -372,10 +368,8 @@ def copilot_account(_: Handler) -> dict[str, Any]:
 
 @route("GET", "/api/cost")
 def cost(h: Handler) -> dict[str, Any]:
-    provider = h.query.get("provider") or db.get_preferences()["provider"]
-    if provider not in db.PROVIDERS:
-        raise HttpError(400, f"Unknown provider: {provider}")
-    return db.cost_report(_cost_since(h.query.get("range", "month")), Provider(provider))
+    provider = providers.get(h.query.get("provider") or db.get_preferences()["provider"])
+    return db.cost_report(_cost_since(h.query.get("range", "month")), provider.id)
 
 
 def _cost_since(range_name: str) -> int:
@@ -389,10 +383,7 @@ def _cost_since(range_name: str) -> int:
 
 @route("GET", "/api/models")
 def models(h: Handler) -> list[dict[str, Any]]:
-    provider = h.query.get("provider") or db.get_preferences()["provider"]
-    if provider not in db.PROVIDERS:
-        raise HttpError(400, f"Unknown provider: {provider}")
-    return providers.list_models(Provider(provider))
+    return providers.get(h.query.get("provider") or db.get_preferences()["provider"]).list_models()
 
 
 @route("GET", "/api/instances")
@@ -457,8 +448,10 @@ def get_settings(_: Handler) -> dict[str, Any]:
 def put_settings(h: Handler) -> dict[str, Any]:
     patch = h.json()
     switching = patch.get("provider") and patch["provider"] != db.get_preferences()["provider"]
-    if switching and "defaultModel" not in patch and patch["provider"] in db.PROVIDERS:
-        patch["defaultModel"], patch["fastModel"] = providers.default_models(Provider(patch["provider"]))
+    if switching:
+        chosen = providers.get(patch["provider"])
+        if "defaultModel" not in patch:
+            patch["defaultModel"], patch["fastModel"] = chosen.default_models()
     return db.save_preferences(patch)
 
 
@@ -709,7 +702,7 @@ def start_run(h: Handler) -> dict[str, str]:
     model = settings["defaultModel"]
     if not model:
         raise HttpError(400, "Pick a model first (Settings).")
-    provider = Provider(settings["provider"])
+    provider = settings["provider"]
 
     instance = str(data.get("instance") or "").strip()
     run = runs.create(
@@ -770,6 +763,12 @@ def retitle(_: Handler, run_id: str) -> dict[str, str]:
 def compact(_: Handler, run_id: str) -> dict[str, bool]:
     _run(run_id).compact()
     return {"ok": True}
+
+
+@route("POST", "/api/runs/([a-z0-9]+)/continue")
+def continue_run(_: Handler, run_id: str) -> dict[str, str]:
+    _known(run_id)
+    return {"id": runs.continue_in_new(run_id).id}
 
 
 @route("POST", "/api/runs/([a-z0-9]+)/pin")
@@ -1186,6 +1185,7 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool
         raise
 
     runs.full_access = full_access
+    runs.resume_interrupted()
     print(f"OV Agent running at {url}  (Ctrl+C to stop)", flush=True)
     if full_access:
         print("Full access is available: threads set to it change anything without asking.", flush=True)
@@ -1205,5 +1205,5 @@ def _serve_until_stopped(server: AgentServer) -> None:
     finally:
         server.server_close()
         runs.close()
-        claude.close_helpers()
+        providers.close_all()
         db.close()

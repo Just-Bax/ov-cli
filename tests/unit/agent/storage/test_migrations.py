@@ -147,3 +147,36 @@ def test_old_questions_become_asks_and_approvals():
 
     stopped = _converted({"id": "q3", "question": "Which?", "options": [], "answer": "(not answered: the run stopped)"})
     assert stopped["stopped"] is True and "answers" not in stopped
+
+
+def test_claude_sessions_become_provider_sessions_and_providers_are_open(ov_home, monkeypatch):
+    from alembic import command
+
+    home = ov_home / "sessions"
+    monkeypatch.setenv("OV_HOME", str(home))
+    path = home / "agent" / "agent.db"
+    path.parent.mkdir(parents=True)
+    engine = db._new_engine(path)
+    config = db._alembic_config()
+    with engine.begin() as conn:
+        config.attributes["connection"] = conn
+        command.upgrade(config, "0017")
+        conn.exec_driver_sql(
+            "INSERT INTO thread (id, title, instance, status, provider, model, prompt, access, created_at, updated_at) "
+            "VALUES ('rc', 'T', NULL, 'done', 'claude', 'opus', '', 'read', 1, 1)"
+        )
+        anchor = '{"claude": {"session": "s1", "turn": "u_start", "prompt": "p1", "spent": 0.5}}'
+        conn.exec_driver_sql(
+            f"INSERT INTO event (thread_id, position, type, data, created_at) VALUES ('rc', 0, 'meta', '{anchor}', 1)"
+        )
+
+    engine.dispose()
+
+    assert db.migrate() is True
+    [event] = db.load_events("rc")
+    assert event["event"] == {
+        "type": "meta",
+        "session": {"id": "s1", "turn": "u_start", "prompt": "p1", "spent": 0.5},
+    }
+    db.create_thread("rn", "New", "some-new-provider", "m", prompt="", instance=None, access=models.Access.READ)
+    assert db.get_preferences()["instructions"] == ""

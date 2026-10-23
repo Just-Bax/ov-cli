@@ -249,3 +249,57 @@ def test_imports_check_the_file_and_component_types(logged_in, tmp_path):
         tool.handler(
             {"file": "x.xml", "components": [{"component_type": "RULE", "mode": "NOPE"}]}, FakeContext(tmp_path)
         )
+
+
+def _sql_reply(columns, rows):
+    return json.dumps({"status": "SUCCESS", "columns": columns, "rows": [{"cells": r} for r in rows]})
+
+
+def test_an_unknown_name_error_lists_the_real_columns_and_similar_tables(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools import tool_named
+
+    failed = json.dumps({"status": "FAILED", "error_message": 'ORA-00904: "X"."CREATED_TS": invalid identifier'})
+    replies = {
+        "all_tab_columns": _sql_reply(
+            ["TABLE_NAME", "COLUMN_NAME"], [["XITOR", "XITOR_ID"], ["XITOR", "DATE_CREATED"]]
+        ),
+        "all_objects": _sql_reply(["OBJECT_NAME"], [["AUDIT_LOG"]]),
+    }
+    seen: list[str] = []
+
+    def fake(args, **_):
+        query = args[args.index("-d") + 1]
+        seen.append(query)
+        return OvResult(0, next((r for key, r in replies.items() if key in query), failed), "")
+
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", fake)
+    query = (
+        "with recent as (select 1 n from dual) select x.created_ts from xitor x "
+        "join audit_lg a on a.xitor_id = x.xitor_id cross join recent"
+    )
+    with pytest.raises(ToolError) as caught:
+        tool_named("ov_sql").handler({"query": query}, FakeContext(tmp_path))
+
+    message = str(caught.value)
+    assert "ORA-00904" in message and "- XITOR: XITOR_ID, DATE_CREATED" in message
+    assert "No table or view named AUDIT_LG is visible. Similar names: AUDIT_LOG" in message
+    assert "'XITOR', 'AUDIT_LG'" in seen[1] and "RECENT" not in seen[1] and "like '%AUDIT%'" in seen[2]
+
+
+def test_a_failed_name_lookup_keeps_the_original_error(logged_in, tmp_path, monkeypatch):
+    from ov.agent.tools import tool_named
+
+    failed = json.dumps({"status": "FAILED", "error_message": "ORA-00942: table or view does not exist"})
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, failed, ""))
+    with pytest.raises(ToolError, match=r"ORA-00942.*\n\(Looking up the real table and column names also failed"):
+        tool_named("ov_sql").handler({"query": "select 1 from nowhere"}, FakeContext(tmp_path))
+
+
+def test_a_long_case_is_clipped_to_a_file(logged_in, tmp_path):
+    from ov.agent.tools import tool_named
+    from ov.agent.tools.base import MAX_OUTPUT
+
+    ctx = FakeContext(tmp_path)
+    ctx.load_case = lambda ref: "x" * (MAX_OUTPUT * 2)
+    out = tool_named("ov_case").handler({"case": "1"}, ctx)
+    assert len(out) < MAX_OUTPUT + 200 and "Full case saved as" in out

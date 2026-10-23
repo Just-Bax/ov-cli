@@ -4,9 +4,12 @@ import json
 import re
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
-from ov.agent.integrations import providers
-from ov.agent.storage.models import Provider
+from ov.agent.integrations.common import Usage
+
+if TYPE_CHECKING:
+    from ov.agent.providers.base import AgentProvider
 
 GUARD_INPUT_CHARS = 4000
 GUARD_MAX_TOKENS = 200
@@ -79,25 +82,23 @@ class Verdict:
         return {"effect": self.effect.value, "reason": self.reason}
 
 
-def judge(
-    provider: Provider, model: str, command: str, folder: str, shell: str
-) -> tuple[Verdict, providers.Usage | None]:
+def judge(agent: AgentProvider, model: str, command: str, folder: str, shell: str) -> tuple[Verdict, Usage | None]:
     body = (
         f"<command>\n{command[:GUARD_INPUT_CHARS]}\n</command>\n"
         f"<folder>{folder or '.'}</folder>\n<shell>{shell}</shell>"
     )
-    reply, usage = providers.complete(provider, model, GUARD_PROMPT, body, GUARD_MAX_TOKENS)
+    reply, usage = agent.complete(model, GUARD_PROMPT, body, GUARD_MAX_TOKENS)
     return parse(reply, model, COMMAND_EFFECTS), usage
 
 
-def judge_page_action(provider: Provider, model: str, action: str) -> tuple[Verdict, providers.Usage | None]:
-    reply, usage = providers.complete(provider, model, PAGE_GUARD_PROMPT, action[:GUARD_INPUT_CHARS], GUARD_MAX_TOKENS)
+def judge_page_action(agent: AgentProvider, model: str, action: str) -> tuple[Verdict, Usage | None]:
+    reply, usage = agent.complete(model, PAGE_GUARD_PROMPT, action[:GUARD_INPUT_CHARS], GUARD_MAX_TOKENS)
     return parse(reply, model, PAGE_EFFECTS), usage
 
 
-def judge_risk(provider: Provider, model: str, change: str) -> tuple[Verdict, providers.Usage | None]:
+def judge_risk(agent: AgentProvider, model: str, change: str) -> tuple[Verdict, Usage | None]:
     body = f"<change>\n{change[:GUARD_INPUT_CHARS]}\n</change>"
-    reply, usage = providers.complete(provider, model, RISK_GUARD_PROMPT, body, GUARD_MAX_TOKENS)
+    reply, usage = agent.complete(model, RISK_GUARD_PROMPT, body, GUARD_MAX_TOKENS)
     return parse(reply, model, RISK_EFFECTS), usage
 
 

@@ -9,7 +9,7 @@ from helpers.agent import wait_for
 
 from ov.agent.integrations.copilot import StreamResult
 from ov.agent.storage import db
-from ov.agent.storage.models import Access, Provider
+from ov.agent.storage.models import Access
 
 
 def _item(question: str) -> dict:
@@ -34,7 +34,7 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
     monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    run = runs.create({"access": "read", "prompt": "help", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "help", "instance": "acme"}, "copilot", "test-model")
     wait_for(lambda: run.state["questions"])
 
     question = run.state["questions"][0]
@@ -49,7 +49,7 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
 def test_two_open_questions_keep_the_run_waiting(logged_in):
     from ov.agent.engine.run import runs
 
-    db.create_thread("rwait", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rwait", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rwait")
     answers: list[str] = []
     threads = [threading.Thread(target=lambda q=q: answers.extend(run.ask_user([_item(q)]))) for q in ("one", "two")]
@@ -71,7 +71,7 @@ def test_a_skipped_sign_in_is_marked_skipped_not_failed(logged_in, monkeypatch):
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "x"}, Provider.COPILOT, "m")
+    run = runs.create({"access": "read", "prompt": "x"}, "copilot", "m")
     prompt = {"id": "login_1", "instance": "acme.example", "url": "https://acme.example", "state": "needed"}
     run.emit({"type": "login", "login": prompt})
     assert run.login("login_1", skip=True) == {"ok": False, "message": "Skipped"}
@@ -89,7 +89,7 @@ def _asking(run, ask):
 def test_a_batch_is_answered_all_at_once(logged_in):
     from ov.agent.engine.run import RunError, runs
 
-    db.create_thread("rbatch", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rbatch", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rbatch")
     thread, holder = _asking(run, lambda: run.ask_user([_item("one"), _item("two")]))
     question = run.state["questions"][0]
@@ -105,7 +105,7 @@ def test_a_batch_is_answered_all_at_once(logged_in):
 def test_an_approval_keeps_the_rejection_note(logged_in):
     from ov.agent.engine.run import RunError, runs
 
-    db.create_thread("rappr", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.ASK)
+    db.create_thread("rappr", "t", "copilot", "m", prompt="x", instance=None, access=Access.ASK)
     run = runs.get("rappr")
     thread, holder = _asking(run, lambda: run.ask_approval("Run it?", "rm -rf build", "deletes files"))
     question = run.state["questions"][0]

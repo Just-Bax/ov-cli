@@ -20,8 +20,11 @@ from ov.agent.tools.base import (
     string_param,
     strings_param,
 )
-from ov.agent.tools.onevizion import entity_link
+from ov.agent.tools.onevizion import INSTANCE, entity_link, run_sql
 
+MAX_WAIT_SECONDS = 1800
+DEFAULT_WAIT_EVERY_SECONDS = 30
+MIN_WAIT_EVERY_SECONDS = 10
 READ_FILE_LINES = 500
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 BINARY_SNIFF_BYTES = 4096
@@ -253,6 +256,38 @@ def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
     return "Delivered."
 
 
+def _pause(seconds: int, ctx: ToolContext) -> None:
+    ctx.cancel.wait(seconds)
+    ctx.cancel.check()
+
+
+def _wait(args: dict[str, Any], ctx: ToolContext) -> str:
+    seconds = min(max(int(args["seconds"]), 1), MAX_WAIT_SECONDS)
+    query = str(args.get("sql") or "").strip()
+    if not query:
+        _pause(seconds, ctx)
+        return f"Waited {seconds}s."
+
+    every = min(max(int(args.get("every") or DEFAULT_WAIT_EVERY_SECONDS), MIN_WAIT_EVERY_SECONDS), seconds)
+    first, _ = run_sql(query, args.get("instance"), ctx)
+    latest = first
+    waited = 0
+    while waited < seconds:
+        step = min(every, seconds - waited)
+        _pause(step, ctx)
+        waited += step
+        latest, _ = run_sql(query, args.get("instance"), ctx)
+        if latest != first:
+            return clip(f"The result changed after {waited}s:\n{latest}", ctx, "result")
+
+    return clip(f"No change in {seconds}s. Last result:\n{latest}", ctx, "result")
+
+
+def _wait_label(args: dict[str, Any]) -> str:
+    what = " for a SQL result to change" if args.get("sql") else ""
+    return f"Wait up to {args.get('seconds')}s{what}"
+
+
 TOOLS = [
     Tool(
         "skill_read",
@@ -275,6 +310,24 @@ TOOLS = [
         ["path"],
         lambda a: f"read {a.get('path')}",
         _read_file,
+    ),
+    Tool(
+        "run_wait",
+        "Wait for something to happen without sleep commands: a job, import, queue, Kafka message or a value to "
+        "change. Without sql it just waits. With sql it runs that SELECT now and then every few seconds, and "
+        "returns as soon as the result differs from the first one, or the last result when time runs out. "
+        "One call replaces a poll loop; run it in the background to keep working meanwhile.",
+        {
+            "seconds": int_param(f"How long to wait at most, 1 to {MAX_WAIT_SECONDS}"),
+            "sql": string_param("Optional SELECT to poll; it returns when its result changes"),
+            "instance": INSTANCE,
+            "every": int_param(
+                f"Seconds between polls, {MIN_WAIT_EVERY_SECONDS} or more, default {DEFAULT_WAIT_EVERY_SECONDS}"
+            ),
+        },
+        ["seconds"],
+        _wait_label,
+        _wait,
     ),
     Tool(
         "ov_propose",

@@ -10,7 +10,7 @@ from sqlalchemy import update
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult
 from ov.agent.storage import db, models
-from ov.agent.storage.models import Access, Provider
+from ov.agent.storage.models import Access
 
 STOP_SECONDS = 5
 JSON_HEADERS = {"Content-Type": "application/json"}
@@ -20,7 +20,7 @@ def test_a_run_can_be_renamed(agent_server, monkeypatch):
     from ov.agent.engine.run import runs
 
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
-    run = runs.create({"access": "read", "prompt": "x"}, Provider.COPILOT, "m")
+    run = runs.create({"access": "read", "prompt": "x"}, "copilot", "m")
     ok = httpx.post(f"{agent_server}/api/runs/{run.id}/title", json={"title": "  NORAD   report "})
     assert ok.status_code == 200
     assert db.list_threads()[0]["title"] == "NORAD report"
@@ -57,7 +57,7 @@ def test_a_thread_exports_as_markdown(agent_server, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
     run.rename("Tags: on acme?")
 
@@ -80,8 +80,8 @@ def test_cost_routes_answer(agent_server):
 
 
 def test_pinned_and_snoozed_threads(agent_server):
-    db.create_thread("rpin", "Pinned", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
-    db.create_thread("rnap", "Napping", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rpin", "Pinned", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rnap", "Napping", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     assert (
         httpx.post(f"{agent_server}/api/runs/rpin/pin", json={"pinned": True}, headers=JSON_HEADERS).status_code == 200
     )
@@ -105,10 +105,10 @@ def test_pinned_and_snoozed_threads(agent_server):
 
 
 def test_deleting_a_thread_removes_everything_it_owns(agent_server):
-    db.create_thread("rdel", "Gone", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rdel", "Gone", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     db.append_event("rdel", 0, {"type": "status", "status": "done"})
     db.save_messages("rdel", 0, [{"role": "user", "content": "x"}], {0: "u_start"})
-    db.add_usage("rdel", Provider.COPILOT, "m", "turn", tokens={"input": 1}, nano=5)
+    db.add_usage("rdel", "copilot", "m", "turn", tokens={"input": 1}, nano=5)
     db.add_attachments("rdel", "u_start", ["a.txt"])
     from ov.agent.engine.files import run_dir
 
@@ -135,7 +135,7 @@ def _working_thread(monkeypatch):
     monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", endless_chat)
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    run = runs.create({"access": "read", "prompt": "hi"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi"}, "copilot", "test-model")
     assert started.wait(STOP_SECONDS)
     return run
 
@@ -183,7 +183,7 @@ def test_an_open_working_thread_is_stopped_and_deleted(logged_in, agent_server, 
 def test_snooze_and_settle_wait_for_an_answer_and_a_waiting_thread_wakes(agent_server):
     from ov.agent.engine.run import runs
 
-    db.create_thread("rwake", "Wake", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rwake", "Wake", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     later = db.now_ms() + 3_600_000
     db.set_snoozed("rwake", later)
     db.set_settled("rwake", True)
@@ -211,7 +211,7 @@ def test_tool_routes_refuse_a_tool_that_is_not_running(agent_server, monkeypatch
     from ov.agent.engine.run import runs
 
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
-    run = runs.create({"access": "read", "prompt": "x"}, Provider.COPILOT, "m")
+    run = runs.create({"access": "read", "prompt": "x"}, "copilot", "m")
     for action in ("background", "stop"):
         response = httpx.post(f"{agent_server}/api/runs/{run.id}/tools/call_x1/{action}", json={})
         assert response.status_code == 400

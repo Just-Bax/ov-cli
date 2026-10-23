@@ -53,6 +53,7 @@ UNKNOWN_REF = "There is no {ref} in the last snapshot. Take a new snapshot and u
 GONE_REF = "{ref} is no longer on the page. Take a new snapshot."
 NO_BOX = "{target} is not visible on the page. Scroll to it or take a new snapshot."
 NOT_SELECT = "That is not a standard dropdown: click it open and click the option instead."
+NO_FILE_PICKER = "Clicking that did not open a file picker. Aim at the upload button or file field of the page."
 TREE_CUT = "[{chars} more chars cut. Scroll, or wait or aim with a locator for what you need.]"
 TIMED_OUT = "Timed out: {reason}. Take a new snapshot before trying something else."
 PROGRESS_STEPS = ("waiting", "retrying", "attempting", "scrolling", "element is", "locator resolved", "Call log")
@@ -520,6 +521,24 @@ class Driver:
 
         self._after(before)
 
+    def upload(self, target: Target, point: Point, paths: list[str]) -> None:
+        page = self.page
+        before = self._frames()
+        try:
+            with page.expect_file_chooser(timeout=CLICK_TIMEOUT_MS) as chooser:
+                self._open_picker(target, point)
+        except PlaywrightTimeout:
+            raise BrowserError(NO_FILE_PICKER) from None
+
+        chooser.value.set_files(paths)
+        self._after(before)
+
+    def _open_picker(self, target: Target, point: Point) -> None:
+        try:
+            self._click(target, point, BUTTONS[0], 1, [])
+        except PlaywrightTimeout as exc:
+            raise BrowserError(_timeout_reason(exc)) from None
+
     def pause(self, seconds: float) -> None:
         self.page.wait_for_timeout(min(seconds, MAX_WAIT_SECONDS) * MS_PER_SECOND)
 
@@ -721,6 +740,9 @@ class Pilot:
 
     def select(self, target: Target, option: str) -> None:
         self.call(lambda d: d.select(target, option))
+
+    def upload(self, target: Target, point: Point, paths: list[str]) -> None:
+        self.call(lambda d: d.upload(target, point, paths))
 
     def pause(self, seconds: float) -> None:
         self.call(lambda d: d.pause(seconds))

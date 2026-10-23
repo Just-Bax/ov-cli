@@ -40,6 +40,20 @@ SQL_UNEXPECTED_HINT = (
     "\nHint: this generic error usually comes from select * over a join or a view with LOB columns, or "
     "dbms_lob.substr past the end of the text. Name the columns you need and retry."
 )
+UNKNOWN_NAME_ERRORS = ("ORA-00904", "ORA-00942")
+MAX_HINT_TABLES = 4
+HINT_ROWS = 1000
+SIMILAR_TABLES = 10
+DUAL = "DUAL"
+TABLE_COLUMNS_SQL = (
+    "select table_name, column_name from all_tab_columns where table_name in ({tables}) order by table_name, column_id"
+)
+SIMILAR_TABLES_SQL = (
+    "select distinct object_name from all_objects where object_type in ('TABLE', 'VIEW') "
+    "and object_name like '%{word}%' order by object_name fetch first {limit} rows only"
+)
+NAMES_HINT = "\nReal columns of the tables in this query (use these instead of guessing):\n{columns}"
+MISSING_TABLE_HINT = "\nNo table or view named {table} is visible. Similar names: {similar}"
 MAX_INSTANCE_OPTIONS = 5
 DEFAULT_SQL_ROWS = 100
 MAX_SQL_ROWS = 1000
@@ -71,6 +85,8 @@ EDIT_FORMS = (
 _SQL_ROUTE = re.compile(r"^/?(api/)?v\d+/sql/", re.IGNORECASE)
 _SELECT = re.compile(r"^(select|with)\b", re.IGNORECASE)
 _PLSQL_IN_WITH = re.compile(r"\bwith\s+(function|procedure)\b", re.IGNORECASE)
+_FROM_TABLE = re.compile(r"\b(?:from|join)\s+([a-z_][\w$#]*(?:\.[a-z_][\w$#]*)?)", re.IGNORECASE)
+_CTE_NAME = re.compile(r"\b([a-z_][\w$#]*)\s+as\s*\(", re.IGNORECASE)
 _SECRET_SQL = re.compile(r"\bselect\s+\*\s+from\s+(module|users?|auth_token\w*)\b", re.IGNORECASE)
 _SECRET_NAME = re.compile(r"pass(word|wd)?|secret|token|api_?key|private_?key|credential", re.IGNORECASE)
 _SECRET_KEY = re.compile(rf"^[\w.\-]{{0,{MAX_SECRET_KEY_CHARS}}}$")
@@ -281,7 +297,7 @@ def _masked(columns: list[str], cells: list[Any]) -> list[Any]:
     return out
 
 
-def _format_sql(raw: str) -> str:
+def _parsed_sql(raw: str) -> dict[str, Any]:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
@@ -292,7 +308,10 @@ def _format_sql(raw: str) -> str:
 
     if parsed["status"] != "SUCCESS":
         raise ToolError(f"SQL failed: {parsed.get('error_message') or raw}")
+    return parsed
 
+
+def _format_sql(parsed: dict[str, Any]) -> str:
     rows = parsed["rows"]
     columns = parsed["columns"]
     lines = ["\t".join(columns)]
@@ -302,8 +321,20 @@ def _format_sql(raw: str) -> str:
     return f"{len(rows)} rows{more} (tab separated)\n" + "\n".join(lines)
 
 
-def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
-    query = re.sub(r";\s*$", "", str(args["query"]).strip())
+def _sql_request(query: str, instance: str, rows: int, ctx: ToolContext) -> dict[str, Any]:
+    raw = run_ov_tool(
+        [*graph.SQL_REQUEST, "-q", f"rows_count={rows}", "-d", query, "--json"],
+        instance,
+        ctx,
+        allow_sql=True,
+        raw=True,
+        timeout=SQL_TIMEOUT_SECONDS,
+    )
+    return _parsed_sql(raw)
+
+
+def _checked_query(raw: str) -> str:
+    query = re.sub(r";\s*$", "", raw.strip())
     if not _SELECT.match(query) or _PLSQL_IN_WITH.search(query):
         raise ToolError("Only SELECT / WITH queries are allowed.")
 
@@ -312,38 +343,73 @@ def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
             "Refused: select * from this table can include credentials. Name the columns you need; "
             "secret-looking values are masked in results."
         )
+    return query
 
-    rows = min(max(int(args.get("limit") or DEFAULT_SQL_ROWS), 1), MAX_SQL_ROWS)
-    instance = _target(args.get("instance"), ctx)
+
+def _referenced_tables(query: str) -> list[str]:
+    defined = {name.upper() for name in _CTE_NAME.findall(query)}
+    found = [match.split(".")[-1].upper() for match in _FROM_TABLE.findall(query)]
+    return [name for name in dict.fromkeys(found) if name not in defined and name != DUAL][:MAX_HINT_TABLES]
+
+
+def _hint_rows(query: str, instance: str, ctx: ToolContext) -> list[list[Any]]:
+    return [row["cells"] for row in _sql_request(query, instance, HINT_ROWS, ctx)["rows"]]
+
+
+def _similar_tables(table: str, instance: str, ctx: ToolContext) -> list[str]:
+    word = max(table.split("_"), key=len)
+    query = SIMILAR_TABLES_SQL.format(word=word.replace("'", ""), limit=SIMILAR_TABLES)
+    return [cells[0] for cells in _hint_rows(query, instance, ctx)]
+
+
+def _name_hint(query: str, instance: str, ctx: ToolContext) -> str:
+    tables = _referenced_tables(query)
+    if not tables:
+        return ""
+
+    listed = ", ".join(f"'{table}'" for table in tables)
+    columns: dict[str, list[str]] = {}
+    for table, column in _hint_rows(TABLE_COLUMNS_SQL.format(tables=listed), instance, ctx):
+        columns.setdefault(table, []).append(column)
+
+    lines = [f"- {table}: {', '.join(dict.fromkeys(names))}" for table, names in columns.items()]
+    hint = NAMES_HINT.format(columns="\n".join(lines)) if lines else ""
+    for table in (t for t in tables if t not in columns):
+        similar = _similar_tables(table, instance, ctx)
+        hint += MISSING_TABLE_HINT.format(table=table, similar=", ".join(similar) or "none")
+    return hint
+
+
+def _explained(exc: ToolError, query: str, instance: str, ctx: ToolContext) -> ToolError:
+    message = str(exc)
+    if SQL_UNEXPECTED_ERROR in message:
+        return ToolError(f"{message}{SQL_UNEXPECTED_HINT}")
+    if not any(code in message for code in UNKNOWN_NAME_ERRORS):
+        return exc
+
+    try:
+        return ToolError(f"{message}{_name_hint(query, instance, ctx)}")
+    except ToolError as lookup:
+        return ToolError(f"{message}\n(Looking up the real table and column names also failed: {lookup})")
+
+
+def run_sql(raw_query: str, instance: str | None, ctx: ToolContext, rows: int = DEFAULT_SQL_ROWS) -> tuple[str, float]:
+    query = _checked_query(raw_query)
+    target = _target(instance, ctx)
     started = time.monotonic()
     try:
-        raw = run_ov_tool(
-            [
-                *graph.SQL_REQUEST,
-                "-q",
-                f"rows_count={rows}",
-                "-d",
-                query,
-                "--json",
-            ],
-            instance,
-            ctx,
-            allow_sql=True,
-            raw=True,
-            timeout=SQL_TIMEOUT_SECONDS,
-        )
-        took = time.monotonic() - started
-        table = _format_sql(raw)
+        table = _format_sql(_sql_request(query, target, rows, ctx))
+        return table, time.monotonic() - started
     except ToolError as exc:
         took = time.monotonic() - started
         if took >= SQL_TIMEOUT_SECONDS:
-            raise ToolError(SQL_TIMED_OUT.format(instance=instance, limit=SQL_TIMEOUT_SECONDS, took=took)) from None
+            raise ToolError(SQL_TIMED_OUT.format(instance=target, limit=SQL_TIMEOUT_SECONDS, took=took)) from None
+        raise _explained(exc, query, target, ctx) from None
 
-        if SQL_UNEXPECTED_ERROR in str(exc):
-            raise ToolError(f"{exc}{SQL_UNEXPECTED_HINT}") from None
 
-        raise
-
+def _ov_sql(args: dict[str, Any], ctx: ToolContext) -> str:
+    rows = min(max(int(args.get("limit") or DEFAULT_SQL_ROWS), 1), MAX_SQL_ROWS)
+    table, took = run_sql(str(args["query"]), args.get("instance"), ctx, rows)
     return clip(f"{table}\n[took {took:.1f}s including the ov call]", ctx, "result")
 
 
@@ -486,7 +552,7 @@ TOOLS = [
         {"case": string_param("Case number (e.g. 193915) or a trackor.onevizion.com case link")},
         ["case"],
         lambda a: f"Read case {a.get('case')} from trackor",
-        lambda a, ctx: ctx.load_case(str(a["case"])),
+        lambda a, ctx: clip(ctx.load_case(str(a["case"])), ctx, "case"),
     ),
     Tool(
         "ov",

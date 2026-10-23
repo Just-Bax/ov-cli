@@ -14,7 +14,7 @@ from ov.agent.engine.guard import Effect, Verdict
 if TYPE_CHECKING:
     from ov.agent.engine.browsing import BrowserSlot
 
-MAX_OUTPUT = 24_000
+MAX_OUTPUT = 12_000
 SECRET_MASK = "***"
 LABEL_CHARS = 200
 LABEL_CUT = "..."

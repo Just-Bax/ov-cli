@@ -7,13 +7,13 @@ from claude_agent_sdk import ResultMessage
 
 from ov.agent.engine import browser_runner
 from ov.agent.engine.cancel import Cancel
-from ov.agent.storage.models import Provider
+from ov.agent.providers import claude_session
 
 REPORT = "Result: done\nSteps: looked\nSeen: the grid\nProblem: none"
 
 
 class FakeRun:
-    provider = Provider.CLAUDE
+    provider = "claude"
 
     def __init__(self, work_dir: Path) -> None:
         self.work_dir = work_dir
@@ -62,10 +62,10 @@ def test_the_runner_resolves_its_options_before_starting_its_event_loop(tmp_path
 
     monkeypatch.setattr("ov.agent.integrations.claude.effort_for", effort_outside_a_loop)
     monkeypatch.setattr("ov.agent.integrations.claude.cli_path", lambda: "claude")
-    monkeypatch.setattr(browser_runner, "ClaudeSDKClient", FakeClient)
+    monkeypatch.setattr(claude_session, "ClaudeSDKClient", FakeClient)
 
     run = FakeRun(tmp_path)
-    assert browser_runner.drive(run, "haiku", "Open the grid", Cancel()) == REPORT
+    assert claude_session.drive_browser(run, "haiku", "Open the grid", Cancel()) == REPORT
     assert run.usage == ["haiku"]
 
 
@@ -75,7 +75,7 @@ def test_the_copilot_runner_keeps_only_the_latest_pages_and_screenshots():
     messages += [{"role": "tool", "content": "Clicked."}]
     messages += [{"role": "user", "content": [{"type": "text", "text": "shot"}]} for _ in range(3)]
 
-    browser_runner._drop_old_pages(messages)
+    browser_runner.drop_old_pages(messages)
 
     contents = [m["content"] for m in messages]
     assert contents[:4] == [browser_runner.OLD_PAGE, browser_runner.OLD_PAGE, page, page]

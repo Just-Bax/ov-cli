@@ -187,7 +187,15 @@ export interface ContextUsage {
 
 type RunEvent =
   | { type: 'status'; status: RunStatus; error?: string }
-  | { type: 'meta'; title?: string; caseKey?: string; caseUrl?: string; instance?: string }
+  | {
+      type: 'meta'
+      title?: string
+      caseKey?: string
+      caseUrl?: string
+      instance?: string
+      continuedFrom?: ThreadLink
+      continuedIn?: ThreadLink
+    }
   | { type: 'tool'; tool: ToolActivity }
   | { type: 'text'; messageId: string; delta: string }
   | { type: 'message'; messageId: string; text: string; ts?: number; links?: MessageLinks }
@@ -209,9 +217,10 @@ type RunEvent =
 
 export type Provider = 'copilot' | 'claude'
 
+export type CostUnit = 'credits' | 'usd'
+
 export interface CostTotal {
-  credits: number
-  usd: number
+  amount: number
   requests: number
 }
 
@@ -230,6 +239,26 @@ export type CostRange = 'month' | '7d' | '30d'
 export interface CostReport extends RunCost {
   days: ({ day: string } & CostTotal)[]
   threads: ({ id: string; title: string } & CostTotal)[]
+}
+
+export interface CopilotUser {
+  signedIn: boolean
+  user?: string | null
+}
+
+export type ProviderAccount = ClaudeAccount | CopilotUser
+
+export interface ProviderStatus {
+  id: Provider
+  name: string
+  costUnit: CostUnit
+  cacheTtlMs: number | null
+  account: ProviderAccount
+}
+
+export interface ThreadLink {
+  id: string
+  title: string
 }
 
 export interface CopilotAccount {
@@ -343,6 +372,8 @@ export interface RunState extends RunWindow {
   queueHeld: boolean
   browser?: BrowserState
   context?: ContextUsage
+  continuedFrom?: ThreadLink
+  continuedIn?: ThreadLink
 }
 
 export type RunSnapshot = RunState & { seq: number }
@@ -353,6 +384,8 @@ export interface Settings {
   fastModel: string
   workspace: string
   workspaceNotes: string
+  fullName: string
+  instructions: string
   maxSteps: number
   reasoning: ReasoningLevel | ''
   notify: boolean
@@ -397,8 +430,7 @@ export interface Instance {
 
 export interface Status {
   provider: Provider
-  copilot: { signedIn: boolean; user?: string }
-  claude: ClaudeAccount
+  providers: ProviderStatus[]
   ov: { version: string }
   instances: { total: number; valid: number }
   settings: Settings

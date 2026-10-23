@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from helpers.agent import FakeContext
 
@@ -21,7 +23,10 @@ class FakePilot:
         self.url = "https://acme.onevizion.com/Dashboard.do"
         self.dialog: Dialog | None = None
         self.tabs_open = [Tab(1, "Work Order", self.url, True)]
+        self.tree = TREE
         self.shots = 0
+        self.fail_on = ""
+        self.moves_to = ""
 
     def where(self):
         return "Work Order", self.url
@@ -40,9 +45,13 @@ class FakePilot:
         return Point(640, 400)
 
     def click(self, target, point, button, count, modifiers):
+        if target.ref and target.ref == self.fail_on:
+            raise BrowserError(f"{target.ref} is covered")
         self.done.append(f"click {point.x},{point.y} {button} x{count} {'+'.join(modifiers)}".strip())
         if self.dialog is not None:
             raise DialogOpen(self.dialog)
+        if self.moves_to:
+            self.url = self.moves_to
 
     def move(self, target, point):
         self.done.append(f"move {point.x},{point.y}")
@@ -63,8 +72,17 @@ class FakePilot:
     def press(self, key):
         self.done.append(f"press {key}")
 
+    def pause(self, seconds):
+        self.done.append(f"pause {seconds:g}")
+
+    def select(self, target, option):
+        self.done.append(f"select {option}")
+
+    def upload(self, target, point, paths):
+        self.done.append("upload " + ", ".join(Path(p).name for p in paths))
+
     def snapshot(self):
-        return View(self.url, "Work Order", 1280, 800, False, self.tabs_open, TREE)
+        return View(self.url, "Work Order", 1280, 800, False, self.tabs_open, self.tree)
 
     def screenshot(self):
         self.shots += 1
@@ -80,7 +98,7 @@ class FakeSlot:
     def __init__(self, pilot: FakePilot) -> None:
         self._pilot = pilot
         self.pointers: list[tuple[Point, bool]] = []
-        self._streaks = BrowserSlot("r1", lambda _: None)
+        self._loops = BrowserSlot("r1", lambda _: None)
 
     def pilot(self):
         return self._pilot
@@ -88,8 +106,11 @@ class FakeSlot:
     def pointer(self, point, press):
         self.pointers.append((point, press))
 
-    def repeated(self, action):
-        return self._streaks.repeated(action)
+    def looping(self, action):
+        return self._loops.looping(action)
+
+    def saw(self, page):
+        self._loops.saw(page)
 
     def answer_dialog(self, accept, text):
         self._pilot.done.append(f"{'accept' if accept else 'dismiss'} {text}".strip())
@@ -242,7 +263,6 @@ def test_a_run_stores_browser_events_and_forgets_them_on_reload(logged_in, monke
 
     from ov.agent.engine.run import RunManager, runs
     from ov.agent.integrations.copilot import StreamResult
-    from ov.agent.storage.models import Provider
 
     monkeypatch.setattr(
         "ov.agent.integrations.copilot.stream_chat", lambda *a, cancel, on_text, **_: StreamResult(text="ok")
@@ -250,7 +270,7 @@ def test_a_run_stores_browser_events_and_forgets_them_on_reload(logged_in, monke
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
     monkeypatch.setattr("ov.agent.integrations.copilot.complete", lambda *a, **k: ("Title", None))
 
-    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
     run.emit({"type": "browser", "browser": {"open": True, "instance": "acme", "session": 1, "pointer": None}})
     run.emit({"type": "browser", "browser": {"pointer": {"x": 1, "y": 2, "step": 1}}})
@@ -321,3 +341,155 @@ def test_popups_show_up_as_tabs(tmp_path):
     out = tool_named("browser_tab").handler({"action": "switch", "index": 2, "say": "Showing the popup"}, ctx)
     assert ctx.pilot.done == ["switch 2"]
     assert "[2] Attachments | https://acme.onevizion.com/Dashboard.do (shown)" in out
+
+
+def _steps(ctx, *steps, say="Filling the form"):
+    return tool_named("browser_steps").handler({"steps": list(steps), "say": say}, ctx)
+
+
+def test_steps_run_in_one_call_and_each_change_is_checked_on_its_own(tmp_path):
+    ctx = BrowserContext(tmp_path, write=True, effect=Effect.WRITE)
+    out = _steps(
+        ctx,
+        {"action": "type", "ref": "e1", "text": "WO-1", "clear": True},
+        {"action": "select", "ref": "e1", "option": "Staged"},
+        {"action": "click", "ref": "e2", "say": "Saving"},
+    )
+    assert ctx.pilot.done == ["type at 110,20 WO-1 (clear)", "select Staged", "click 130,210 left x1"]
+    assert [a.split("</action>")[0] for a in ctx.actions] == [
+        f'<action>choose "Staged" in {SEARCH.label}',
+        f"<action>left-click {SAVE.label}",
+    ]
+    assert len(ctx.asked) == 2 and ctx.asked[0].startswith('choose "Staged"') and "left-click" in ctx.asked[1]
+    assert out.splitlines()[:3] == [
+        f"1. Typed into {SEARCH.label}.",
+        f'2. Chose "Staged" in {SEARCH.label}.',
+        f"3. Did left-click on {SAVE.label}.",
+    ]
+    assert out.endswith(f"Now: Work Order | {ctx.pilot.url}")
+
+
+def test_steps_stop_at_the_first_failure_and_say_what_ran(tmp_path):
+    ctx = BrowserContext(tmp_path)
+    ctx.pilot.fail_on = "e2"
+    out = _steps(
+        ctx,
+        {"action": "type", "ref": "e1", "text": "WO-1"},
+        {"action": "click", "ref": "e2"},
+        {"action": "press", "key": "Tab"},
+    )
+    assert ctx.pilot.done == ["type at 110,20 WO-1"]
+    assert "Stopped at step 2 of 3: e2 is covered" in out and "3." not in out
+
+    first = BrowserContext(tmp_path)
+    first.pilot.fail_on = "e2"
+    with pytest.raises(BrowserError, match="covered"):
+        _steps(first, {"action": "click", "ref": "e2"})
+
+
+def test_a_rejected_change_ends_the_steps(tmp_path):
+    ctx = BrowserContext(tmp_path, write=True, approve="Reject", effect=Effect.WRITE)
+    out = _steps(
+        ctx,
+        {"action": "type", "ref": "e1", "text": "WO-1"},
+        {"action": "click", "ref": "e2"},
+        {"action": "press", "key": "Tab"},
+    )
+    assert ctx.pilot.done == ["type at 110,20 WO-1"]
+    assert "Stopped at step 2 of 3: The user rejected this" in out
+
+
+def test_steps_stop_when_the_page_goes_elsewhere(tmp_path):
+    ctx = BrowserContext(tmp_path)
+    ctx.pilot.moves_to = "https://acme.onevizion.com/Other.do"
+    out = _steps(
+        ctx, {"action": "click", "ref": "e1"}, {"action": "type", "text": "x"}, {"action": "press", "key": "Tab"}
+    )
+    assert ctx.pilot.done == ["click 110,20 left x1"]
+    assert "after step 1, so the last 2 step(s) did not run" in out
+    assert out.endswith("Now: Work Order | https://acme.onevizion.com/Other.do")
+
+
+def test_a_dialog_during_steps_keeps_what_ran(tmp_path):
+    ctx = BrowserContext(tmp_path)
+    ctx.pilot.dialog = CONFIRM
+    out = _steps(
+        ctx,
+        {"action": "type", "ref": "e1", "text": "WO-1"},
+        {"action": "click", "ref": "e2"},
+        {"action": "press", "key": "Tab"},
+    )
+    assert out.splitlines()[0] == f"1. Typed into {SEARCH.label}."
+    assert 'showing a confirm: "Delete record 42?"' in out and "press Tab" not in ctx.pilot.done
+
+
+@pytest.mark.parametrize(
+    ("steps", "error"),
+    [
+        ([], "at least one step"),
+        ([{"action": "press", "key": "Tab"}] * 13, "at most 12 steps"),
+        ([{"action": "drag"}], "'drag' is not a step"),
+        ([{"action": "type", "text": "a"}, {"action": "click"}], r"Step 2 \(click\) needs one of ref"),
+        ([{"action": "select", "ref": "e1"}], r"Step 1 \(select\) needs option"),
+    ],
+)
+def test_bad_steps_are_refused_before_anything_runs(tmp_path, steps, error):
+    ctx = BrowserContext(tmp_path)
+    with pytest.raises(ToolError, match=error):
+        _steps(ctx, *steps)
+    assert ctx.pilot.done == []
+
+
+def test_an_upload_takes_files_of_the_run_and_is_checked(tmp_path):
+    (tmp_path / "report.pdf").write_bytes(b"pdf")
+    (tmp_path / "attachments").mkdir()
+    (tmp_path / "attachments" / "photo.png").write_bytes(b"png")
+    ctx = BrowserContext(tmp_path, write=True, effect=Effect.WRITE)
+    out = tool_named("browser_upload").handler(
+        {"ref": "e2", "files": ["report.pdf", "photo.png"], "say": "Uploading"}, ctx
+    )
+    assert ctx.pilot.done == ["upload report.pdf, photo.png"]
+    assert f"upload report.pdf, photo.png with {SAVE.label}" in ctx.actions[0]
+    assert len(ctx.asked) == 1 and ctx.asked[0].startswith("upload report.pdf")
+    assert out.startswith(f"Uploaded report.pdf, photo.png with {SAVE.label}.")
+
+
+@pytest.mark.parametrize(
+    ("name", "error"), [("../secret.txt", "outside the run folder"), ("missing.pdf", "No file missing.pdf")]
+)
+def test_an_upload_refuses_files_outside_the_run(tmp_path, name, error):
+    run = tmp_path / "run"
+    run.mkdir()
+    (tmp_path / "secret.txt").write_text("x")
+    ctx = BrowserContext(run, full=True)
+    with pytest.raises(ToolError, match=error):
+        tool_named("browser_upload").handler({"ref": "e2", "files": [name], "say": "Uploading"}, ctx)
+    assert ctx.pilot.done == []
+
+
+def test_going_back_and_forth_without_looking_is_stopped(tmp_path):
+    ctx = BrowserContext(tmp_path)
+    click = tool_named("browser_click").handler
+    for _ in range(3):
+        click({"ref": "e1", "say": "Opening"}, ctx)
+        click({"ref": "e2", "say": "Closing"}, ctx)
+    with pytest.raises(ToolError, match="went round the same 2 steps"):
+        click({"ref": "e1", "say": "Opening"}, ctx)
+
+
+def test_the_same_click_on_a_page_that_changes_is_not_a_loop(tmp_path):
+    ctx = BrowserContext(tmp_path)
+    for page in range(6):
+        ctx.pilot.tree = f'- button "Next" [ref=e2]\n- text "Page {page}"'
+        tool_named("browser_snapshot").handler({}, ctx)
+        tool_named("browser_click").handler({"ref": "e2", "say": "Next page"}, ctx)
+    assert len(ctx.pilot.done) == 6
+
+
+def test_looking_at_the_same_page_again_and_again_is_stopped(tmp_path):
+    ctx = BrowserContext(tmp_path)
+    for _ in range(3):
+        tool_named("browser_snapshot").handler({}, ctx)
+        tool_named("browser_wait").handler({"seconds": 1, "say": "Waiting"}, ctx)
+    with pytest.raises(ToolError, match="last 4 snapshots showed the same page"):
+        tool_named("browser_snapshot").handler({}, ctx)

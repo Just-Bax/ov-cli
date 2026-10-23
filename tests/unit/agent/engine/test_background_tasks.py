@@ -9,7 +9,6 @@ from helpers.agent import RUN_POLL_SECONDS, SLOW_POLLS, wait_for
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult
 from ov.agent.storage import db
-from ov.agent.storage.models import Provider
 
 
 def _wait_for(check):
@@ -62,7 +61,7 @@ def test_a_background_call_returns_at_once_and_wakes_the_idle_run_with_its_resul
 
     from ov.agent.engine.run import BACKGROUND_STARTED, runs
 
-    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, "copilot", "test-model")
     _wait_for(lambda: len(seen) == 2 and not run._busy)
     assert seen[1][-1]["content"] == BACKGROUND_STARTED.format(label=_tool(run, "c1")["label"])
     assert run.state["summary"]["status"] == "running"
@@ -91,7 +90,7 @@ def test_a_running_call_can_be_moved_to_the_background(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, "copilot", "test-model")
     _wait_for(lambda: any(t["id"] == "c1" for t in run.state["tools"]))
     run.move_to_background("c1")
     _wait_for(lambda: len(seen) >= 2)
@@ -112,7 +111,7 @@ def test_stopping_a_foreground_call_keeps_the_turn_going(logged_in, monkeypatch)
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, "copilot", "test-model")
     _wait_for(lambda: any(t["id"] == "c1" for t in run.state["tools"]))
     run.stop_tool("c1")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
@@ -133,7 +132,7 @@ def test_stopping_the_run_stops_background_tasks_without_waking_it(logged_in, mo
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, "copilot", "test-model")
     _wait_for(lambda: len(seen) == 2 and not run._busy)
     run.stop()
     _wait_for(lambda: _tool(run, "c1")["status"] == "error")

@@ -83,6 +83,7 @@ export const api = {
     request<CostReport>(`/cost?range=${range}&provider=${provider}`),
   retitleRun: (id: string) => post<{ title: string }>(`/runs/${id}/retitle`),
   compactRun: (id: string) => post(`/runs/${id}/compact`),
+  continueRun: (id: string) => post<{ id: string }>(`/runs/${id}/continue`),
   pinRun: (id: string, pinned: boolean) => post(`/runs/${id}/pin`, { pinned }),
   snoozeRun: (id: string, until: number | null) => post(`/runs/${id}/snooze`, { until }),
   markRunSeen: (id: string) => post(`/runs/${id}/seen`),

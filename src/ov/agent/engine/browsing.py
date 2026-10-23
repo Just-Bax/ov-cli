@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import itertools
 import threading
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +17,8 @@ MAX_WIDTH = 1440
 MAX_HEIGHT = 900
 MIN_SIDE = 320
 SCREEN_SCOPE = "run"
+LOOP_ROUNDS = 3
+LOOP_LONGEST = 4
 NOT_OPEN = "No browser is open. Open one with browser_open first."
 CLOSED_ITSELF = "The browser closed by itself."
 
@@ -31,6 +35,18 @@ def _clamp(value: int, top: int) -> int:
     return max(MIN_SIDE, min(top, value))
 
 
+def loop_span(period: int) -> int:
+    return period * LOOP_ROUNDS + 1
+
+
+def _cycles(recent: list[str], period: int) -> bool:
+    span = loop_span(period)
+    if len(recent) < span:
+        return False
+    tail = recent[-span:]
+    return all(tail[i] == tail[i + period] for i in range(span - period))
+
+
 @dataclass(frozen=True)
 class _Open:
     alias: str
@@ -44,14 +60,18 @@ class BrowserSlot:
         self._emit = emit
         self._lock = threading.Lock()
         self._open: _Open | None = None
-        self._last_action = ""
-        self._streak = 0
+        self._recent: deque[str] = deque(maxlen=loop_span(LOOP_LONGEST))
+        self._seen = ""
 
-    def repeated(self, action: str) -> int:
+    def saw(self, page: str) -> None:
         with self._lock:
-            self._streak = self._streak + 1 if action == self._last_action else 1
-            self._last_action = action
-            return self._streak
+            self._seen = hashlib.sha256(page.encode()).hexdigest()
+
+    def looping(self, action: str) -> int:
+        with self._lock:
+            self._recent.append(f"{self._seen} {action}")
+            recent = list(self._recent)
+        return next((period for period in range(1, LOOP_LONGEST + 1) if _cycles(recent, period)), 0)
 
     @property
     def live(self) -> bool:

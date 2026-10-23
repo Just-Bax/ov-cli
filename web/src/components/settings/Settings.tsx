@@ -1,5 +1,4 @@
 import {
-  SignOut as ArrowRightStartOnRectangleIcon,
   CaretDown as CaretDownIcon,
   Check as CheckIcon,
   CopySimple as CopyIcon,
@@ -12,13 +11,11 @@ import {
 import { useEffect, useState } from 'react'
 import type { ModelInfo, Provider, ReasoningLevel, SkillInfo, Status } from '@shared/types.ts'
 import { dialog } from '@/components/common/Dialog'
-import { ProviderLogo } from '@/components/common/ProviderLogo'
 import { reportError } from '@/components/common/Toasts'
 import {
   Button,
   Card,
   Chip,
-  GithubBadge,
   IconButton,
   Input,
   Label,
@@ -38,13 +35,9 @@ import {
   usePagerDuty,
 } from '@/components/integrations/PagerDuty'
 import { AccountRow } from '@/components/integrations/parts'
+import { PROVIDER_UI, providerReady, providerSummary } from '@/components/providers'
 import { CostSettings } from '@/components/settings/CostSettings'
-import {
-  ProviderSelect,
-  ProviderSetup,
-  providerReady,
-  providerSummary,
-} from '@/components/settings/Providers'
+import { ProviderSelect, ProviderSetup } from '@/components/settings/Providers'
 import {
   AddInstanceForm,
   SignInModal,
@@ -57,7 +50,7 @@ import { cn } from '@/lib/cn'
 import { useLoad } from '@/lib/hooks'
 import { useInstances } from '@/lib/instances'
 import { useModels } from '@/lib/models'
-import { go } from '@/lib/route'
+import { PROVIDER_BRANDS } from '@/lib/providerBrand'
 import { useSettings } from '@/lib/settings'
 import { UnsavedGuard, useUnsavedWarning } from '@/lib/unsaved'
 
@@ -152,7 +145,7 @@ function Row({
 }
 
 function Preferences({ status, onChange }: { status?: Status; onChange: () => void }) {
-  const { settings, update } = useSettings()
+  const { settings, providers, update } = useSettings()
   const models = useModels(settings.provider)
   const [advanced, setAdvanced] = useState(false)
 
@@ -174,9 +167,14 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
         title="Provider"
         hint={`${status ? providerSummary(status) : 'Who runs the agent.'} Existing threads keep theirs.`}
       >
-        <ProviderSelect className="w-[260px]" value={settings.provider} onChange={pickProvider} />
+        <ProviderSelect
+          className="w-[260px]"
+          providers={providers}
+          value={settings.provider}
+          onChange={pickProvider}
+        />
       </Row>
-      {status && !providerReady(status, status.provider) ? (
+      {status && !providerReady(status) ? (
         <div className="px-5 py-4">
           <ProviderSetup status={status} onRefresh={onChange} />
         </div>
@@ -710,9 +708,97 @@ function Workspace() {
   )
 }
 
+function Profile() {
+  const { settings, update } = useSettings()
+  const [name, setName] = useState(settings.fullName)
+  const [instructions, setInstructions] = useState(settings.instructions)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string>()
+
+  useEffect(() => setName(settings.fullName), [settings.fullName])
+  useEffect(() => setInstructions(settings.instructions), [settings.instructions])
+
+  const dirty = name.trim() !== settings.fullName || instructions !== settings.instructions
+  useUnsavedWarning(dirty)
+
+  const save = async () => {
+    setSaving(true)
+    setError(undefined)
+    try {
+      await update({ fullName: name.trim(), instructions })
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="space-y-4 p-5">
+      <div>
+        <Label>Full name</Label>
+        <Input
+          aria-label="Full name"
+          className="w-[320px]"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Your name"
+        />
+      </div>
+      <div>
+        <Label>Instructions</Label>
+        <div className="text-muted mb-2 text-[12px] leading-relaxed">
+          The agent keeps these in mind in every thread: how you like answers, rules for your work,
+          anything it should know about you.
+        </div>
+        <Textarea
+          aria-label="Instructions"
+          rows={6}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          placeholder={
+            'e.g. Keep replies short and plain. Only my tasks count, not the whole team.'
+          }
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="primary"
+          size="sm"
+          busy={saving}
+          disabled={!dirty || saving}
+          onClick={() => void save()}
+        >
+          <CheckIcon className="size-3.5" /> Save
+        </Button>
+        {error ? <span className="text-danger text-[12px]">{error}</span> : null}
+      </div>
+    </Card>
+  )
+}
+
+function ProviderAccounts({ status, onChange }: { status?: Status; onChange: () => void }) {
+  const { providers } = useSettings()
+
+  return providers.map((provider) => {
+    const ui = PROVIDER_UI[provider.id]
+    const { AccountAction } = ui
+    return (
+      <AccountRow
+        key={provider.id}
+        badge={ui.accountBadge}
+        title={PROVIDER_BRANDS[provider.id].name}
+        detail={ui.accountDetail(provider.account, status?.provider === provider.id)}
+        action={
+          AccountAction ? <AccountAction account={provider.account} onChange={onChange} /> : null
+        }
+      />
+    )
+  })
+}
+
 export function SettingsPage({ onChange }: { onChange: () => void }) {
   const { value: status, reload } = useLoad(api.status, [])
-  const user = status?.copilot.user
   const datadog = useDatadog()
   const pd = usePagerDuty()
 
@@ -721,23 +807,23 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
     onChange()
   }
 
-  const signOut = async () => {
-    await api.copilotLogout()
-    go({ page: 'home' })
-    changed()
-  }
-
   return (
     <Page
       title="Settings"
       subtitle={
         <span>
-          Defaults, instances, workspace, integrations, skills, cost and accounts. Stored on this
-          machine.
+          Profile, defaults, instances, workspace, integrations, skills, cost and accounts. Stored
+          on this machine.
         </span>
       }
     >
       <div className="divide-line mx-auto max-w-[1040px] divide-y px-6 pb-6">
+        <Section
+          title="Profile"
+          hint="Who you are and how you like to work. Added to every new turn, in every thread."
+        >
+          <Profile />
+        </Section>
         <Section
           title="Preferences"
           hint="How threads start and what you see. Saved as you change them."
@@ -779,39 +865,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
         </Section>
         <Section title="Accounts" hint="Services this computer is signed in to.">
           <Card className="divide-line divide-y overflow-hidden">
-            <AccountRow
-              badge={<GithubBadge />}
-              title="GitHub Copilot"
-              detail={
-                user
-                  ? `Signed in as ${user}.${status?.provider === 'copilot' ? ' Runs the agent.' : ''}`
-                  : 'Not signed in'
-              }
-              action={
-                user ? (
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => void signOut().catch(reportError)}
-                  >
-                    <ArrowRightStartOnRectangleIcon className="size-3.5" /> Sign out
-                  </Button>
-                ) : null
-              }
-            />
-            <AccountRow
-              badge={
-                <span className="bg-raised flex size-10 items-center justify-center rounded-xl">
-                  <ProviderLogo provider="claude" className="size-5" />
-                </span>
-              }
-              title="Claude"
-              detail={
-                status?.claude.signedIn
-                  ? `Signed in to Claude Code as ${status.claude.email}.${status.provider === 'claude' ? ' Runs the agent.' : ''} Sign out with /logout in Claude Code.`
-                  : 'Not signed in to Claude Code'
-              }
-            />
+            <ProviderAccounts status={status} onChange={changed} />
             <DatadogAccountRow status={datadog.status} setStatus={datadog.setStatus} />
             <PagerDutyAccountRow status={pd.status} setStatus={pd.setStatus} />
           </Card>

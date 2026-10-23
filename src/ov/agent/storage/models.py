@@ -12,11 +12,6 @@ def thread_fk() -> ForeignKey:
     return ForeignKey("thread.id", ondelete="CASCADE")
 
 
-class Provider(StrEnum):
-    COPILOT = "copilot"
-    CLAUDE = "claude"
-
-
 class ThreadStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -113,7 +108,6 @@ class Thread(Base):
     __tablename__ = "thread"
     __table_args__ = (
         one_of("status", ThreadStatus),
-        one_of("provider", Provider),
         one_of("access", Access),
         Index("thread_by_created", "created_at"),
         Index("thread_by_settled", "settled_at"),
@@ -177,7 +171,6 @@ class Usage(Base):
     __tablename__ = "usage"
     __table_args__ = (
         one_of("kind", UsageKind),
-        one_of("provider", Provider),
         Index("usage_by_thread", "thread_id"),
         Index("usage_by_created", "created_at"),
     )
@@ -200,7 +193,6 @@ class Preference(Base):
     __table_args__ = (
         CheckConstraint("id = 1", name="single_row"),
         one_of("reasoning", Reasoning, nullable=True),
-        one_of("provider", Provider),
         CheckConstraint("max_steps BETWEEN 1 AND 500", name="max_steps_valid"),
         CheckConstraint("notify IN (0, 1)", name="notify_valid"),
         CheckConstraint("tab_badge IN (0, 1)", name="tab_badge_valid"),
@@ -214,6 +206,8 @@ class Preference(Base):
     max_steps: Mapped[int] = mapped_column(Integer)
     workspace: Mapped[str | None] = mapped_column(Text)
     workspace_notes: Mapped[str | None] = mapped_column(Text)
+    full_name: Mapped[str | None] = mapped_column(Text)
+    instructions: Mapped[str | None] = mapped_column(Text)
     notify: Mapped[bool] = mapped_column(Integer)
     tab_badge: Mapped[bool] = mapped_column(Integer)
     updated_at: Mapped[int] = mapped_column(Integer)

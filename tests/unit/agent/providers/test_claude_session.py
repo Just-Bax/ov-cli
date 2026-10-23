@@ -9,7 +9,6 @@ from claude_agent_sdk import ResultMessage, StreamEvent, SystemMessage, UserMess
 from helpers.agent import RUN_POLL_SECONDS, SLOW_POLLS, wait_for
 
 from ov.agent.storage import db
-from ov.agent.storage.models import Provider
 
 SESSION_UUID_LENGTH = 36
 CONTEXT_USAGE = {"totalTokens": 52_000, "rawMaxTokens": 200_000, "autoCompactThreshold": 167_000}
@@ -89,10 +88,12 @@ def _transcript(session: str, directory: str) -> list[Any]:
 @pytest.fixture
 def claude_thread(logged_in, monkeypatch):
     FakeClient.sessions, FakeClient.replies, FakeClient.prompts = [], [], []
-    monkeypatch.setattr("ov.agent.engine.claude_loop.ClaudeSDKClient", FakeClient)
-    monkeypatch.setattr("ov.agent.engine.claude_loop.get_session_messages", _transcript)
+    monkeypatch.setattr("ov.agent.providers.claude_session.ClaudeSDKClient", FakeClient)
+    monkeypatch.setattr("ov.agent.providers.claude_session.get_session_messages", _transcript)
     monkeypatch.setattr("ov.agent.integrations.claude.cli_path", lambda: "claude")
-    monkeypatch.setattr("ov.agent.integrations.claude.list_models", lambda: [{"id": "opus", "reasoning": ["high"]}])
+    monkeypatch.setattr(
+        "ov.agent.integrations.claude.list_models", lambda: [{"id": "opus", "reasoning": ["high"], "vision": True}]
+    )
     monkeypatch.setattr("ov.agent.integrations.claude.complete", lambda *a: ("Claude thread", None))
     db.save_preferences({"provider": "claude", "reasoning": "high"})
 
@@ -100,7 +101,7 @@ def claude_thread(logged_in, monkeypatch):
 def _start(prompt: str):
     from ov.agent.engine.run import runs
 
-    return runs.create({"access": "read", "prompt": prompt, "instance": "acme"}, Provider.CLAUDE, "opus")
+    return runs.create({"access": "read", "prompt": prompt, "instance": "acme"}, "claude", "opus")
 
 
 def test_a_claude_thread_streams_text_records_usage_and_its_session(claude_thread):
@@ -110,6 +111,7 @@ def test_a_claude_thread_streams_text_records_usage_and_its_session(claude_threa
 
     options = FakeClient.sessions[0]
     assert options.tools == [] and options.setting_sources == []
+    assert "strict-mcp-config" in options.extra_args
     assert options.allowed_tools == ["mcp__ov__*"] and "ov" in options.mcp_servers
     assert options.model == "opus" and options.effort == "high"
     assert len(options.session_id) == SESSION_UUID_LENGTH and options.resume is None
@@ -117,9 +119,9 @@ def test_a_claude_thread_streams_text_records_usage_and_its_session(claude_threa
         BREAK + "hi"
     )
     assert [m["text"] for m in run.state["chat"] if m["role"] == "assistant"] == ["Hello from Claude."]
-    assert run.state["summary"]["cost"] == {"credits": 0.0, "usd": 0.25, "requests": 1}
-    assert run.state["claude"]["session"] == options.session_id
-    assert run.state["claude"]["turns"]["u_start"]["prompt"] == "p1"
+    assert run.state["summary"]["cost"] == {"amount": 0.25, "requests": 1}
+    assert run.state["session"]["id"] == options.session_id
+    assert run.state["session"]["turns"]["u_start"]["prompt"] == "p1"
 
 
 def test_a_follow_up_resumes_the_same_claude_session(claude_thread):
@@ -141,23 +143,23 @@ def test_retrying_a_claude_turn_forks_the_session_before_it(claude_thread, monke
     run.follow_up("second", [], steer=False)
     _wait_for(lambda: len(FakeClient.sessions) == 2 and not run._busy)
     second = next(m["id"] for m in run.state["chat"] if m["text"] == "second")
-    anchor = run.state["claude"]["turns"][second]
+    anchor = run.state["session"]["turns"][second]
 
     run.retry(second)
     _wait_for(lambda: len(FakeClient.sessions) == 3 and not run._busy)
     fork = FakeClient.sessions[2]
     assert anchor["before"] == "tail-1" and anchor["prompt"] == "p2"
-    assert fork.resume == anchor["session"] and fork.fork_session
+    assert fork.resume == anchor["id"] and fork.fork_session
     assert (fork.resume_session_at, fork.resume_drops_turn) == ("tail-1", "p2")
-    assert fork.session_id != anchor["session"]
-    assert run.state["claude"]["session"] == fork.session_id
-    assert anchor["spentBefore"] == 0.25 and run.state["summary"]["cost"]["usd"] == 0.25
+    assert fork.session_id != anchor["id"]
+    assert run.state["session"]["id"] == fork.session_id
+    assert anchor["spentBefore"] == 0.25 and run.state["summary"]["cost"]["amount"] == 0.25
 
 
 def test_claude_calls_our_tools_through_the_in_process_server(claude_thread):
     import asyncio
 
-    from ov.agent.engine import claude_loop
+    from ov.agent.providers import claude_session
 
     started: dict[str, Any] = {}
 
@@ -165,7 +167,7 @@ def test_claude_calls_our_tools_through_the_in_process_server(claude_thread):
         assert "ov" in options.mcp_servers
         while "run" not in started:
             await asyncio.sleep(RUN_POLL_SECONDS)
-        FakeClient.tool_reply = await claude_loop.tool_handler(started["run"], "skill_read")({"name": "ov-cli"})
+        FakeClient.tool_reply = await claude_session.tool_handler(started["run"], "skill_read")({"name": "ov-cli"})
 
     FakeClient.replies = [[call_skill, *_text_events("Read it."), _result()]]
     run = _start("read the ov-cli skill")
@@ -179,7 +181,7 @@ def test_claude_calls_our_tools_through_the_in_process_server(claude_thread):
 
 
 def test_images_become_claude_image_blocks():
-    from ov.agent.engine.claude_loop import content_blocks
+    from ov.agent.providers.claude_session import content_blocks
 
     blocks = content_blocks(
         [
@@ -216,19 +218,19 @@ def test_claude_account_comes_from_the_cli_only(monkeypatch):
 
 
 def test_switching_provider_picks_that_providers_models(ov_home, monkeypatch):
-    from ov.agent.integrations import providers
+    from ov.agent import providers
 
     monkeypatch.setattr(
         "ov.agent.integrations.copilot.list_models",
         lambda: [{"id": "gpt-6"}, {"id": "claude-opus-5"}, {"id": "claude-opus-5.5"}, {"id": "claude-sonnet-5"}],
     )
-    assert providers.default_models(Provider.CLAUDE) == ("opus", "haiku")
+    assert providers.get("claude").default_models() == ("opus", "haiku")
     monkeypatch.setattr("ov.agent.integrations.copilot.user", lambda: None)
-    assert providers.default_models(Provider.COPILOT) == (None, None)
+    assert providers.get("copilot").default_models() == (None, None)
     monkeypatch.setattr("ov.agent.integrations.copilot.user", lambda: "someone")
-    assert providers.default_models(Provider.COPILOT) == ("claude-opus-5.5", None)
-    with pytest.raises(ValueError, match="provider must be one of"):
-        db.save_preferences({"provider": "openai"})
+    assert providers.get("copilot").default_models() == ("claude-opus-5.5", None)
+    with pytest.raises(ValueError, match="Unknown provider: openai"):
+        providers.get("openai")
 
 
 def test_claude_reports_session_totals_so_each_turn_records_only_its_own_cost(claude_thread):
@@ -237,8 +239,8 @@ def test_claude_reports_session_totals_so_each_turn_records_only_its_own_cost(cl
     _wait_for(lambda: run.state["summary"]["status"] == "done")
     run.follow_up("second", [], steer=False)
     _wait_for(lambda: len(FakeClient.sessions) == 2 and not run._busy)
-    assert run.state["summary"]["cost"]["usd"] == 0.75
-    assert run.state["claude"]["spent"] == 0.75
+    assert run.state["summary"]["cost"]["amount"] == 0.75
+    assert run.state["session"]["spent"] == 0.75
 
 
 def test_a_resent_message_gets_one_fresh_time_stamp():
@@ -255,12 +257,13 @@ def test_a_resent_message_gets_one_fresh_time_stamp():
 def test_deleting_a_claude_thread_deletes_its_claude_code_transcripts(claude_thread, monkeypatch):
     deleted: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        "ov.agent.engine.claude_loop.delete_session", lambda session, directory: deleted.append((session, directory))
+        "ov.agent.providers.claude_session.delete_session",
+        lambda session, directory: deleted.append((session, directory)),
     )
     FakeClient.replies = [[_result()]]
     run = _start("hi")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
-    session = run.state["claude"]["session"]
+    session = run.state["session"]["id"]
 
     from ov.agent.engine.run import runs
 
@@ -279,12 +282,12 @@ def _compacted(trigger: str) -> list[SystemMessage]:
     ]
 
 
-def test_claude_compacts_at_ninety_percent_and_shows_it_in_the_thread(claude_thread):
+def test_claude_compacts_at_its_own_threshold_and_shows_it_in_the_thread(claude_thread):
     FakeClient.replies = [[*_compacted("auto"), *_text_events("Carrying on."), _result()]]
     run = _start("a long investigation")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
 
-    assert FakeClient.sessions[0].env == {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "90"}
+    assert FakeClient.sessions[0].env == {}
     [compacted] = run.state["compactions"]
     assert compacted["status"] == "done" and compacted["trigger"] == "auto"
     assert (compacted["before"], compacted["after"]) == (170_000, 9_000)
@@ -303,7 +306,7 @@ def test_compacting_a_claude_thread_on_request_sends_the_compact_command(claude_
     assert FakeClient.prompts[-1] == [{"type": "text", "text": "/compact"}]
     [compacted] = run.state["compactions"]
     assert compacted["trigger"] == "manual" and compacted["status"] == "done"
-    assert run.state["summary"]["status"] == "done" and run.state["summary"]["cost"]["usd"] == pytest.approx(0.3)
+    assert run.state["summary"]["status"] == "done" and run.state["summary"]["cost"]["amount"] == pytest.approx(0.3)
 
 
 def test_a_thread_without_a_session_has_nothing_to_compact(claude_thread):
@@ -312,6 +315,6 @@ def test_a_thread_without_a_session_has_nothing_to_compact(claude_thread):
     FakeClient.replies = [[_result()]]
     run = _start("first")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
-    run.state["claude"]["session"] = None
+    run.state["session"]["id"] = None
     with pytest.raises(RunError, match="nothing to compact"):
         run.compact()

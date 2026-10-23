@@ -1,5 +1,5 @@
-import { ArrowsInLineVertical as CompactIcon } from '@phosphor-icons/react'
-import { useRef, useState } from 'react'
+import { ArrowsInLineVertical as CompactIcon, Clock as ClockIcon } from '@phosphor-icons/react'
+import { useEffect, useRef, useState } from 'react'
 import type { Compaction, ContextUsage } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
 import { Button, Shimmer } from '@/components/common/ui'
@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatTokens } from '@/lib/cost'
 import { useClickOutside } from '@/lib/hooks'
+import { MINUTE_MS, shortSpan } from '@/lib/time'
 
 const RING_RADIUS = 6
 const RING_SIZE = 16
@@ -14,6 +15,8 @@ const RING_STROKE = 2
 const RING_LENGTH = 2 * Math.PI * RING_RADIUS
 const WARN_SHARE = 0.75
 const PERCENT = 100
+const STALE_CACHE_MIN_TOKENS = 20_000
+const STALE_CHECK_MS = MINUTE_MS
 
 function share(context: ContextUsage): number {
   return Math.min(1, context.tokens / (context.compactAt ?? context.limit))
@@ -123,6 +126,62 @@ export function ContextMeter({
           </Button>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function useNow(everyMs: number): number {
+  const [now, setNow] = useState(Date.now)
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), everyMs)
+    return () => clearInterval(timer)
+  }, [everyMs])
+
+  return now
+}
+
+export function StaleCacheNotice({
+  runId,
+  context,
+  idleSince,
+  cacheTtlMs,
+}: {
+  runId: string
+  context: ContextUsage
+  idleSince: number
+  cacheTtlMs: number
+}) {
+  const now = useNow(STALE_CHECK_MS)
+  const [asking, setAsking] = useState(false)
+  const idle = now - idleSince
+  if (idle < cacheTtlMs || context.tokens < STALE_CACHE_MIN_TOKENS) return null
+
+  const compact = () => {
+    setAsking(true)
+    api
+      .compactRun(runId)
+      .catch(reportError)
+      .finally(() => setAsking(false))
+  }
+
+  return (
+    <div className="bg-warn-soft/60 text-text mb-2 flex items-center gap-3 rounded-2xl px-4 py-2.5 text-[12.5px]">
+      <ClockIcon className="text-warn size-4 shrink-0" />
+      <span className="min-w-0 flex-1 leading-relaxed">
+        Idle for {shortSpan(idle)}, so the cache expired. Your next message re-sends about{' '}
+        {formatTokens(context.tokens)} tokens at full price. Compacting first sends far less.
+      </span>
+      <Button
+        size="sm"
+        className="shrink-0 gap-1.5"
+        busy={asking}
+        disabled={asking}
+        onClick={compact}
+      >
+        <CompactIcon className="size-3.5" />
+        Compact now
+      </Button>
     </div>
   )
 }

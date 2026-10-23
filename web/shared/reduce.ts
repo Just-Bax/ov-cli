@@ -24,6 +24,8 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       return {
         ...state,
         caseUrl: event.caseUrl ?? state.caseUrl,
+        continuedFrom: event.continuedFrom ?? state.continuedFrom,
+        continuedIn: event.continuedIn ?? state.continuedIn,
         summary: {
           ...state.summary,
           title: event.title ?? state.summary.title,

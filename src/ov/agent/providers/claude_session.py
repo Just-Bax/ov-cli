@@ -17,11 +17,22 @@ from claude_agent_sdk import (
     tool,
 )
 
-from ov.agent.engine import compaction
+from ov.agent.engine.browser_runner import (
+    NO_REPORT,
+    RUNNER_EFFORT,
+    RUNNER_PROMPT,
+    RUNNER_STEPS,
+    STEPS_USED_UP,
+    RunnerError,
+    report,
+)
+from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.prompt import system_prompt
 from ov.agent.integrations import claude
 from ov.agent.storage import db
+from ov.agent.storage.models import UsageKind
 from ov.agent.tools import tool_specs
+from ov.agent.tools.browser import HANDS
 
 if TYPE_CHECKING:
     from ov.agent.engine.run import Run
@@ -29,12 +40,12 @@ if TYPE_CHECKING:
 REPLAY_PROMPTS = {"replay-user-messages": None}
 ERROR_PREFIX = "Error:"
 DATA_URL_PREFIX = "data:"
-AUTO_COMPACT_ENV = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
 COMPACT_COMMAND = "/compact"
 COMPACTING = "compacting"
 COMPACT_SUCCESS = "success"
 COMPACT_FAILED = "Claude Code could not compact the context ({result})."
 COMPACT_UNREPORTED = "Claude Code finished without compacting the context."
+MAX_TURNS_SUBTYPE = "error_max_turns"
 
 
 def _image_block(url: str) -> dict[str, Any]:
@@ -94,7 +105,7 @@ def _last_uuid(session: str | None, cwd: str) -> str | None:
 
 
 def _options(run: Run) -> tuple[Any, str, dict[str, Any] | None]:
-    model = run.state["summary"]["model"]
+    model = run.model
     preferences = db.get_preferences()
     options = claude.base_options(
         model,
@@ -107,14 +118,13 @@ def _options(run: Run) -> tuple[Any, str, dict[str, Any] | None]:
     options.allowed_tools = [f"{claude.TOOL_PREFIX}*"]
     options.include_partial_messages = True
     options.max_turns = int(preferences["maxSteps"])
-    options.extra_args = dict(REPLAY_PROMPTS)
-    options.env = {AUTO_COMPACT_ENV: str(compaction.AUTO_COMPACT_PERCENT)}
+    options.extra_args = {**options.extra_args, **REPLAY_PROMPTS}
 
-    fork = run.take_claude_fork()
-    current = run.state["claude"]["session"]
+    fork = run.take_fork()
+    current = run.state["session"]["id"]
     if fork is not None and fork.get("before"):
         session = str(uuid.uuid4())
-        options.resume, options.fork_session, options.session_id = fork["session"], True, session
+        options.resume, options.fork_session, options.session_id = fork["id"], True, session
         options.resume_session_at, options.resume_drops_turn = fork["before"], fork["prompt"]
         return options, session, fork
     if current is None or fork is not None:
@@ -133,6 +143,12 @@ async def _prompt(blocks: list[dict[str, Any]], session: str) -> AsyncIterator[d
         "parent_tool_use_id": None,
         "session_id": session,
     }
+
+
+def record_usage(run: Run, session: str, result: ResultMessage) -> None:
+    spent = run.state["session"]["spent"]
+    run.record_usage(run.model, UsageKind.TURN, claude.usage_of(result, spent))
+    run.emit({"type": "meta", "session": {"id": session, "spent": result.total_cost_usd or spent}})
 
 
 class Stream:
@@ -159,19 +175,19 @@ class Stream:
             return
         self.prompt_seen = True
         anchor = {
-            "session": self.session,
+            "id": self.session,
             "turn": self.turn,
             "prompt": message.uuid,
             "before": self.before,
-            "spentBefore": self.run.state["claude"]["spent"],
+            "spentBefore": self.run.state["session"]["spent"],
         }
-        self.run.emit({"type": "meta", "claude": anchor})
+        self.run.emit({"type": "meta", "session": anchor})
 
     def on_result(self, result: ResultMessage) -> None:
         if self.message_id:
             self.run.commit_text(self.message_id)
             self.message_id = None
-        self.run.record_claude_usage(self.session, result)
+        record_usage(self.run, self.session, result)
         if result.is_error and not self.run.cancel.is_set():
             raise claude.ClaudeError(claude.result_error(result))
 
@@ -213,7 +229,7 @@ async def _session(run: Run, options: Any, session: str, fork_point: str | None)
 
         with run.cancel.hook(interrupt):
             while True:
-                turn, contents = run.claude_input()
+                turn, contents = run.session_input()
                 if not contents:
                     return
                 before = fork_point or _last_uuid(session, str(run.work_dir))
@@ -230,9 +246,9 @@ async def _session(run: Run, options: Any, session: str, fork_point: str | None)
 
 def run_turn(run: Run) -> None:
     options, session, fork = _options(run)
-    if session != run.state["claude"]["session"]:
+    if session != run.state["session"]["id"]:
         spent = fork.get("spentBefore", 0.0) if fork else 0.0
-        run.emit({"type": "meta", "claude": {"session": session, "spent": spent}})
+        run.emit({"type": "meta", "session": {"id": session, "spent": spent}})
     asyncio.run(_session(run, options, session, fork["before"] if fork else None))
 
 
@@ -250,7 +266,7 @@ async def _compact(run: Run, options: Any, session: str) -> None:
                 if isinstance(message, SystemMessage):
                     on_system(run, message, "manual")
                 elif isinstance(message, ResultMessage):
-                    run.record_claude_usage(session, message)
+                    record_usage(run, session, message)
                     if message.is_error and not run.cancel.is_set():
                         raise claude.ClaudeError(claude.result_error(message))
 
@@ -264,10 +280,53 @@ def compact(run: Run) -> None:
     asyncio.run(_compact(run, options, session))
 
 
+def _hands_server(run: Run) -> Any:
+    tools = [tool(t.name, t.description, t.spec["function"]["parameters"])(tool_handler(run, t.name)) for t in HANDS]
+    return create_sdk_mcp_server(claude.SERVER_NAME, tools=tools)
+
+
+def _hands_options(run: Run, model: str) -> Any:
+    options = claude.base_options(model, RUNNER_PROMPT, run.work_dir, claude.effort_for(model, RUNNER_EFFORT))
+    options.mcp_servers = {claude.SERVER_NAME: _hands_server(run)}
+    options.allowed_tools = [f"{claude.TOOL_PREFIX}*"]
+    options.max_turns = RUNNER_STEPS
+    options.extra_args = {**options.extra_args, **claude.NO_TRANSCRIPT}
+    return options
+
+
+async def _drive(run: Run, model: str, options: Any, goal: str, cancel: Cancel) -> str:
+    result: ResultMessage | None = None
+    loop = asyncio.get_running_loop()
+    async with ClaudeSDKClient(options) as client:
+
+        def interrupt() -> None:
+            asyncio.run_coroutine_threadsafe(client.interrupt(), loop)
+
+        with cancel.hook(interrupt):
+            await client.query(goal)
+            async for message in client.receive_response():
+                if isinstance(message, ResultMessage):
+                    result = message
+
+    cancel.check()
+    if result is None:
+        raise RunnerError(NO_REPORT)
+
+    run.record_step_usage(model, claude.usage_of(result, 0))
+
+    if result.subtype == MAX_TURNS_SUBTYPE:
+        return STEPS_USED_UP.format(steps=RUNNER_STEPS)
+    if result.is_error:
+        raise claude.ClaudeError(claude.result_error(result))
+    return report(result.result)
+
+
+def drive_browser(run: Run, model: str, goal: str, cancel: Cancel) -> str:
+    return asyncio.run(_drive(run, model, _hands_options(run, model), goal, cancel))
+
+
 def sessions_of(events: list[dict[str, Any]]) -> set[str]:
-    return {
-        e["event"]["claude"]["session"] for e in events if e["event"]["type"] == "meta" and e["event"].get("claude")
-    }
+    return {e["event"]["session"]["id"] for e in events if e["event"]["type"] == "meta" and e["event"].get("session")}
 
 
 def forget_sessions(sessions: set[str], cwd: str) -> None:

@@ -15,7 +15,7 @@ from claude_agent_sdk import (
     ResultMessage,
 )
 
-from ov.agent.integrations.copilot import Usage
+from ov.agent.integrations.common import Usage
 from ov.agent.storage.db import REASONING_LEVELS
 from ov.core.paths import agent_dir
 
@@ -34,6 +34,7 @@ SERVER_NAME = "ov"
 TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
 SIGN_IN_HINT = "Install Claude Code, run `claude` in a terminal and sign in with /login."
 NO_TRANSCRIPT = {"no-session-persistence": None}
+OWN_TOOLS_ONLY = {"strict-mcp-config": None}
 TOKEN_FIELDS = {
     "input_tokens": "input",
     "cache_read_input_tokens": "cache_read",
@@ -115,7 +116,7 @@ async def _server_models() -> list[dict[str, Any]]:
         setting_sources=[],
         cli_path=cli_path(),
         cwd=str(agent_dir(HELPER_DIR)),
-        extra_args=dict(NO_TRANSCRIPT),
+        extra_args={**OWN_TOOLS_ONLY, **NO_TRANSCRIPT},
         max_buffer_size=MESSAGE_BUFFER_BYTES,
     )
     async with ClaudeSDKClient(options) as client:
@@ -180,6 +181,7 @@ def base_options(model: str, system: str, cwd: Path, effort: str | None) -> Clau
         effort=effort,
         cli_path=cli_path(),
         cwd=str(cwd),
+        extra_args=dict(OWN_TOOLS_ONLY),
         max_buffer_size=MESSAGE_BUFFER_BYTES,
     )
 
@@ -196,8 +198,8 @@ class _Helper:
 
         threading.Thread(target=self._loop.run_forever, name="claude-helper", daemon=True).start()
 
-    def ask(self, text: str) -> tuple[str, Usage]:
-        return asyncio.run_coroutine_threadsafe(self._ask(text), self._loop).result(HELPER_TIMEOUT_SECONDS)
+    def ask(self, text: str, timeout_seconds: float) -> tuple[str, Usage]:
+        return asyncio.run_coroutine_threadsafe(self._ask(text), self._loop).result(timeout_seconds)
 
     def close(self) -> None:
         asyncio.run_coroutine_threadsafe(self._close(), self._loop).result(HELPER_TIMEOUT_SECONDS)
@@ -227,7 +229,7 @@ class _Helper:
         await self._close()
         options = base_options(self._model, self._system, agent_dir(HELPER_DIR), HELPER_EFFORT)
         options.max_turns = 1
-        options.extra_args = dict(NO_TRANSCRIPT)
+        options.extra_args = {**options.extra_args, **NO_TRANSCRIPT}
 
         self._client = ClaudeSDKClient(options)
         await self._client.connect()
@@ -261,8 +263,10 @@ def close_helpers() -> None:
         helper.close()
 
 
-def complete(model: str, system: str, user_text: str) -> tuple[str, Usage]:
-    text, usage = _helper(model, system).ask(user_text)
+def complete(
+    model: str, system: str, user_text: str, timeout_seconds: float = HELPER_TIMEOUT_SECONDS
+) -> tuple[str, Usage]:
+    text, usage = _helper(model, system).ask(user_text, timeout_seconds)
     if not text.strip():
         raise ClaudeError(f"{model} returned an empty reply.")
     return text, usage

@@ -12,13 +12,14 @@ import string
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from ov.agent import providers
 from ov.agent import workspace as project
-from ov.agent.engine import browser_runner, cases, claude_loop, compaction, guard
+from ov.agent.engine import cases, compaction, guard
 from ov.agent.engine.browsing import BrowserSlot
 from ov.agent.engine.cancel import Cancel
+from ov.agent.engine.conversation import answered
 from ov.agent.engine.files import (
     IMAGE_EXTS,
     attachments_dir,
@@ -31,23 +32,38 @@ from ov.agent.engine.files import (
 )
 from ov.agent.engine.links import links_for, seen_ids
 from ov.agent.engine.prompt import stamped, system_prompt
-from ov.agent.engine.state import details, empty_state, reduce, search, snapshot, window
+from ov.agent.engine.state import details, empty_state, question_text, reduce, search, snapshot, window
 from ov.agent.engine.tasks import Task, TaskContext
 from ov.agent.instances.ovproc import find_instance, url_for, web_cookies
 from ov.agent.instances.ovproc import login as ov_login
-from ov.agent.integrations import claude, copilot, providers
+from ov.agent.integrations.common import Usage
+from ov.agent.providers.base import AgentProvider, Initiator
 from ov.agent.storage import db
-from ov.agent.storage.models import Access, Provider, UsageKind
-from ov.agent.tools import tool_named, tool_specs
-from ov.agent.tools.base import APPROVE, REJECT, Approval, Tool, ToolError
+from ov.agent.storage.models import Access, UsageKind
+from ov.agent.tools import tool_named
+from ov.agent.tools.base import APPROVE, REJECT, Approval, Tool, ToolError, clip
 
-SUMMARY_READ_TIMEOUT_SECONDS = 300
-CONTEXT_TOKEN_KINDS = ("input", "cache_read", "cache_write", "output")
 NOTHING_TO_COMPACT = "There is nothing to compact in this thread yet."
 COMPACT_WHILE_BUSY = "Wait for the agent to finish, or stop it, before compacting."
-SUMMARY_EMPTY = "{model} returned an empty summary, so the context was not compacted."
-TOOL_WORKERS = 8
-MAX_BACKGROUND_TASKS = TOOL_WORKERS
+CONTINUE_WHILE_BUSY = "Wait for the agent to finish, or stop it, before continuing in a new thread."
+NOTHING_TO_CONTINUE = "This thread has nothing to carry over yet."
+CONTINUED_TITLE = "{title} (continued)"
+CONTINUED_CONTEXT = (
+    '[This thread continues the earlier thread "{title}". The summary below is everything carried over from it; '
+    "the user's next message says what to do now.]\n\n{summary}"
+)
+CONTINUED_MESSAGE = "Continued from **{title}**. This is what carries over:\n\n{summary}"
+CONTINUE_TRANSCRIPT_CHARS = 400_000
+HISTORY_USER = "User:"
+HISTORY_AGENT = "Agent:"
+HISTORY_GAP = "[The middle of the thread is left out to keep this short.]"
+SUMMARY_EMPTY = "{model} returned an empty summary."
+RESTART_NOTE = (
+    "OV Agent restarted while you were working, so your turn stopped part way. Tool calls that were running were "
+    "cut off and their results are unknown: check the current state before you redo anything that changes "
+    "something, then carry on with the user's request."
+)
+MAX_BACKGROUND_TASKS = 8
 TOOL_INPUT_CHARS = 8000
 TOOL_OUTPUT_CHARS = 12000
 TOOL_ERROR_CHARS = 4000
@@ -79,10 +95,6 @@ STREAM_END = object()
 WAKE_STATUSES = ("waiting", "error", "done")
 SHUTDOWN_POLL_SECONDS = 0.05
 
-NO_FAST_MODEL = (
-    "No fast model is set for Copilot. Pick one in Settings; titles, change checks and the browser run on it."
-)
-EMPTY_REPLY_NOTE = "Your last reply was empty. Answer the user's last message."
 CHANGES_POSSIBLE = (
     "Changes through ov, ov_import, the PagerDuty change tools, the browser, workspace edits and commands that "
     "change something are now possible"
@@ -171,12 +183,12 @@ status_feed = StatusFeed()
 
 
 class Run:
-    _turns: dict[str, int]
+    turns: dict[str, int]
     _saved: list[str]
     _tasks: dict[str, Task]
     _finished_tasks: list[Task]
     _verdicts: dict[tuple[str, ...], guard.Verdict]
-    _claude_fork: dict[str, Any] | None
+    _fork: dict[str, Any] | None
     _compacting: dict[str, Any] | None
 
     def __init__(self, run_id: str, state: dict[str, Any], seq: int) -> None:
@@ -188,7 +200,7 @@ class Run:
         self._lock = threading.RLock()
         self._listeners: list[queue.Queue[dict[str, Any]]] = []
         self._loaded_messages: list[dict[str, Any]] | None = None
-        self._turns, self._saved = {}, []
+        self.turns, self._saved = {}, []
         self._cut_off: set[str] = set()
         self._local = threading.local()
         self._pending_images: list[tuple[str, str]] = []
@@ -198,10 +210,10 @@ class Run:
         self._held: set[str] = set()
         self._questions: dict[str, tuple[threading.Event, list[tuple[list[str], str]]]] = {}
         self._logins: dict[str, tuple[threading.Event, list[bool]]] = {}
-        self._busy, self._finished = False, False
+        self._busy, self.finished = False, False
         self._streaming: str | None = None
-        self._tasks, self._finished_tasks, self._verdicts, self._claude_fork = {}, [], {}, None
-        self._compacting, self._context_tokens = None, int((state.get("context") or {}).get("tokens") or 0)
+        self._tasks, self._finished_tasks, self._verdicts, self._fork = {}, [], {}, None
+        self._compacting, self.context_tokens = None, int((state.get("context") or {}).get("tokens") or 0)
         self.browser, self.touched = BrowserSlot(run_id, self.emit), db.now_ms()
         self._restore_queue()
 
@@ -217,19 +229,19 @@ class Run:
         self.state["queueHeld"] = self._queue_held
 
     @property
-    def _messages(self) -> list[dict[str, Any]]:
+    def messages(self) -> list[dict[str, Any]]:
         if self._loaded_messages is None:
-            messages, self._turns = db.load_messages(self.id)
+            messages, self.turns = db.load_messages(self.id)
             self._saved = [json.dumps(m) for m in messages]
-            self._loaded_messages = _answered(messages)
+            self._loaded_messages = answered(messages)
         return self._loaded_messages
 
-    @_messages.setter
-    def _messages(self, messages: list[dict[str, Any]]) -> None:
+    @messages.setter
+    def messages(self, messages: list[dict[str, Any]]) -> None:
         self._loaded_messages = messages
 
-    def _persist(self) -> None:
-        current = [json.dumps(m) for m in self._messages]
+    def persist(self) -> None:
+        current = [json.dumps(m) for m in self.messages]
         start = next(
             (i for i, (old, new) in enumerate(zip(self._saved, current, strict=False)) if old != new),
             min(len(self._saved), len(current)),
@@ -237,8 +249,8 @@ class Run:
         if start == len(current) == len(self._saved):
             return
 
-        turns = {index: turn_id for turn_id, index in self._turns.items()}
-        db.save_messages(self.id, start, self._messages[start:], turns)
+        turns = {index: turn_id for turn_id, index in self.turns.items()}
+        db.save_messages(self.id, start, self.messages[start:], turns)
         self._saved = current
 
     @property
@@ -246,8 +258,16 @@ class Run:
         return self.state["summary"].get("instance") or ""
 
     @property
-    def provider(self) -> Provider:
-        return Provider(self.state["summary"]["provider"])
+    def provider(self) -> str:
+        return str(self.state["summary"]["provider"])
+
+    @property
+    def agent(self) -> AgentProvider:
+        return providers.get(self.provider)
+
+    @property
+    def model(self) -> str:
+        return str(self.state["summary"]["model"])
 
     def working(self) -> bool:
         with self._lock:
@@ -337,7 +357,7 @@ class Run:
 
         self.emit(event)
 
-    def _record_usage(self, model: str, kind: str, usage: copilot.Usage | None) -> None:
+    def record_usage(self, model: str, kind: str, usage: Usage | None) -> None:
         if usage is None:
             return
         cost = db.add_usage(self.id, self.provider, model, kind, tokens=usage.tokens, nano=usage.nano)
@@ -689,25 +709,25 @@ class Run:
     def judge_command(self, command: str, folder: str) -> guard.Verdict:
         return self._judged(
             (command, folder),
-            lambda model: guard.judge(self.provider, model, command, folder, project.shell_name()),
+            lambda model: guard.judge(self.agent, model, command, folder, project.shell_name()),
         )
 
     def drive_browser(self, goal: str, cancel: Cancel) -> str:
-        return browser_runner.drive(self, self._helper_model(), goal, cancel)
+        return self.agent.drive_browser(self, self._helper_model(), goal, cancel)
 
-    def record_step_usage(self, model: str, usage: copilot.Usage | None) -> None:
-        self._record_usage(model, UsageKind.STEP, usage)
+    def record_step_usage(self, model: str, usage: Usage | None) -> None:
+        self.record_usage(model, UsageKind.STEP, usage)
 
     def judge_page_action(self, action: str) -> guard.Verdict:
-        return self._judged(("page", action), lambda model: guard.judge_page_action(self.provider, model, action))
+        return self._judged(("page", action), lambda model: guard.judge_page_action(self.agent, model, action))
 
     def judge_risk(self, change: str) -> guard.Verdict:
-        return self._judged(("risk", change), lambda model: guard.judge_risk(self.provider, model, change), shown=False)
+        return self._judged(("risk", change), lambda model: guard.judge_risk(self.agent, model, change), shown=False)
 
     def _judged(
         self,
         key: tuple[str, ...],
-        ask: Callable[[str], tuple[guard.Verdict, providers.Usage | None]],
+        ask: Callable[[str], tuple[guard.Verdict, Usage | None]],
         shown: bool = True,
     ) -> guard.Verdict:
         with self._lock:
@@ -715,7 +735,7 @@ class Run:
         if verdict is None:
             model = self._helper_model()
             verdict, usage = ask(model)
-            self._record_usage(model, UsageKind.GUARD, usage)
+            self.record_usage(model, UsageKind.GUARD, usage)
             with self._lock:
                 self._verdicts[key] = verdict
 
@@ -724,7 +744,7 @@ class Run:
         return verdict
 
     def finish(self, outcome: dict[str, Any]) -> None:
-        self._finished = True
+        self.finished = True
         self.emit({"type": "outcome", "outcome": outcome})
 
     def begin(self, data: dict[str, Any]) -> None:
@@ -737,15 +757,15 @@ class Run:
             uploaded = self._copy_uploads(data.get("attachments") or [], START_TURN)
             text = (data.get("prompt") or "").strip()
             self.emit({"type": "user", "message": self._message(START_TURN, text, uploaded)})
-            self.vision = providers.supports_vision(self.provider, self.state["summary"]["model"])
+            self.vision = self.agent.supports_vision(self.model)
 
             ref = None if uploaded else cases.case_ref(text)
             if not ref and text:
                 self._name_later(text)
             content = self._preload_case(ref) if ref else self._user_content(text, uploaded)
-            self._messages = [{"role": "system", "content": system_prompt(self.access, self.instance)}]
+            self.messages = [{"role": "system", "content": system_prompt(self.access, self.instance)}]
             self._push_turn(START_TURN, content)
-            self._loop("user")
+            self._loop(Initiator.USER)
         except Exception as exc:
             self._fail(exc)
         finally:
@@ -762,7 +782,7 @@ class Run:
             self._tool_done(tool, "error", started, str(exc)[:TOOL_ERROR_CHARS])
             raise
         self._tool_done(tool, "ok", started, text[:TOOL_OUTPUT_CHARS])
-        return f"Troubleshoot this case.\n\n{text}"
+        return f"Troubleshoot this case.\n\n{clip(text, self, 'case')}"
 
     def load_case(self, ref: str) -> str:
         return self.read_case(ref, self.cancel, names_thread=True)
@@ -791,7 +811,7 @@ class Run:
 
     def follow_up(self, text: str, files: list[dict[str, str]], steer: bool) -> None:
         claimed = self._claim()
-        if claimed and not self._messages:
+        if claimed and not self.messages:
             self._busy = False
             raise RunError("This run has no conversation to continue.")
 
@@ -830,11 +850,8 @@ class Run:
 
     def _helper_model(self) -> str:
         preferences = db.get_preferences()
-        if preferences["provider"] == self.provider and preferences["fastModel"]:
-            return preferences["fastModel"]
-        if self.provider == Provider.CLAUDE:
-            return providers.CLAUDE_FAST
-        raise RunError(NO_FAST_MODEL)
+        chosen = preferences["fastModel"] if preferences["provider"] == self.provider else ""
+        return self.agent.helper_model(chosen)
 
     def _name_later(self, text: str) -> None:
         self._spawn(self._name, self.state["summary"]["title"], text)
@@ -846,8 +863,8 @@ class Run:
 
     def _ask_title(self, body: str) -> str:
         model = self._helper_model()
-        reply, usage = providers.complete(self.provider, model, NAMING_PROMPT, body, NAMING_MAX_TOKENS)
-        self._record_usage(model, "naming", usage)
+        reply, usage = self.agent.complete(model, NAMING_PROMPT, body, NAMING_MAX_TOKENS)
+        self.record_usage(model, UsageKind.NAMING, usage)
         title = clean_title(reply)
         if not title:
             raise RunError(f"{model} did not suggest a title.")
@@ -858,8 +875,8 @@ class Run:
             chat = list(self.state["chat"])
 
         asked = next((m["text"] for m in chat if m["role"] == "user"), "")
-        answered = next((m["text"] for m in reversed(chat) if m["role"] == "assistant" and m["text"].strip()), "")
-        body = f"<message>\n{asked[:NAMING_INPUT_CHARS]}\n</message>\n\n<answer>\n{answered[:RETITLE_CHARS]}\n</answer>"
+        replied = next((m["text"] for m in reversed(chat) if m["role"] == "assistant" and m["text"].strip()), "")
+        body = f"<message>\n{asked[:NAMING_INPUT_CHARS]}\n</message>\n\n<answer>\n{replied[:RETITLE_CHARS]}\n</answer>"
         title = self._ask_title(body)
         self.rename(title)
         return title
@@ -940,18 +957,16 @@ class Run:
         with self._lock:
             return any(q[0]["id"] not in self._held for q in self._queue)
 
-    def _has_news(self) -> bool:
+    def has_news(self) -> bool:
         with self._lock:
             return self._steering() or bool(self._finished_tasks)
 
     def retry(self, item_id: str) -> None:
-        index = self._turns.get(item_id) if self._messages else None
+        index = self.turns.get(item_id) if self.messages else None
         message = next((m for m in self.state["chat"] if m["id"] == item_id and m["role"] == "user"), None)
         if index is None or message is None:
             raise RunError("This message cannot be retried.")
-        anchor = self.state["claude"]["turns"].get(item_id)
-        if self.provider == Provider.CLAUDE and anchor is None:
-            raise RunError("This message never reached Claude, so it cannot be retried.")
+        anchor = self.agent.retry_anchor(self, item_id)
         if not self._claim():
             raise RunError("Wait for the agent to finish, or stop it, before retrying.")
 
@@ -959,21 +974,27 @@ class Run:
         with self._lock:
             self._finished_tasks = []
 
-        self._claude_fork = anchor
+        self._fork = anchor
 
-        content = self._messages[index]["content"]
-        self._messages = self._messages[:index]
-        self._turns = {k: i for k, i in self._turns.items() if i < index}
+        content = self.messages[index]["content"]
+        self.messages = self.messages[:index]
+        self.turns = {k: i for k, i in self.turns.items() if i < index}
         self.emit({"type": "rewind", "itemId": item_id})
         self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
         self._push_turn(item_id, content)
         self._spawn(self._run_turn)
 
-    def _run_turn(self, woken_by: str | None = None) -> None:
+    def resume_after_restart(self) -> None:
+        if not self.messages or not self._claim():
+            return
+        self.add_note(RESTART_NOTE)
+        self._spawn(self._run_turn, None, Initiator.AGENT)
+
+    def _run_turn(self, woken_by: str | None = None, initiator: Initiator = Initiator.USER) -> None:
         try:
             self._set_status("running", woken_by=woken_by)
             self._deliver_queued(starting_turn=True)
-            self._loop("agent" if woken_by else "user")
+            self._loop(Initiator.AGENT if woken_by else initiator)
         except Exception as exc:
             self._fail(exc)
         finally:
@@ -990,9 +1011,9 @@ class Run:
         }
 
     def _push_turn(self, turn_id: str, content: Any) -> None:
-        self._turns[turn_id] = len(self._messages)
-        self._messages.append({"role": "user", "content": stamped(content)})
-        self._persist()
+        self.turns[turn_id] = len(self.messages)
+        self.messages.append({"role": "user", "content": stamped(content)})
+        self.persist()
 
     def _deliver_queued(self, starting_turn: bool = False) -> None:
         with self._lock:
@@ -1062,99 +1083,68 @@ class Run:
             return
         self._set_status("error", str(exc) or type(exc).__name__)
 
-    def _loop(self, initiator: str) -> None:
-        if self.provider == Provider.CLAUDE:
-            self.cancel.check()
-            claude_loop.run_turn(self)
-        else:
-            self._copilot_loop(initiator)
+    def _loop(self, initiator: Initiator) -> None:
+        self.cancel.check()
+        self.agent.run_turn(self, initiator)
         self._set_status("running" if self._background_live() else "done")
-
-    def _copilot_loop(self, initiator: str) -> None:
-        model = self.state["summary"]["model"]
-        max_steps = int(db.get_preferences()["maxSteps"])
-        self.vision = copilot.supports_vision(model)
-        self._finished = False
-        nudged = False
-
-        for step in range(max_steps):
-            self._prepare_step(model)
-            specs = tool_specs(self.can_write())
-            calls = self._ask_model(model, specs, initiator if step == 0 else "agent")
-            if calls:
-                self._run_tools(calls)
-                if self._finished and not self._has_news():
-                    break
-            elif not self._messages[-1].get("content") and not nudged:
-                nudged = True
-                self._notes.append(EMPTY_REPLY_NOTE)
-            elif not self._has_news():
-                break
 
     def _background_live(self) -> bool:
         with self._lock:
             return bool(self._background_tasks())
 
-    def _prepare_step(self, model: str) -> None:
-        self.cancel.check()
-        if self._messages and self._messages[0]["role"] == "system":
-            self._messages[0] = {"role": "system", "content": system_prompt(self.access, self.instance)}
-        if self._context_tokens and self._context_tokens >= self._copilot_compact_at(model):
-            self._summarize(model, "auto")
-        self._take_input()
+    def add_note(self, note: str) -> None:
+        with self._lock:
+            self._notes.append(note)
 
-    def _take_input(self) -> None:
+    def take_input(self) -> None:
         with self._lock:
             notes, self._notes = self._notes, []
         if notes:
-            self._messages.append({"role": "user", "content": f"[{' '.join(notes)}]"})
+            self.messages.append({"role": "user", "content": f"[{' '.join(notes)}]"})
 
         with self._lock:
             finished, self._finished_tasks = self._finished_tasks, []
         for task in finished:
             result = TASK_FINISHED.format(label=task.label, result=task.result)
-            self._messages.append({"role": "user", "content": result})
+            self.messages.append({"role": "user", "content": result})
 
         if self._steering():
             self._deliver_queued()
-            self._finished = False
+            self.finished = False
 
-    def claude_input(self) -> tuple[str | None, list[Any]]:
-        self._take_input()
+    def session_input(self) -> tuple[str | None, list[Any]]:
+        self.take_input()
 
-        last_reply = max((i for i, m in enumerate(self._messages) if m["role"] == "assistant"), default=-1)
-        pending = range(last_reply + 1, len(self._messages))
-        turn = next((t for t, i in self._turns.items() if i in pending), None)
+        last_reply = max((i for i, m in enumerate(self.messages) if m["role"] == "assistant"), default=-1)
+        pending = range(last_reply + 1, len(self.messages))
+        turn = next((t for t, i in self.turns.items() if i in pending), None)
 
-        contents = [self._messages[i]["content"] for i in pending if self._messages[i]["role"] == "user"]
+        contents = [self.messages[i]["content"] for i in pending if self.messages[i]["role"] == "user"]
         if contents:
-            self._messages.append({"role": "assistant", "content": None})
-            self._persist()
+            self.messages.append({"role": "assistant", "content": None})
+            self.persist()
 
         return turn, contents
 
-    def take_claude_fork(self) -> dict[str, Any] | None:
-        fork, self._claude_fork = self._claude_fork, None
+    def take_fork(self) -> dict[str, Any] | None:
+        fork, self._fork = self._fork, None
         return fork
-
-    def has_news(self) -> bool:
-        return self._has_news()
 
     def new_message_id(self) -> str:
         return _uid("a")
 
-    def record_claude_usage(self, session: str, result: Any) -> None:
-        spent = self.state["claude"]["spent"]
-        usage = claude.usage_of(result, spent)
-        self._record_usage(self.state["summary"]["model"], UsageKind.TURN, usage)
-        self.emit({"type": "meta", "claude": {"session": session, "spent": result.total_cost_usd or spent}})
+    def mark_cut_off(self, call_ids: set[str]) -> None:
+        self._cut_off.update(call_ids)
+
+    def take_images(self) -> list[tuple[str, str]]:
+        with self._lock:
+            images, self._pending_images = self._pending_images, []
+        return images
 
     def call_tool_named(self, name: str, args: dict[str, Any]) -> tuple[str, list[tuple[str, str]]]:
         call = {"id": _uid("c"), "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
-        output = self._call_tool(call)
-        with self._lock:
-            images, self._pending_images = self._pending_images, []
-        return output, images
+        output = self.call_tool(call)
+        return output, self.take_images()
 
     def call_tool_with_steering(self, name: str, args: dict[str, Any]) -> tuple[str, list[tuple[str, str]]]:
         output, images = self.call_tool_named(name, args)
@@ -1174,57 +1164,7 @@ class Run:
         self._settle_queue()
         return f"{output}\n\n{STEERED.format(text=chr(10).join(texts))}", images
 
-    def _ask_model(self, model: str, specs: list[dict[str, Any]], initiator: str) -> list[dict[str, Any]]:
-        message_id = _uid("a")
-        self._messages = _answered(self._messages)
-        for message in self._messages:
-            if message.get("tool_calls"):
-                message["tool_calls"] = _repaired(message["tool_calls"])
-
-        try:
-            result = copilot.stream_chat(
-                model,
-                self._messages,
-                specs,
-                initiator,
-                cancel=self.cancel,
-                on_text=lambda delta: self.stream_text(message_id, delta),
-                reasoning=copilot.reasoning_for(model, db.get_preferences()["reasoning"]),
-            )
-        finally:
-            self.commit_text(message_id)
-
-        self._record_usage(model, "turn" if initiator == "user" else "step", result.usage)
-        if result.usage is not None:
-            self._context_tokens = sum(result.usage.tokens.get(kind, 0) for kind in CONTEXT_TOKEN_KINDS)
-            limit = copilot.prompt_limit(model)
-            self.record_context(self._context_tokens, limit, self._copilot_compact_at(model))
-
-        reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
-        if result.tool_calls:
-            self._cut_off.update(c["id"] for c in result.tool_calls if not _valid_arguments(c))
-            reply["tool_calls"] = _repaired(result.tool_calls)
-
-        self._messages.append(reply)
-        self._persist()
-        return result.tool_calls
-
-    def _run_tools(self, calls: list[dict[str, Any]]) -> None:
-        with ThreadPoolExecutor(max_workers=TOOL_WORKERS) as pool:
-            outputs = list(pool.map(self._call_tool, calls))
-
-        for call, content in zip(calls, outputs, strict=True):
-            self._messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
-
-        if self._pending_images:
-            images, self._pending_images = self._pending_images, []
-            parts: list[dict[str, Any]] = [{"type": "text", "text": f"Attached: {', '.join(n for n, _ in images)}"}]
-            parts += [{"type": "image_url", "image_url": {"url": url}} for _, url in images]
-            self._messages.append({"role": "user", "content": parts})
-
-        self._persist()
-
-    def _call_tool(self, call: dict[str, Any]) -> str:
+    def call_tool(self, call: dict[str, Any]) -> str:
         self._local.tool = call["id"]
         try:
             tool, args = self._parsed_call(call)
@@ -1337,9 +1277,7 @@ class Run:
             self.emit({"type": "context", "context": context})
 
     def compact(self) -> None:
-        if self.provider == Provider.CLAUDE and not self.state["claude"]["session"]:
-            raise RunError(NOTHING_TO_COMPACT)
-        if self.provider == Provider.COPILOT and len(self._messages) < 3:
+        if not self.agent.has_context(self):
             raise RunError(NOTHING_TO_COMPACT)
         if not self._claim():
             raise RunError(COMPACT_WHILE_BUSY)
@@ -1349,10 +1287,7 @@ class Run:
     def _compact_now(self) -> None:
         try:
             self._set_status("running")
-            if self.provider == Provider.CLAUDE:
-                claude_loop.compact(self)
-            else:
-                self._summarize(self.state["summary"]["model"], "manual")
+            self.agent.compact(self)
             self._set_status("done")
         except Exception as exc:
             self._fail(exc)
@@ -1380,34 +1315,69 @@ class Run:
         if entry is not None:
             self.emit({"type": "compact", "compact": {**entry, "status": "error", "error": error}})
 
-    def _copilot_compact_at(self, model: str) -> int:
-        return compaction.compact_at(copilot.prompt_limit(model))
+    def history_text(self) -> str:
+        with self._lock:
+            lines = [_history_line(self.state, item) for item in self.state["items"]]
+        text = "\n\n".join(line for line in lines if line)
+        if len(text) <= CONTINUE_TRANSCRIPT_CHARS:
+            return text
 
-    def _summarize(self, model: str, trigger: str) -> None:
-        threshold = self._copilot_compact_at(model)
-        cut = compaction.cut_point(self._messages, int(threshold * compaction.KEEP_RECENT_SHARE))
-        if cut is None:
-            raise RunError(NOTHING_TO_COMPACT)
+        first = next((line for line in lines if line.startswith(HISTORY_USER)), "")
+        return f"{first}\n\n{HISTORY_GAP}\n\n{text[-CONTINUE_TRANSCRIPT_CHARS:]}"
 
-        self.compaction_started(trigger)
-        before = self._context_tokens or compaction.estimate_tokens(self._messages)
-        summary, usage = copilot.complete(
-            model,
-            compaction.SUMMARY_PROMPT,
-            compaction.transcript(self._messages[1:cut]),
-            compaction.SUMMARY_MAX_TOKENS,
-            SUMMARY_READ_TIMEOUT_SECONDS,
-        )
-        self._record_usage(model, UsageKind.COMPACT, usage)
+    def carry_over(self, source_title: str, history: str) -> None:
+        self._busy = True
+        self._spawn(self._carry_over, source_title, history)
+
+    def _summary_of(self, history: str) -> str:
+        summary, usage = self.agent.summarize(self.model, f"<conversation>\n{history}\n</conversation>")
+        self.record_usage(self.model, UsageKind.COMPACT, usage)
         if not summary.strip():
-            raise RunError(SUMMARY_EMPTY.format(model=model))
+            raise RunError(SUMMARY_EMPTY.format(model=self.model))
+        return summary
 
-        self._messages = compaction.rebuilt(self._messages, cut, summary)
-        self._turns = {turn: index - cut + 2 for turn, index in self._turns.items() if index >= cut}
-        self._persist()
-        self._context_tokens = compaction.estimate_tokens(self._messages)
-        self.compaction_finished(trigger, before, self._context_tokens)
-        self.record_context(self._context_tokens, copilot.prompt_limit(model), threshold)
+    def _carry_over(self, source_title: str, history: str) -> None:
+        try:
+            self._set_status("running")
+            summary = self._summary_of(history)
+            carried = CONTINUED_CONTEXT.format(title=source_title, summary=summary)
+            self.messages = [
+                {"role": "system", "content": system_prompt(self.access, self.instance)},
+                {"role": "user", "content": carried},
+            ]
+            self.persist()
+
+            shown = CONTINUED_MESSAGE.format(title=source_title, summary=summary)
+            self.emit({"type": "message", "messageId": self.new_message_id(), "text": shown, "ts": db.now_ms()})
+            self._set_status("done")
+        except Exception as exc:
+            self._fail(exc)
+        finally:
+            self._busy = False
+            self._pick_up_queue()
+
+
+def _history_line(state: dict[str, Any], item: dict[str, Any]) -> str:
+    kind, item_id = item["kind"], item["id"]
+    if kind in ("user", "text"):
+        message = next((m for m in state["chat"] if m["id"] == item_id), None)
+        speaker = HISTORY_USER if kind == "user" else HISTORY_AGENT
+        return f"{speaker}\n{message['text']}" if message and message["text"].strip() else ""
+
+    if kind == "tool":
+        tool = next((t for t in state["tools"] if t["id"] == item_id), None)
+        if tool is None:
+            return ""
+        output = (tool.get("output") or "")[: compaction.TRANSCRIPT_TOOL_CHARS]
+        return f"Agent called {tool['name']} ({tool.get('label') or ''}):\n{output}"
+
+    if kind == "question":
+        question = next((q for q in state["questions"] if q["id"] == item_id), None)
+        return f"Agent asked: {question_text(question)}" if question else ""
+
+    if kind == "outcome" and state.get("outcome"):
+        return f"{HISTORY_AGENT}\n{state['outcome'].get('reply') or ''}"
+    return ""
 
 
 def _tool_args(tool: Tool, raw: str) -> dict[str, Any]:
@@ -1445,40 +1415,6 @@ def _line_changes(before: str, after: str) -> tuple[int, int]:
     return added, removed
 
 
-def _valid_arguments(call: dict[str, Any]) -> bool:
-    try:
-        return isinstance(json.loads(call["function"]["arguments"] or "{}"), dict)
-    except json.JSONDecodeError:
-        return False
-
-
-def _repaired(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        call if _valid_arguments(call) else {**call, "function": {**call["function"], "arguments": "{}"}}
-        for call in calls
-    ]
-
-
-def _answered(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    fixed: list[dict[str, Any]] = []
-    pending: list[str] = []
-    for message in messages:
-        if message["role"] == "tool":
-            if message["tool_call_id"] in pending:
-                pending.remove(message["tool_call_id"])
-            fixed.append(message)
-            continue
-        fixed += [_interrupted(call_id) for call_id in pending]
-        pending = [c["id"] for c in message.get("tool_calls") or []]
-        fixed.append(message)
-
-    return fixed + [_interrupted(call_id) for call_id in pending]
-
-
-def _interrupted(call_id: str) -> dict[str, Any]:
-    return {"role": "tool", "tool_call_id": call_id, "content": "Error: interrupted."}
-
-
 class RunManager:
     def __init__(self) -> None:
         self.full_access = False
@@ -1486,22 +1422,59 @@ class RunManager:
         self._lock = threading.Lock()
         self._deleting: set[str] = set()
 
-    def create(self, data: dict[str, Any], provider: Provider, model: str) -> Run:
-        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=RUN_ID_SUFFIX_CHARS))
-        run_id = f"r{_base36(db.now_ms())}{suffix}"
+    def create(self, data: dict[str, Any], provider: str, model: str) -> Run:
         prompt = (data.get("prompt") or "").strip()
         title = short_title(prompt.split("\n", 1)[0], PROMPT_TITLE_CHARS) or "Attached files"
         access = Access(data["access"])
-        summary = db.create_thread(
-            run_id, title, provider, model, prompt=prompt, instance=data.get("instance"), access=access
+        run = self._new(
+            title, provider=provider, model=model, prompt=prompt, instance=data.get("instance"), access=access
         )
+        run.begin(data)
+        return run
+
+    def continue_in_new(self, run_id: str) -> Run:
+        source = self.get(run_id)
+        if source is None:
+            raise RunError("No such thread.")
+        if source.working():
+            raise RunError(CONTINUE_WHILE_BUSY)
+
+        history = source.history_text()
+        if not history:
+            raise RunError(NOTHING_TO_CONTINUE)
+
+        source_title = source.state["summary"]["title"]
+        title = short_title(CONTINUED_TITLE.format(title=source_title), TITLE_CHARS)
+        run = self._new(
+            title,
+            provider=source.provider,
+            model=source.model,
+            prompt="",
+            instance=source.instance or None,
+            access=source.access,
+        )
+        run.emit({"type": "meta", "continuedFrom": {"id": source.id, "title": source_title}})
+        source.emit({"type": "meta", "continuedIn": {"id": run.id, "title": title}})
+        run.carry_over(source_title, history)
+        return run
+
+    def _new(self, title: str, *, provider: str, model: str, prompt: str, instance: str | None, access: Access) -> Run:
+        providers.get(provider)
+        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=RUN_ID_SUFFIX_CHARS))
+        run_id = f"r{_base36(db.now_ms())}{suffix}"
+        summary = db.create_thread(run_id, title, provider, model, prompt=prompt, instance=instance, access=access)
 
         run = Run(run_id, empty_state(summary, access), -1)
         with self._lock:
             self._runs[run_id] = run
         status_feed.publish({"kind": "list"})
-        run.begin(data)
         return run
+
+    def resume_interrupted(self) -> None:
+        for run_id in db.take_interrupted():
+            run = self.get(run_id)
+            if run is not None:
+                run.resume_after_restart()
 
     def get(self, run_id: str) -> Run | None:
         with self._lock:
@@ -1535,7 +1508,8 @@ class RunManager:
             raise RunError(FULL_ACCESS_NEEDS_FLAG)
 
     def delete(self, run_id: str) -> None:
-        if db.get_thread(run_id) is None:
+        summary = db.get_thread(run_id)
+        if summary is None:
             raise RunError("No such thread.")
 
         with self._lock:
@@ -1544,14 +1518,14 @@ class RunManager:
         try:
             if live is not None:
                 live.shut_down()
-            sessions = claude_loop.sessions_of(db.load_events(run_id))
+            events = db.load_events(run_id)
             db.delete_thread(run_id)
         finally:
             with self._lock:
                 self._deleting.discard(run_id)
 
         folder = run_dir(run_id)
-        claude_loop.forget_sessions(sessions, str(folder))
+        providers.get(summary["provider"]).forget_thread(events, str(folder))
         if folder.exists():
             shutil.rmtree(folder)
         status_feed.publish({"kind": "list"})

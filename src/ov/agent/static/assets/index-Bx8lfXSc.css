@@ -649,6 +649,10 @@
     width: 18px;
     height: 18px;
   }
+  .size-\[55\%\] {
+    width: 55%;
+    height: 55%;
+  }
   .size-full {
     width: 100%;
     height: 100%;
@@ -1695,6 +1699,9 @@
   }
   .bg-warn-soft {
     background-color: #ffe4cc;
+  }
+  .bg-warn-soft\/60 {
+    background-color: color-mix(in oklab, #ffe4cc 60%, transparent);
   }
   .bg-white {
     background-color: var(--color-white);

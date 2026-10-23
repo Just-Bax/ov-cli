@@ -18,6 +18,10 @@ NO_INSTANCE = (
     "not chosen. Work it out from context (a case's C_WEBSITE, a host or name in the "
     "message); if it is still unclear, ask the user which instance with run_ask"
 )
+PROFILE_INSTRUCTIONS = (
+    "Their standing instructions, for every thread. Follow them unless the user says otherwise in the thread or "
+    "they conflict with the rules above:"
+)
 ACCESS_TEXT = {
     Access.READ: "OFF: read-only",
     Access.ASK: "ON, and each instance, PagerDuty, browser or outside change waits for the user's approval",
@@ -42,6 +46,15 @@ def _workspace_text() -> str:
         return "none set, so there are no ws_ tools. Code work needs the user to pick a folder in Settings > Workspace."
     notes = db.get_preferences()["workspaceNotes"].strip()
     return f"{project.root()}" + (f"\nNotes from the user:\n{notes}" if notes else "")
+
+
+def _profile_text() -> str:
+    preferences = db.get_preferences()
+    name, instructions = preferences["fullName"].strip(), preferences["instructions"].strip()
+    parts = [f"Name: {name}"] if name else []
+    if instructions:
+        parts.append(f"{PROFILE_INSTRUCTIONS}\n{instructions}")
+    return f"\n# About the user\n\n{chr(10).join(parts)}\n" if parts else ""
 
 
 def _datadog_text() -> str:
@@ -123,7 +136,7 @@ Instance for this run: {instance or NO_INSTANCE}
 
 Signed-in instances:
 {signed_in or "none"}
-
+{_profile_text()}
 # Tools by group
 
 {groups}

@@ -4,9 +4,12 @@ import base64
 import json
 import time
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from ov.agent.engine.browsing import loop_span
+from ov.agent.engine.files import within
 from ov.agent.engine.guard import Effect
 from ov.agent.instances.ovproc import find_instance, web_cookies
 from ov.agent.tools.base import (
@@ -19,7 +22,18 @@ from ov.agent.tools.base import (
     serial,
     string_param,
 )
-from ov.browser.pilot import BUTTONS, MODIFIERS, NO_DIALOG, DialogOpen, Pilot, Point, Tab, Target, View
+from ov.browser.pilot import (
+    BUTTONS,
+    MODIFIERS,
+    NO_DIALOG,
+    BrowserError,
+    DialogOpen,
+    Pilot,
+    Point,
+    Tab,
+    Target,
+    View,
+)
 from ov.onevizion.login import PENDING_PATHS
 
 POINTER_LEAD_SECONDS = 0.15
@@ -27,7 +41,10 @@ SCROLL_PIXELS = 600
 MAX_SCROLL_PIXELS = 5_000
 GUARD_TEXT_CHARS = 200
 DEFAULT_WAIT_SECONDS = 10
-MAX_SAME_ACTIONS = 3
+MAX_STEPS = 12
+MAX_UPLOAD_FILES = 10
+ATTACHMENTS_DIR = "attachments"
+SNAPSHOT_TOOL = "browser_snapshot"
 DEFAULT_BUTTON = "left"
 SINGLE_CLICK = 1
 DOUBLE_CLICK = 2
@@ -78,10 +95,30 @@ BLOCKED = (
     "report that it needs changes allowed (Ask first or Auto, not Read-only)."
 )
 REJECTED = "The user rejected this: {say}. Do not retry it."
-REPEATED = (
-    "Stopped: the same {name} ran {count} times in a row without getting anywhere. Do not repeat it; take a "
-    "snapshot, try a different way, or stop and report stuck with what the page shows."
+GIVE_UP = "take a snapshot, try a different way, or stop and report stuck with what the page shows."
+REPEATED = "Stopped: the same {name} ran {count} times in a row without getting anywhere. Do not repeat it; " + GIVE_UP
+LOOPED = (
+    "Stopped: the last {count} actions went round the same {period} steps with nothing new on the page. Do not go "
+    "round again; " + GIVE_UP
 )
+SAME_PAGE = (
+    "Stopped: the last {count} snapshots showed the same page and nothing changed. For something slow use "
+    "browser_wait with the text you expect; otherwise stop and report stuck with what the page shows."
+)
+NO_STEPS = "Give at least one step."
+TOO_MANY_STEPS = f"Give at most {MAX_STEPS} steps; split the rest into another browser_steps call."
+UNKNOWN_STEP = "Step {number}: {action!r} is not a step; use one of {actions}."
+STEP_NEEDS_AIM = "Step {number} ({action}) needs one of ref, locator, or x and y."
+STEP_NEEDS = "Step {number} ({action}) needs {fields}."
+STOPPED_AT = "Stopped at step {number} of {total}: {error}"
+MOVED_ON = (
+    "The page went to another address after step {number}, so the last {left} step(s) did not run. Take a snapshot "
+    "and continue from there."
+)
+NO_FILES = "Name at least one file to upload."
+TOO_MANY_FILES = f"Upload at most {MAX_UPLOAD_FILES} files at once."
+OUTSIDE_RUN = "{name} is outside the run folder; only files of this run and its attachments can be uploaded."
+NO_RUN_FILE = "No file {name} in the run folder or its attachments."
 NOT_SIGNED_IN = "{host} still shows its sign-in page after signing in. Ask the user to check the account."
 OFF_SITE = "Stayed on this page: the browser only opens this site, so it did not go to {urls}."
 TABS_NOTE = "Tabs: the page opened more windows. You see the shown one; switch or close them with browser_tab."
@@ -148,6 +185,19 @@ def _sign_in(ctx: ToolContext, found: dict[str, Any]) -> None:
         raise ToolError(f"{found['host']} is not signed in.")
 
 
+def _run_file(name: str, ctx: ToolContext) -> Path:
+    try:
+        path = within(ctx.work_dir, name)
+        if not path.is_file():
+            path = within(ctx.work_dir / ATTACHMENTS_DIR, Path(name).name)
+    except ValueError:
+        raise ToolError(OUTSIDE_RUN.format(name=name)) from None
+
+    if not path.is_file():
+        raise ToolError(NO_RUN_FILE.format(name=name))
+    return path
+
+
 def _check(ctx: ToolContext, pilot: Pilot, action: str, say: str) -> None:
     if ctx.full_access():
         return
@@ -190,6 +240,7 @@ def _result(pilot: Pilot, done: str) -> str:
 
 def _look(ctx: ToolContext, pilot: Pilot, screenshot: bool) -> str:
     view = pilot.snapshot()
+    ctx.browser.saw(f"{view.url}\n{view.tree}")
     page = render(view)
     if not screenshot or not _attach(ctx, pilot):
         return page
@@ -219,7 +270,11 @@ def _open(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 def _snapshot(args: dict[str, Any], ctx: ToolContext) -> str:
-    return _look(ctx, ctx.browser.pilot(), screenshot=args.get("screenshot") is True)
+    page = _look(ctx, ctx.browser.pilot(), screenshot=args.get("screenshot") is True)
+    period = ctx.browser.looping(SNAPSHOT_TOOL)
+    if period:
+        raise _loop_error(SNAPSHOT_TOOL, period)
+    return page
 
 
 def _click(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -235,7 +290,7 @@ def _click(args: dict[str, Any], ctx: ToolContext) -> str:
 
     _show(ctx, aim.point, press=True)
     pilot.click(target, aim.point, button, count, modifiers)
-    return _result(pilot, f"Did {verb} on {aim.label}.")
+    return f"Did {verb} on {aim.label}."
 
 
 def _hover(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -244,7 +299,7 @@ def _hover(args: dict[str, Any], ctx: ToolContext) -> str:
     aim = pilot.aim(target)
     _show(ctx, aim.point, press=False)
     pilot.move(target, aim.point)
-    return _result(pilot, f"Moved the mouse to {aim.label}.")
+    return f"Moved the mouse to {aim.label}."
 
 
 def _mouse(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -257,7 +312,7 @@ def _mouse(args: dict[str, Any], ctx: ToolContext) -> str:
 
     _show(ctx, aim.point, press=True)
     pilot.press_mouse(aim.point, button, down)
-    return _result(pilot, f"{'Pressed' if down else 'Released'} the {button} button on {aim.label}.")
+    return f"{'Pressed' if down else 'Released'} the {button} button on {aim.label}."
 
 
 def _drag(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -269,7 +324,7 @@ def _drag(args: dict[str, Any], ctx: ToolContext) -> str:
     _show(ctx, start.point, press=True)
     _show(ctx, end.point, press=True)
     pilot.drag(start.point, end.point)
-    return _result(pilot, f"Dragged {start.label} to {end.label}.")
+    return f"Dragged {start.label} to {end.label}."
 
 
 def _scroll(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -280,7 +335,7 @@ def _scroll(args: dict[str, Any], ctx: ToolContext) -> str:
 
     _show(ctx, point, press=False)
     pilot.scroll(point, sx * pixels, sy * pixels)
-    return _result(pilot, f"Scrolled {args['direction']} {pixels}px at ({point.x}, {point.y}).")
+    return f"Scrolled {args['direction']} {pixels}px at ({point.x}, {point.y})."
 
 
 def _type(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -298,7 +353,7 @@ def _type(args: dict[str, Any], ctx: ToolContext) -> str:
     pilot.type(target, aim.point if aim else None, text, args.get("clear") is True)
     if submit:
         pilot.press(SUBMIT_KEY)
-    return _result(pilot, f"Typed into {into}{f' and pressed {SUBMIT_KEY}' if submit else ''}.")
+    return f"Typed into {into}{f' and pressed {SUBMIT_KEY}' if submit else ''}."
 
 
 def _press(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -307,7 +362,7 @@ def _press(args: dict[str, Any], ctx: ToolContext) -> str:
     if key not in SAFE_KEYS:
         _check(ctx, pilot, f"press {key} on the focused element", str(args["say"]))
     pilot.press(key)
-    return _result(pilot, f"Pressed {key}.")
+    return f"Pressed {key}."
 
 
 def _select(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -319,7 +374,7 @@ def _select(args: dict[str, Any], ctx: ToolContext) -> str:
 
     _show(ctx, aim.point, press=True)
     pilot.select(target, option)
-    return _result(pilot, f'Chose "{option}" in {aim.label}.')
+    return f'Chose "{option}" in {aim.label}.'
 
 
 def _wait(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -328,10 +383,10 @@ def _wait(args: dict[str, Any], ctx: ToolContext) -> str:
     seconds = float(args.get("seconds") or DEFAULT_WAIT_SECONDS)
     if not (text or locator or url):
         pilot.pause(seconds)
-        return _result(pilot, f"Waited {seconds:g}s.")
+        return f"Waited {seconds:g}s."
 
     pilot.wait_for(text, locator, url, seconds)
-    return _result(pilot, "The page shows it.")
+    return "The page shows it."
 
 
 def _dialog(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -346,18 +401,90 @@ def _dialog(args: dict[str, Any], ctx: ToolContext) -> str:
         _check(ctx, pilot, action, str(args["say"]))
 
     ctx.browser.answer_dialog(accept, str(args.get("text") or dialog.default))
-    return _result(pilot, f"{'Accepted' if accept else 'Dismissed'} the {dialog.kind}.")
+    return f"{'Accepted' if accept else 'Dismissed'} the {dialog.kind}."
 
 
 def _tab(args: dict[str, Any], ctx: ToolContext) -> str:
-    pilot = ctx.browser.pilot()
     index = int(args["index"])
     if args["action"] == "close":
         ctx.browser.close_tab(index)
-        return _result(pilot, f"Closed tab {index}.")
+        return f"Closed tab {index}."
 
     ctx.browser.switch_tab(index)
-    return _result(pilot, f"Switched to tab {index}.")
+    return f"Switched to tab {index}."
+
+
+def _upload(args: dict[str, Any], ctx: ToolContext) -> str:
+    names = [str(name) for name in args.get("files") or []]
+    if not names:
+        raise ToolError(NO_FILES)
+    if len(names) > MAX_UPLOAD_FILES:
+        raise ToolError(TOO_MANY_FILES)
+
+    files = [_run_file(name, ctx) for name in names]
+    listed = ", ".join(f.name for f in files)
+    pilot = ctx.browser.pilot()
+    target = _target(args)
+    aim = pilot.aim(target)
+    _check(ctx, pilot, f"upload {listed} with {aim.label}", str(args["say"]))
+
+    _show(ctx, aim.point, press=True)
+    pilot.upload(target, aim.point, [str(f) for f in files])
+    return f"Uploaded {listed} with {aim.label}."
+
+
+def _planned(args: dict[str, Any]) -> list[dict[str, Any]]:
+    steps = args.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise ToolError(NO_STEPS)
+    if len(steps) > MAX_STEPS:
+        raise ToolError(TOO_MANY_STEPS)
+
+    planned = []
+    for number, step in enumerate(steps, start=1):
+        action = step.get("action") if isinstance(step, dict) else None
+        if action not in STEP_ACTIONS:
+            raise ToolError(UNKNOWN_STEP.format(number=number, action=action, actions=", ".join(STEP_ACTIONS)))
+        if action in AIMED_STEPS and not _aimed(step):
+            raise ToolError(STEP_NEEDS_AIM.format(number=number, action=action))
+
+        missing = [name for name in STEP_FIELDS.get(action, ()) if step.get(name) in (None, "", [])]
+        if missing:
+            raise ToolError(STEP_NEEDS.format(number=number, action=action, fields=", ".join(missing)))
+        planned.append({**step, "say": str(step.get("say") or args["say"])})
+
+    return planned
+
+
+def _do_steps(steps: list[dict[str, Any]], ctx: ToolContext, pilot: Pilot, done: list[str]) -> None:
+    start = pilot.where()[1]
+    for number, step in enumerate(steps, start=1):
+        ctx.cancel.check()
+        try:
+            done.append(f"{number}. {STEP_ACTIONS[step['action']](step, ctx)}")
+        except DialogOpen:
+            raise
+        except (ToolError, BrowserError) as exc:
+            if not done:
+                raise
+            done.append(STOPPED_AT.format(number=number, total=len(steps), error=exc))
+            return
+
+        left = len(steps) - number
+        if left and pilot.where()[1] != start:
+            done.append(MOVED_ON.format(number=number, left=left))
+            return
+
+
+def _steps(args: dict[str, Any], ctx: ToolContext) -> str:
+    steps = _planned(args)
+    pilot = ctx.browser.pilot()
+    done: list[str] = []
+    try:
+        _do_steps(steps, ctx, pilot, done)
+        return _result(pilot, "\n".join(done))
+    except DialogOpen as exc:
+        return "\n".join([*done, DIALOG_OPEN.format(kind=exc.dialog.kind, message=exc.dialog.message)])
 
 
 def _run(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -378,6 +505,30 @@ def _said(fallback: str) -> Any:
     return lambda args: str(args.get("say") or fallback)
 
 
+def _reported(action: Handler) -> Handler:
+    def wrapped(args: dict[str, Any], ctx: ToolContext) -> str:
+        done = action(args, ctx)
+        return _result(ctx.browser.pilot(), done)
+
+    return wrapped
+
+
+def _unsaid(args: dict[str, Any]) -> dict[str, Any]:
+    plain = {k: v for k, v in args.items() if k != "say"}
+    if isinstance(plain.get("steps"), list):
+        plain["steps"] = [_unsaid(step) if isinstance(step, dict) else step for step in plain["steps"]]
+    return plain
+
+
+def _loop_error(name: str, period: int) -> ToolError:
+    count = loop_span(period)
+    if period > 1:
+        return ToolError(LOOPED.format(count=count, period=period))
+    if name == SNAPSHOT_TOOL:
+        return ToolError(SAME_PAGE.format(count=count))
+    return ToolError(REPEATED.format(name=name, count=count))
+
+
 def _dialog_aware(handler: Handler) -> Handler:
     def wrapped(args: dict[str, Any], ctx: ToolContext) -> str:
         try:
@@ -393,10 +544,9 @@ def _not_repeated(name: str, handler: Handler) -> Handler:
         return handler
 
     def wrapped(args: dict[str, Any], ctx: ToolContext) -> str:
-        action = json.dumps({"tool": name, **{k: v for k, v in args.items() if k != "say"}}, sort_keys=True)
-        count = ctx.browser.repeated(action)
-        if count > MAX_SAME_ACTIONS:
-            raise ToolError(REPEATED.format(name=name, count=count))
+        period = ctx.browser.looping(json.dumps({"tool": name, **_unsaid(args)}, sort_keys=True))
+        if period:
+            raise _loop_error(name, period)
         return handler(args, ctx)
 
     return wrapped
@@ -424,7 +574,8 @@ RUN = Tool(
     "when to stop, e.g. 'On the open Kafka Staging form, set Status to Staged, click Save, then check the Status "
     "field shows Staged'. Every change is still checked and may wait for the user's approval. Returns a report "
     "starting with Result: done, stuck or failed, and the final screenshot. Open the browser first with "
-    "browser_open. Split long tests into a few goals and read each report before the next.",
+    "browser_open. Split long tests into a few goals and read each report before the next. To upload a file, "
+    "name it in the goal; only files in the run folder or its attachments can be uploaded.",
     {"goal": string_param("The task, its steps and the expected result"), "say": SAY},
     ["goal", "say"],
     _said("Working in the browser"),
@@ -472,7 +623,7 @@ HANDS = [
         },
         ["say"],
         _said("Clicking"),
-        _click,
+        _reported(_click),
     ),
     Tool(
         "browser_hover",
@@ -480,7 +631,7 @@ HANDS = [
         {**AIM, "say": SAY},
         ["say"],
         _said("Moving the mouse"),
-        _hover,
+        _reported(_hover),
     ),
     Tool(
         "browser_mouse",
@@ -489,7 +640,7 @@ HANDS = [
         {**AIM, "action": {"type": "string", "enum": ["down", "up"]}, "button": BUTTON, "say": SAY},
         ["action", "say"],
         _said("Pressing the mouse"),
-        _mouse,
+        _reported(_mouse),
     ),
     Tool(
         "browser_drag",
@@ -498,7 +649,7 @@ HANDS = [
         {**{f"from_{k}": v for k, v in AIM.items()}, **{f"to_{k}": v for k, v in AIM.items()}, "say": SAY},
         ["say"],
         _said("Dragging"),
-        _drag,
+        _reported(_drag),
     ),
     Tool(
         "browser_scroll",
@@ -512,7 +663,7 @@ HANDS = [
         },
         ["direction", "say"],
         _said("Scrolling"),
-        _scroll,
+        _reported(_scroll),
     ),
     Tool(
         "browser_type",
@@ -527,7 +678,7 @@ HANDS = [
         },
         ["text", "say"],
         _said("Typing"),
-        _type,
+        _reported(_type),
     ),
     Tool(
         "browser_press",
@@ -536,7 +687,7 @@ HANDS = [
         {"key": string_param("Key as Playwright writes it"), "say": SAY},
         ["key", "say"],
         _said("Pressing a key"),
-        _press,
+        _reported(_press),
     ),
     Tool(
         "browser_select",
@@ -551,7 +702,7 @@ HANDS = [
         },
         ["option", "say"],
         _said("Choosing an option"),
-        _select,
+        _reported(_select),
     ),
     Tool(
         "browser_wait",
@@ -566,7 +717,7 @@ HANDS = [
         },
         ["say"],
         _said("Waiting for the page"),
-        _wait,
+        _reported(_wait),
     ),
     Tool(
         "browser_dialog",
@@ -580,7 +731,7 @@ HANDS = [
         },
         ["action", "say"],
         _said("Answering the dialog"),
-        _dialog,
+        _reported(_dialog),
     ),
     Tool(
         "browser_tab",
@@ -589,7 +740,77 @@ HANDS = [
         {"action": {"type": "string", "enum": list(TAB_ACTIONS)}, "index": int_param("Tab number"), "say": SAY},
         ["action", "index", "say"],
         _said("Switching tabs"),
-        _tab,
+        _reported(_tab),
+    ),
+]
+STEP_ACTIONS: dict[str, Handler] = {
+    "click": _click,
+    "type": _type,
+    "press": _press,
+    "select": _select,
+    "hover": _hover,
+    "scroll": _scroll,
+    "wait": _wait,
+    "upload": _upload,
+}
+AIMED_STEPS = frozenset({"click", "select", "hover", "upload"})
+STEP_FIELDS = {
+    "type": ("text",),
+    "press": ("key",),
+    "select": ("option",),
+    "scroll": ("direction",),
+    "upload": ("files",),
+}
+FILES = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": "Files by name in the run folder or its attachments, e.g. report.pdf",
+}
+STEP = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": list(STEP_ACTIONS)},
+        **AIM,
+        "text": string_param("type: the text to type. wait: text that must appear"),
+        "clear": {"type": "boolean", "description": "type: clear the field first"},
+        "submit": {"type": "boolean", "description": f"type: press {SUBMIT_KEY} afterwards"},
+        "double": {"type": "boolean", "description": "click: double-click"},
+        "key": string_param("press: key as Playwright writes it"),
+        "option": string_param("select: visible text of the option"),
+        "direction": {"type": "string", "enum": list(SCROLLS), "description": "scroll: direction"},
+        "pixels": int_param(f"scroll: how far, default {SCROLL_PIXELS}"),
+        "url_contains": string_param("wait: part the URL must contain"),
+        "seconds": int_param(f"wait: longest wait, default {DEFAULT_WAIT_SECONDS}"),
+        "files": FILES,
+        "say": string_param("What the user sees for this step; defaults to the say of the call"),
+    },
+    "required": ["action"],
+    "additionalProperties": False,
+}
+
+HANDS += [
+    Tool(
+        "browser_steps",
+        f"Do up to {MAX_STEPS} actions in a row in one call, when you already know them from the last snapshot, "
+        "e.g. type into three fields, choose a status, then click Save. Each step is one of: "
+        f"{', '.join(STEP_ACTIONS)}, aimed and filled like the single tools (in a wait step, locator is what must "
+        "match). Every step that could change something is checked on its own, like the single tools. The call "
+        "stops at the first step that fails, at a dialog, or when the page goes to another address, and says which "
+        "steps ran.",
+        {"steps": {"type": "array", "items": STEP, "description": "The actions, in order"}, "say": SAY},
+        ["steps", "say"],
+        _said("Working through the steps"),
+        _steps,
+    ),
+    Tool(
+        "browser_upload",
+        "Upload files with a file field or an upload button: it clicks the element and picks the files in the file "
+        f"picker that opens. {AIM_HELP} Only files of this run (the run folder or its attachments) can be uploaded. "
+        "Checked like a click.",
+        {**AIM, "files": FILES, "say": SAY},
+        ["files", "say"],
+        _said("Uploading a file"),
+        _reported(_upload),
     ),
 ]
 HANDS = [replace(t, handler=_dialog_aware(_not_repeated(t.name, t.handler))) for t in HANDS]

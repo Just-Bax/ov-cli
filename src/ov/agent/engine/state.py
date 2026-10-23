@@ -26,7 +26,7 @@ def empty_state(summary: dict[str, Any], access: str) -> State:
         "access": access,
         "queued": [],
         "queueHeld": False,
-        "claude": {"session": None, "turns": {}, "spent": 0.0},
+        "session": {"id": None, "turns": {}, "spent": 0.0},
     }
 
 
@@ -62,16 +62,22 @@ def _on_meta(state: State, stored: Stored) -> None:
 
     if event.get("caseUrl"):
         state["caseUrl"] = event["caseUrl"]
+    for link in ("continuedFrom", "continuedIn"):
+        if event.get(link):
+            state[link] = event[link]
 
-    anchor = event.get("claude")
-    if anchor:
-        if anchor["session"] != state["claude"]["session"]:
-            state["claude"]["spent"] = 0.0
-        state["claude"]["session"] = anchor["session"]
-        if anchor.get("turn"):
-            state["claude"]["turns"][anchor["turn"]] = anchor
-        if anchor.get("spent") is not None:
-            state["claude"]["spent"] = anchor["spent"]
+    if event.get("session"):
+        _on_session(state["session"], event["session"])
+
+
+def _on_session(session: dict[str, Any], anchor: dict[str, Any]) -> None:
+    if anchor["id"] != session["id"]:
+        session["spent"] = 0.0
+    session["id"] = anchor["id"]
+    if anchor.get("turn"):
+        session["turns"][anchor["turn"]] = anchor
+    if anchor.get("spent") is not None:
+        session["spent"] = anchor["spent"]
 
 
 def _on_tool(state: State, stored: Stored) -> None:
@@ -272,7 +278,7 @@ def window(state: State, end: int, turns: int) -> State:
 
 def snapshot(state: State, turns: int) -> State:
     return {
-        **{k: v for k, v in state.items() if k not in WINDOWED and k != "claude"},
+        **{k: v for k, v in state.items() if k not in WINDOWED and k != "session"},
         **window(state, len(state["items"]), turns),
         "edits": [_brief(e, EDIT_DETAIL) for e in state["edits"]],
     }

@@ -20,7 +20,7 @@ import type { Attention, Provider, RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { EditableTitle } from '@/components/common/EditableTitle'
-import { ProviderLogo } from '@/components/common/ProviderLogo'
+import { ProviderBubble } from '@/components/common/ProviderLogo'
 import { type Icon, PulseDot, Shimmer, Skeleton, SlideIndicator } from '@/components/common/ui'
 import { OPEN_PALETTE, TOGGLE_SIDEBAR } from '@/components/layout/CommandPalette'
 import { RunMenu, snoozeLabel } from '@/components/run/RunMenu'
@@ -40,9 +40,7 @@ const RAIL_RUNS = 12
 const BUSY = new Set(['queued', 'running'])
 const HOVER_PREFETCH_MS = 150
 const TIP_GAP_PX = 10
-const AVATAR_PX = 64
 const INITIALS_CHARS = 2
-const GITHUB_URL = 'https://github.com'
 const IN_PROGRESS = 'In progress'
 const SETTLED_OPEN_KEY = 'ov-agent.settled-open'
 const COLLAPSED_KEY = 'ov-agent.sidebar-collapsed'
@@ -110,29 +108,25 @@ export type SidebarAccount = {
   provider: Provider
   name?: string
   detail: string
-  githubUser?: string
+  imageUrl?: string
 }
 
 function Avatar({ account, loading }: { account?: SidebarAccount; loading?: boolean }) {
   const [broken, setBroken] = useState(false)
-  const user = account?.githubUser
   if (loading) return <Skeleton className="size-8 rounded-full" />
-  if (account?.provider === 'claude')
-    return (
-      <span className="flex size-8 items-center justify-center rounded-full bg-[#F5E6DF]">
-        <ProviderLogo provider="claude" className="size-[18px]" />
-      </span>
-    )
-  if (!user || broken)
+  if (!account) return <span className="bg-raised size-8 rounded-full" />
+  if (!account.imageUrl)
+    return <ProviderBubble provider={account.provider} className="size-8 rounded-full" />
+  if (broken)
     return (
       <span className="bg-brand-soft text-brand-strong flex size-8 items-center justify-center rounded-full text-[13px] font-semibold">
-        {(user ?? '?').slice(0, 1).toUpperCase()}
+        {(account.name ?? '?').slice(0, 1).toUpperCase()}
       </span>
     )
 
   return (
     <img
-      src={`${GITHUB_URL}/${encodeURIComponent(user)}.png?size=${AVATAR_PX}`}
+      src={account.imageUrl}
       alt=""
       onError={() => setBroken(true)}
       className="bg-raised size-8 rounded-full object-cover"

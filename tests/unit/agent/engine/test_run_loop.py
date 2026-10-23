@@ -8,7 +8,7 @@ from sqlalchemy import select
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult, Usage
 from ov.agent.storage import db, models
-from ov.agent.storage.models import Access, Provider
+from ov.agent.storage.models import Access
 
 
 def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
@@ -39,7 +39,7 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
 
     assert [t["status"] for t in run.state["tools"]] == ["ok"]
@@ -48,14 +48,14 @@ def test_a_run_streams_calls_tools_and_finishes(logged_in, monkeypatch):
 
 
 def test_dangling_tool_calls_get_stub_results():
-    from ov.agent.engine.run import _answered
+    from ov.agent.engine.conversation import answered
 
     messages = [
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": None, "tool_calls": [{"id": "a"}, {"id": "b"}]},
         {"role": "tool", "tool_call_id": "a", "content": "ok"},
     ]
-    fixed = _answered(messages)
+    fixed = answered(messages)
     assert [m.get("tool_call_id") for m in fixed[2:]] == ["a", "b"]
 
 
@@ -83,7 +83,7 @@ def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "build it", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "build it", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
 
     second = sent[1]
@@ -96,7 +96,7 @@ def test_cut_off_tool_arguments_never_reach_copilot_again(logged_in, monkeypatch
 def test_status_changes_reach_the_status_feed(logged_in):
     from ov.agent.engine.run import runs, status_feed
 
-    db.create_thread("rfeed", "Feed run", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rfeed", "Feed run", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rfeed")
     channel, unsubscribe = status_feed.subscribe()
     try:
@@ -124,7 +124,7 @@ def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypat
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_for(lambda: run.state["summary"]["status"] in ("done", "error"))
 
     kinds = [e["event"]["type"] for e in db.load_events(run.id)]
@@ -137,7 +137,7 @@ def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypat
 def test_resuming_a_stream_sends_the_partial_message(logged_in):
     from ov.agent.engine.run import runs
 
-    db.create_thread("rlive", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rlive", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rlive")
     run.stream_text("a1", "Hel")
     channel, unsubscribe, backlog = run.resume(run.seq)
@@ -160,7 +160,7 @@ def test_idle_runs_are_dropped_from_memory_but_never_while_in_use(logged_in):
     runs._runs.clear()
     held = []
     for n in range(MAX_CACHED_RUNS + 3):
-        db.create_thread(f"revict{n}", "t", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+        db.create_thread(f"revict{n}", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
         held.append(runs.get(f"revict{n}"))
     assert all(runs.get(f"revict{n}") is held[n] for n in range(MAX_CACHED_RUNS + 3))
 
@@ -185,17 +185,17 @@ def test_a_run_records_what_each_request_cost(logged_in, monkeypatch):
     )
     monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", lambda *a, cancel, on_text, **_: next(replies))
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
-    monkeypatch.setattr("ov.agent.integrations.copilot.prompt_limit", lambda _: 200_000)
+    monkeypatch.setattr("ov.agent.integrations.copilot.token_limits", lambda _: (264_000, 200_000, 64_000))
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
 
-    assert run.state["summary"]["cost"] == {"credits": 3.0, "usd": 0.0, "requests": 2}
-    assert run.state["context"] == {"tokens": 1010, "limit": 200_000, "compactAt": 180_000}
-    assert db.list_threads()[0]["cost"] == {"credits": 3.0, "usd": 0.0, "requests": 2}
+    assert run.state["summary"]["cost"] == {"amount": 3.0, "requests": 2}
+    assert run.state["context"] == {"tokens": 1010, "limit": 200_000, "compactAt": 187_000}
+    assert db.list_threads()[0]["cost"] == {"amount": 3.0, "requests": 2}
     cost = db.thread_cost(run.id)
     assert cost["tokens"] == {"input": 2000, "output": 20}
     with db._begin() as conn:
@@ -212,7 +212,7 @@ def test_an_empty_reply_is_asked_for_once(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
-    assert run._messages[-2]["content"].startswith("[Your last reply was empty")
-    assert run._messages[-1]["content"] == "Here it is."
+    assert run.messages[-2]["content"].startswith("[Your last reply was empty")
+    assert run.messages[-1]["content"] == "Here it is."

@@ -4,7 +4,6 @@ import pytest
 
 from ov.agent.engine.guard import COMMAND_EFFECTS, PAGE_EFFECTS, Effect, GuardError, Verdict, parse
 from ov.agent.integrations.copilot import StreamResult, Usage
-from ov.agent.storage.models import Provider
 
 
 def test_a_judgement_is_read_from_the_model_reply():
@@ -51,7 +50,7 @@ def test_the_run_judges_each_command_once_and_records_it(logged_in, monkeypatch)
     from ov.agent.engine.run import runs
     from ov.agent.storage import db
 
-    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
 
     run.emit({"type": "tool", "tool": {"id": "t1", "name": "ws_run", "label": "$ mvn", "status": "running"}})

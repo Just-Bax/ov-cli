@@ -13,9 +13,11 @@ import type {
   ApprovalQuestion,
   ContextUsage,
   FollowUp,
+  Provider,
   Question,
   RunState,
   ThreadItem,
+  ThreadLink as ThreadLinkTarget,
   ToolActivity,
 } from '@shared/types.ts'
 import { EditableTitle } from '@/components/common/EditableTitle'
@@ -40,10 +42,12 @@ import { forgetDraft, loadText } from '@/lib/drafts'
 import { inCodeEditor } from '@/lib/dom'
 import { usePresence, useWindowEvent } from '@/lib/hooks'
 import { layerOpen } from '@/lib/layers'
+import { href } from '@/lib/route'
 import { allRuns, useRuns, WORKING } from '@/lib/runs'
+import { useProvider } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
 import { ChangeCard } from './ChangeCard'
-import { CompactionNote, ContextMeter } from './Context'
+import { CompactionNote, ContextMeter, StaleCacheNotice } from './Context'
 import { CostPill } from './CostPill'
 import { FilesChanged } from './FilesChanged'
 import { FIND_LABEL, FindBar } from './FindBar'
@@ -332,6 +336,8 @@ const FOLLOW_UP_HINT: Record<FollowUp, string> = {
 
 function Footer({
   runId,
+  provider,
+  idleSince,
   busy,
   access,
   context,
@@ -343,6 +349,8 @@ function Footer({
   onSend,
 }: {
   runId: string
+  provider: Provider
+  idleSince: number
   busy: boolean
   access: Access
   context?: ContextUsage
@@ -353,6 +361,7 @@ function Footer({
   queueHeld: boolean
   onSend: () => void
 }) {
+  const { cacheTtlMs } = useProvider(provider)
   const [error, setError] = useState<string>()
   const [editing, setEditing] = useState<ChatMessage>()
   const [draft, setDraft] = useState<{ text: string; at: number }>()
@@ -429,6 +438,14 @@ function Footer({
     <div className={cn('pt-1 pb-4', compact ? 'px-4' : 'px-6')}>
       <div className="mx-auto max-w-[860px]">
         {error ? <div className="text-danger mb-1.5 text-[12px]">{error}</div> : null}
+        {context && cacheTtlMs && !busy && !question ? (
+          <StaleCacheNotice
+            runId={runId}
+            context={context}
+            idleSince={idleSince}
+            cacheTtlMs={cacheTtlMs}
+          />
+        ) : null}
         <QueuedPanel
           runId={runId}
           queued={queued}
@@ -495,6 +512,24 @@ function Footer({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function ThreadLink({ label, link }: { label: string; link: ThreadLinkTarget }) {
+  return (
+    <div className="text-muted flex items-center gap-3 text-[12px]">
+      <div className="bg-line h-px flex-1" />
+      <span>
+        {label}{' '}
+        <a
+          href={href({ page: 'thread', id: link.id })}
+          className="text-brand-strong font-medium hover:underline"
+        >
+          {link.title}
+        </a>
+      </span>
+      <div className="bg-line h-px flex-1" />
     </div>
   )
 }
@@ -766,6 +801,8 @@ export function RunView({ id }: { id: string }) {
       footer={
         <Footer
           runId={id}
+          provider={summary.provider}
+          idleSince={summary.updatedAt}
           busy={busy}
           access={state.access}
           context={state.context}
@@ -812,6 +849,9 @@ export function RunView({ id }: { id: string }) {
           browsing ? 'px-4' : 'px-6 @max-[940px]:pr-11',
         )}
       >
+        {state.continuedFrom && state.start === 0 ? (
+          <ThreadLink label="Continued from" link={state.continuedFrom} />
+        ) : null}
         {state.start > 0 ? (
           <OlderTurns
             scrollRef={scrollRef}
@@ -885,6 +925,7 @@ export function RunView({ id }: { id: string }) {
             <Shimmer>Thinking</Shimmer>
           </div>
         ) : null}
+        {state.continuedIn ? <ThreadLink label="Continued in" link={state.continuedIn} /> : null}
         {state.error && summary.status === 'error' ? (
           <div
             className={cn(

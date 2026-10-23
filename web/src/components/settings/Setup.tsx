@@ -7,13 +7,10 @@ import {
 import { type ReactNode, useEffect, useState } from 'react'
 import type { ModelInfo, Provider, Status } from '@shared/types.ts'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
-import { PROVIDER_NAMES, ProviderLogo } from '@/components/common/ProviderLogo'
-import {
-  ProviderSelect,
-  ProviderSetup,
-  providerReady,
-  providerSummary,
-} from '@/components/settings/Providers'
+import { ProviderLogo } from '@/components/common/ProviderLogo'
+import { providerReady, providerSummary } from '@/components/providers'
+import { ProviderSelect, ProviderSetup } from '@/components/settings/Providers'
+import { PROVIDER_BRANDS } from '@/lib/providerBrand'
 import { AddInstanceForm, SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 import { reportError } from '@/components/common/Toasts'
 import { Button, Card, Label, Select, Skeleton } from '@/components/common/ui'
@@ -132,7 +129,7 @@ export function Setup({
   const [saving, setSaving] = useState(false)
   const [adding, setAdding] = useState(false)
 
-  const providerOk = providerReady(status, status.provider)
+  const providerOk = providerReady(status)
   const instancesOk = status.instances.total > 0
 
   useEffect(() => {
@@ -208,14 +205,15 @@ export function Setup({
               title="Pick who runs the agent"
               subtitle={
                 providerOk
-                  ? `${PROVIDER_NAMES[status.provider]} runs the agent.`
-                  : 'Your Claude subscription through Claude Code, or GitHub Copilot.'
+                  ? `${PROVIDER_BRANDS[status.provider].name} runs the agent.`
+                  : `${status.providers.map((p) => PROVIDER_BRANDS[p.id].name).join(' or ')}.`
               }
             >
               {current === 1 ? (
                 <div className="space-y-3">
                   <ProviderSelect
                     className="w-[260px]"
+                    providers={status.providers}
                     value={status.provider}
                     onChange={pickProvider}
                   />

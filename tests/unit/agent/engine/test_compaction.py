@@ -8,11 +8,13 @@ from helpers.agent import wait_done, wait_for
 from ov.agent.engine import compaction
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult, Usage
+from ov.agent.providers.base import ContextLimits
 from ov.agent.storage import db
-from ov.agent.storage.models import Provider
 
+WINDOW = 264_000
 PROMPT_LIMIT = 200_000
-FULL_CONTEXT = Usage(tokens={"input": 2, "cache_read": 185_000, "output": 50}, nano=0)
+OUTPUT_LIMIT = 64_000
+FULL_CONTEXT = Usage(tokens={"input": 2, "cache_read": 190_000, "output": 50}, nano=0)
 SUMMARY = "The user asked about tags. The agent listed them."
 CALL = {"id": "c1", "type": "function", "function": {"name": "ov", "arguments": '{"args": ["api", "tags"]}'}}
 
@@ -51,8 +53,10 @@ def test_the_summary_replaces_everything_before_the_cut():
     assert rebuilt[1] == {"role": "user", "content": compaction.SUMMARY_HEADER + SUMMARY}
 
 
-def test_the_compact_point_is_ninety_percent_of_the_window():
-    assert compaction.compact_at(PROMPT_LIMIT) == 180_000
+def test_the_compact_point_follows_the_claude_code_rule():
+    assert ContextLimits(window=1_000_000, prompt=1_000_000, output=64_000).compact_at == 967_000
+    assert ContextLimits(window=WINDOW, prompt=PROMPT_LIMIT, output=OUTPUT_LIMIT).compact_at == 187_000
+    assert ContextLimits(window=400_000, prompt=272_000, output=128_000).compact_at == 259_000
 
 
 @pytest.fixture
@@ -77,7 +81,7 @@ def copilot_thread(logged_in, monkeypatch):
     monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", stream)
     monkeypatch.setattr("ov.agent.integrations.copilot.complete", complete)
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
-    monkeypatch.setattr("ov.agent.integrations.copilot.prompt_limit", lambda _: PROMPT_LIMIT)
+    monkeypatch.setattr("ov.agent.integrations.copilot.token_limits", lambda _: (WINDOW, PROMPT_LIMIT, OUTPUT_LIMIT))
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, "users\n", ""))
     return sent, summarized
 
@@ -85,7 +89,7 @@ def copilot_thread(logged_in, monkeypatch):
 def _start():
     from ov.agent.engine.run import runs
 
-    return runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, Provider.COPILOT, "test-model")
+    return runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, "copilot", "test-model")
 
 
 def test_a_full_copilot_context_is_summarized_before_the_next_step(copilot_thread):
@@ -99,12 +103,13 @@ def test_a_full_copilot_context_is_summarized_before_the_next_step(copilot_threa
     assert second[2]["tool_calls"][0]["id"] == "c1" and second[3]["role"] == "tool"
     [compacted] = run.state["compactions"]
     assert compacted["trigger"] == "auto" and compacted["status"] == "done"
-    assert compacted["before"] == 185_052 and compacted["after"] < FULL_CONTEXT.tokens["cache_read"] // 10
+    assert compacted["before"] == 190_052 and compacted["after"] < FULL_CONTEXT.tokens["cache_read"] // 10
     assert db.thread_cost(run.id)["requests"] == 2
 
 
 def test_compacting_a_copilot_thread_on_request_summarizes_it(copilot_thread, monkeypatch):
-    monkeypatch.setattr("ov.agent.engine.run.Run._copilot_compact_at", lambda self, model: PROMPT_LIMIT * 2)
+    roomy = ContextLimits(window=WINDOW * 2, prompt=PROMPT_LIMIT * 2, output=OUTPUT_LIMIT)
+    monkeypatch.setattr("ov.agent.providers.copilot_turn.limits", lambda model: roomy)
     run = _start()
     wait_done(run)
     assert not run.state["compactions"]
@@ -114,4 +119,4 @@ def test_compacting_a_copilot_thread_on_request_summarizes_it(copilot_thread, mo
 
     [compacted] = run.state["compactions"]
     assert compacted["trigger"] == "manual" and compacted["status"] == "done"
-    assert run._messages[1]["content"].endswith(SUMMARY) and run.state["summary"]["status"] == "done"
+    assert run.messages[1]["content"].endswith(SUMMARY) and run.state["summary"]["status"] == "done"

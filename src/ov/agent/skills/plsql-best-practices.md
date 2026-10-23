@@ -25,7 +25,6 @@ Use the ID package: `id.<trackor_type>.tt`, `id.<trackor_type>.cf.<field>`, `id.
 
 ## Rule code
 
-- Start with what the rule does and why, in one short comment.
 - Read the trigger's bind variables (for example :pk, :imp_run_id, :process_id) once into variables.
 - Keep rules small and fast: they run inside the user's save. Select by key, never loop over every trackor of a type in an update rule.
 - Do not commit or roll back in a rule, and do not swallow errors with `when others then null`; let the error reach the user or raise a clear one.
@@ -33,6 +32,13 @@ Use the ID package: `id.<trackor_type>.tt`, `id.<trackor_type>.cf.<field>`, `id.
 ## Data fixes
 
 A data fix proposed with ov_propose is a plain anonymous block: no commit, no exception handler, no rollback. It uses the APIs above, selects the exact rows by key, and its effect can be checked afterwards with one SELECT you also give.
+
+A script the user runs themselves follows the same rules and starts with a switch constant, `c_apply constant number := 0;`: with 0 it only prints (dbms_output) what it would change, with 1 it changes it. It never commits; the user commits after checking the output. Before you hand it over, run every query in it with ov_sql and check each API call's signature on the instance, so it does not fail when the user runs it.
+
+## JSON in PL/SQL
+
+- `json_object_t`, `json_array_t` and the other PL/SQL JSON types cannot be used inside a SQL statement (ORA-40573). Call `to_blob`, `to_clob` or `to_string` into a variable first, then use that variable in the UPDATE or SELECT.
+- Check a column's type before converting it: some JSON lives in BLOB columns, which `json_object_t.parse` and `json_value` read directly, but string functions do not.
 
 ## Naming and layout
 
@@ -42,4 +48,4 @@ A data fix proposed with ov_propose is a plain anonymous block: no commit, no ex
 - 4 spaces, no tabs; one parameter per line with the first on a new line; one statement per line; spaces around operators.
 - No redundant brackets (`if x = 1 and y = 2 then`); long conditions one per line, aligned.
 - Prefer cursor FOR loops (`for rec in (select ...) loop`) over open/fetch/close; do not EXIT or RETURN out of FOR or WHILE loops.
-- `--` comments that explain why, not what. Packages and their routines get a short `/** ... */` description.
+- No comments unless the user asks for them: clear names say what the code does.

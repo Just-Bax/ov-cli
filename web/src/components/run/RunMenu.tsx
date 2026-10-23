@@ -1,4 +1,5 @@
 import {
+  ArrowBendDownRight,
   ArrowCounterClockwise,
   ArrowsInLineVertical,
   BellZ,
@@ -358,6 +359,22 @@ export function RunMenu({
                   onClick={() =>
                     act(async () => {
                       await api.compactRun(run.id)
+                    })
+                  }
+                />
+              )}
+              {inRow ? null : (
+                <Item
+                  icon={<ArrowBendDownRight className="size-4" />}
+                  label="Continue in a new thread"
+                  disabled={WORKING.has(run.status)}
+                  hint={WORKING.has(run.status) ? 'Working' : undefined}
+                  onHover={() => setSnoozing(false)}
+                  onClick={() =>
+                    act(async () => {
+                      const { id } = await api.continueRun(run.id)
+                      await refreshRuns()
+                      go({ page: 'thread', id })
                     })
                   }
                 />

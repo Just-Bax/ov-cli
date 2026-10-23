@@ -3,21 +3,11 @@ import type { CostTotal, Provider, RunCost } from '@shared/types.ts'
 import { ProviderLogo } from '@/components/common/ProviderLogo'
 import { reportError } from '@/components/common/Toasts'
 import { Shimmer } from '@/components/common/ui'
+import { PROVIDER_UI } from '@/components/providers'
 import { api } from '@/lib/api'
-import {
-  formatAmount,
-  formatCost,
-  formatTokens,
-  orderedTokens,
-  tokenLabel,
-  unitFor,
-} from '@/lib/cost'
+import { formatAmount, formatCost, formatTokens, orderedTokens, tokenLabel } from '@/lib/cost'
 import { modelName, useModels } from '@/lib/models'
-
-const USAGE_TITLES: Record<Provider, string> = {
-  copilot: 'Copilot usage',
-  claude: 'Claude plan usage, estimated',
-}
+import { providerStatus, useSettings } from '@/lib/settings'
 
 export function CostPill({
   runId,
@@ -31,6 +21,8 @@ export function CostPill({
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState<RunCost>()
   const models = useModels(provider)
+  const { providers } = useSettings()
+  const unit = providerStatus(providers, provider).costUnit
 
   if (!cost) {
     return (
@@ -52,13 +44,13 @@ export function CostPill({
     <span className="relative" onMouseEnter={show} onMouseLeave={() => setOpen(false)}>
       <span className="bg-raised text-text inline-flex h-8 cursor-default items-center gap-1.5 rounded-full px-3 text-[12px] font-medium tabular-nums">
         <ProviderLogo provider={provider} className="size-3.5" />
-        {formatCost(cost)}
+        {formatCost(cost, unit)}
       </span>
       {open ? (
         <div className="border-line animate-pop absolute top-full right-0 z-30 mt-1.5 w-[280px] rounded-2xl border bg-white p-3.5 text-[12px] shadow-[0_6px_20px_rgba(38,50,56,0.14)]">
           <div className="text-fg flex items-baseline justify-between font-semibold">
-            <span>{USAGE_TITLES[provider]}</span>
-            <span className="tabular-nums">{formatCost(cost)}</span>
+            <span>{PROVIDER_UI[provider].usageTitle}</span>
+            <span className="tabular-nums">{formatCost(cost, unit)}</span>
           </div>
           <div className="text-muted mt-0.5">
             {cost.requests} request{cost.requests === 1 ? '' : 's'}
@@ -79,10 +71,7 @@ export function CostPill({
                     <div key={`${m.provider}:${m.model}`} className="flex justify-between gap-3">
                       <span className="text-muted truncate">{modelName(models, m.model)}</span>
                       <span className="text-text shrink-0 tabular-nums">
-                        {formatAmount(
-                          unitFor(m.provider) === 'usd' ? m.usd : m.credits,
-                          unitFor(m.provider),
-                        )}
+                        {formatAmount(m.amount, providerStatus(providers, m.provider).costUnit)}
                       </span>
                     </div>
                   ))}

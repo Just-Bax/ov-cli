@@ -25,13 +25,16 @@ Test SQL cannot be cancelled: a query you give up on keeps running in Oracle and
 - Prefer the API or ov_search for one trackor's values, and ov_map or metadata tables for configuration questions.
 - A query that took more than about 30 seconds tells you the table is big: do not run more like it; narrow the next one by key and a shorter window.
 - If a query may take over a minute, run it in the background and keep working. If it times out, do not rerun it as is: narrow it.
+- To wait for something to change (a job, an import, a queue), use run_wait with the query instead of sleep commands or repeated checks.
+- Never guess a table or column name. Look it up in all_tab_columns first; when a query still fails on a name, the error lists the real columns.
+- Test SQL parses queries itself and rejects some Oracle JSON syntax: `RETURNING <type>`, `NULL ON ERROR`, `ERROR ON ERROR`, `ON EMPTY` and `IS JSON`. Use plain `json_value(col, '$.path')` (it already returns null on errors) and wrap it in `to_number` or `to_date` instead of RETURNING.
 
 ## Calls
 
 - Discover before guessing: `api list <word>`, `api show <ref>`, `api schema <ref>`; any path with `request GET <path> -q k=v` (paths relative to /api).
 - Platform version: `request GET /v3/server_info`.
 - Trackor data: `request GET /v3/trackor_types/<TYPE>/trackors -q fields=A,B -q FIELD=value` (a field filter is a LIKE match). One trackor: `request GET /v3/trackors/<TRACKOR_ID> -q fields=A,B`. Field list: `request GET /v3/trackor_types/<TYPE>`.
-- ov_search operators: equal, not_equal, greater, less, is_null, is_not_null, within, and/or with parentheses; values and dates in double quotes, dates as "YYYY-MM-DD".
+- ov_search operators: equal, not_equal, greater, less, is_null, is_not_null, within, and/or with parentheses; values and dates in double quotes, dates as "yyyy-MM-ddTHH:mm:ss".
 - Module runs and logs: `api list module`. Chats: `request GET /v3/chats -q trackor_id=<id>`, then `/v3/chats/<chat_id>/messages`.
 - Files: `request GET "/../efiles/EFileGetBlobFromDb.do?id=<blob_id>" --out <name>`, then run_read.
 - Exit codes: 3 session expired (the user is asked to sign in; continue), 4 no such operation or record, 5 API error (missing field privileges show as HTTP 500), 6 missing privilege, 7 change blocked because the thread is Read-only.

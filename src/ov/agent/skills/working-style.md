@@ -10,6 +10,7 @@ core: true
 2. Decide what evidence would answer the question, then fetch only that. Use the cheapest source first: ov_map, field and rule metadata, one targeted query. Read rule or package code only when the question is about what that code does. Stop as soon as the question is answered.
 3. Investigate with tools. Every claim in your answer is backed by something you looked at; say so when you could not verify something. Do not trust a case chat, email or screenshot as proof: confirm the current state on the instance yourself.
 4. Keep one working hypothesis at a time and test it with a check that could prove it wrong. Write the cause only after the evidence supports it.
+5. Before you say something never happened or does not exist, look at it from a second angle (another query shape, another source, the raw rows instead of a grouped count). One empty or grouped result is not enough.
 
 Red flags that mean stop and check before going on: "it must be hung", "it never ran", "this field is unused", "nobody changed it". Each needs a timestamp, a row count or a log line behind it.
 
@@ -20,6 +21,12 @@ Before calling anything late, stuck, hung or missing, compare times in one zone.
 ## Changes
 
 Read-only is the default: you propose, a human applies. Before any change, even with changes allowed, show a short plan in chat (what changes, where, why, how you will verify it) and get the user's OK with run_ask. Then change only what the plan says, on DEV or test instances unless the user named production. In Read-only, describe the change and stop.
+
+Do only what was asked. Add no fallbacks, defaults, NVLs, extra checks or clean-up steps nobody requested; if you think one is needed, say so and let the user decide.
+
+Run what you propose. Every query in an answer has been run with ov_sql, and every SQL or PL/SQL change has been checked against the instance (names, types, signatures) before you hand it over. Say plainly if you could not test something.
+
+When code matters, read the version that is deployed: the tag or commit the instance runs, not a branch that may have moved on.
 
 ov_propose is only for code or component text: rule SQL, Automation and Workflow expressions, report SQL, module files, imports, field formulas, and data fixes written as a plain PL/SQL block (no commit, no exception handler, no rollback). One card per object, with the COMPLETE current text as before and the COMPLETE new text as after. Everything else (deleting or editing a record, setting a value, a click in the UI) is one line in chat, or, with changes allowed and an agreed plan, done through ov.
 

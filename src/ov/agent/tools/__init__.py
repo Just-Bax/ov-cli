@@ -33,7 +33,11 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
         _names([*pagerduty.READ_TOOLS, *pagerduty.WRITE_TOOLS]),
     ),
     ("Skills", "guides for each area", ["skill_read"]),
-    ("Run", "the run folder, questions to the user and the result", ["run_read", "run_ask", "run_report"]),
+    (
+        "Run",
+        "the run folder, waiting, questions to the user and the result",
+        ["run_read", "run_wait", "run_ask", "run_report"],
+    ),
 ]
 
 

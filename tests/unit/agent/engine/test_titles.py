@@ -5,7 +5,6 @@ from helpers.agent import wait_for
 
 from ov.agent.integrations.copilot import StreamResult, Usage
 from ov.agent.storage import db
-from ov.agent.storage.models import Provider
 
 
 def test_titles_are_cleaned_and_kept_short():
@@ -42,7 +41,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
 
     run = runs.create(
         {"access": "read", "prompt": "what tags are there on this instance?", "instance": "acme"},
-        Provider.COPILOT,
+        "copilot",
         "main-model",
     )
     wait_for(lambda: run.state["summary"]["title"] == "Tag listing question")
@@ -52,21 +51,22 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
     assert db.thread_cost(run.id)["models"][0] == {
         "model": "fast-model",
         "provider": "copilot",
-        "credits": 0.03,
-        "usd": 0.0,
+        "amount": 0.03,
         "requests": 1,
     }
 
 
 def test_a_copilot_thread_needs_a_fast_model(logged_in, monkeypatch):
-    from ov.agent.engine.run import NO_FAST_MODEL, RunError, runs
+    from ov.agent.engine.run import runs
+    from ov.agent.integrations.copilot import CopilotError
+    from ov.agent.providers.copilot import NO_FAST_MODEL
 
     db.save_preferences({"fastModel": ""})
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     run = runs.create(
-        {"access": "read", "prompt": "why is the queue long?", "instance": "acme"}, Provider.COPILOT, "main-model"
+        {"access": "read", "prompt": "why is the queue long?", "instance": "acme"}, "copilot", "main-model"
     )
-    with pytest.raises(RunError, match=NO_FAST_MODEL):
+    with pytest.raises(CopilotError, match=NO_FAST_MODEL):
         run.retitle()
 
 
@@ -80,7 +80,7 @@ def test_only_the_preloaded_case_names_the_thread(logged_in, monkeypatch):
     }
     monkeypatch.setattr("ov.agent.engine.cases.load_case", lambda ref, work_dir, cancel: bundles[ref])
     monkeypatch.setattr("ov.agent.engine.cases.render", lambda bundle, work_dir: bundle["title"])
-    db.create_thread("rcase", "Kafka sync", Provider.COPILOT, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rcase", "Kafka sync", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rcase")
 
     run.read_case("C1", run.cancel)

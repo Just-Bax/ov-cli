@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from ov.agent.engine.cancel import Cancel, Cancelled
+from ov.agent.integrations.common import Usage
 from ov.agent.storage.db import REASONING_LEVELS
 from ov.core import credentials
 
@@ -37,16 +38,11 @@ RETRY_BASE_SECONDS = 2
 RETRY_BACKOFF_FACTOR = 2
 ERROR_DETAIL_CHARS = 500
 PENDING_STATUSES = {"authorization_pending": "pending", "slow_down": "slow_down"}
+CHAT_ENDPOINT = "/chat/completions"
 
 
 class CopilotError(Exception):
     pass
-
-
-@dataclass
-class Usage:
-    tokens: dict[str, int]
-    nano: int
 
 
 @dataclass
@@ -195,12 +191,18 @@ def _headers(**extra: str) -> tuple[str, dict[str, str]]:
     return token["api"], headers
 
 
+def _speaks_chat(model: dict[str, Any]) -> bool:
+    endpoints = model.get("supported_endpoints")
+    return endpoints is None or CHAT_ENDPOINT in endpoints
+
+
 def _usable(model: dict[str, Any]) -> bool:
     capabilities = model.get("capabilities") or {}
 
     return bool(
         capabilities.get("type") == "chat"
         and (capabilities.get("supports") or {}).get("tool_calls")
+        and _speaks_chat(model)
         and model.get("model_picker_enabled") is not False
         and (model.get("policy") or {}).get("state") != "disabled"
     )
@@ -218,6 +220,8 @@ def _model_entry(model: dict[str, Any]) -> dict[str, Any]:
         "premium": (model.get("billing") or {}).get("multiplier"),
         "reasoning": [level for level in supports.get("reasoning_effort") or [] if level in REASONING_LEVELS],
         "contextWindow": limits.get("max_prompt_tokens"),
+        "windowTokens": limits.get("max_context_window_tokens"),
+        "outputTokens": limits.get("max_output_tokens"),
     }
 
 
@@ -264,13 +268,13 @@ def reasoning_for(model_id: str, wanted: str) -> str | None:
     )
 
 
-def prompt_limit(model_id: str) -> int:
+def token_limits(model_id: str) -> tuple[int, int, int]:
     model = next((m for m in list_models() if m["id"] == model_id), None)
     if model is None:
         raise CopilotError(f"Model {model_id} is not available on this Copilot account.")
-    if not model["contextWindow"]:
+    if not (model["contextWindow"] and model["windowTokens"] and model["outputTokens"]):
         raise CopilotError(f"Copilot does not say how much context {model_id} takes.")
-    return int(model["contextWindow"])
+    return int(model["windowTokens"]), int(model["contextWindow"]), int(model["outputTokens"])
 
 
 def supports_vision(model_id: str) -> bool:

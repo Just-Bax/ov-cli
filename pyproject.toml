@@ -28,6 +28,7 @@ dependencies = [
     "sqlalchemy>=2.0.30",
     "alembic>=1.13",
     "claude-agent-sdk>=0.2.167",
+    "typing-extensions>=4.5",
 ]
 
 [project.optional-dependencies]

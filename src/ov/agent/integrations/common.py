@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Self
 
@@ -12,6 +13,12 @@ import httpx
 from ov.core.paths import agent_dir, write_atomic
 
 ERROR_BODY_CHARS = 200
+
+
+@dataclass(frozen=True)
+class Usage:
+    tokens: dict[str, int]
+    nano: int
 
 
 class TimedCache:

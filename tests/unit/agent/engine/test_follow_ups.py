@@ -5,10 +5,11 @@ import threading
 import pytest
 from helpers.agent import SLOW_POLLS, wait_done, wait_for
 
+from ov.agent.engine.conversation import INTERRUPTED_RESULT
 from ov.agent.instances.ovproc import OvResult
 from ov.agent.integrations.copilot import StreamResult
 from ov.agent.storage import db
-from ov.agent.storage.models import Access, Provider
+from ov.agent.storage.models import Access
 
 BREAK = "\n\n"
 
@@ -25,11 +26,11 @@ def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(l
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
 
     call = {"id": "c9", "type": "function", "function": {"name": "ov_sql", "arguments": "{}"}}
-    run._messages.append({"role": "assistant", "content": None, "tool_calls": [call]})
+    run.messages.append({"role": "assistant", "content": None, "tool_calls": [call]})
     run.emit({"type": "tool", "tool": {"id": "c9", "name": "ov_sql", "label": "SQL", "status": "running"}})
     run._fail(RuntimeError("tool thread died"))
 
@@ -40,7 +41,7 @@ def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(l
 
     last = sent[-1]
     at = next(i for i, m in enumerate(last) if m.get("tool_calls") == [call])
-    assert last[at + 1] == {"role": "tool", "tool_call_id": "c9", "content": "Error: interrupted."}
+    assert last[at + 1] == {"role": "tool", "tool_call_id": "c9", "content": INTERRUPTED_RESULT}
     assert last[at + 2]["role"] == "user"
 
 
@@ -56,7 +57,7 @@ def test_the_system_prompt_follows_the_access_mode(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
     run.set_access(Access.AUTO)
     run.follow_up("go", [], steer=False)
@@ -86,7 +87,7 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "start", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "start", "instance": "acme"}, "copilot", "test-model")
     wait_for(lambda: seen)
     run.follow_up("later", [], steer=False)
     run.follow_up("now", [], steer=True)
@@ -113,7 +114,7 @@ def test_queued_messages_are_sent_one_turn_at_a_time(logged_in, monkeypatch):
 
     from ov.agent.engine.run import runs
 
-    run = runs.create({"access": "read", "prompt": "start", "instance": "acme"}, Provider.COPILOT, "test-model")
+    run = runs.create({"access": "read", "prompt": "start", "instance": "acme"}, "copilot", "test-model")
     wait_for(lambda: seen)
     run.follow_up("one", [], steer=False)
     run.follow_up("two", [], steer=False)
@@ -128,7 +129,7 @@ def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch
     from ov.agent.engine.run import runs
     from ov.agent.storage import db
 
-    db.create_thread("rsteer", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rsteer", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rsteer")
     run._busy = True
     monkeypatch.setattr(run, "call_tool_named", lambda name, args: ("rows", []))
@@ -149,7 +150,7 @@ def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch
 def test_an_edited_queued_message_keeps_its_place(logged_in):
     from ov.agent.engine.run import RunError, runs
 
-    db.create_thread("redit", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("redit", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("redit")
     run._busy = True
     run.follow_up("first", [], steer=False)
@@ -168,7 +169,7 @@ def test_an_edited_queued_message_keeps_its_place(logged_in):
 def test_queued_messages_can_be_reordered(logged_in):
     from ov.agent.engine.run import RunError, runs
 
-    db.create_thread("rmove", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rmove", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rmove")
     run._busy = True
     for text in ("a", "b", "c"):
@@ -188,7 +189,7 @@ def test_queued_messages_can_be_reordered(logged_in):
 def test_stop_holds_the_queue_until_it_is_resumed(logged_in, monkeypatch):
     from ov.agent.engine.run import RunError, runs
 
-    db.create_thread("rhold", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rhold", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rhold")
     run._busy = True
     run.follow_up("later", [], steer=False)
@@ -210,7 +211,7 @@ def test_stop_holds_the_queue_until_it_is_resumed(logged_in, monkeypatch):
 def test_a_reloaded_thread_holds_its_queue(logged_in):
     from ov.agent.engine.run import RunManager, runs
 
-    db.create_thread("rload", "t", Provider.CLAUDE, "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rload", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rload")
     run._busy = True
     run.follow_up("kept", [], steer=True)
@@ -228,7 +229,7 @@ def test_full_access_needs_the_flag_and_falls_back_to_auto_without_it(logged_in,
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     started = RunManager()
     started.full_access = True
-    run = started.create({"prompt": "hi", "access": Access.FULL}, Provider.COPILOT, "test-model")
+    run = started.create({"prompt": "hi", "access": Access.FULL}, "copilot", "test-model")
     started.require_access(Access.FULL)
 
     restarted = RunManager()
