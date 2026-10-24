@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import threading
 import time
 from collections.abc import Callable
@@ -10,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from ov.agent.engine.cancel import Cancel
-from ov.agent.instances import components
+from ov.agent.instances import access, components, graph_export
+from ov.agent.instances.linking import Builder, Refs, as_number
 from ov.agent.instances.ovproc import find_instance, host_of, run_ov
 from ov.core.errors import EXIT_FORBIDDEN
 from ov.core.paths import agent_dir, slugify, write_atomic
@@ -24,10 +24,14 @@ CODE_CHUNKS = 10
 CHUNK_CHARS = 1000
 SQL_TIMEOUT_SECONDS = 180
 ERROR_CHARS = 400
-CONTEXT_CHARS = 200
-MIN_NAME_CHARS = 4
 FIND_LIMIT = 20
 DESCRIBE_LIMIT = 60
+SOURCE_SQL = "sql"
+SOURCE_EXPORT = "export"
+NO_SOURCE = (
+    "Your account on {instance} has neither the Test SQL nor the component export privilege, and the map needs "
+    "one of them. Ask an administrator for Test SQL or Components Export/Import (BPL_EXP_IMP) read access."
+)
 
 INVALID_TYPES = {
     1: "import",
@@ -40,103 +44,6 @@ INVALID_TYPES = {
     27: "db_package",
     50: "automation",
 }
-
-_NUMBER = re.compile(r"\b\d{6,12}\b")
-_QUOTED = re.compile(r"(['\"])([A-Za-z][A-Za-z0-9_$#]{2,})\1")
-_OBJREF = re.compile(r"\bid\.([A-Za-z0-9_.]+)", re.IGNORECASE)
-_CALL = re.compile(r"\b([A-Za-z][A-Za-z0-9_$#]*)\s*\.\s*[A-Za-z]")
-OBJREF_KINDS = {"imp": "import", "rpt": "report", "wf": "workflow"}
-
-ID_COLUMNS = (
-    ("config_field_id", "field"),
-    ("field_id", "field"),
-    ("cf_id", "field"),
-    ("xitor_type_id", "trackor_type"),
-    ("trackor_type_id", "trackor_type"),
-    ("parent_type_id", "trackor_type"),
-    ("child_type_id", "trackor_type"),
-    ("rule_id", "rule"),
-    ("imp_spec_id", "import"),
-    ("report_file_id", "report"),
-    ("autom_id", "automation"),
-    ("notif_id", "notification"),
-    ("wf_template_id", "workflow"),
-    ("module_id", "module"),
-    ("db_package_id", "db_package"),
-)
-_ID_KEYWORDS = frozenset(
-    {
-        "and",
-        "or",
-        "not",
-        "in",
-        "is",
-        "null",
-        "then",
-        "when",
-        "where",
-        "else",
-        "case",
-        "return",
-        "values",
-        "default",
-        "set",
-        "select",
-        "from",
-        "on",
-        "between",
-        "like",
-        "constant",
-        "number",
-        "integer",
-        "pls_integer",
-        "varchar2",
-        "varchar",
-        "char",
-        "date",
-        "type",
-        "rowtype",
-        "if",
-        "elsif",
-        "loop",
-    }
-)
-_IDENT = re.compile(r":?[A-Za-z_][A-Za-z0-9_$#]*")
-_NAME_COMMENT = re.compile(r"^\s*(?:/\*\s*([^*]+?)\s*\*/|--\s*(\S+))")
-_TRAILING_NAME = re.compile(r"([A-Za-z_][A-Za-z0-9_$#]*)\s*$")
-
-
-def _enclosing_call(text: str) -> str | None:
-    depth = 0
-    for i in range(len(text) - 1, -1, -1):
-        if text[i] == ")":
-            depth += 1
-        elif text[i] == "(":
-            if depth == 0:
-                call = _TRAILING_NAME.search(text[:i])
-                return call.group(1) if call else None
-            depth -= 1
-    return None
-
-
-def id_kind(before: str) -> str | None:
-    text = re.split(r"[;\n]", before)[-1]
-    text = re.sub(r"/\*.*?\*/", " ", re.sub(r"'[^']*'", "''", text))
-    call = _enclosing_call(text)
-    if call and call.lower().endswith("byid"):
-        return "field"
-
-    tokens = (token.lower() for token in reversed(_IDENT.findall(text)))
-    name = next((token for token in tokens if token not in _ID_KEYWORDS), None)
-    if name is None or name.startswith(":"):
-        return None
-
-    return next((kind for column, kind in ID_COLUMNS if name.endswith(column)), None)
-
-
-def comment_name(after: str) -> str | None:
-    match = _NAME_COMMENT.match(after)
-    return (match.group(1) or match.group(2)).lower() if match else None
 
 
 class GraphError(Exception):
@@ -174,14 +81,21 @@ QUERIES: dict[str, str] = {
     "reports": "select report_file_id, report_name from report_files",
     "report_code": f"select report_file_id, {_code('sql_text')} from report_sql",
     "notifications": "select notif_id, notif_name, is_enabled, trackor_type_id from notif",
-    "workflows": "select wf_template_id, template_name from wf_template where is_current_version = 1",
+    "workflows": "select wf_template_id, template_name from wf_template t where {current}",
     "workflow_rules": "select s.wf_template_id, s.rule_id from wf_template_step s "
     "join wf_template t on t.wf_template_id = s.wf_template_id "
-    "where t.is_current_version = 1 and s.rule_id is not null",
+    "where {current} and s.rule_id is not null",
     "modules": "select module_id, module_name, is_enabled from module where nvl(is_archived, 0) = 0",
     "invalid": "select component_id, entity_id from invalid_object",
     "packages": "select db_package_id, db_package_name from db_package",
 }
+
+VERSIONED_WORKFLOWS_SQL = (
+    "select count(*) n from all_tab_columns where table_name = 'WF_TEMPLATE' and column_name = 'IS_CURRENT_VERSION'"
+)
+CURRENT_VERSION = "t.is_current_version = 1"
+EVERY_VERSION = "1 = 1"
+WORKFLOW_QUERIES = ("workflows", "workflow_rules")
 
 OPTIONAL = {
     "packages",
@@ -288,114 +202,8 @@ class SqlReader:
             return first + [row for batch in rest for row in batch]
 
 
-def _num(value: Any) -> int | None:
-    try:
-        return int(str(value))
-    except (TypeError, ValueError):
-        return None
-
-
 def _flag(value: Any) -> bool:
     return str(value) not in ("0", "", "None")
-
-
-class _Builder:
-    def __init__(self) -> None:
-        self.nodes: dict[str, dict[str, Any]] = {}
-        self.edges: set[tuple[str, str, str, bool]] = set()
-
-    def node(self, kind: str, ref: Any, name: Any, **props: Any) -> None:
-        number = _num(ref)
-        if number is None:
-            return
-
-        node_id = f"{kind}:{number}"
-        self.nodes[node_id] = {
-            "id": node_id,
-            "type": kind,
-            "ref": number,
-            "name": str(name or f"{kind} {number}"),
-            **{k.rstrip("_"): v for k, v in props.items() if v is not None},
-        }
-
-    def edge(self, source: str, target: str, kind: str, code: bool = False) -> None:
-        if source in self.nodes and target in self.nodes and source != target:
-            self.edges.add((source, target, kind, code))
-
-
-def objref_key(name: str) -> str:
-    return name.lower().replace(" ", "_")
-
-
-def objref_target(ref: str, objrefs: dict[str, str]) -> str | None:
-    parts = [p for p in ref.lower().split(".") if p]
-    if len(parts) >= 3 and parts[1] == "cf":
-        return objrefs.get(f"id.{parts[0]}.cf.{parts[2]}")
-    if len(parts) >= 2 and parts[0] in OBJREF_KINDS:
-        return objrefs.get(f"id.{parts[0]}.{parts[1]}")
-    return objrefs.get(f"id.{parts[0]}.tt") if parts else None
-
-
-def _unique_names(nodes: dict[str, dict[str, Any]]) -> dict[str, str]:
-    names: dict[str, str | None] = {}
-    for node in nodes.values():
-        if node["type"] in ("field", "trackor_type", "db_package"):
-            key = node["name"].upper()
-            names[key] = None if key in names else node["id"]
-    return {k: v for k, v in names.items() if v is not None and len(k) >= MIN_NAME_CHARS}
-
-
-def _objrefs(nodes: dict[str, dict[str, Any]], edges: set[tuple[str, str, str, bool]]) -> dict[str, str]:
-    owner = {s: t for s, t, k, _ in edges if k == "field_of"}
-    prefixes = {kind: prefix for prefix, kind in OBJREF_KINDS.items()}
-    objrefs: dict[str, str] = {}
-    for node in nodes.values():
-        name = objref_key(node["name"])
-        if node["type"] == "trackor_type":
-            objrefs[f"id.{name}.tt"] = node["id"]
-        elif node["type"] == "field" and owner.get(node["id"]) in nodes:
-            trackor_type = objref_key(nodes[owner[node["id"]]]["name"])
-            objrefs[f"id.{trackor_type}.cf.{name}"] = node["id"]
-        elif node["type"] in prefixes:
-            objrefs[f"id.{prefixes[node['type']]}.{name}"] = node["id"]
-    return objrefs
-
-
-class _Refs:
-    def __init__(self, nodes: dict[str, dict[str, Any]], edges: set[tuple[str, str, str, bool]]) -> None:
-        self.by_ref: dict[int, list[dict[str, Any]]] = {}
-        for node in nodes.values():
-            self.by_ref.setdefault(node["ref"], []).append(node)
-        self.names = _unique_names(nodes)
-        self.packages = {n["name"].upper(): n["id"] for n in nodes.values() if n["type"] == "db_package"}
-        self.objrefs = _objrefs(nodes, edges)
-
-    def link(self, builder: _Builder, source: str, text: str) -> None:
-        targets = {
-            found["id"]
-            for match in _NUMBER.finditer(text)
-            if (
-                found := self.number(
-                    match.group(0),
-                    text[max(0, match.start() - CONTEXT_CHARS) : match.start()],
-                    text[match.end() : match.end() + CONTEXT_CHARS],
-                )
-            )
-        }
-        targets |= {self.names[q.upper()] for _, q in _QUOTED.findall(text) if q.upper() in self.names}
-        targets |= {found for ref in _OBJREF.findall(text) if (found := objref_target(ref, self.objrefs))}
-        targets |= {self.packages[name.upper()] for name in _CALL.findall(text) if name.upper() in self.packages}
-        for target in targets:
-            kind = "calls" if target.startswith("db_package:") else "uses"
-            builder.edge(source, target, kind, code=True)
-
-    def number(self, number: str, before: str, after: str) -> dict[str, Any] | None:
-        candidates = self.by_ref.get(int(number), [])
-        kind = id_kind(before)
-        if kind:
-            return next((n for n in candidates if n["type"] == kind), None)
-        name = comment_name(after)
-        return next((n for n in candidates if name and n["name"].lower() == name), None)
 
 
 def _page_size(name: str) -> int:
@@ -413,14 +221,24 @@ def _package_bodies(sql: SqlReader) -> list[dict[str, Any]]:
 EXPORTS: dict[str, Callable[[SqlReader], list[dict[str, Any]]]] = {"package_code": _package_bodies}
 
 
+def _queries(sql: SqlReader) -> dict[str, str]:
+    versioned = int(sql.page(VERSIONED_WORKFLOWS_SQL, 0, 1)[0]["N"]) > 0
+    current = CURRENT_VERSION if versioned else EVERY_VERSION
+    return {
+        name: query.replace("{current}", current) if name in WORKFLOW_QUERIES else query
+        for name, query in QUERIES.items()
+    }
+
+
 def _read_all(sql: SqlReader, report: Callable[[str], None]) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    queries = _queries(sql)
     results: dict[str, list[dict[str, Any]]] = {}
     warnings: list[str] = []
     lock = threading.Lock()
 
     def fetch(name: str) -> None:
         try:
-            rows = EXPORTS[name](sql) if name in EXPORTS else sql.rows(QUERIES[name], _page_size(name))
+            rows = EXPORTS[name](sql) if name in EXPORTS else sql.rows(queries[name], _page_size(name))
         except (GraphError, components.ExportError) as exc:
             if name not in OPTIONAL or "Test SQL" in str(exc):
                 raise
@@ -443,23 +261,40 @@ def build(instance: str, cancel: Cancel | None = None, progress: Callable[[str],
     if found is None:
         raise GraphError(f"Not signed in to {instance}.")
 
-    report = progress or (lambda _: None)
-    report("Reading the configuration")
-    results, warnings = _read_all(SqlReader(found["alias"], cancel or Cancel()), report)
+    alias = found["alias"]
+    try:
+        allowed = access.ensure(alias)
+    except access.AccessError as exc:
+        raise GraphError(str(exc)) from None
 
-    report("Linking objects")
+    report = progress or (lambda _: None)
+    if allowed["testSql"]:
+        report("Reading the configuration")
+        results, warnings = _read_all(SqlReader(alias, cancel or Cancel()), report)
+        report("Linking objects")
+        linked, source = _assemble(results), SOURCE_SQL
+    elif allowed["export"]:
+        try:
+            linked, warnings = graph_export.build(alias, cancel or Cancel(), report)
+        except (graph_export.ExportGraphError, components.ExportError) as exc:
+            raise GraphError(str(exc)) from None
+        source = SOURCE_EXPORT
+    else:
+        raise NoAccess(NO_SOURCE.format(instance=alias))
+
     graph = {
-        **_assemble(results),
-        "instance": found["alias"],
+        **linked,
+        "instance": alias,
         "host": host_of(found["url"]),
         "builtAt": int(time.time() * 1000),
+        "source": source,
         "warnings": warnings,
     }
-    write_atomic(graph_file(found["alias"]), json.dumps(graph))
+    write_atomic(graph_file(alias), json.dumps(graph))
     return graph
 
 
-def _add_nodes(b: _Builder, r: dict[str, list[dict[str, Any]]]) -> None:
+def _add_nodes(b: Builder, r: dict[str, list[dict[str, Any]]]) -> None:
     for table, kind, id_column, name_column in _PLAIN_NODES:
         for row in r[table]:
             b.node(kind, row[id_column], row[name_column])
@@ -467,7 +302,7 @@ def _add_nodes(b: _Builder, r: dict[str, list[dict[str, Any]]]) -> None:
         for row in r[table]:
             b.node(kind, row[id_column], row[name_column], enabled=_flag(row.get(enabled_column)))
     for row in r["fields"]:
-        b.node("field", row["CONFIG_FIELD_ID"], row["CONFIG_FIELD_NAME"], dataType=_num(row.get("DATA_TYPE")))
+        b.node("field", row["CONFIG_FIELD_ID"], row["CONFIG_FIELD_NAME"], dataType=as_number(row.get("DATA_TYPE")))
     for row in r["rules"]:
         b.node(
             "rule",
@@ -480,32 +315,32 @@ def _add_nodes(b: _Builder, r: dict[str, list[dict[str, Any]]]) -> None:
         )
 
 
-def _add_key_edges(b: _Builder, r: dict[str, list[dict[str, Any]]]) -> None:
+def _add_key_edges(b: Builder, r: dict[str, list[dict[str, Any]]]) -> None:
     for table, source_kind, source_column, target_kind, target_column, kind in _KEY_EDGES:
         for row in r[table]:
-            source = f"{source_kind}:{_num(row.get(source_column))}"
-            b.edge(source, f"{target_kind}:{_num(row.get(target_column))}", kind)
+            source = f"{source_kind}:{as_number(row.get(source_column))}"
+            b.edge(source, f"{target_kind}:{as_number(row.get(target_column))}", kind)
 
 
-def _add_code_edges(b: _Builder, r: dict[str, list[dict[str, Any]]]) -> None:
-    refs = _Refs(b.nodes, b.edges)
+def _add_code_edges(b: Builder, r: dict[str, list[dict[str, Any]]]) -> None:
+    refs = Refs(b.nodes, b.edges)
     for table, kind, column in _CODE_SOURCES:
         for row in r[table]:
-            refs.link(b, f"{kind}:{_num(row[column])}", _code_text(row))
+            refs.link(b, f"{kind}:{as_number(row[column])}", _code_text(row))
     for row in r["package_code"]:
-        refs.link(b, f"db_package:{_num(row['DB_PACKAGE_ID'])}", row["BODY"])
+        refs.link(b, f"db_package:{as_number(row['DB_PACKAGE_ID'])}", row["BODY"])
 
 
-def _flag_invalid(b: _Builder, r: dict[str, list[dict[str, Any]]]) -> None:
+def _flag_invalid(b: Builder, r: dict[str, list[dict[str, Any]]]) -> None:
     for row in r["invalid"]:
-        kind = INVALID_TYPES.get(_num(row["COMPONENT_ID"]))
-        node = b.nodes.get(f"{kind}:{_num(row['ENTITY_ID'])}") if kind else None
+        kind = INVALID_TYPES.get(as_number(row["COMPONENT_ID"]))
+        node = b.nodes.get(f"{kind}:{as_number(row['ENTITY_ID'])}") if kind else None
         if node is not None:
             node["invalid"] = True
 
 
 def _assemble(r: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
-    b = _Builder()
+    b = Builder()
     _add_nodes(b, r)
     _add_key_edges(b, r)
     _add_code_edges(b, r)
@@ -527,7 +362,7 @@ def neighbors(graph: dict[str, Any], node_id: str) -> list[tuple[str, str, dict[
 
 def find(graph: dict[str, Any], query: str) -> list[dict[str, Any]]:
     text = query.strip().lower()
-    number = _num(text.split(":")[-1])
+    number = as_number(text.split(":")[-1])
     exact = [
         n for n in graph["nodes"] if n["name"].lower() == text or n["id"] == text or (number and n["ref"] == number)
     ]
@@ -579,7 +414,16 @@ def status(alias: str) -> dict[str, Any]:
         return job
 
     graph = load(alias)
-    built = {"builtAt": graph["builtAt"], "nodes": len(graph["nodes"]), "edges": len(graph["edges"])} if graph else {}
+    built = (
+        {
+            "builtAt": graph["builtAt"],
+            "nodes": len(graph["nodes"]),
+            "edges": len(graph["edges"]),
+            "source": graph.get("source"),
+        }
+        if graph
+        else {}
+    )
     return {"state": "ready" if graph else "none", **built, **job}
 
 

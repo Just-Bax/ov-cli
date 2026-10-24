@@ -18,6 +18,7 @@ import type {
   SectionResult,
   PagerDutyIncidentDetail,
   ModelInfo,
+  OpenAIAccount,
   Provider,
   ObjectActivity,
   PagerDutyStatus,
@@ -95,6 +96,11 @@ export const api = {
   statusEventsUrl: () => `${API_ROOT}/status-events`,
   models: (provider: Provider) => request<ModelInfo[]>(`/models?provider=${provider}`),
   claudeAccount: () => request<ClaudeAccount>('/claude/account'),
+  openaiConnect: (baseUrl: string, apiKey: string) =>
+    post<OpenAIAccount>('/openai/connect', { baseUrl, apiKey }),
+  openaiDisconnect: () => post<OpenAIAccount>('/openai/disconnect'),
+  openaiConfigureModel: (id: string, vision: boolean, contextWindow: number | null) =>
+    put<ModelInfo[]>('/openai/models', { id, vision, contextWindow }),
   instances: () => request<Instance[]>('/instances'),
   loginInstance: (
     url: string,
@@ -150,6 +156,7 @@ export const api = {
       `/instances/check?instance=${seg(instance)}`,
     ),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),
+  checkAccess: (alias: string) => post<Instance[]>('/instances/access', { alias }),
   saveSettings: (patch: Partial<Settings>) => put<Settings>('/settings', patch),
   skills: () => request<SkillInfo[]>('/skills'),
   createSkill: (draft: SkillDraft) => post<{ name: string; skills: SkillInfo[] }>('/skills', draft),
@@ -206,8 +213,8 @@ export const api = {
       remember?: boolean
     } = {},
   ) => post<{ ok: boolean; message: string }>(`/runs/${id}/login`, { loginId, ...options }),
-  message: (id: string, text: string, files: Upload[], mode: FollowUp) =>
-    post(`/runs/${id}/message`, { text, files, mode }),
+  message: (id: string, messageId: string, text: string, files: Upload[], mode: FollowUp) =>
+    post(`/runs/${id}/message`, { id: messageId, text, files, mode }),
   moveQueued: (id: string, mid: string, before: string | null) =>
     post(`/runs/${id}/queued/${seg(mid)}/move`, { before }),
   resumeQueue: (id: string) => post(`/runs/${id}/queue/resume`),
@@ -216,6 +223,8 @@ export const api = {
     post(`/runs/${id}/queued/${seg(mid)}/text`, { text }),
   retry: (id: string, itemId: string) => post(`/runs/${id}/retry`, { itemId }),
   renameRun: (id: string, title: string) => post(`/runs/${id}/title`, { title }),
+  rerunGrid: (id: string, gridId: string) => post(`/runs/${id}/grids/${seg(gridId)}/rerun`),
+  revertGrid: (id: string, gridId: string) => post(`/runs/${id}/grids/${seg(gridId)}/revert`),
   removeQueued: (id: string, mid: string) => del(`/runs/${id}/queued/${seg(mid)}`),
   fileUrl: (id: string, name: string) => `${API_ROOT}/runs/${id}/files/${seg(name)}`,
   setAccess: (id: string, access: Access) => post(`/runs/${id}/access`, { access }),

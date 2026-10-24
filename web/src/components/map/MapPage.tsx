@@ -38,6 +38,10 @@ const START_POINT_ROWS = 6
 const SEARCH_MIN_CHARS = 2
 const SEARCH_RESULTS = 12
 const TYPE_DOTS = 5
+
+function missingPart(warning: string): string {
+  return warning.split(':')[0].replace(/_/g, ' ')
+}
 const FIT_DELAY_MS = 30
 const FIT_DURATION_MS = 350
 const NODE_W = 230
@@ -569,6 +573,13 @@ export function MapPage() {
       {label ? `${label} - ` : ''}
       {status.nodes?.toLocaleString()} objects, {status.edges?.toLocaleString()} links - built{' '}
       {timeAgo(status.builtAt)}
+      {status.source === 'export' ? ' from component exports' : ''}
+      {graph?.warnings.length ? (
+        <span className="text-warn cursor-help" title={graph.warnings.join('\n\n')}>
+          {' '}
+          - Missing: {graph.warnings.map(missingPart).join(', ')}
+        </span>
+      ) : null}
     </span>
   ) : (
     <span>How the configuration of an instance fits together.</span>

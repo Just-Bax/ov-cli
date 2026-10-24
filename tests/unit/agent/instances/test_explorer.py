@@ -25,8 +25,9 @@ def test_packages_are_read_with_one_component_export(reader, monkeypatch):
         return OvResult(0, xml, "")
 
     monkeypatch.setattr("ov.agent.instances.components.run_ov", fake_run)
-    body, spec = explorer.source("acme", "db_package:7")["sections"]
-    assert (body["title"], body["code"], spec["code"]) == ("Body", PACKAGE_BODY, "package spec")
+    spec, body = explorer.source("acme", "db_package:7")["sections"]
+    assert (spec["title"], spec["code"]) == ("Spec", "package spec")
+    assert (body["title"], body["code"]) == ("Body", PACKAGE_BODY)
     assert len(seen) == 1 and '"component_ids": [7]' in seen[0][seen[0].index("-d") + 1]
     assert not reader.queries
 

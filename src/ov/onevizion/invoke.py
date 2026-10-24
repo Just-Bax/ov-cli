@@ -28,6 +28,7 @@ RESERVED_FLAGS = {
     "param",
     "query",
     "accept",
+    "wait",
 }
 
 

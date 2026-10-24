@@ -59,7 +59,8 @@ def test_a_background_call_returns_at_once_and_wakes_the_idle_run_with_its_resul
         ],
     )
 
-    from ov.agent.engine.run import BACKGROUND_STARTED, runs
+    from ov.agent.engine.run_manager import runs
+    from ov.agent.engine.run_tools import BACKGROUND_STARTED
 
     run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, "copilot", "test-model")
     _wait_for(lambda: len(seen) == 2 and not run._busy)
@@ -88,7 +89,7 @@ def test_a_running_call_can_be_moved_to_the_background(logged_in, monkeypatch):
         ],
     )
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, "copilot", "test-model")
     _wait_for(lambda: any(t["id"] == "c1" for t in run.state["tools"]))
@@ -109,7 +110,7 @@ def test_stopping_a_foreground_call_keeps_the_turn_going(logged_in, monkeypatch)
         [{"calls": [_call("c1", {"args": ["request", "GET", "/v3/x"]})]}, {"text": "Understood."}],
     )
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, "copilot", "test-model")
     _wait_for(lambda: any(t["id"] == "c1" for t in run.state["tools"]))
@@ -130,7 +131,7 @@ def test_stopping_the_run_stops_background_tasks_without_waking_it(logged_in, mo
         ],
     )
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create({"access": "read", "prompt": "go", "instance": "acme"}, "copilot", "test-model")
     _wait_for(lambda: len(seen) == 2 and not run._busy)

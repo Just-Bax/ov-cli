@@ -87,7 +87,7 @@ def copilot_thread(logged_in, monkeypatch):
 
 
 def _start():
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     return runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, "copilot", "test-model")
 
@@ -109,7 +109,7 @@ def test_a_full_copilot_context_is_summarized_before_the_next_step(copilot_threa
 
 def test_compacting_a_copilot_thread_on_request_summarizes_it(copilot_thread, monkeypatch):
     roomy = ContextLimits(window=WINDOW * 2, prompt=PROMPT_LIMIT * 2, output=OUTPUT_LIMIT)
-    monkeypatch.setattr("ov.agent.providers.copilot_turn.limits", lambda model: roomy)
+    monkeypatch.setattr("ov.agent.providers.chat_turn.limits", lambda backend, model: roomy)
     run = _start()
     wait_done(run)
     assert not run.state["compactions"]

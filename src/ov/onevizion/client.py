@@ -159,12 +159,28 @@ class Client:
     def web_get(self, path: str, accept: str = "application/json") -> httpx.Response:
         guard_web_read_only(path)
 
-        self._require_web_session()
+        if not self.session.cookies:
+            raise SessionExpired("no web session cookies stored")
 
         with _reachable(self.base_url):
             response = self._http.get(path, headers={"Accept": accept, "X-Requested-With": "XMLHttpRequest"})
         if LOGIN_PATH.lower() in str(response.url).lower():
             raise SessionExpired("redirected to the login page")
+        return self._checked(response)
+
+    def post_json(self, path: str, payload: Any) -> httpx.Response:
+        if self.session.needs_refresh():
+            self.refresh_token()
+
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {self.session.bearer_token}"}
+        with _reachable(self.base_url):
+            response = self._http.post(path, json=payload, headers=headers)
+        if response.status_code == 401 and not self.session.is_static and self.session.cookies:
+            self.refresh_token()
+            headers["Authorization"] = f"Bearer {self.session.bearer_token}"
+            with _reachable(self.base_url):
+                response = self._http.post(path, json=payload, headers=headers)
+
         return self._checked(response)
 
     def tenants(self) -> dict[str, str]:

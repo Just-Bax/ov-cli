@@ -87,7 +87,11 @@ export function ContextMeter({
         type="button"
         aria-label="Context window"
         aria-expanded={open}
-        title={`Context ${percent}% full`}
+        title={
+          context.compactAt
+            ? `Context: ${percent}% of the way to automatic compaction`
+            : `Context ${percent}% full`
+        }
         onClick={() => setOpen(!open)}
         onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
         className={cn(
@@ -108,9 +112,10 @@ export function ContextMeter({
             <span className="tabular-nums">{percent}%</span>
           </div>
           <div className="text-muted mt-1 leading-relaxed">
-            {formatTokens(context.tokens)} of {formatTokens(context.limit)} tokens in use.
+            {formatTokens(context.tokens)} tokens in use, of a {formatTokens(context.limit)}-token
+            window.
             {context.compactAt
-              ? ` Older turns are summarized automatically at ${formatTokens(context.compactAt)}.`
+              ? ` Older turns are summarized automatically at ${formatTokens(context.compactAt)}; this thread is ${percent}% of the way there.`
               : ' Automatic compaction is off for this model.'}
           </div>
           <Button

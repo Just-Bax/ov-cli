@@ -7,10 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ov.agent.engine.cancel import Cancel
-from ov.agent.instances import components
+from ov.agent.instances import access, components
 from ov.agent.instances.graph import CODE_CHUNKS, CODE_PAGE, PAGE_WORKERS, GraphError, SqlReader, load
 from ov.agent.instances.ovproc import find_instance
 
+NO_ACTIVITY = "Run history is read with Test SQL, which your account on {instance} does not have."
 CHUNK = 1000
 MAX_CHARS = 400_000
 CACHE_SIZE = 200
@@ -100,23 +101,38 @@ _PIECE_SECTIONS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
-_EXPORTED_SECTIONS: dict[str, tuple[str, dict[str, str]]] = {
-    "db_package": ("DB_PACKAGE", {"Body": "DB_PACKAGE_BODY", "Spec": "DB_PACKAGE_SPEC"}),
+EXPORT_TYPES = {
+    "rule": "RULE",
+    "field": "CONFIG_FIELD",
+    "notification": "NOTIF",
+    "import": "IMPORT",
+    "report": "REPORT",
+    "workflow": "WORKFLOW",
+    "automation": "AUTOMATION",
+    "db_package": "DB_PACKAGE",
 }
+EXPORT_ONLY = {"db_package"}
 
 
-def _exported(sql: SqlReader, kind: str, ref: int) -> list[dict[str, str]]:
-    component_type, columns = _EXPORTED_SECTIONS[kind]
-    found = components.export(sql.alias, component_type, [ref], sql.cancel)
+def _exported(alias: str, kind: str, ref: int) -> list[dict[str, str]]:
+    component_type = EXPORT_TYPES.get(kind)
+    if component_type is None:
+        return []
+
+    found = components.export(alias, component_type, [ref], Cancel())
     if not found:
         raise ExplorerError(f"The component export returned no {kind} {ref}.")
-    values = components.fields(found[0])
-    return [{"title": title, "code": values[tag]} for title, tag in columns.items()]
+    return components.code_sections(found[0])
 
 
-def _sections(sql: SqlReader, kind: str, ref: int) -> list[dict[str, str]]:
-    if kind in _EXPORTED_SECTIONS:
-        return _exported(sql, kind, ref)
+def _uses_sql(alias: str, kind: str) -> bool:
+    return kind not in EXPORT_ONLY and access.allows(alias, "testSql") is not False
+
+
+def _sections(alias: str, kind: str, ref: int) -> list[dict[str, str]]:
+    sql = _reader(alias)
+    if not _uses_sql(alias, kind):
+        return _exported(alias, kind, ref)
 
     if kind in _CLOB_SECTIONS:
         table, key, columns = _CLOB_SECTIONS[kind]
@@ -154,9 +170,8 @@ def source(alias: str, node_id: str) -> dict[str, Any]:
     if cached is not None:
         return cached
 
-    sql = _reader(alias)
     try:
-        sections = [s for s in _sections(sql, kind, int(ref_text)) if s["code"].strip()]
+        sections = [s for s in _sections(alias, kind, int(ref_text)) if s["code"].strip()]
     except (GraphError, components.ExportError) as exc:
         raise ExplorerError(str(exc)) from exc
 
@@ -225,6 +240,9 @@ def activity(alias: str, node_id: str) -> list[dict[str, Any]]:
     query = ACTIVITY.get(kind)
     if query is None:
         return []
+
+    if access.allows(alias, "testSql") is False:
+        raise ExplorerError(NO_ACTIVITY.format(instance=alias))
 
     try:
         rows = _reader(alias).page(query.format(ref=int(ref_text)), 0, ACTIVITY_ROWS)

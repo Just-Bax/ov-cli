@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 
 import pytest
 from claude_agent_sdk import ResultMessage, StreamEvent, SystemMessage, UserMessage
-from helpers.agent import RUN_POLL_SECONDS, SLOW_POLLS, wait_for
+from helpers.agent import RUN_POLL_SECONDS, SLOW_POLLS, new_message_id, wait_for
 
 from ov.agent.storage import db
 
@@ -99,7 +99,7 @@ def claude_thread(logged_in, monkeypatch):
 
 
 def _start(prompt: str):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     return runs.create({"access": "read", "prompt": prompt, "instance": "acme"}, "claude", "opus")
 
@@ -130,7 +130,7 @@ def test_a_follow_up_resumes_the_same_claude_session(claude_thread):
     _wait_for(lambda: run.state["summary"]["status"] == "done")
     first = FakeClient.sessions[0].session_id
 
-    run.follow_up("second", [], steer=False)
+    run.follow_up(new_message_id(), "second", [], steer=False)
     _wait_for(lambda: len(FakeClient.sessions) == 2 and run.state["summary"]["status"] == "done" and not run._busy)
     assert FakeClient.sessions[1].resume == first and FakeClient.sessions[1].session_id is None
     assert FakeClient.prompts[1][0]["text"].endswith(BREAK + "second")
@@ -140,7 +140,7 @@ def test_retrying_a_claude_turn_forks_the_session_before_it(claude_thread, monke
     FakeClient.replies = [[_result()], [_result()], [_result()]]
     run = _start("first")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
-    run.follow_up("second", [], steer=False)
+    run.follow_up(new_message_id(), "second", [], steer=False)
     _wait_for(lambda: len(FakeClient.sessions) == 2 and not run._busy)
     second = next(m["id"] for m in run.state["chat"] if m["text"] == "second")
     anchor = run.state["session"]["turns"][second]
@@ -229,15 +229,15 @@ def test_switching_provider_picks_that_providers_models(ov_home, monkeypatch):
     assert providers.get("copilot").default_models() == (None, None)
     monkeypatch.setattr("ov.agent.integrations.copilot.user", lambda: "someone")
     assert providers.get("copilot").default_models() == ("claude-opus-5.5", None)
-    with pytest.raises(ValueError, match="Unknown provider: openai"):
-        providers.get("openai")
+    with pytest.raises(ValueError, match="Unknown provider: nope"):
+        providers.get("nope")
 
 
 def test_claude_reports_session_totals_so_each_turn_records_only_its_own_cost(claude_thread):
     FakeClient.replies = [[_result(0.5)], [_result(0.75)]]
     run = _start("first")
     _wait_for(lambda: run.state["summary"]["status"] == "done")
-    run.follow_up("second", [], steer=False)
+    run.follow_up(new_message_id(), "second", [], steer=False)
     _wait_for(lambda: len(FakeClient.sessions) == 2 and not run._busy)
     assert run.state["summary"]["cost"]["amount"] == 0.75
     assert run.state["session"]["spent"] == 0.75
@@ -265,7 +265,7 @@ def test_deleting_a_claude_thread_deletes_its_claude_code_transcripts(claude_thr
     _wait_for(lambda: run.state["summary"]["status"] == "done")
     session = run.state["session"]["id"]
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     runs.delete(run.id)
     assert deleted == [(session, str(run.work_dir))]
@@ -310,7 +310,7 @@ def test_compacting_a_claude_thread_on_request_sends_the_compact_command(claude_
 
 
 def test_a_thread_without_a_session_has_nothing_to_compact(claude_thread):
-    from ov.agent.engine.run import RunError
+    from ov.agent.engine.run_common import RunError
 
     FakeClient.replies = [[_result()]]
     run = _start("first")

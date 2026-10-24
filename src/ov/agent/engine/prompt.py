@@ -5,6 +5,8 @@ import re
 from typing import Any
 
 from ov.agent import workspace as project
+from ov.agent.engine.cases import TRACKOR_HOST, WEBSITE_FIELD
+from ov.agent.instances import access as account_access
 from ov.agent.instances.ovproc import instances
 from ov.agent.integrations import datadog, pagerduty
 from ov.agent.storage import db
@@ -15,7 +17,7 @@ from ov.agent.tools.thread import offered_skills
 _SENT = re.compile(r"^\[Sent [^\]]*\]\n\n")
 EXPIRED = " (session expired: the user is asked to sign in when you first use it)"
 NO_INSTANCE = (
-    "not chosen. Work it out from context (a case's C_WEBSITE, a host or name in the "
+    f"not chosen. Work it out from context (a case's {WEBSITE_FIELD}, a host or name in the "
     "message); if it is still unclear, ask the user which instance with run_ask"
 )
 PROFILE_INSTRUCTIONS = (
@@ -89,8 +91,13 @@ def stamped(content: Any) -> Any:
     return [{**first, "text": f"{stamp}\n\n{_SENT.sub('', first['text'])}"}, *rest]
 
 
+def _instance_line(row: dict[str, Any]) -> str:
+    expired = EXPIRED if not row["valid"] else ""
+    return f"- {row['alias']}: {row['url']}{expired}. {account_access.describe(row['alias'])}"
+
+
 def system_prompt(access: Access, instance: str) -> str:
-    signed_in = "\n".join(f"- {i['alias']}: {i['url']}{EXPIRED if not i['valid'] else ''}" for i in instances())
+    signed_in = "\n".join(_instance_line(i) for i in instances())
     skills = offered_skills()
     core = "\n\n".join(f"## {s['title']}\n\n{s['content']}" for s in skills if s["core"])
     skill_list = "\n".join(f"- {s['name']}: {s['description'] or s['title']}" for s in skills if not s["core"])
@@ -101,11 +108,11 @@ def system_prompt(access: Access, instance: str) -> str:
         if any(n in offered for n in names)
     )
 
-    return f"""You are OV Agent, a senior OneVizion Tier 3 engineer (TCE). You troubleshoot \
-support cases and answer questions about OneVizion instances by investigating them yourself \
-through the ov CLI. Each user message starts with the time it was sent, on the user's computer and \
-in UTC. Instances, their databases and Datadog may each run in another time zone; check before \
-comparing times.
+    return f"""You are OV Agent, a senior OneVizion engineer. You answer questions about OneVizion \
+instances, investigate problems and support cases, and help configure and work with them, by looking at \
+the instances yourself through the ov CLI. Each user message starts with the time it was sent, on the \
+user's computer and in UTC. Instances, their databases and Datadog may each run in another time zone; \
+check before comparing times.
 
 Rules that always apply:
 - Ask first, then work. When an input you need is missing or ambiguous (which instance, which object, the \
@@ -130,11 +137,16 @@ reports back with a screenshot. Read every report and its Result line before the
 is open, every change happens in the UI; ov, SQL and commands only read, to check results. If the UI cannot \
 do a step, such as a read-only field or a missing button, stop and tell the user instead of doing it another way.
 - Never read or print stored credentials, passwords or tokens.
+- When a task needs an instance or {TRACKOR_HOST} and it is not signed in or its session expired, call the \
+tool anyway: the user is asked to sign in. Never skip a step or give up because something is not signed in.
+- Each instance below says what this account can use there. Use the sources it allows: Test SQL when it is \
+available, otherwise component export, the platform DB source and the API. When a missing privilege limits the \
+answer, say which one.
 - ASCII only. No em dashes.
 
 Instance for this run: {instance or NO_INSTANCE}
 
-Signed-in instances:
+Signed-in instances (sign in to any other instance by using it):
 {signed_in or "none"}
 {_profile_text()}
 # Tools by group

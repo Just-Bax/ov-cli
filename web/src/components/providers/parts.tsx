@@ -5,6 +5,7 @@ import type { SidebarAccount } from '@/components/layout/Sidebar'
 export interface ProviderUi {
   usageTitle: string
   usageNote: string
+  usageHint?: (tokens: Record<string, number>) => string | undefined
   accountBadge: ReactNode
   summary: (account: ProviderAccount) => string
   sidebar: (account: ProviderAccount) => Omit<SidebarAccount, 'provider'>
@@ -12,6 +13,7 @@ export interface ProviderUi {
   SignIn: ComponentType<{ account: ProviderAccount; onRefresh: () => void }>
   Plan: ComponentType
   AccountAction?: ComponentType<{ account: ProviderAccount; onChange: () => void }>
+  Models?: ComponentType
 }
 
 export function capitalized(text: string): string {

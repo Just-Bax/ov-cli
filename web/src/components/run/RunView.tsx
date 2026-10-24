@@ -16,6 +16,7 @@ import type {
   Provider,
   Question,
   RunState,
+  RunStatus,
   ThreadItem,
   ThreadLink as ThreadLinkTarget,
   ToolActivity,
@@ -43,10 +44,11 @@ import { inCodeEditor } from '@/lib/dom'
 import { usePresence, useWindowEvent } from '@/lib/hooks'
 import { layerOpen } from '@/lib/layers'
 import { href } from '@/lib/route'
-import { allRuns, useRuns, WORKING } from '@/lib/runs'
+import { allRuns, patchLocally, useRuns, WORKING } from '@/lib/runs'
 import { useProvider } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
 import { ChangeCard } from './ChangeCard'
+import { GridCard } from './GridCard'
 import { CompactionNote, ContextMeter, StaleCacheNotice } from './Context'
 import { CostPill } from './CostPill'
 import { FilesChanged } from './FilesChanged'
@@ -63,6 +65,9 @@ import {
 } from './BrowserPane'
 import { AssistantActions, UserMessage } from './Messages'
 import { Answer, LoginCard } from './Panels'
+import { Reasoning } from '@/components/run/Reasoning'
+import { useQueueActions } from '@/lib/queueActions'
+import { ApplyContext, fileOf, newMessageId, stopEvents, useApply } from '@/lib/optimistic'
 import { QueuedPanel } from './QueuedPanel'
 import { AnsweredQuestion, QuestionComposer } from './QuestionDock'
 import { RunMenu } from './RunMenu'
@@ -79,8 +84,10 @@ const BROWSER_EXIT_MS = 200
 const OLDER_MARGIN_PX = 600
 const OLDER_ARM_MS = 500
 const RUN_ACTION_WIDTHS = ['w-24', 'w-9']
+const NOTHING_SPENT = { amount: 0, requests: 0 }
 
 const MemoChangeCard = memo(ChangeCard)
+const MemoGridCard = memo(GridCard)
 const MemoAnswer = memo(Answer)
 const MemoUserMessage = memo(UserMessage)
 
@@ -155,7 +162,7 @@ function buildTurns(state: RunState): Turn[] {
   return turns.filter((t) => t.user || t.blocks.length)
 }
 
-const RESULT_ITEMS = new Set<ThreadItem['kind']>(['change', 'outcome', 'compact'])
+const RESULT_ITEMS = new Set<ThreadItem['kind']>(['change', 'grid', 'outcome', 'compact'])
 
 function turnKeys(turn: Turn): string[] {
   return [...(turn.user ? [turn.user.id] : []), ...turn.blocks.map((b) => b.key)]
@@ -224,6 +231,9 @@ function blocksText(blocks: Block[], state: RunState): string {
     } else if (b.item.kind === 'outcome' && b.item.id === state.outcomeId && state.outcome) {
       for (const i of state.outcome.issues) parts.push(`${i.title}: ${i.summary}`)
       if (state.outcome.reply) parts.push(state.outcome.reply)
+    } else if (b.item.kind === 'grid') {
+      const grid = state.grids.find((g) => g.id === b.item.id)
+      if (grid) parts.push(grid.title)
     } else if (b.item.kind === 'change') {
       const ch = indexed(changeIndex, state.changes).get(b.item.id)
       if (ch) parts.push(`${ch.title}\n${ch.after}`)
@@ -280,17 +290,24 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
   switch (item.kind) {
     case 'text': {
       const msg = chatById(state).get(item.id)
-      if (!msg?.text.trim()) return null
+      const said = msg?.text.trim()
+      const thought = msg?.reasoning?.trim()
+      if (!msg || (!said && !thought)) return null
 
       return (
-        <div className="text-fg">
-          <Markdown text={msg.text} links={msg.links} />
+        <div className="text-fg space-y-2">
+          {thought ? <Reasoning text={thought} /> : null}
+          {said ? <Markdown text={msg.text} links={msg.links} /> : null}
         </div>
       )
     }
     case 'change': {
       const change = indexed(changeIndex, state.changes).get(item.id)
       return change ? <MemoChangeCard change={change} /> : null
+    }
+    case 'grid': {
+      const grid = state.grids.find((g) => g.id === item.id)
+      return grid ? <MemoGridCard grid={grid} runId={id} /> : null
     }
     case 'question': {
       const q = state.questions.find((x) => x.id === item.id)
@@ -339,6 +356,7 @@ function Footer({
   provider,
   idleSince,
   busy,
+  status,
   access,
   context,
   compact,
@@ -346,12 +364,14 @@ function Footer({
   tool,
   queued,
   queueHeld,
+  onStop,
   onSend,
 }: {
   runId: string
   provider: Provider
   idleSince: number
   busy: boolean
+  status: RunStatus
   access: Access
   context?: ContextUsage
   compact: boolean
@@ -359,8 +379,11 @@ function Footer({
   tool?: ToolActivity
   queued: ChatMessage[]
   queueHeld: boolean
+  onStop: () => void
   onSend: () => void
 }) {
+  const apply = useApply()
+  const queue = useQueueActions(runId, queued, queueHeld)
   const { cacheTtlMs } = useProvider(provider)
   const [error, setError] = useState<string>()
   const [editing, setEditing] = useState<ChatMessage>()
@@ -392,16 +415,49 @@ function Footer({
 
     try {
       if (editing) {
-        await api.editQueued(runId, editing.id, text)
+        const original = editing
+        apply({ type: 'queued', message: { ...original, text } })
         setEditing(undefined)
+        await api.editQueued(runId, original.id, text).catch((e: unknown) => {
+          apply({ type: 'queued', message: original })
+          throw e
+        })
         return
       }
 
       onSend()
-      const uploaded = files.length ? await api.upload(files) : []
-      await api.message(runId, text, uploaded, modeFor(alternate))
+      await sendFollowUp(text, files, modeFor(alternate))
     } catch (e) {
       setError((e as Error).message)
+      throw e
+    }
+  }
+
+  const sendFollowUp = async (text: string, files: File[], mode: FollowUp) => {
+    const message: ChatMessage = {
+      id: newMessageId(),
+      role: 'user',
+      text,
+      ts: Date.now(),
+      files: files.map(fileOf),
+    }
+
+    if (busy) apply({ type: 'queued', message: { ...message, steer: mode === 'steer' } })
+    else {
+      apply({ type: 'user', message })
+      apply({ type: 'status', status: 'running' })
+      patchLocally(runId, { status: 'running' })
+    }
+
+    try {
+      const uploaded = files.length ? await api.upload(files) : []
+      await api.message(runId, message.id, text, uploaded, mode)
+    } catch (e) {
+      if (busy) apply({ type: 'unqueue', id: message.id })
+      else {
+        apply({ type: 'rewind', itemId: message.id })
+        apply({ type: 'status', status })
+      }
       throw e
     }
   }
@@ -414,7 +470,7 @@ function Footer({
 
     const steerable = queued.find((m) => !m.steer)
     if (e.key === 'Enter' && e.shiftKey && (e.ctrlKey || e.metaKey) && busy && steerable) {
-      void api.steerQueued(runId, steerable.id).catch(reportError)
+      queue.steer(steerable.id)
       return true
     }
 
@@ -426,10 +482,18 @@ function Footer({
     return true
   }
 
-  const stop = () => void api.cancel(runId).catch(reportError)
+  const stop = onStop
+  const pickAccess = (next: Access) => {
+    apply({ type: 'access', access: next })
+    api.setAccess(runId, next).catch((e: unknown) => {
+      apply({ type: 'access', access })
+      reportError(e)
+    })
+  }
+
   const extras = (
     <>
-      <AccessPicker value={access} onChange={(v) => api.setAccess(runId, v)} />
+      <AccessPicker value={access} onChange={pickAccess} />
       {context ? <ContextMeter runId={runId} context={context} busy={busy} /> : null}
     </>
   )
@@ -492,10 +556,7 @@ function Footer({
               }}
               idleAction={
                 queueHeld && queued.length ? (
-                  <Button
-                    variant="primary"
-                    onClick={() => void api.resumeQueue(runId).catch(reportError)}
-                  >
+                  <Button variant="primary" onClick={queue.resume}>
                     <PlayIcon weight="fill" className="size-3" />
                     Resume
                   </Button>
@@ -585,7 +646,7 @@ function OlderTurns({
 }
 
 export function RunView({ id }: { id: string }) {
-  const { state, error, loadOlder, loadingOlder } = useRun(id)
+  const { state, error, loadOlder, loadingOlder, apply } = useRun(id)
   const list = useRuns()
   const scrollRef = useRef<HTMLDivElement>(null)
   const followBottom = useRef(true)
@@ -779,164 +840,181 @@ export function RunView({ id }: { id: string }) {
       {summary.instance && !browser ? (
         <OpenBrowserButton runId={id} instance={summary.instance} />
       ) : null}
-      {busy && !summary.cost ? null : (
-        <CostPill runId={id} provider={summary.provider} cost={summary.cost} />
-      )}
+      <CostPill
+        runId={id}
+        provider={summary.provider}
+        cost={summary.cost ?? (busy ? NOTHING_SPENT : undefined)}
+        context={state.context}
+        counting={summary.status === 'running'}
+      />
       <RunMenu run={listed ?? summary} settled={settled} />
     </>
   )
 
+  const stop = () => {
+    for (const event of stopEvents(state)) apply(event)
+    patchLocally(id, { status: 'cancelled' })
+    void api.cancel(id).catch(reportError)
+  }
+
   const page = (
-    <Page
-      title={
-        <EditableTitle
-          value={summary.title}
-          onSave={(title) => api.renameRun(id, title)}
-          inputClassName="h-8 max-w-[640px] text-[15px] font-semibold"
-        />
-      }
-      subtitle={subtitle}
-      actions={actions}
-      compact={browsing}
-      footer={
-        <Footer
-          runId={id}
-          provider={summary.provider}
-          idleSince={summary.updatedAt}
-          busy={busy}
-          access={state.access}
-          context={state.context}
-          compact={browsing}
-          question={docked}
-          tool={state.tools.find((t) => t.id === docked?.toolId)}
-          queued={state.queued}
-          queueHeld={state.queueHeld}
-          onSend={() => {
-            followBottom.current = true
-          }}
-        />
-      }
-    >
-      {finding ? (
-        <div className="pointer-events-none sticky top-0 z-30 h-0">
-          <div className="pointer-events-auto">
-            <FindBar
-              runId={id}
-              contentRef={scrollRef}
-              start={state.start}
-              version={`${state.start}:${state.items.length}`}
-              onLoadUntil={older}
-              onClose={() => setFinding(false)}
-            />
-          </div>
-        </div>
-      ) : null}
-      {browsing ? null : (
-        <ThreadRail
-          contentRef={scrollRef}
-          version={`${state.start}:${state.items.length}:${state.chat.length}:${state.tools.length}`}
-          outline={state.outline}
-          onLoadUntil={older}
-          onJump={() => {
-            followBottom.current = false
-          }}
-        />
-      )}
-      <div
-        ref={scrollRef}
-        className={cn(
-          'mx-auto max-w-[860px] space-y-5 pt-6 pb-8',
-          browsing ? 'px-4' : 'px-6 @max-[940px]:pr-11',
-        )}
-      >
-        {state.continuedFrom && state.start === 0 ? (
-          <ThreadLink label="Continued from" link={state.continuedFrom} />
-        ) : null}
-        {state.start > 0 ? (
-          <OlderTurns
-            scrollRef={scrollRef}
-            start={state.start}
-            loading={loadingOlder}
-            onVisible={older}
+    <ApplyContext.Provider value={apply}>
+      <Page
+        title={
+          <EditableTitle
+            value={summary.title}
+            onSave={(title) => api.renameRun(id, title)}
+            inputClassName="h-8 max-w-[640px] text-[15px] font-semibold"
           />
-        ) : null}
-        {turns.map((turn, i) => {
-          const isLast = i === turns.length - 1
-          const active = isLast && busy
-          const { work, result } = active
-            ? { work: [], result: turn.blocks }
-            : splitTurn(turn.blocks)
-          const text = blocksText(result, state)
-          const toolIds = new Set(
-            turn.blocks.flatMap((b) => (b.kind === 'tools' ? b.tools.map((x) => x.id) : [])),
-          )
-
-          const edits = state.edits.filter((e) => toolIds.has(e.toolId))
-          const turnId = turn.user?.id
-
-          return (
-            <div key={turnId ?? `t${i}`} className="space-y-4">
-              {turn.user ? (
-                <div
-                  className={cn(arrivedLive(turn, turn.user.id) && 'animate-fade-up')}
-                  data-mark="user"
-                  data-start={turn.start}
-                  data-label={turn.user.text.slice(0, MARK_LABEL_CHARS)}
-                >
-                  <MemoUserMessage runId={id} message={turn.user} canRetry={!busy} />
-                </div>
-              ) : null}
-              {turn.blocks.length ? (
-                <div
-                  data-mark="agent"
-                  data-start={turn.start}
-                  data-label={(text || 'Working').slice(0, MARK_LABEL_CHARS)}
-                  className="space-y-4"
-                >
-                  {work.length ? (
-                    <Worked ms={turnSpan(turn, state)} summary={workSummary(work, state)}>
-                      {work.map((b) => (
-                        <ThreadBlock key={b.key} block={b} state={state} />
-                      ))}
-                    </Worked>
-                  ) : null}
-                  {result.map((b) => (
-                    <div key={b.key} className={cn(arrivedLive(turn, b.key) && 'animate-fade-up')}>
-                      <ThreadBlock block={b} state={state} />
-                    </div>
-                  ))}
-                  {active ? null : <FilesChanged runId={id} edits={edits} />}
-                </div>
-              ) : null}
-              {!active && turnId && text ? (
-                <AssistantActions
-                  runId={id}
-                  turnId={turnId}
-                  text={text}
-                  ts={turnTime(turn, state)}
-                  canRetry={!busy}
-                />
-              ) : null}
+        }
+        subtitle={subtitle}
+        actions={actions}
+        compact={browsing}
+        footer={
+          <Footer
+            runId={id}
+            provider={summary.provider}
+            idleSince={summary.updatedAt}
+            busy={busy}
+            status={summary.status}
+            access={state.access}
+            context={state.context}
+            compact={browsing}
+            question={docked}
+            tool={state.tools.find((t) => t.id === docked?.toolId)}
+            queued={state.queued}
+            queueHeld={state.queueHeld}
+            onStop={stop}
+            onSend={() => {
+              followBottom.current = true
+            }}
+          />
+        }
+      >
+        {finding ? (
+          <div className="pointer-events-none sticky top-0 z-30 h-0">
+            <div className="pointer-events-auto">
+              <FindBar
+                runId={id}
+                contentRef={scrollRef}
+                start={state.start}
+                version={`${state.start}:${state.items.length}`}
+                onLoadUntil={older}
+                onClose={() => setFinding(false)}
+              />
             </div>
-          )
-        })}
-        {showThinking ? (
-          <div className="text-[12.5px]">
-            <Shimmer>Thinking</Shimmer>
           </div>
         ) : null}
-        {state.continuedIn ? <ThreadLink label="Continued in" link={state.continuedIn} /> : null}
-        {state.error && summary.status === 'error' ? (
-          <div
-            className={cn(
-              'border-danger/40 bg-danger-soft/50 text-danger rounded-2xl border px-4 py-3 text-[13px]',
-            )}
-          >
-            {state.error}
-          </div>
-        ) : null}
-      </div>
-    </Page>
+        {browsing ? null : (
+          <ThreadRail
+            contentRef={scrollRef}
+            version={`${state.start}:${state.items.length}:${state.chat.length}:${state.tools.length}`}
+            outline={state.outline}
+            onLoadUntil={older}
+            onJump={() => {
+              followBottom.current = false
+            }}
+          />
+        )}
+        <div
+          ref={scrollRef}
+          className={cn(
+            'mx-auto max-w-[860px] space-y-5 pt-6 pb-8',
+            browsing ? 'px-4' : 'px-6 @max-[940px]:pr-11',
+          )}
+        >
+          {state.continuedFrom && state.start === 0 ? (
+            <ThreadLink label="Continued from" link={state.continuedFrom} />
+          ) : null}
+          {state.start > 0 ? (
+            <OlderTurns
+              scrollRef={scrollRef}
+              start={state.start}
+              loading={loadingOlder}
+              onVisible={older}
+            />
+          ) : null}
+          {turns.map((turn, i) => {
+            const isLast = i === turns.length - 1
+            const active = isLast && busy
+            const { work, result } = active
+              ? { work: [], result: turn.blocks }
+              : splitTurn(turn.blocks)
+            const text = blocksText(result, state)
+            const toolIds = new Set(
+              turn.blocks.flatMap((b) => (b.kind === 'tools' ? b.tools.map((x) => x.id) : [])),
+            )
+
+            const edits = state.edits.filter((e) => toolIds.has(e.toolId))
+            const turnId = turn.user?.id
+
+            return (
+              <div key={turnId ?? `t${i}`} className="space-y-4">
+                {turn.user ? (
+                  <div
+                    className={cn(arrivedLive(turn, turn.user.id) && 'animate-fade-up')}
+                    data-mark="user"
+                    data-start={turn.start}
+                    data-label={turn.user.text.slice(0, MARK_LABEL_CHARS)}
+                  >
+                    <MemoUserMessage runId={id} message={turn.user} canRetry={!busy} />
+                  </div>
+                ) : null}
+                {turn.blocks.length ? (
+                  <div
+                    data-mark="agent"
+                    data-start={turn.start}
+                    data-label={(text || 'Working').slice(0, MARK_LABEL_CHARS)}
+                    className="space-y-4"
+                  >
+                    {work.length ? (
+                      <Worked ms={turnSpan(turn, state)} summary={workSummary(work, state)}>
+                        {work.map((b) => (
+                          <ThreadBlock key={b.key} block={b} state={state} />
+                        ))}
+                      </Worked>
+                    ) : null}
+                    {result.map((b) => (
+                      <div
+                        key={b.key}
+                        className={cn(arrivedLive(turn, b.key) && 'animate-fade-up')}
+                      >
+                        <ThreadBlock block={b} state={state} />
+                      </div>
+                    ))}
+                    {active ? null : <FilesChanged runId={id} edits={edits} />}
+                  </div>
+                ) : null}
+                {!active && turnId && text ? (
+                  <AssistantActions
+                    runId={id}
+                    turnId={turnId}
+                    text={text}
+                    ts={turnTime(turn, state)}
+                    canRetry={!busy}
+                  />
+                ) : null}
+              </div>
+            )
+          })}
+          {showThinking ? (
+            <div className="text-[12.5px]">
+              <Shimmer>Thinking</Shimmer>
+            </div>
+          ) : null}
+          {state.continuedIn ? <ThreadLink label="Continued in" link={state.continuedIn} /> : null}
+          {state.error && summary.status === 'error' ? (
+            <div
+              className={cn(
+                'border-danger/40 bg-danger-soft/50 text-danger rounded-2xl border px-4 py-3 text-[13px]',
+              )}
+            >
+              {state.error}
+            </div>
+          ) : null}
+        </div>
+      </Page>
+    </ApplyContext.Provider>
   )
 
   if (!modal.shown) return page

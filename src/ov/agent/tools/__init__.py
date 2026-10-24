@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from ov.agent.tools import browser, datadog, onevizion, pagerduty, thread, workspace
+from ov.agent.tools import browser, data_change, datadog, ddl, grid, mcp, onevizion, pagerduty, thread, workspace
 from ov.agent.tools.base import Tool
 
-CORE_TOOLS = [*onevizion.TOOLS, *thread.TOOLS]
-TOOLS = [*CORE_TOOLS, *browser.MAIN, *workspace.TOOLS, *datadog.TOOLS, *pagerduty.READ_TOOLS, *pagerduty.WRITE_TOOLS]
+CORE_TOOLS = [*onevizion.TOOLS, *data_change.TOOLS, *grid.TOOLS, *thread.TOOLS]
+TOOLS = [
+    *CORE_TOOLS,
+    *mcp.TOOLS,
+    *ddl.TOOLS,
+    *browser.MAIN,
+    *workspace.TOOLS,
+    *datadog.TOOLS,
+    *pagerduty.READ_TOOLS,
+    *pagerduty.WRITE_TOOLS,
+]
 TOOLS_BY_NAME = {t.name: t for t in [*TOOLS, *browser.HANDS]}
 
 
@@ -18,7 +27,19 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     (
         "OV CLI",
         "signed-in OneVizion instances",
-        ["ov", "ov_sql", "ov_export", "ov_import", "ov_search", "ov_map", "ov_case", "ov_propose"],
+        [
+            "ov",
+            "ov_sql",
+            "ov_export",
+            "ov_import",
+            "ov_search",
+            "ov_map",
+            "ov_update",
+            "ov_mcp",
+            "ov_ddl",
+            "ov_case",
+            "ov_propose",
+        ],
     ),
     (
         "Browser",
@@ -36,7 +57,7 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     (
         "Run",
         "the run folder, waiting, questions to the user and the result",
-        ["run_read", "run_wait", "run_ask", "run_report"],
+        ["run_read", "run_grid", "run_wait", "run_ask", "run_report"],
     ),
 ]
 
@@ -44,6 +65,8 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
 def tool_specs(write: bool = False) -> list[dict[str, Any]]:
     offered = [
         *CORE_TOOLS,
+        *mcp.offered(),
+        *ddl.offered(),
         *browser.MAIN,
         *pagerduty.offered_writers(write),
         *workspace.offered(),

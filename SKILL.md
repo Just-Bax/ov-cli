@@ -132,6 +132,14 @@ ov api call schema:get-trackor-types --table         # a table, human mode only
 ov api call reports:export-report -p report_id=7 --out ./report.xlsx
 ```
 
+Imports, exports and reports start a process. Add `--wait` to the call that starts one and
+`ov` polls its `runs/{process_id}` endpoint until it finishes, prints the final run, and
+exits 1 if the run ended with errors or was interrupted:
+
+```bash
+ov api call "POST /v3/reports/{report_id}/run" -p report_id=7 --wait --json
+```
+
 Responses are not cached unless the user turned it on, so repeated reads hit the server.
 The API schema is cached for a day; add `--refresh` to re-read it if the user says an
 endpoint was just added.

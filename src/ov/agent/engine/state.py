@@ -7,7 +7,7 @@ State = dict[str, Any]
 Stored = dict[str, Any]
 
 MARK_LABEL_CHARS = 160
-WINDOWED = ("items", "chat", "tools", "changes", "questions", "logins", "edits", "compactions")
+WINDOWED = ("items", "chat", "tools", "changes", "grids", "questions", "logins", "edits", "compactions")
 TOOL_DETAIL = ("input", "output")
 EDIT_DETAIL = ("before", "after")
 
@@ -18,6 +18,7 @@ def empty_state(summary: dict[str, Any], access: str) -> State:
         "items": [],
         "tools": [],
         "changes": [],
+        "grids": [],
         "edits": [],
         "questions": [],
         "logins": [],
@@ -86,18 +87,27 @@ def _on_tool(state: State, stored: Stored) -> None:
     _add_item(state, "tool", tool["id"])
 
 
-def _on_text(state: State, stored: Stored) -> None:
+def _streamed_message(state: State, stored: Stored) -> dict[str, Any]:
     event = stored["event"]
-    for message in state["chat"]:
-        if message["id"] == event["messageId"]:
-            message["text"] += event["delta"]
-            break
-    else:
-        state["chat"].append(
-            {"id": event["messageId"], "role": "assistant", "text": event["delta"], "ts": stored["ts"]}
-        )
+    found = next((m for m in state["chat"] if m["id"] == event["messageId"]), None)
+    if found is not None:
+        return found
 
-    _add_item(state, "text", event["messageId"])
+    message = {"id": event["messageId"], "role": "assistant", "text": "", "ts": stored["ts"]}
+    state["chat"].append(message)
+    return message
+
+
+def _on_text(state: State, stored: Stored) -> None:
+    message = _streamed_message(state, stored)
+    message["text"] += stored["event"]["delta"]
+    _add_item(state, "text", message["id"])
+
+
+def _on_reasoning(state: State, stored: Stored) -> None:
+    message = _streamed_message(state, stored)
+    message["reasoning"] = message.get("reasoning", "") + stored["event"]["delta"]
+    _add_item(state, "text", message["id"])
 
 
 def _on_message(state: State, stored: Stored) -> None:
@@ -117,6 +127,9 @@ def _on_message(state: State, stored: Stored) -> None:
 
     if event.get("links"):
         message["links"] = event["links"]
+
+    if event.get("reasoning"):
+        message["reasoning"] = event["reasoning"]
 
     _add_item(state, "text", event["messageId"])
 
@@ -142,12 +155,21 @@ def _upserter(kind: str, collection: str) -> Callable[[State, Stored], None]:
     return apply
 
 
+def _on_grid(state: State, stored: Stored) -> None:
+    grid = stored["event"]["grid"]
+    _upsert(state["grids"], grid, merge=True)
+    _add_item(state, "grid", grid["id"])
+
+
 def _on_edit(state: State, stored: Stored) -> None:
     _upsert(state["edits"], stored["event"]["edit"])
 
 
 def _on_queued(state: State, stored: Stored) -> None:
-    _upsert(state["queued"], stored["event"]["message"])
+    message = stored["event"]["message"]
+    if any(m["id"] == message["id"] for m in state["chat"]):
+        return
+    _upsert(state["queued"], message)
 
 
 def _on_queue(state: State, stored: Stored) -> None:
@@ -194,9 +216,11 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "meta": _on_meta,
     "tool": _on_tool,
     "text": _on_text,
+    "reasoning": _on_reasoning,
     "message": _on_message,
     "user": _on_user,
     "change": _upserter("change", "changes"),
+    "grid": _on_grid,
     "edit": _on_edit,
     "outcome": _on_outcome,
     "question": _upserter("question", "questions"),
@@ -269,6 +293,7 @@ def window(state: State, end: int, turns: int) -> State:
         "chat": [m for m in state["chat"] if ("user" if m["role"] == "user" else "text", m["id"]) in keys],
         "tools": [_brief(t, TOOL_DETAIL) for t in state["tools"] if ("tool", t["id"]) in keys],
         "changes": [c for c in state["changes"] if ("change", c["id"]) in keys],
+        "grids": [g for g in state["grids"] if ("grid", g["id"]) in keys],
         "questions": [q for q in state["questions"] if ("question", q["id"]) in keys],
         "logins": [x for x in state["logins"] if ("login", x["id"]) in keys],
         "compactions": [c for c in state["compactions"] if ("compact", c["id"]) in keys],
@@ -306,6 +331,8 @@ def _searchable(state: State) -> dict[tuple[str, str], str]:
         )
     for question in state["questions"]:
         texts[("question", question["id"])] = question_text(question)
+    for grid in state["grids"]:
+        texts[("grid", grid["id"])] = grid["title"]
 
     outcome = state.get("outcome")
     if outcome and state.get("outcomeId"):

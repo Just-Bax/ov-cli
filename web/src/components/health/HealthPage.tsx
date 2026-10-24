@@ -88,6 +88,12 @@ export function HealthPage() {
       prompt: `Check the health of ${label} over the last ${RANGE_WORDS[range]}. Use PagerDuty incidents, Datadog monitors, events such as deploys and restarts, error logs grouped by pattern, traffic and latency, database metrics, and server metrics. Line them up with failed OneVizion processes in the same window. Tell me what changed or is failing, the likely cause, and what to do.`,
     })
 
+  const askWithoutDatadog = () =>
+    openDraft({
+      instance: alias,
+      prompt: `Check the health of ${label || 'this instance'} over the last ${RANGE_WORDS[range]} using only the instance: failed or slow imports, reports, rules, automations and module runs, the error log, and anything stuck in queues. Tell me what is failing, since when, the likely cause, and what to do.`,
+    })
+
   const actions = !status ? (
     <ActionsSkeleton widths={HEALTH_ACTION_WIDTHS} />
   ) : status.connected ? (
@@ -153,13 +159,19 @@ export function HealthPage() {
           badge={<DatadogBadge size="lg" />}
           title="Connect Datadog"
           action={
-            <Button variant="primary" onClick={() => setConnecting(true)}>
-              Connect Datadog
-            </Button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button variant="primary" onClick={() => setConnecting(true)}>
+                Connect Datadog
+              </Button>
+              <Button variant="ghost" onClick={askWithoutDatadog}>
+                <SparklesIcon className="size-3.5" /> Ask the agent instead
+              </Button>
+            </div>
           }
         >
           See each instance's incidents, error logs, slow endpoints and server metrics next to its
-          failed OneVizion processes. Read-only, with your own keys.
+          failed OneVizion processes. Read-only, with your own keys. Without Datadog, the agent can
+          still check failed imports, reports, rules and module runs on the instance itself.
         </EmptyState>
       </div>
     )

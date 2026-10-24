@@ -18,7 +18,7 @@ def test_workspace_tools_are_offered_only_with_a_folder(tmp_path):
 
 
 def test_workspace_edits_are_recorded_for_the_changes_view(workspace, tmp_path):
-    from ov.agent.engine.run import _line_changes
+    from ov.agent.engine.run_tools import _line_changes
     from ov.agent.tools import tool_named
 
     ctx = FakeContext(tmp_path, write=True)

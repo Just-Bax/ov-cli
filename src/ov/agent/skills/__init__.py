@@ -16,6 +16,7 @@ ORDER = (
     "workspace",
     "onevizion-reference",
     "plsql-best-practices",
+    "external-widgets",
     "oneteam-basics",
     "issue-lifecycle",
     "tce-best-practices",

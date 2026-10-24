@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 
 import pytest
-from helpers.agent import SLOW_POLLS, wait_done, wait_for
+from helpers.agent import SLOW_POLLS, new_message_id, wait_done, wait_for
 
 from ov.agent.engine.conversation import INTERRUPTED_RESULT
 from ov.agent.instances.ovproc import OvResult
@@ -24,7 +24,7 @@ def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(l
     monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
@@ -36,7 +36,7 @@ def test_a_tool_call_left_without_a_result_is_answered_before_the_next_request(l
 
     assert run.state["tools"][-1]["status"] == "error"
 
-    run.follow_up("continue", [], steer=False)
+    run.follow_up(new_message_id(), "continue", [], steer=False)
     wait_for(lambda: len(sent) == 2)
 
     last = sent[-1]
@@ -55,12 +55,12 @@ def test_the_system_prompt_follows_the_access_mode(logged_in, monkeypatch):
     monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
     run.set_access(Access.AUTO)
-    run.follow_up("go", [], steer=False)
+    run.follow_up(new_message_id(), "go", [], steer=False)
     wait_for(lambda: len(sent) == 2)
 
     assert "currently OFF: read-only" in sent[0]
@@ -85,12 +85,12 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create({"access": "read", "prompt": "start", "instance": "acme"}, "copilot", "test-model")
     wait_for(lambda: seen)
-    run.follow_up("later", [], steer=False)
-    run.follow_up("now", [], steer=True)
+    run.follow_up(new_message_id(), "later", [], steer=False)
+    run.follow_up(new_message_id(), "now", [], steer=True)
     gate.set()
     wait_for(lambda: len(seen) >= 3 and run.state["summary"]["status"] == "done", polls=SLOW_POLLS)
 
@@ -112,12 +112,12 @@ def test_queued_messages_are_sent_one_turn_at_a_time(logged_in, monkeypatch):
     monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", fake_chat)
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create({"access": "read", "prompt": "start", "instance": "acme"}, "copilot", "test-model")
     wait_for(lambda: seen)
-    run.follow_up("one", [], steer=False)
-    run.follow_up("two", [], steer=False)
+    run.follow_up(new_message_id(), "one", [], steer=False)
+    run.follow_up(new_message_id(), "two", [], steer=False)
     gate.set()
     wait_for(lambda: len(seen) >= 3 and run.state["summary"]["status"] == "done", polls=SLOW_POLLS)
 
@@ -126,15 +126,15 @@ def test_queued_messages_are_sent_one_turn_at_a_time(logged_in, monkeypatch):
 
 
 def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
     from ov.agent.storage import db
 
     db.create_thread("rsteer", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rsteer")
     run._busy = True
     monkeypatch.setattr(run, "call_tool_named", lambda name, args: ("rows", []))
-    run.follow_up("skip VHMKFBC_PKG", [], steer=False)
-    run.follow_up("after the turn", [], steer=False)
+    run.follow_up(new_message_id(), "skip VHMKFBC_PKG", [], steer=False)
+    run.follow_up(new_message_id(), "after the turn", [], steer=False)
     run.steer_queued(run.state["queued"][0]["id"])
 
     output, _ = run.call_tool_with_steering("ov_sql", {})
@@ -148,13 +148,14 @@ def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch
 
 
 def test_an_edited_queued_message_keeps_its_place(logged_in):
-    from ov.agent.engine.run import RunError, runs
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import runs
 
     db.create_thread("redit", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("redit")
     run._busy = True
-    run.follow_up("first", [], steer=False)
-    run.follow_up("second", [], steer=False)
+    run.follow_up(new_message_id(), "first", [], steer=False)
+    run.follow_up(new_message_id(), "second", [], steer=False)
     first = run.state["queued"][0]["id"]
 
     run.edit_queued(first, "first, edited")
@@ -167,13 +168,14 @@ def test_an_edited_queued_message_keeps_its_place(logged_in):
 
 
 def test_queued_messages_can_be_reordered(logged_in):
-    from ov.agent.engine.run import RunError, runs
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import runs
 
     db.create_thread("rmove", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rmove")
     run._busy = True
     for text in ("a", "b", "c"):
-        run.follow_up(text, [], steer=False)
+        run.follow_up(new_message_id(), text, [], steer=False)
     a, b, c = (m["id"] for m in run.state["queued"])
 
     run.move_queued(c, a)
@@ -187,12 +189,13 @@ def test_queued_messages_can_be_reordered(logged_in):
 
 
 def test_stop_holds_the_queue_until_it_is_resumed(logged_in, monkeypatch):
-    from ov.agent.engine.run import RunError, runs
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import runs
 
     db.create_thread("rhold", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rhold")
     run._busy = True
-    run.follow_up("later", [], steer=False)
+    run.follow_up(new_message_id(), "later", [], steer=False)
     run.stop()
     run._busy = False
     started: list[str] = []
@@ -209,12 +212,12 @@ def test_stop_holds_the_queue_until_it_is_resumed(logged_in, monkeypatch):
 
 
 def test_a_reloaded_thread_holds_its_queue(logged_in):
-    from ov.agent.engine.run import RunManager, runs
+    from ov.agent.engine.run_manager import RunManager, runs
 
     db.create_thread("rload", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rload")
     run._busy = True
-    run.follow_up("kept", [], steer=True)
+    run.follow_up(new_message_id(), "kept", [], steer=True)
     run._busy = False
 
     loaded = RunManager().get("rload")
@@ -224,7 +227,8 @@ def test_a_reloaded_thread_holds_its_queue(logged_in):
 
 
 def test_full_access_needs_the_flag_and_falls_back_to_auto_without_it(logged_in, monkeypatch):
-    from ov.agent.engine.run import FULL_ACCESS_NEEDS_FLAG, RunError, RunManager
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import FULL_ACCESS_NEEDS_FLAG, RunManager
 
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     started = RunManager()
@@ -238,3 +242,51 @@ def test_full_access_needs_the_flag_and_falls_back_to_auto_without_it(logged_in,
     loaded = restarted.get(run.id)
     assert loaded is not None and loaded.access == Access.AUTO
     assert db.thread_access(run.id) == Access.AUTO
+
+
+def test_stop_shows_at_once_and_drops_what_the_turn_still_says(logged_in, monkeypatch):
+    from ov.agent.engine.run_manager import runs
+
+    release = threading.Event()
+
+    def slow_chat(model, messages, *args, cancel, on_text, **_):
+        on_text("Working on it")
+        release.wait()
+        on_text(" and more")
+        return StreamResult(text="Working on it and more")
+
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", slow_chat)
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
+
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
+    wait_for(lambda: run.state["chat"] and run.state["chat"][-1]["role"] == "assistant")
+
+    run.stop()
+    assert run.state["summary"]["status"] == "cancelled"
+    assert run.call_tool({"id": "late", "type": "function", "function": {"name": "ov", "arguments": "{}"}}) == (
+        "Stopped by the user."
+    )
+
+    release.set()
+    wait_for(lambda: not run._busy)
+    assert run.state["chat"][-1]["text"] == "Working on it"
+    assert run.state["summary"]["status"] == "cancelled"
+    assert all(t["id"] != "late" for t in run.state["tools"])
+
+
+def test_a_follow_up_needs_a_new_well_formed_id(logged_in):
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import runs
+
+    db.create_thread("rids", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
+    run = runs.get("rids")
+    run._busy = True
+
+    with pytest.raises(RunError, match="message id looks like"):
+        run.follow_up("bad id", "hi", [], steer=False)
+
+    run.follow_up("u_client_000001", "hi", [], steer=False)
+    with pytest.raises(RunError, match="already sent"):
+        run.follow_up("u_client_000001", "again", [], steer=False)
+    assert [m["id"] for m in run.state["queued"]] == ["u_client_000001"]
+    run._busy = False

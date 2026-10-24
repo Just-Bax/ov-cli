@@ -1,6 +1,7 @@
 import {
   Alarm as AlarmIcon,
   Bell as BellIcon,
+  BellZ as SnoozedIcon,
   CheckCircle as CheckCircleIcon,
   Checks as DoubleCheckIcon,
   Code as CodeBracketIcon,
@@ -21,6 +22,7 @@ import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { EditableTitle } from '@/components/common/EditableTitle'
 import { ProviderBubble } from '@/components/common/ProviderLogo'
+import { PROVIDER_BRANDS } from '@/lib/providerBrand'
 import { type Icon, PulseDot, Shimmer, Skeleton, SlideIndicator } from '@/components/common/ui'
 import { OPEN_PALETTE, TOGGLE_SIDEBAR } from '@/components/layout/CommandPalette'
 import { RunMenu, snoozeLabel } from '@/components/run/RunMenu'
@@ -44,6 +46,8 @@ const INITIALS_CHARS = 2
 const IN_PROGRESS = 'In progress'
 const SETTLED_OPEN_KEY = 'ov-agent.settled-open'
 const COLLAPSED_KEY = 'ov-agent.sidebar-collapsed'
+const SHELF_BUTTON =
+  'text-faint hover:bg-canvas relative flex h-8 w-14 items-center justify-center gap-1 rounded-full text-[11px] font-medium tabular-nums transition-colors'
 const DOCK_QUERY = '(min-width: 1200px)'
 const EXPANDED_WIDTH = 'w-[332px]'
 const SEARCH_LABEL = 'Search (Ctrl+K)'
@@ -106,32 +110,13 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
 
 export type SidebarAccount = {
   provider: Provider
-  name?: string
   detail: string
-  imageUrl?: string
 }
 
 function Avatar({ account, loading }: { account?: SidebarAccount; loading?: boolean }) {
-  const [broken, setBroken] = useState(false)
   if (loading) return <Skeleton className="size-8 rounded-full" />
   if (!account) return <span className="bg-raised size-8 rounded-full" />
-  if (!account.imageUrl)
-    return <ProviderBubble provider={account.provider} className="size-8 rounded-full" />
-  if (broken)
-    return (
-      <span className="bg-brand-soft text-brand-strong flex size-8 items-center justify-center rounded-full text-[13px] font-semibold">
-        {(account.name ?? '?').slice(0, 1).toUpperCase()}
-      </span>
-    )
-
-  return (
-    <img
-      src={account.imageUrl}
-      alt=""
-      onError={() => setBroken(true)}
-      className="bg-raised size-8 rounded-full object-cover"
-    />
-  )
+  return <ProviderBubble provider={account.provider} className="size-8" />
 }
 
 function runSignal(run: RunSummary, open: boolean): Signal | undefined {
@@ -559,6 +544,7 @@ export function Sidebar({
   const toggleTip = useRailTip()
   const moreTip = useRailTip()
   const settledTip = useRailTip()
+  const snoozedTip = useRailTip()
   const settingsTip = useRailTip()
   const docked = useDocked()
   const collapsed = docked ? pinnedCollapsed : !drawer
@@ -605,6 +591,11 @@ export function Sidebar({
   const openSettled = () => {
     expand()
     toggleSettled(true)
+  }
+
+  const openSnoozed = () => {
+    expand()
+    setSnoozedOpen(true)
   }
 
   const openPalette = () => {
@@ -727,19 +718,34 @@ export function Sidebar({
                 </button>
               ) : null}
             </div>
-            {settledTotal ? (
-              <div className="flex shrink-0 justify-center pb-2">
-                <button
-                  type="button"
-                  onClick={openSettled}
-                  onMouseEnter={settledTip.show}
-                  onMouseLeave={settledTip.hide}
-                  className="text-faint hover:text-ok hover:bg-canvas relative flex h-8 items-center gap-1 rounded-full px-2 text-[11px] font-medium transition-colors"
-                >
-                  <DoubleCheckIcon aria-hidden className="size-3.5" />
-                  {settledTotal}
-                  <RailTip at={settledTip.at}>Settled threads</RailTip>
-                </button>
+            {snoozed.length || settledTotal ? (
+              <div className="flex shrink-0 flex-col items-center gap-0.5 pb-2">
+                {snoozed.length ? (
+                  <button
+                    type="button"
+                    onClick={openSnoozed}
+                    onMouseEnter={snoozedTip.show}
+                    onMouseLeave={snoozedTip.hide}
+                    className={cn(SHELF_BUTTON, 'hover:text-brand-strong')}
+                  >
+                    <SnoozedIcon aria-hidden className="size-3.5" />
+                    {snoozed.length}
+                    <RailTip at={snoozedTip.at}>Snoozed threads</RailTip>
+                  </button>
+                ) : null}
+                {settledTotal ? (
+                  <button
+                    type="button"
+                    onClick={openSettled}
+                    onMouseEnter={settledTip.show}
+                    onMouseLeave={settledTip.hide}
+                    className={cn(SHELF_BUTTON, 'hover:text-ok')}
+                  >
+                    <DoubleCheckIcon aria-hidden className="size-3.5" />
+                    {settledTotal}
+                    <RailTip at={settledTip.at}>Settled threads</RailTip>
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -862,9 +868,9 @@ export function Sidebar({
               ) : (
                 <span className="min-w-0">
                   <span className="text-fg block truncate text-[13px] font-medium">
-                    {account?.name ?? 'Not signed in'}
+                    {account ? PROVIDER_BRANDS[account.provider].name : 'Not signed in'}
                   </span>
-                  <span className="text-faint block text-[11.5px]">{account?.detail}</span>
+                  <span className="text-faint block truncate text-[11.5px]">{account?.detail}</span>
                 </span>
               )}
             </a>

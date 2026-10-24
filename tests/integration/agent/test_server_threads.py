@@ -17,7 +17,7 @@ JSON_HEADERS = {"Content-Type": "application/json"}
 
 
 def test_a_run_can_be_renamed(agent_server, monkeypatch):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     run = runs.create({"access": "read", "prompt": "x"}, "copilot", "m")
@@ -55,7 +55,7 @@ def test_a_thread_exports_as_markdown(agent_server, monkeypatch):
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda *a, **k: OvResult(0, "ok\n", ""))
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create({"access": "read", "prompt": "what tags?", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
@@ -121,7 +121,7 @@ def test_deleting_a_thread_removes_everything_it_owns(agent_server):
 
 
 def _working_thread(monkeypatch):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     started = threading.Event()
 
@@ -181,7 +181,7 @@ def test_an_open_working_thread_is_stopped_and_deleted(logged_in, agent_server, 
 
 
 def test_snooze_and_settle_wait_for_an_answer_and_a_waiting_thread_wakes(agent_server):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     db.create_thread("rwake", "Wake", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     later = db.now_ms() + 3_600_000
@@ -208,7 +208,7 @@ def test_snooze_and_settle_wait_for_an_answer_and_a_waiting_thread_wakes(agent_s
 
 
 def test_tool_routes_refuse_a_tool_that_is_not_running(agent_server, monkeypatch):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     run = runs.create({"access": "read", "prompt": "x"}, "copilot", "m")

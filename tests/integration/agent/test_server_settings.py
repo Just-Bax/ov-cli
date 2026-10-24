@@ -19,10 +19,11 @@ def test_status_lists_every_provider_and_settings_hold_the_profile(agent_server,
     assert [(p["id"], p["costUnit"], p["account"]["signedIn"]) for p in status["providers"]] == [
         ("claude", "usd", False),
         ("copilot", "credits", True),
+        ("openai", "tokens", False),
     ]
 
     saved = httpx.put(f"{agent_server}/api/settings", json={"fullName": "Ada", "instructions": "Be brief."}).json()
     assert (saved["fullName"], saved["instructions"]) == ("Ada", "Be brief.")
 
-    refused = httpx.put(f"{agent_server}/api/settings", json={"provider": "openai"})
-    assert refused.status_code == 400 and "Unknown provider: openai" in refused.json()["error"]
+    refused = httpx.put(f"{agent_server}/api/settings", json={"provider": "nope"})
+    assert refused.status_code == 400 and "Unknown provider: nope" in refused.json()["error"]

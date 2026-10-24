@@ -1,4 +1,4 @@
-import type { RunState, StoredEvent, ThreadItem } from './types.ts'
+import type { Grid, RunState, StoredEvent, ThreadItem, ToolActivity } from './types.ts'
 
 function upsert<T extends { id: string }>(list: T[], next: T, merge = false): T[] {
   const i = list.findIndex((x) => x.id === next.id)
@@ -36,7 +36,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
     case 'tool':
       return {
         ...state,
-        tools: upsert(state.tools, event.tool, true),
+        tools: upsert(state.tools, event.tool as ToolActivity, true),
         items: withItem(state.items, { kind: 'tool', id: event.tool.id }),
       }
     case 'text': {
@@ -48,6 +48,26 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
               { id: event.messageId, role: 'assistant' as const, text: event.delta, ts },
             ]
           : state.chat.map((m, j) => (j === i ? { ...m, text: m.text + event.delta } : m))
+
+      return { ...state, chat, items: withItem(state.items, { kind: 'text', id: event.messageId }) }
+    }
+    case 'reasoning': {
+      const i = state.chat.findIndex((m) => m.id === event.messageId)
+      const chat =
+        i < 0
+          ? [
+              ...state.chat,
+              {
+                id: event.messageId,
+                role: 'assistant' as const,
+                text: '',
+                ts,
+                reasoning: event.delta,
+              },
+            ]
+          : state.chat.map((m, j) =>
+              j === i ? { ...m, reasoning: (m.reasoning ?? '') + event.delta } : m,
+            )
 
       return { ...state, chat, items: withItem(state.items, { kind: 'text', id: event.messageId }) }
     }
@@ -63,9 +83,19 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
                 text: event.text,
                 ts: event.ts ?? ts,
                 links: event.links,
+                reasoning: event.reasoning,
               },
             ]
-          : state.chat.map((m, j) => (j === i ? { ...m, text: event.text, links: event.links } : m))
+          : state.chat.map((m, j) =>
+              j === i
+                ? {
+                    ...m,
+                    text: event.text,
+                    links: event.links,
+                    reasoning: event.reasoning ?? m.reasoning,
+                  }
+                : m,
+            )
 
       return { ...state, chat, items: withItem(state.items, { kind: 'text', id: event.messageId }) }
     }
@@ -81,6 +111,12 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
         ...state,
         changes: upsert(state.changes, event.change),
         items: withItem(state.items, { kind: 'change', id: event.change.id }),
+      }
+    case 'grid':
+      return {
+        ...state,
+        grids: upsert(state.grids, event.grid as Grid, true),
+        items: withItem(state.items, { kind: 'grid', id: event.grid.id }),
       }
     case 'edit':
       return { ...state, edits: upsert(state.edits, event.edit) }
@@ -107,6 +143,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
         items: withItem(state.items, { kind: 'login', id: event.login.id }),
       }
     case 'queued':
+      if (state.chat.some((m) => m.id === event.message.id)) return state
       return { ...state, queued: upsert(state.queued, event.message) }
     case 'unqueue':
       return { ...state, queued: state.queued.filter((m) => m.id !== event.id) }

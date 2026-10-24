@@ -42,6 +42,7 @@ import type { CommandVerdict, ToolActivity } from '@shared/types.ts'
 import { useSkeleton } from '@/components/common/skeletons'
 import { reportError } from '@/components/common/Toasts'
 import { CopyButton, type Icon, Shimmer, Skeleton } from '@/components/common/ui'
+import { useApply } from '@/lib/optimistic'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { prefetch, take } from '@/lib/prefetch'
@@ -269,6 +270,7 @@ function DetailSkeleton() {
 }
 
 function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
+  const apply = useApply()
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState<Pick<ToolActivity, 'input' | 'output'>>()
   const lazy = Boolean(tool.lazy) && tool.input === undefined && tool.output === undefined
@@ -319,7 +321,11 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
               tool.status === 'error' ? 'text-danger' : 'text-text',
             )}
           >
-            {tool.status === 'running' ? <Shimmer>{tool.label}</Shimmer> : tool.label}
+            {tool.status === 'running' && tool.stoppedAt === undefined ? (
+              <Shimmer>{tool.label}</Shimmer>
+            ) : (
+              tool.label
+            )}
           </span>
           {tool.verdict ? (
             <span
@@ -349,7 +355,10 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
         {running && tool.backgroundedAt === undefined ? (
           <RowAction
             label="Move to background"
-            onClick={() => void api.backgroundTool(runId, tool.id).catch(reportError)}
+            onClick={() => {
+              apply({ type: 'tool', tool: { id: tool.id, backgroundedAt: Date.now() } })
+              void api.backgroundTool(runId, tool.id).catch(reportError)
+            }}
           >
             <BackgroundIcon className="size-3.5" />
           </RowAction>
@@ -357,7 +366,10 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
         {running && tool.stoppedAt === undefined ? (
           <RowAction
             label="Stop"
-            onClick={() => void api.stopTool(runId, tool.id).catch(reportError)}
+            onClick={() => {
+              apply({ type: 'tool', tool: { id: tool.id, stoppedAt: Date.now() } })
+              void api.stopTool(runId, tool.id).catch(reportError)
+            }}
           >
             <StopIcon className="size-3.5" />
           </RowAction>

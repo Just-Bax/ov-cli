@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import itertools
 import time
 from pathlib import Path
 
 from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.guard import Effect, Verdict
-from ov.agent.engine.run import runs
+from ov.agent.engine.run_manager import runs
 from ov.agent.storage import db
 from ov.agent.tools.base import APPROVE, Approval
 
@@ -65,7 +66,7 @@ class FakeContext:
         self.reasons.append(reason)
         return Approval(self.approve == APPROVE, self.note)
 
-    def require_login(self, host):
+    def require_login(self, host, tenant=""):
         return False
 
     def attach_image(self, name, url):
@@ -94,6 +95,13 @@ class FakeContext:
         self.judged.append(command)
         effect = self.effects.get(command, Effect.READ)
         return Verdict(effect, f"it is {effect.value}")
+
+
+_message_ids = itertools.count(1)
+
+
+def new_message_id() -> str:
+    return f"u_test_{next(_message_ids):06d}"
 
 
 def wait_for(check, polls: int = RUN_POLLS) -> None:

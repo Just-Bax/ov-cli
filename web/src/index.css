@@ -43,6 +43,7 @@
   --duration-exit: 160ms;
   --duration-travel: 360ms;
   --stagger-step: 24ms;
+  --count-step: 120ms;
 }
 
 @layer base {
@@ -235,6 +236,25 @@
   }
   100% {
     background-position: calc(100% + 220px) 0;
+  }
+}
+
+.counting > span {
+  display: inline-block;
+  animation: count-wave 1.4s ease-in-out infinite;
+  animation-delay: calc(var(--count-index, 0) * var(--count-step));
+}
+
+@keyframes count-wave {
+  0%,
+  60%,
+  100% {
+    filter: none;
+    opacity: 1;
+  }
+  30% {
+    filter: blur(2px);
+    opacity: 0.5;
   }
 }
 

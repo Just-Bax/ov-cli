@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import json
 import threading
 import time
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any
 
 import httpx
 
-from ov.agent.engine.cancel import Cancel, Cancelled
+from ov.agent.engine.cancel import Cancel
+from ov.agent.integrations import chat_completions
+from ov.agent.integrations.chat_completions import StreamResult
 from ov.agent.integrations.common import Usage
 from ov.agent.storage.db import REASONING_LEVELS
 from ov.core import credentials
@@ -28,28 +28,15 @@ GITHUB_USER_URL = "https://api.github.com/user"
 COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
 COPILOT_USER_URL = "https://api.github.com/copilot_internal/user"
 HTTP_TIMEOUT_SECONDS = 30
-CHAT_READ_TIMEOUT_SECONDS = 300
 MODELS_TTL_SECONDS = 600
 TOKEN_REFRESH_MARGIN_SECONDS = 120
 MAX_TOKENS = 32000
-CHAT_ATTEMPTS = 4
 COMPLETE_MAX_TOKENS = 200
-RETRY_BASE_SECONDS = 2
-RETRY_BACKOFF_FACTOR = 2
-ERROR_DETAIL_CHARS = 500
 PENDING_STATUSES = {"authorization_pending": "pending", "slow_down": "slow_down"}
-CHAT_ENDPOINT = "/chat/completions"
 
 
 class CopilotError(Exception):
     pass
-
-
-@dataclass
-class StreamResult:
-    text: str = ""
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    usage: Usage | None = None
 
 
 def usage_of(body: dict[str, Any]) -> Usage | None:
@@ -193,7 +180,7 @@ def _headers(**extra: str) -> tuple[str, dict[str, str]]:
 
 def _speaks_chat(model: dict[str, Any]) -> bool:
     endpoints = model.get("supported_endpoints")
-    return endpoints is None or CHAT_ENDPOINT in endpoints
+    return endpoints is None or chat_completions.CHAT_PATH in endpoints
 
 
 def _usable(model: dict[str, Any]) -> bool:
@@ -284,49 +271,9 @@ def supports_vision(model_id: str) -> bool:
     return model["vision"]
 
 
-def _has_images(messages: list[dict[str, Any]]) -> bool:
-    return any(
-        m["role"] == "user"
-        and isinstance(m["content"], list)
-        and any(p.get("type") == "image_url" for p in m["content"])
-        for m in messages
-    )
-
-
-def _post(
-    http: httpx.Client, url: str, headers: dict[str, str], payload: dict[str, Any], cancel: Cancel
-) -> httpx.Response:
-    cancel.check()
-    request = http.build_request("POST", url, json=payload)
-    request.headers.update(headers)
-    return http.send(request, stream=True)
-
-
-def _retryable(response: httpx.Response) -> bool:
-    return response.status_code == 429 or response.status_code >= 500
-
-
-def _backoff_seconds(attempt: int) -> float:
-    return RETRY_BASE_SECONDS * RETRY_BACKOFF_FACTOR**attempt
-
-
-def _send_with_retries(
-    http: httpx.Client, url: str, headers: dict[str, str], payload: dict[str, Any], cancel: Cancel
-) -> httpx.Response:
-    for attempt in range(CHAT_ATTEMPTS - 1):
-        try:
-            response = _post(http, url, headers, payload, cancel)
-        except httpx.TransportError:
-            cancel.wait(_backoff_seconds(attempt))
-            continue
-
-        if not _retryable(response):
-            return response
-
-        response.close()
-        cancel.wait(_backoff_seconds(attempt))
-
-    return _post(http, url, headers, payload, cancel)
+def _endpoint(**extra: str) -> chat_completions.Endpoint:
+    api, headers = _headers(**extra)
+    return chat_completions.Endpoint(name="Copilot", url=api, headers=headers, error=CopilotError, usage_of=usage_of)
 
 
 def stream_chat(
@@ -337,13 +284,13 @@ def stream_chat(
     *,
     cancel: Cancel,
     on_text: Callable[[str], None],
+    on_reasoning: Callable[[str], None] = chat_completions.ignore,
     reasoning: str | None = None,
 ) -> StreamResult:
     extra = {"X-Initiator": initiator}
-    if _has_images(messages):
+    if chat_completions.has_images(messages):
         extra["Copilot-Vision-Request"] = "true"
 
-    api, headers = _headers(**extra)
     payload = {
         "model": model,
         "messages": messages,
@@ -354,49 +301,9 @@ def stream_chat(
         "max_tokens": MAX_TOKENS,
         **({"reasoning_effort": reasoning} if reasoning else {}),
     }
-
-    streamed = False
-
-    def forward(text: str) -> None:
-        nonlocal streamed
-        streamed = True
-        on_text(text)
-
-    for attempt in range(CHAT_ATTEMPTS):
-        try:
-            return _stream_once(api, headers, payload, cancel, forward)
-        except httpx.TransportError as exc:
-            if cancel.is_set():
-                raise Cancelled from None
-
-            if streamed or attempt == CHAT_ATTEMPTS - 1:
-                raise CopilotError(f"Lost the connection to Copilot: {exc}. Send a message to continue.") from exc
-
-            cancel.wait(_backoff_seconds(attempt))
-
-    raise CopilotError("Copilot chat retries ran out.")
-
-
-def _stream_once(
-    api: str,
-    headers: dict[str, str],
-    payload: dict[str, Any],
-    cancel: Cancel,
-    on_text: Callable[[str], None],
-) -> StreamResult:
-    with httpx.Client(timeout=httpx.Timeout(HTTP_TIMEOUT_SECONDS, read=CHAT_READ_TIMEOUT_SECONDS)) as http:
-        response = _send_with_retries(http, f"{api}/chat/completions", headers, payload, cancel)
-        with cancel.hook(response.close):
-            if response.status_code >= 400:
-                detail = response.read().decode("utf-8", "replace")[:ERROR_DETAIL_CHARS]
-                raise CopilotError(f"Copilot chat failed ({response.status_code}): {detail}")
-
-            try:
-                return _read_stream(response, on_text)
-            except httpx.HTTPError:
-                if cancel.is_set():
-                    raise Cancelled from None
-                raise
+    return chat_completions.stream(
+        _endpoint(**extra), payload, cancel=cancel, on_text=on_text, on_reasoning=on_reasoning
+    )
 
 
 def complete(
@@ -406,25 +313,13 @@ def complete(
     max_tokens: int = COMPLETE_MAX_TOKENS,
     read_timeout: float = HTTP_TIMEOUT_SECONDS,
 ) -> tuple[str, Usage | None]:
-    api, headers = _headers(**{"X-Initiator": "agent"})
     payload = {
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_text}],
         "stream": False,
         "max_tokens": max_tokens,
     }
-
-    with httpx.Client(timeout=httpx.Timeout(HTTP_TIMEOUT_SECONDS, read=read_timeout)) as http:
-        response = http.post(f"{api}/chat/completions", json=payload, headers=headers)
-
-    if response.status_code >= 400:
-        raise CopilotError(f"Copilot chat failed ({response.status_code}): {response.text[:ERROR_DETAIL_CHARS]}")
-
-    body = response.json()
-    content = body["choices"][0]["message"].get("content")
-    if not content:
-        raise CopilotError(f"Copilot returned an empty reply from {model}.")
-    return content.strip(), usage_of(body)
+    return chat_completions.complete(_endpoint(**{"X-Initiator": "agent"}), payload, read_timeout)
 
 
 def account() -> dict[str, Any]:
@@ -452,52 +347,3 @@ def account() -> dict[str, Any]:
         "entitlement": premium.get("entitlement"),
         "remaining": premium.get("remaining"),
     }
-
-
-def _chunks(response: httpx.Response) -> Iterator[dict[str, Any]]:
-    for line in response.iter_lines():
-        stripped = line.strip()
-        if not stripped.startswith("data:"):
-            continue
-
-        data = stripped[len("data:") :].strip()
-        if data == "[DONE]":
-            continue
-
-        try:
-            yield json.loads(data)
-        except json.JSONDecodeError:
-            raise CopilotError(f"Copilot sent a malformed stream chunk: {data[:ERROR_DETAIL_CHARS]}") from None
-
-
-def _merge_tool_call(calls: dict[tuple[int, int], dict[str, Any]], choice: int, part: dict[str, Any]) -> None:
-    key = (choice, part.get("index") or 0)
-    call = calls.setdefault(key, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
-    if part.get("id"):
-        call["id"] = part["id"]
-
-    function = part.get("function") or {}
-    call["function"]["name"] += function.get("name") or ""
-    call["function"]["arguments"] += function.get("arguments") or ""
-
-
-def _read_stream(response: httpx.Response, on_text: Callable[[str], None]) -> StreamResult:
-    result = StreamResult()
-    calls: dict[tuple[int, int], dict[str, Any]] = {}
-    for chunk in _chunks(response):
-        result.usage = usage_of(chunk) or result.usage
-        for choice in chunk.get("choices") or []:
-            delta = choice.get("delta") or {}
-            if delta.get("content"):
-                result.text += delta["content"]
-                on_text(delta["content"])
-
-            for part in delta.get("tool_calls") or []:
-                _merge_tool_call(calls, choice.get("index") or 0, part)
-
-    stamp = int(time.time() * 1000)
-    for index, call in enumerate(c for c in calls.values() if c["function"]["name"]):
-        call["id"] = call["id"] or f"call_{stamp}_{index}"
-        result.tool_calls.append(call)
-
-    return result

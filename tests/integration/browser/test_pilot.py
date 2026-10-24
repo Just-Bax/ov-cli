@@ -150,3 +150,30 @@ def test_clicking_something_that_opens_no_file_picker_is_an_error(sites, pilot, 
     plain = Target(locator="#plain")
     with pytest.raises(BrowserError, match="did not open a file picker"):
         pilot.upload(plain, pilot.aim(plain).point, [str(path)])
+
+
+def test_a_widget_preview_runs_inside_the_instance_with_its_session(sites, pilot):
+    instance, _ = sites
+    instance.pages["/home"] = b'<html><head><meta name="_csrf" content="tok-1"></head><body>home</body></html>'
+    widget = (
+        "<html><body><b id='seen'></b><script>"
+        "document.getElementById('seen').textContent = "
+        "window.top.document.querySelector('meta[name=_csrf]').getAttribute('content') + '@' + "
+        "window.top.location.origin;"
+        "</script></body></html>"
+    )
+
+    pilot.goto(f"{instance.url}/home")
+    url = pilot.preview("sites-board", widget)
+    pilot.goto(url)
+    pilot.wait_for(f"tok-1@{instance.url}", "", "", WAIT_SECONDS)
+
+    assert url == f"{instance.url}/ov-agent-preview/sites-board"
+    assert "/ov-agent-preview/sites-board" not in instance.hits
+
+
+def test_a_preview_needs_an_instance_page_first(sites, pilot):
+    instance, _ = sites
+    pilot.goto(f"{instance.url}/")
+    with pytest.raises(BrowserError, match="Open a OneVizion page"):
+        pilot.preview("w", "<html></html>")

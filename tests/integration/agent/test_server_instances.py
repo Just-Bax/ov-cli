@@ -54,7 +54,7 @@ def test_an_instance_can_be_removed(agent_server, monkeypatch):
         session_store.remove(args[1])
         return OvResult(0, "{}", "")
 
-    monkeypatch.setattr("ov.agent.api.server.run_ov", fake)
+    monkeypatch.setattr("ov.agent.api.routes.instances.run_ov", fake)
     rows = httpx.post(f"{agent_server}/api/instances/logout", json={"alias": "acme"}).json()
     assert seen == [["logout", "acme", "--json"]] and rows == []
 
@@ -70,7 +70,7 @@ def test_an_instance_check_reads_the_platform_version(agent_server, monkeypatch)
             return httpx.Response(200, text='<script>var Version = "26.14.2-RC1";</script>')
         return real_get(url, *args, **kwargs)
 
-    monkeypatch.setattr("ov.agent.api.server.httpx.get", fake_get)
+    monkeypatch.setattr("ov.agent.api.routes.instances.httpx.get", fake_get)
     res = httpx.get(f"{agent_server}/api/instances/check?instance=acme.onevizion.com").json()
     assert res["version"] == "26.14.2-RC1"
     assert res["url"] == "https://acme.onevizion.com"

@@ -25,6 +25,10 @@ const SettingsPage = lazy(() =>
   import('@/components/settings/Settings').then((m) => ({ default: m.SettingsPage })),
 )
 
+function needsOnboarding(status: Status): boolean {
+  return status.instances.total === 0 || !status.providers.some((p) => p.account.signedIn)
+}
+
 export function App() {
   const route = useRoute()
   const [status, setStatus] = useState<Status>()
@@ -46,9 +50,11 @@ export function App() {
     if (status) configureAttention(status.settings)
   }, [status?.settings.notify, status?.settings.tabBadge])
 
+  const onboarding = status ? needsOnboarding(status) : false
+
   useEffect(() => {
-    if (status && !status.ready) setInSetup(true)
-  }, [status?.ready])
+    if (onboarding) setInSetup(true)
+  }, [onboarding])
 
   const update = useCallback(async (patch: Partial<Settings>) => {
     const settings = await api.saveSettings(patch)
@@ -76,7 +82,7 @@ export function App() {
       </div>
     )
 
-  if (!status.ready || inSetup)
+  if (onboarding || inSetup)
     return (
       <>
         <Setup status={status} onDone={refresh} onFinish={() => setInSetup(false)} />

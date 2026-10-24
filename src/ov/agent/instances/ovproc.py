@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from ov import __version__
 from ov.agent.api.screen import Screen, close_screen, open_screen, screen_key
 from ov.agent.engine.cancel import Cancel
+from ov.agent.instances import access
 from ov.cli.context import TIMEOUT_ENV
 from ov.core.errors import EXIT_AUTH
 from ov.core.paths import agent_dir
@@ -185,6 +186,7 @@ def login(
     shown = open_screen(key, *screen) if screen and not token else None
     try:
         holder.append(_run_login(url, tenant, token, shown, remember and not token))
+        _check_access(url, tenant, holder[0])
     finally:
         if shown:
             close_screen(key, shown)
@@ -194,6 +196,16 @@ def login(
             _logins.pop(key, None)
         done.set()
     return holder[0]
+
+
+def _check_access(url: str, tenant: str, result: OvResult) -> None:
+    if result.code != 0:
+        return
+
+    host = host_of(url)
+    found = next((r for r in instances() if r["host"] == host and (r["tenant"] or "") == tenant), None)
+    if found is not None:
+        access.check_later(found["alias"])
 
 
 def _run_login(url: str, tenant: str, token: str, shown: Screen | None, remember: bool) -> OvResult:

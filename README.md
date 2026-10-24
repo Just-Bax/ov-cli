@@ -355,6 +355,23 @@ ov request GET /v3/server_info --raw     # the body exactly as it arrived
 
 `--json` never colours or wraps, so `ov ... --json | jq` is always safe.
 
+### Following a run
+
+Imports, exports and reports start a process and answer with its `process_id`. Add
+`--wait` and `ov` follows that process until it finishes, then prints the final run:
+
+```bash
+ov api call "POST /v3/imports/{import_id}/run" -p import_id=1042 --file file=@sites.csv --wait
+ov api call "POST /v3/reports/{report_id}/run" -p report_id=7 --wait --json | jq .status
+```
+
+The same flag works on the generated commands for those operations.
+
+The status endpoint comes from the schema: for `POST .../{id}/run` it polls
+`GET .../runs/{process_id}` every few seconds. A run that ends with errors, is interrupted
+or hits a limit exits 1. An operation that starts no run, or whose API has no matching
+status endpoint, is refused before anything is sent. `ov request` does not offer `--wait`.
+
 ## Settings
 
 ```bash
@@ -399,8 +416,14 @@ ov agent          # or: ov ui
 ```
 
 Starts a local web app at http://127.0.0.1:5180 and opens it in your browser: OV Agent,
-a chat with an AI Tier 3 engineer that works on your OneVizion instances through `ov`.
+a chat with an AI OneVizion engineer that works on your OneVizion instances through `ov`.
+It is useful with nothing more than one instance sign-in: it checks what your account can
+use on each instance and works with that.
 
+- **Questions and lists:** "which imports failed this week?", "show me every Site without a
+  permit date". Lists come back as a grid you can sort, filter and re-run.
+- **Data changes:** "put those sites on hold". You see every old and new value in a grid
+  before anything is written, approve it, and can revert it afterwards.
 - **Support cases:** type a case number or paste a trackor link. It reads the whole case
   from trackor.onevizion.com (fields, chat, attachments, emails), moves to the affected
   instance, finds the root cause with evidence, checks existing Issues, proposes fixes as
@@ -420,20 +443,34 @@ The first screen walks you through setup:
      and requests count against your plan's usage limits.
    - **GitHub Copilot**: sign in to GitHub; the account needs a Copilot subscription, and
      each request costs Copilot credits.
+   - **vLLM**: your own model server. Any other server with the same chat completions API
+     and tool calls (LM Studio, llama.cpp and so on) works too. Enter its base URL (for example
+     `http://gpu-box:8000/v1`) and an API key if it needs one. See
+     [Your own model server](#your-own-model-server).
 2. Sign in to at least one instance (the same browser sign-in as `ov login`).
 3. Pick a main model. It can be changed per thread. In Settings you can also pick a fast
    model (Haiku, for example) for small chores such as naming threads.
 
-Setup stays open until the last step, so signing in does not skip the others. Switch the
-provider any time in Settings > Provider: new threads use it, and existing threads keep the
-provider they started with. With Claude, everything runs on Claude, including thread titles
-and the command judge.
+Setup stays open until the last step, so signing in does not skip the others, and it only
+shows while no instance is signed in or no provider is set up at all. Switch the provider any time in Settings > Provider and
+set it up right there: new threads use it, and existing threads keep the provider they
+started with. Until the new provider is ready, Home says so instead of starting threads. Everything in a thread runs on its provider, including
+thread titles and the command judge.
 
-Read-only by default: every call runs with `OV_READONLY=1`, and anything that changes
-something is behind **Allow changes**: instance writes and imports, PagerDuty changes,
-workspace edits and workspace commands that change anything. With it on, instance and
-PagerDuty changes, pushes and other outside effects still show you the exact command and
-wait for your **Approve**. The agent agrees a plan with you before it changes anything.
+Each thread has an access mode, picked in the composer and changeable at any time:
+
+- **Read-only** (the default): every call runs with `OV_READONLY=1`; the agent proposes
+  changes instead of making them.
+- **Always ask**: instance writes and imports, PagerDuty changes, browser actions that
+  change something, workspace edits and commands are possible, and instance, PagerDuty and
+  browser changes, pushes and other outside effects show you the exact command and wait for
+  your **Approve**.
+- **Auto**: changes run without asking, except risky ones such as deletes, force pushes or
+  bulk changes.
+- **Full access**: every change runs without any check or question. It is offered only when
+  the agent was started with `ov agent --full-access`.
+
+The agent agrees a plan with you before it changes anything.
 
 Slow tool calls can run in the background: the agent passes `background`, or you click
 **Move to background** on a running call. The thread keeps working (or ends its turn) and
@@ -448,11 +485,13 @@ In **Settings**:
   CLI and Workspace) are always in the system prompt and kept short. The rest are listed
   by name and when to read them, and the agent loads one with `skill_read` when a task
   needs it, so reviewing an incident reads PagerDuty and Datadog first. A skill becomes
-  core with `core: true` in its front matter. Eleven ship with `ov`: Working Style (plan,
-  ask, verify, time zones, changes), OneVizion Basics (the data model), OV CLI (the tools
-  and how to query without loading an instance), Workspace, OneVizion Reference (tables,
-  logs, forms and grids), PL/SQL Best Practices (platform APIs instead of raw DML, naming,
-  layout), OneTeam Basics (cases, issues and error reports on trackor.onevizion.com),
+  core with `core: true` in its front matter. Twelve ship with `ov`: Working Style (plan,
+  ask, verify, time zones, changes), OneVizion Basics (the data model), OV CLI (the tools,
+  which source to use for what depending on your privileges, API pitfalls, and how to
+  query without loading an instance), Workspace, OneVizion Reference (tables, logs, forms,
+  grids and rule bind variables), PL/SQL Best Practices (platform APIs instead of raw DML,
+  rules and DB packages, naming, layout), External Widgets (building single-file widgets
+  that read live data, previewed with `browser_preview`), OneTeam Basics (cases, issues and error reports on trackor.onevizion.com),
   Issue Life Cycle (statuses, issue tasks, versions and backports), TCE Best Practices
   (working a case and the case reply style), Datadog and PagerDuty (the last three tool
   skills only while set up). These bundled skills are read-only and update with `ov`;
@@ -464,15 +503,26 @@ In **Settings**:
   are. See [Coding in the workspace](#coding-in-the-workspace).
 - **Instances** lists your `ov` sign-ins and signs in to new ones, on the instance's own
   login page shown inside the app (or in a separate window), or with an API token (access
-  key and secret key from Admin > Auth Tokens).
+  key and secret key from Admin > Auth Tokens). Right after a sign-in it checks what your
+  account can use there and shows it under the instance: the platform version and edition,
+  and Test SQL, component export and import, schema metadata, the platform DB source and
+  the MCP server. The check reads `/v3/privs` and `/v3/server_info`; the edition comes from
+  the instance's main page while the web session is fresh, so a sign-in older than its web
+  session keeps the edition it read before. Press the refresh icon to check again. The agent
+  is told this for every instance and picks its sources from it: Test SQL where allowed,
+  otherwise component exports, the platform DB source and the API.
 - **Cost** shows Claude usage as an estimated dollar value from Claude Code (not billed per
-  request), and Copilot usage in credits: your Copilot plan and the credits
-  used this billing cycle across all your Copilot use, then OV Agent's own credits, requests
-  and tokens per day, per model and per thread. The numbers are the credits Copilot reports
-  for each request; threads from before usage was recorded show "Not tracked".
+  request), Copilot usage in credits, and usage of your own server in tokens: for Copilot,
+  your plan and the credits used this billing cycle across all your Copilot use, then OV
+  Agent's own usage, requests and tokens per day, per model and per thread. The Copilot
+  numbers are the credits Copilot reports for each request; threads from before usage was
+  recorded show "Not tracked".
+- **Profile** holds your name and standing instructions, added to every thread.
 
-Preferences also hold the **Reasoning** level (how hard models think; each model gets the
-nearest level it supports).
+Settings > Provider holds everything about who runs the agent: the provider, its sign-in
+or connection, the main and fast models, and the **Reasoning** level (how hard models think;
+each model gets the nearest level it supports). Preferences hold notifications, the tab
+badge and the step limit.
 
 A message sent while the agent works is **queued** above the composer and sent after the turn.
 Each queued message can be edited, removed, or sent with **Steer** so the agent picks it up at
@@ -496,15 +546,32 @@ The agent's tools come in groups, and the system prompt lists the ones a thread 
 
 | Group | Tools |
 | --- | --- |
-| OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_import` (component import from an export file; dry run first, then approval), `ov_search` (trackor search), `ov_map` (Map lookup), `ov_case` (a trackor support case) |
+| OV CLI | `ov` (any ov command), `ov_sql`, `ov_export` (component export to workspace files), `ov_import` (component import from an export file; dry run first, then approval), `ov_search` (trackor search), `ov_map` (Map lookup), `ov_update` (field values on many trackors, shown as an old and new grid, then approval), `ov_case` (a trackor support case), `ov_propose` (a proposed change shown as a diff card; nothing is applied); on AI Enabled instances where your account may use them, `ov_mcp` (the instance's MCP server) and `ov_ddl` (the platform's table DDL and package source) |
+| Browser | `browser_open` (a signed-in instance in the live browser beside the chat), `browser_preview` (runs a widget file inside the instance, the way an External Widget runs; needs approval), `browser_run` (hands one task to the fast model, which clicks and types while you watch), `browser_close` |
 | Workspace | `ws_list`, `ws_search`, `ws_read`, `ws_edit`, `ws_write`, `ws_run` (only while a workspace folder is set) |
 | Datadog | `dd_logs`, `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm` |
 | PagerDuty | `pd_incidents`, `pd_incident`, `pd_oncall`, `pd_directory`; with changes allowed also `pd_note`, `pd_ack`, `pd_resolve`, `pd_escalate`, `pd_reassign`, `pd_snooze` |
 | Skills | `skill_read` |
-| Run | `run_read` (attachments, exports and long output in the run folder), `run_ask`, `run_report` |
+| Run | `run_read` (attachments, exports and long output in the run folder), `run_grid` (records as a grid in the thread), `run_wait` (wait for a job or a value to change), `run_ask`, `run_report` |
+
+### Grids and data changes
+
+When the answer is a list of records, the agent shows it as a grid in the thread: typed
+columns (trackor keys link to their trackor, other columns to their form, statuses as
+colored chips, numbers right-aligned), click a header to sort, type to filter. A grid made
+from a query or an API call has **Re-run**, which runs it again on the instance, read-only.
+Up to 1000 rows per grid.
+
+`ov_update` changes field values on many trackors at once. It reads the current values
+itself and shows a grid with the old and new value of every cell; trackors that already
+have the new values are greyed out and skipped. Nothing is written until you approve it
+like any other change (a Read-only thread only shows the grid). It then writes each trackor
+through the API, with a progress bar, and the grid shows which rows failed and why, for
+example a rule that rejected the change. **Revert** asks the agent to put the old values
+back, which needs your approval again.
 
 Nothing leaves your machine except calls to your instances and to the provider that runs
-the agent (Claude through Claude Code, or GitHub Copilot). The server listens on 127.0.0.1
+the agent (Claude through Claude Code, GitHub Copilot, or your own server). The server listens on 127.0.0.1
 only. History and uploads live in `~/.ov/agent`; the GitHub token is kept in the vault with
 your other credentials. Claude Code keeps its own sign-in and transcripts under `~/.claude`.
 
@@ -519,11 +586,11 @@ your other credentials. Claude Code keeps its own sign-in and transcripts under 
    `ws_read`, changes them with `ws_edit` and `ws_write`, and runs `git`, builds and tests
    with `ws_run`. Every step shows up in the thread.
 3. Every command is judged by the fast model before it runs. Commands that only read run
-   straight away. Commands that change anything (commits, installs, builds, tests) need
-   Allow changes. Pushes, pull request actions, remote writes, deletes, scripts it cannot
-   see into and paths outside the workspace also wait for your Approve, showing the exact
-   command, folder and reason. The judgement shows on the command's row. Edits with
-   `ws_edit` and `ws_write` need Allow changes too.
+   straight away. Commands that change anything (commits, installs, builds, tests) need an
+   access mode other than Read-only. In Always ask, pushes, pull request actions, remote
+   writes, deletes, scripts it cannot see into and paths outside the workspace also wait for
+   your Approve, showing the exact command, folder and reason. The judgement shows on the
+   command's row. Edits with `ws_edit` and `ws_write` need a mode other than Read-only too.
 
 GitHub work (pull requests, their diffs, review comments, checks, issues) goes through the
 `gh` CLI in the workspace: install it and run `gh auth login` once. Reading is free; posting
@@ -538,7 +605,12 @@ approval.
 their relations, fields, rules and what triggers them, automations, imports, reports,
 notifications, workflows and modules, plus the fields each rule, import and report uses in
 its SQL. Pick an instance and Build: it reads the configuration with read-only SQL (about a
-minute on a large instance, Test SQL privilege needed) and caches it in `~/.ov/agent/graphs`.
+minute on a large instance) and caches it in `~/.ov/agent/graphs`. Without the Test SQL
+privilege it is built from component exports and the API instead (a few minutes on a large
+instance, Components Export/Import read access needed); that map has no workflows and no
+invalid-object flags, the subtitle says it came from exports, and a warning lists any part
+whose export failed. The Code explorer then reads code from a one-item export, and run
+history says it needs Test SQL.
 Start from a hotspot or search, double-click an object to bring in what it links to, and use
 "Ask the agent" on any object. The agent uses the same map in threads (`ov_map`) to see
 what depends on something before it touches it. Links found in SQL text are best-effort.
@@ -587,21 +659,11 @@ server with a trend line per metric; top error groups; failed runs by type; slow
 endpoints; monitors and events. Every card has Ask, which opens New thread with a prompt
 about that card. A card your account or key cannot read says so instead of failing, for
 example failed runs on an instance where you lack the Test SQL privilege. Nothing on the
-page writes to Datadog, PagerDuty or the instance.
+page writes to Datadog, PagerDuty or the instance. Without Datadog, the page offers to ask the
+agent for a health check from the instance alone: failed runs, the error log and queues.
 
 Your Datadog admins can see application keys and may audit their use, and logs the
 agent reads in a thread go to the agent's provider like any other tool result.
-
-**Walkthroughs** (under More) are browser tests a real user would run on an instance:
-clicking, typing and checking pages, not API calls. Describe a test in a sentence and the
-agent drafts the steps, or write them yourself, one per line; edit, save and run. A run
-reuses that instance's signed-in browser session, so it acts as you, and the fast model
-checks every step before it happens. Anything that would delete or change data the test did
-not ask for (deleting records, mass or bulk actions, admin changes) is stopped and the run
-reports which step and why. Each step shows pass, fail or blocked with a screenshot. A
-saved walkthrough reruns on demand, and runs are kept as history. Pick instances you are
-allowed to test; validating that is yours to do. The run is headless; the page shows each
-step's screenshot as it goes.
 
 **PagerDuty** (optional) adds incidents and on-call. In Settings > Integrations, connect it
 with your account address (e.g. `yourcompany.pagerduty.com`, which also picks the US or EU
@@ -614,13 +676,39 @@ website alerts that carry both), or the host or `[Instance]` tag in a Datadog al
 open and recent incidents and who is on call for the policies that paged, and counts
 triggered incidents in its verdict, even before the instance is matched in Datadog.
 
-With **Allow changes** on for a thread, the agent can also change incidents: add notes,
-acknowledge, resolve, snooze, escalate to a level, and reassign to another escalation policy
-or to people (pd_directory finds them by name). Each change waits for your Approve, and
-PagerDuty records it as you. These need a full-access user token; a read-only one is refused
+With a thread's access mode above Read-only, the agent can also change incidents: add
+notes, acknowledge, resolve, snooze, escalate to a level, and reassign to another escalation
+policy or to people (pd_directory finds them by name). In Always ask each change waits for
+your Approve. PagerDuty records every change as you. These need a full-access user token; a read-only one is refused
 with a message saying so. PagerDuty admins can see and revoke user tokens.
 
 `ov agent --port 5181` picks another port; `--no-open` skips opening the browser.
+
+### Your own model server
+
+Pick **vLLM** as the provider in Settings > Provider, then enter the server's
+base URL and, if it needs one, an API key. `ov` checks the URL by listing `/models`; the
+key is kept in the vault. The served models appear in the model pickers.
+
+The agent needs tool calls. With vLLM, start the server with tool calling on, and a
+reasoning parser if the model thinks out loud:
+
+```bash
+vllm serve Qwen/Qwen3-32B --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3
+```
+
+Under the provider, **Served models** lists each model with two settings the API cannot
+report:
+
+- **Context window**: vLLM reports `max_model_len` and it is filled in; other servers may
+  not, and then you set it. The agent needs at least 32,768 tokens, and compacts the thread
+  when it nears the window.
+- **Sees images**: turn it on for vision models, so screenshots and attached images reach
+  the model.
+
+A model's reasoning, when the server streams it, shows above its reply under
+**Reasoning**, collapsed. It is only shown; it is never sent back to the model. Usage is
+counted in tokens, since nothing is billed.
 
 ## Files on disk
 
@@ -720,18 +808,32 @@ resolves what `-i` names, `spec.py` turns the OpenAPI document into the `Operati
 objects everything else works from, `invoke.py` maps command line input onto one HTTP
 request, `service.py` is the only API access the commands get, and `cli/commands/` holds
 one module per command group. `cli/dynamic.py` is what turns a schema tag into commands.
-`agent/` is the agent server: `server.py` (HTTP API and the built UI), `run.py` (the
-model loop), `tools.py` (what the model may call, each `ov` call a read-only subprocess),
-`copilot.py`, `skills.py` and `project.py` (the code workspace). `agent/state.py` mirrors `web/shared/reduce.ts`.
+`agent/` is the agent:
+
+- `api/`: the local HTTP server. `handler.py` routes requests and serves the built UI,
+  `routes/` holds one module per area (settings, instances, integrations, threads, browser),
+  `server.py` starts it.
+- `engine/`: threads. `run.py` is a thread's `Run`, put together from one mixin per concern
+  (`run_events.py`, `run_tools.py`, `run_queue.py`, `run_questions.py` and so on);
+  `run_manager.py` keeps the live ones. `state.py` mirrors `web/shared/reduce.ts`.
+- `providers/`: who runs the model. `base.py` is the interface, `claude.py` drives Claude
+  Code, and `chat.py` plus `chat_turn.py` are the shared loop for chat-completions providers
+  (`copilot.py`, `openai_compatible.py`).
+- `integrations/`: outside services: Claude, Copilot, OpenAI-compatible servers (with the
+  shared streaming client in `chat_completions.py`), Datadog and PagerDuty.
+- `tools/`: what the model may call, one module per group; each `ov` call is a read-only
+  subprocess unless the thread allows changes.
+- `instances/`: the instance map, code explorer and component export and import.
+- `skills/`: the bundled skills; `workspace.py` is the code workspace.
 
 The agent database is SQLite at `~/.ov/agent/agent.db`, accessed through SQLAlchemy in
-`agent/db.py`, with the tables declared in `agent/models.py`. Alembic migrations live in
-`agent/migrations/versions` and run when the agent first opens the database; before
-upgrading an existing database it writes a copy next to it as `agent.<revision>.bak.db`.
-To change the schema, edit `models.py`, then generate and review a migration:
+`agent/storage/db.py`, with the tables declared in `agent/storage/models.py`. Alembic
+migrations live in `agent/storage/migrations/versions` and run when the agent first opens
+the database; before upgrading an existing database it writes a copy next to it as
+`agent.<revision>.bak.db`. To change the schema, edit `models.py`, then generate and review a migration:
 
 ```bash
-uv run alembic revision --autogenerate --rev-id 0003 -m "what changed"
+uv run alembic revision --autogenerate --rev-id 0019 -m "what changed"
 ```
 
 `alembic.ini` points the command at `~/.ov` (or `OV_HOME`), so set `OV_HOME` to a scratch

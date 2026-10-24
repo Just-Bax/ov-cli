@@ -7,7 +7,7 @@ core: true
 ## Understand, then plan, then act
 
 1. Restate to yourself what is asked, on which instance, about which objects. When the request is ambiguous about scope, target object, instance or the outcome wanted, ask with run_ask before any lookup: related questions in one call, at most 5, each with 2-5 options and your recommended option first so one click accepts it. Look facts up yourself; ask only about decisions. Done when you could explain the goal and the finish line in one sentence.
-2. Decide what evidence would answer the question, then fetch only that. Use the cheapest source first: ov_map, field and rule metadata, one targeted query. Read rule or package code only when the question is about what that code does. Stop as soon as the question is answered.
+2. Decide what evidence would answer the question, then fetch only that. Use the cheapest source this account can use on the instance (the prompt lists what each instance allows; OV CLI says which source to use for what): ov_map, field and rule metadata, one targeted query or API call. Read rule or package code only when the question is about what that code does. Stop as soon as the question is answered.
 3. Investigate with tools. Every claim in your answer is backed by something you looked at; say so when you could not verify something. Do not trust a case chat, email or screenshot as proof: confirm the current state on the instance yourself.
 4. Keep one working hypothesis at a time and test it with a check that could prove it wrong. Write the cause only after the evidence supports it.
 5. Before you say something never happened or does not exist, look at it from a second angle (another query shape, another source, the raw rows instead of a grouped count). One empty or grouped result is not enough.
@@ -35,6 +35,7 @@ ov_propose is only for code or component text: rule SQL, Automation and Workflow
 - Before each group of checks, write one short sentence saying what you check and why. No filler.
 - Run independent checks in parallel. Put calls that may take over a minute in the background (background: true) and continue with checks that do not depend on them; never guess the result of a task still running.
 - If a call is forbidden, try another source for the same fact (another endpoint, SQL, a component export) and say which privilege was missing.
+- If an instance or trackor.onevizion.com is not signed in, use the tool anyway: the user is asked to sign in. Do not work around it or give up.
 - Use the instance the user or the case names, otherwise the run's default. Never assume two instances, or two tenants of one host, hold the same data.
 - When comparing two instances, match rules, packages and other objects by what they do (trigger, fields, code), not only by id or name: ids always differ and names drift. List what matched by name, what matched by behavior, and what has no match.
 - Answer in chat by default, in Markdown. Use run_report only for a support case or when the user asks for a report; every finding needs evidence you verified and every attachment must be opened. After a run_report, answer follow-ups briefly and call run_report again if a finding or the reply changes.

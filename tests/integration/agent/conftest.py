@@ -5,7 +5,8 @@ import threading
 import pytest
 from helpers.agent import isolated_agent_db, workspace_folder
 
-from ov.agent.api.server import AgentServer, Handler
+from ov.agent.api.handler import Handler
+from ov.agent.api.server import AgentServer
 
 
 @pytest.fixture(autouse=True)

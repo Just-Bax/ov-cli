@@ -237,9 +237,9 @@ async def _session(run: Run, options: Any, session: str, fork_point: str | None)
 
                 await client.query(_prompt(content_blocks(contents), session))
                 await _receive(client, Stream(run, session, turn, before))
+                run.cancel.check()
                 await _record_context(client, run)
 
-                run.cancel.check()
                 if not run.has_news():
                     return
 
@@ -254,13 +254,13 @@ def run_turn(run: Run) -> None:
 
 async def _compact(run: Run, options: Any, session: str) -> None:
     loop = asyncio.get_running_loop()
+    run.compaction_started("manual")
     async with ClaudeSDKClient(options) as client:
 
         def interrupt() -> None:
             asyncio.run_coroutine_threadsafe(client.interrupt(), loop)
 
         with run.cancel.hook(interrupt):
-            run.compaction_started("manual")
             await client.query(COMPACT_COMMAND)
             async for message in client.receive_response():
                 if isinstance(message, SystemMessage):

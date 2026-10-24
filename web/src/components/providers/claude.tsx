@@ -80,7 +80,7 @@ export const CLAUDE_UI: ProviderUi = {
   usageTitle: 'Claude plan usage, estimated',
   usageNote:
     "Claude Code's estimate of what the same requests would cost on the API. Your plan is not billed per request.",
-  accountBadge: <ProviderBubble provider="claude" className="size-10 rounded-xl" />,
+  accountBadge: <ProviderBubble provider="claude" className="size-10" />,
   summary: (account) => {
     const { installed, signedIn, email, plan } = claudeOf(account)
     if (!installed) return 'Claude Code is not installed.'
@@ -89,8 +89,9 @@ export const CLAUDE_UI: ProviderUi = {
       : 'Claude Code is not signed in.'
   },
   sidebar: (account) => {
-    const { email, plan } = claudeOf(account)
-    return { name: email || undefined, detail: plan ? `Claude ${capitalized(plan)}` : 'Claude' }
+    const { signedIn, plan } = claudeOf(account)
+    if (!signedIn) return { detail: 'Not signed in' }
+    return { detail: plan ? `${capitalized(plan)} plan` : 'Signed in' }
   },
   accountDetail: (account, runsAgent) => {
     const { signedIn, email } = claudeOf(account)

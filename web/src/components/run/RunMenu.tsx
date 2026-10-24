@@ -17,7 +17,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 're
 import { createPortal } from 'react-dom'
 import type { RunSummary } from '@shared/types.ts'
 import { dialog } from '@/components/common/Dialog'
-import { reportError } from '@/components/common/Toasts'
+import { reportError, withProgress } from '@/components/common/Toasts'
 import { Button } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { useClickOutside } from '@/lib/hooks'
@@ -25,7 +25,7 @@ import { useLayer } from '@/lib/layers'
 import { go, href } from '@/lib/route'
 import { HOUR_MS, MINUTE_MS, shortSpan, timeWithDay } from '@/lib/time'
 import { cn } from '@/lib/cn'
-import { refreshRuns, setPinned, setSettled, setSnoozed, WORKING } from '@/lib/runs'
+import { refreshRuns, removeLocally, setPinned, setSettled, setSnoozed, WORKING } from '@/lib/runs'
 
 const MORNING_HOUR = 9
 const MONDAY = 1
@@ -163,9 +163,14 @@ async function deleteThread(id: string, working: boolean): Promise<void> {
   })
   if (!ok) return
 
-  await api.deleteRun(id)
-  await refreshRuns()
+  removeLocally(id)
   if (window.location.hash === href({ page: 'thread', id })) go({ page: 'home' })
+
+  try {
+    await api.deleteRun(id)
+  } finally {
+    await refreshRuns()
+  }
 }
 
 function SnoozePanel({ onPick }: { onPick: (until: number) => void }) {
@@ -343,10 +348,12 @@ export function RunMenu({
                 label="Regenerate title"
                 onHover={() => setSnoozing(false)}
                 onClick={() =>
-                  act(async () => {
-                    await api.retitleRun(run.id)
-                    await refreshRuns()
-                  })
+                  act(() =>
+                    withProgress('Writing a new title', async () => {
+                      await api.retitleRun(run.id)
+                      await refreshRuns()
+                    }),
+                  )
                 }
               />
               {inRow ? null : (
@@ -371,11 +378,13 @@ export function RunMenu({
                   hint={WORKING.has(run.status) ? 'Working' : undefined}
                   onHover={() => setSnoozing(false)}
                   onClick={() =>
-                    act(async () => {
-                      const { id } = await api.continueRun(run.id)
-                      await refreshRuns()
-                      go({ page: 'thread', id })
-                    })
+                    act(() =>
+                      withProgress('Summarizing this thread for the new one', async () => {
+                        const { id } = await api.continueRun(run.id)
+                        await refreshRuns()
+                        go({ page: 'thread', id })
+                      }),
+                    )
                   }
                 />
               )}

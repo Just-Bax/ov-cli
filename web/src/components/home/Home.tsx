@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { AccessPicker, accessMode } from '@/components/composer/AccessPicker'
 import { Composer } from '@/components/composer/Composer'
 import { InstancePicker } from '@/components/composer/InstancePicker'
-import { Page } from '@/components/common/ui'
+import { Button, Page } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { DRAFT_EVENT, takeDraft } from '@/lib/draft'
 import { useWindowEvent } from '@/lib/hooks'
@@ -11,9 +11,11 @@ import { useInstances } from '@/lib/instances'
 import { cn } from '@/lib/cn'
 import { prefersReducedMotion } from '@/lib/motion'
 import { go } from '@/lib/route'
+import { PROVIDER_BRANDS } from '@/lib/providerBrand'
 import { refreshRuns } from '@/lib/runs'
+import { providerStatus, useSettings } from '@/lib/settings'
 
-const WORDS = ['troubleshooting', 'investigating', 'configuring', 'automating', 'fixing']
+const WORDS = ['investigating', 'configuring', 'building', 'automating', 'fixing']
 const WORD_MS = 4500
 const FADE_MS = 500
 const NOON_HOUR = 12
@@ -59,6 +61,26 @@ type Choices = { instance?: string; access?: Access }
 function loadChoices(): Choices {
   const raw = localStorage.getItem(CHOICES_KEY)
   return raw ? (JSON.parse(raw) as Choices) : {}
+}
+
+function ProviderNotice() {
+  const { settings, providers } = useSettings()
+  const current = providerStatus(providers, settings.provider)
+  if (current.account.signedIn && settings.defaultModel) return null
+
+  const name = PROVIDER_BRANDS[current.id].name
+  const missing = current.account.signedIn ? 'has no main model picked' : 'is not set up yet'
+
+  return (
+    <div className="bg-warn-soft text-fg mb-4 flex items-center gap-3 rounded-2xl px-4 py-3 text-[12.5px]">
+      <span className="flex-1">
+        {name} {missing}, so new threads cannot start.
+      </span>
+      <Button size="sm" variant="primary" onClick={() => go({ page: 'settings' })}>
+        Open Settings
+      </Button>
+    </div>
+  )
 }
 
 export function Home() {
@@ -114,12 +136,13 @@ export function Home() {
           <h1 className="text-fg mb-6 text-center text-[26px] font-semibold tracking-tight">
             {greeting()}. What are we <RotatingWord />?
           </h1>
+          <ProviderNotice />
           <Composer
             autoFocus
             size="lg"
             allowFiles
             busy={starting}
-            placeholder="Case number or trackor link, or describe the problem and paste errors"
+            placeholder="Ask about an instance, describe a problem, or paste a case number or errors"
             onSend={submit}
             draft={draft}
             draftKey="new-run"

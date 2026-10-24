@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from ov.agent.integrations import datadog
+from ov.agent.integrations.datadog import connection
 
 from .sessions import BASE_URL, seed_session
 
@@ -140,7 +141,7 @@ class FakeDatadog:
 
 def install_fake_datadog(monkeypatch) -> FakeDatadog:
     dd = FakeDatadog()
-    monkeypatch.setattr(datadog, "TRANSPORT", httpx.MockTransport(dd.handler))
+    monkeypatch.setattr(connection, "TRANSPORT", httpx.MockTransport(dd.handler))
     datadog.clear_caches()
     return dd
 

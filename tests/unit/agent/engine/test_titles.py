@@ -8,7 +8,7 @@ from ov.agent.storage import db
 
 
 def test_titles_are_cleaned_and_kept_short():
-    from ov.agent.engine.run import TITLE_CHARS, clean_title, short_title
+    from ov.agent.engine.run_titles import TITLE_CHARS, clean_title, short_title
 
     assert clean_title('Title: "Kafka staging backlog on dev-lumen."\nmore') == "Kafka staging backlog on dev-lumen"
     assert clean_title("**Rule queue**") == "Rule queue"
@@ -29,7 +29,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
     def fake_chat(*args, cancel, on_text, **_):
         return StreamResult(text="Done.")
 
-    def fake_complete(model, system, user_text, max_tokens=200):
+    def fake_complete(model, system, user_text, max_tokens, read_timeout):
         seen.append(model)
         return '"Tag listing question."', Usage(tokens={"input": 50, "output": 4}, nano=30_000_000)
 
@@ -37,7 +37,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
     monkeypatch.setattr("ov.agent.integrations.copilot.complete", fake_complete)
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create(
         {"access": "read", "prompt": "what tags are there on this instance?", "instance": "acme"},
@@ -57,7 +57,7 @@ def test_a_fast_model_names_the_run(logged_in, monkeypatch):
 
 
 def test_a_copilot_thread_needs_a_fast_model(logged_in, monkeypatch):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
     from ov.agent.integrations.copilot import CopilotError
     from ov.agent.providers.copilot import NO_FAST_MODEL
 
@@ -71,7 +71,7 @@ def test_a_copilot_thread_needs_a_fast_model(logged_in, monkeypatch):
 
 
 def test_only_the_preloaded_case_names_the_thread(logged_in, monkeypatch):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
     from ov.agent.storage.models import Access
 
     bundles = {

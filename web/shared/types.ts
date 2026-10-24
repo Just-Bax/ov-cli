@@ -51,6 +51,8 @@ export interface ToolActivity {
   lazy?: boolean
 }
 
+export type ToolUpdate = Pick<ToolActivity, 'id'> & Partial<ToolActivity>
+
 export interface FileEdit {
   id: string
   toolId: string
@@ -79,6 +81,54 @@ export interface Change {
   why: string
   how: string
 }
+
+export type GridColumnType = 'text' | 'number' | 'date' | 'link' | 'trackor' | 'status' | 'change'
+
+export interface GridColumn {
+  key: string
+  label: string
+  type: GridColumnType
+  href?: string
+  idKey?: string
+}
+
+export interface CellChange {
+  before: unknown
+  after: unknown
+}
+
+export type GridRow = Record<string, unknown>
+
+export type DataChangeState = 'proposed' | 'running' | 'done' | 'rejected' | 'blocked' | 'stopped'
+
+export interface DataChange {
+  state: DataChangeState
+  trackorType: string
+  fields: string[]
+  total: number
+  done: number
+  updated: number
+  failed: number
+  unchanged: number
+  revertOf?: string
+}
+
+export interface Grid {
+  id: string
+  title: string
+  instance?: string
+  baseUrl?: string
+  columns: GridColumn[]
+  rows: GridRow[]
+  total: number
+  ranAt: number
+  source?: { kind: 'sql' | 'ov' }
+  loading?: boolean
+  error?: string | null
+  change?: DataChange
+}
+
+export type GridUpdate = Pick<Grid, 'id'> & Partial<Grid>
 
 export type Verdict = 'fix' | 'fixed' | 'user_action' | 'expected' | 'info' | 'unknown'
 
@@ -161,6 +211,7 @@ export interface ChatMessage {
   files?: MessageFile[]
   steer?: boolean
   links?: MessageLinks
+  reasoning?: string
 }
 
 export interface MessageLinks {
@@ -185,7 +236,7 @@ export interface ContextUsage {
   compactAt?: number
 }
 
-type RunEvent =
+export type RunEvent =
   | { type: 'status'; status: RunStatus; error?: string }
   | {
       type: 'meta'
@@ -196,11 +247,20 @@ type RunEvent =
       continuedFrom?: ThreadLink
       continuedIn?: ThreadLink
     }
-  | { type: 'tool'; tool: ToolActivity }
+  | { type: 'tool'; tool: ToolUpdate }
   | { type: 'text'; messageId: string; delta: string }
-  | { type: 'message'; messageId: string; text: string; ts?: number; links?: MessageLinks }
+  | { type: 'reasoning'; messageId: string; delta: string }
+  | {
+      type: 'message'
+      messageId: string
+      text: string
+      ts?: number
+      links?: MessageLinks
+      reasoning?: string
+    }
   | { type: 'user'; message: ChatMessage }
   | { type: 'change'; change: Change }
+  | { type: 'grid'; grid: GridUpdate }
   | { type: 'edit'; edit: FileEdit }
   | { type: 'outcome'; outcome: Outcome }
   | { type: 'question'; question: Question }
@@ -215,9 +275,9 @@ type RunEvent =
   | { type: 'compact'; compact: Compaction }
   | { type: 'context'; context: ContextUsage }
 
-export type Provider = 'copilot' | 'claude'
+export type Provider = 'copilot' | 'claude' | 'openai'
 
-export type CostUnit = 'credits' | 'usd'
+export type CostUnit = 'credits' | 'usd' | 'tokens'
 
 export interface CostTotal {
   amount: number
@@ -246,7 +306,13 @@ export interface CopilotUser {
   user?: string | null
 }
 
-export type ProviderAccount = ClaudeAccount | CopilotUser
+export interface OpenAIAccount {
+  signedIn: boolean
+  baseUrl: string | null
+  hasKey: boolean
+}
+
+export type ProviderAccount = ClaudeAccount | CopilotUser | OpenAIAccount
 
 export interface ProviderStatus {
   id: Provider
@@ -298,6 +364,7 @@ export interface RunWindow {
   chat: ChatMessage[]
   tools: ToolActivity[]
   changes: Change[]
+  grids: Grid[]
   questions: Question[]
   logins: LoginPrompt[]
   compactions: Compaction[]
@@ -314,6 +381,7 @@ export type ThreadItem =
   | { kind: 'text'; id: string }
   | { kind: 'tool'; id: string }
   | { kind: 'change'; id: string }
+  | { kind: 'grid'; id: string }
   | { kind: 'question'; id: string }
   | { kind: 'login'; id: string }
   | { kind: 'outcome'; id: string }
@@ -411,11 +479,28 @@ export interface ModelInfo {
   reasoning: ReasoningLevel[]
   description?: string
   contextWindow?: number | null
+  reportedWindow?: number | null
 }
 
 export type FollowUp = 'steer' | 'queue'
 
 export type ReasoningLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+export type PlatformEdition = 'STANDARD' | 'ENTERPRISE' | 'PREMIUM' | 'AI_ENABLED'
+
+export interface InstanceAccess {
+  checking: boolean
+  error?: string
+  checkedAt?: number
+  version?: string | null
+  edition?: PlatformEdition | null
+  testSql?: boolean
+  export?: boolean
+  import?: boolean
+  metadata?: boolean
+  dbSource?: boolean
+  mcp?: boolean
+}
 
 export interface Instance {
   alias: string
@@ -426,6 +511,7 @@ export interface Instance {
   expires?: string
   valid: boolean
   mode: 'session' | 'token' | 'remembered'
+  access: InstanceAccess
 }
 
 export interface Status {
@@ -470,10 +556,13 @@ export interface GraphEdge {
   code?: boolean
 }
 
+export type GraphSource = 'sql' | 'export'
+
 export interface InstanceGraph {
   instance: string
   host: string
   builtAt: number
+  source?: GraphSource
   warnings: string[]
   nodes: GraphNode[]
   edges: GraphEdge[]
@@ -486,6 +575,7 @@ export interface GraphStatus {
   builtAt?: number
   nodes?: number
   edges?: number
+  source?: GraphSource | null
 }
 
 export interface CodeHint {

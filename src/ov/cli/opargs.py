@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Any
 
 import httpx
 
 from ov.cli.context import Context
 from ov.cli.output import console, emit, emit_payload, note, rows_from
+from ov.cli.waiting import status_operation, wait_for_run
 from ov.core.errors import OvError
 from ov.onevizion.invoke import RequestPlan, build_plan, dest_name, flag_name
 from ov.onevizion.service import payload_of
@@ -16,6 +18,11 @@ from ov.onevizion.spec import Operation, Param
 def add_invocation_flags(parser: argparse.ArgumentParser, with_path: bool = True) -> None:
     if with_path:
         parser.add_argument("-p", "--param", action="append", metavar="NAME=VALUE", help="path parameter")
+        parser.add_argument(
+            "--wait",
+            action="store_true",
+            help="for an operation that starts a run, follow the run until it finishes and print the final status",
+        )
     parser.add_argument("-q", "--query", action="append", metavar="NAME=VALUE", help="query parameter")
     parser.add_argument("-H", "--header", action="append", metavar="NAME:VALUE", help="request header")
     parser.add_argument(
@@ -95,6 +102,9 @@ def run_operation(ctx: Context, operation: Operation) -> int:
         return 0
 
     destination = ctx.out_path()
+    if getattr(ctx.args, "wait", False):
+        return _run_and_wait(ctx, operation, plan, destination)
+
     if destination is None:
         return emit_response(ctx, ctx.service.run(plan))
 
@@ -107,6 +117,16 @@ def run_operation(ctx: Context, operation: Operation) -> int:
     )
 
     return 0
+
+
+def _run_and_wait(ctx: Context, operation: Operation, plan: RequestPlan, destination: Path | None) -> int:
+    if destination is not None:
+        raise OvError("--wait prints the finished run; it cannot be combined with --out.")
+
+    status_op = status_operation(ctx, operation)
+    run, code = wait_for_run(ctx, status_op, payload_of(ctx.service.run(plan)))
+    emit_payload(ctx, run)
+    return code
 
 
 def emit_response(ctx: Context, response: httpx.Response) -> int:

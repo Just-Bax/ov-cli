@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ov.agent.engine import compaction
 from ov.agent.engine.browser_runner import (
@@ -16,7 +17,8 @@ from ov.agent.engine.browser_runner import (
 from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.conversation import answered
 from ov.agent.engine.prompt import system_prompt
-from ov.agent.integrations import copilot
+from ov.agent.integrations.chat_completions import StreamResult, ignore
+from ov.agent.integrations.common import Usage
 from ov.agent.providers.base import ContextLimits, Initiator
 from ov.agent.storage import db
 from ov.agent.storage.models import UsageKind
@@ -39,8 +41,33 @@ class CompactionError(Exception):
     pass
 
 
-def limits(model: str) -> ContextLimits:
-    window, prompt, output = copilot.token_limits(model)
+class ChatBackend(Protocol):
+    def stream_chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        initiator: str,
+        *,
+        cancel: Cancel,
+        on_text: Callable[[str], None],
+        on_reasoning: Callable[[str], None] = ignore,
+        reasoning: str | None = None,
+    ) -> StreamResult: ...
+
+    def complete(
+        self, model: str, system: str, user_text: str, max_tokens: int, read_timeout: float
+    ) -> tuple[str, Usage | None]: ...
+
+    def token_limits(self, model: str) -> tuple[int, int, int]: ...
+
+    def supports_vision(self, model: str) -> bool: ...
+
+    def reasoning_for(self, model: str, wanted: str) -> str | None: ...
+
+
+def limits(backend: ChatBackend, model: str) -> ContextLimits:
+    window, prompt, output = backend.token_limits(model)
     return ContextLimits(window=window, prompt=prompt, output=output)
 
 
@@ -62,16 +89,16 @@ def has_context(run: Run) -> bool:
     return len(run.messages) >= MIN_COMPACTABLE_MESSAGES
 
 
-def run_turn(run: Run, initiator: Initiator) -> None:
+def run_turn(backend: ChatBackend, run: Run, initiator: Initiator) -> None:
     model = run.model
     max_steps = int(db.get_preferences()["maxSteps"])
-    run.vision = copilot.supports_vision(model)
+    run.vision = backend.supports_vision(model)
     run.finished = False
     nudged = False
 
     for step in range(max_steps):
-        _prepare_step(run, model)
-        calls = _ask_model(run, model, initiator if step == 0 else Initiator.AGENT)
+        _prepare_step(backend, run, model)
+        calls = _ask_model(backend, run, model, initiator if step == 0 else Initiator.AGENT)
         if calls:
             _run_tools(run, calls)
             if run.finished and not run.has_news():
@@ -83,16 +110,16 @@ def run_turn(run: Run, initiator: Initiator) -> None:
             break
 
 
-def _prepare_step(run: Run, model: str) -> None:
+def _prepare_step(backend: ChatBackend, run: Run, model: str) -> None:
     run.cancel.check()
     if run.messages and run.messages[0]["role"] == "system":
         run.messages[0] = {"role": "system", "content": system_prompt(run.access, run.instance)}
-    if run.context_tokens and run.context_tokens >= limits(model).compact_at:
-        summarize(run, model, "auto")
+    if run.context_tokens and run.context_tokens >= limits(backend, model).compact_at:
+        summarize(backend, run, model, "auto")
     run.take_input()
 
 
-def _ask_model(run: Run, model: str, initiator: Initiator) -> list[dict[str, Any]]:
+def _ask_model(backend: ChatBackend, run: Run, model: str, initiator: Initiator) -> list[dict[str, Any]]:
     message_id = run.new_message_id()
     run.messages = answered(run.messages)
     for message in run.messages:
@@ -100,14 +127,15 @@ def _ask_model(run: Run, model: str, initiator: Initiator) -> list[dict[str, Any
             message["tool_calls"] = repaired(message["tool_calls"])
 
     try:
-        result = copilot.stream_chat(
+        result = backend.stream_chat(
             model,
             run.messages,
             tool_specs(run.can_write()),
             initiator,
             cancel=run.cancel,
             on_text=lambda delta: run.stream_text(message_id, delta),
-            reasoning=copilot.reasoning_for(model, db.get_preferences()["reasoning"]),
+            on_reasoning=lambda delta: run.stream_reasoning(message_id, delta),
+            reasoning=backend.reasoning_for(model, db.get_preferences()["reasoning"]),
         )
     finally:
         run.commit_text(message_id)
@@ -115,7 +143,7 @@ def _ask_model(run: Run, model: str, initiator: Initiator) -> list[dict[str, Any
     run.record_usage(model, UsageKind.TURN if initiator == Initiator.USER else UsageKind.STEP, result.usage)
     if result.usage is not None:
         run.context_tokens = sum(result.usage.tokens.get(kind, 0) for kind in CONTEXT_TOKEN_KINDS)
-        known = limits(model)
+        known = limits(backend, model)
         run.record_context(run.context_tokens, known.prompt, known.compact_at)
 
     reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}
@@ -144,15 +172,16 @@ def _run_tools(run: Run, calls: list[dict[str, Any]]) -> None:
     run.persist()
 
 
-def summarize(run: Run, model: str, trigger: str) -> None:
-    known = limits(model)
+def summarize(backend: ChatBackend, run: Run, model: str, trigger: str) -> None:
+    known = limits(backend, model)
     cut = compaction.cut_point(run.messages, int(known.compact_at * compaction.KEEP_RECENT_SHARE))
     if cut is None:
         raise CompactionError(NOTHING_TO_COMPACT)
 
     run.compaction_started(trigger)
-    before = run.context_tokens or compaction.estimate_tokens(run.messages)
-    summary, usage = copilot.complete(
+    tools = tool_specs(run.can_write())
+    before = run.context_tokens or compaction.estimate_tokens(run.messages, tools)
+    summary, usage = backend.complete(
         model,
         compaction.SUMMARY_PROMPT,
         compaction.transcript(run.messages[1:cut]),
@@ -166,16 +195,12 @@ def summarize(run: Run, model: str, trigger: str) -> None:
     run.messages = compaction.rebuilt(run.messages, cut, summary)
     run.turns = {turn: index - cut + 2 for turn, index in run.turns.items() if index >= cut}
     run.persist()
-    run.context_tokens = compaction.estimate_tokens(run.messages)
+    run.context_tokens = compaction.estimate_tokens(run.messages, tools)
     run.compaction_finished(trigger, before, run.context_tokens)
     run.record_context(run.context_tokens, known.prompt, known.compact_at)
 
 
-def _ignore(_: str) -> None:
-    return None
-
-
-def drive_browser(run: Run, model: str, goal: str, cancel: Cancel) -> str:
+def drive_browser(backend: ChatBackend, run: Run, model: str, goal: str, cancel: Cancel) -> str:
     specs = [t.spec for t in HANDS]
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": RUNNER_PROMPT},
@@ -186,7 +211,7 @@ def drive_browser(run: Run, model: str, goal: str, cancel: Cancel) -> str:
         cancel.check()
         drop_old_pages(messages)
 
-        result = copilot.stream_chat(model, messages, specs, Initiator.AGENT, cancel=cancel, on_text=_ignore)
+        result = backend.stream_chat(model, messages, specs, Initiator.AGENT, cancel=cancel, on_text=ignore)
         run.record_step_usage(model, result.usage)
 
         reply: dict[str, Any] = {"role": "assistant", "content": result.text or None}

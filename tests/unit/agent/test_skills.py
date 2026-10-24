@@ -7,13 +7,14 @@ from ov.agent import skills
 
 def test_bundled_skills_are_read_only_and_clone_into_custom_ones():
     names = [s["name"] for s in skills.list_skills()]
-    assert names[:11] == [
+    assert names[:12] == [
         "working-style",
         "onevizion-basics",
         "ov-cli",
         "workspace",
         "onevizion-reference",
         "plsql-best-practices",
+        "external-widgets",
         "oneteam-basics",
         "issue-lifecycle",
         "tce-best-practices",

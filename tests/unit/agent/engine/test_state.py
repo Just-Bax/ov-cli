@@ -100,3 +100,22 @@ def test_a_thread_is_searched_across_messages_changes_and_questions():
     assert state.search(s, "RULE") == [0, 1, 4]
     assert state.search(s, "instance") == [3]
     assert state.search(s, "nothing here") == []
+
+
+def test_streamed_reasoning_is_kept_on_the_message_it_belongs_to():
+    s = state.empty_state({"id": "r1", "status": "queued"}, {"prompt": "hi"})
+    events = [
+        {"type": "reasoning", "messageId": "a1", "delta": "Check "},
+        {"type": "reasoning", "messageId": "a1", "delta": "tags."},
+        {"type": "text", "messageId": "a1", "delta": "Two."},
+        {"type": "message", "messageId": "a2", "text": "", "ts": 5, "reasoning": "Only thought."},
+    ]
+
+    for seq, event in enumerate(events):
+        state.reduce(s, {"seq": seq, "ts": seq, "event": event})
+
+    assert [(m["id"], m["text"], m["reasoning"]) for m in s["chat"]] == [
+        ("a1", "Two.", "Check tags."),
+        ("a2", "", "Only thought."),
+    ]
+    assert [i["id"] for i in s["items"]] == ["a1", "a2"]

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 from ov.agent.engine.cancel import Cancel
@@ -10,6 +12,23 @@ from ov.agent.instances.ovproc import run_ov
 EXPORT_PATH = "/v3/components/exports/run"
 EXPORT_TIMEOUT_SECONDS = 600
 ERROR_CHARS = 400
+ITEM_DEPTH = 3
+SECTION_NAME_TAGS = ("STEP_NAME", "ENTITY_NAME", "DATA_MAP_NAME", "SQL_NAME")
+CODE_TAGS = {
+    "SQL_TEXT": "SQL",
+    "PLSQL_BLOCK": "PL/SQL",
+    "SQL_QUERY": "SQL",
+    "DEFAULT_VALUE_SQL": "Default value SQL",
+    "TRACKOR_SQL": "Trackor SQL",
+    "USER_SQL": "User SQL",
+    "SQL_SEND_TO": "Send-to SQL",
+    "FILTER_SQL": "Filter SQL",
+    "FORMULA_UI": "Formula",
+    "EXTERNAL_PROC": "External procedure",
+    "LOOKUP_SQL": "Lookup SQL",
+    "DB_PACKAGE_SPEC": "Spec",
+    "DB_PACKAGE_BODY": "Body",
+}
 TYPES = (
     "DB_PACKAGE",
     "RULE",
@@ -103,6 +122,49 @@ def export(alias: str, component_type: str, ids: list[int] | None, cancel: Cance
     if result.code != 0:
         raise ExportError(result.message[:ERROR_CHARS] or f"Component export exited {result.code}")
     return items(result.stdout)
+
+
+def export_to_file(alias: str, component_type: str, destination: Path, cancel: Cancel) -> None:
+    result = run_ov(
+        ["-i", alias, *request_args(component_type, None), "--out", str(destination)],
+        timeout=EXPORT_TIMEOUT_SECONDS,
+        cancel=cancel,
+    )
+    cancel.check()
+    if result.code != 0:
+        raise ExportError(result.message[:ERROR_CHARS] or f"Component export exited {result.code}")
+
+
+def streamed_items(path: Path) -> Iterator[ET.Element]:
+    depth = 0
+    for event, element in ET.iterparse(path, events=("start", "end")):
+        if event == "start":
+            depth += 1
+            continue
+
+        if depth == ITEM_DEPTH:
+            yield element
+            element.clear()
+        depth -= 1
+
+
+def text_of(item: ET.Element, tag: str) -> str:
+    return (item.findtext(tag) or "").strip()
+
+
+def _sections(element: ET.Element, owner: str) -> Iterator[dict[str, str]]:
+    name = next((text_of(element, tag) for tag in SECTION_NAME_TAGS if text_of(element, tag)), owner)
+    for child in element:
+        code = child.text or ""
+        if len(child):
+            yield from _sections(child, name)
+        elif child.tag in CODE_TAGS and code.strip():
+            label = CODE_TAGS[child.tag]
+            yield {"title": f"{name}: {label}" if name else label, "code": code}
+
+
+def code_sections(item: ET.Element) -> list[dict[str, str]]:
+    return list(_sections(item, ""))
 
 
 def _selection(entry: dict[str, Any]) -> dict[str, Any]:

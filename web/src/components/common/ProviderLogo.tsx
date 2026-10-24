@@ -13,7 +13,9 @@ export function ProviderLogo({ provider, className }: { provider: Provider; clas
       className={cn('size-4 shrink-0', brand.color, className)}
       fill="currentColor"
     >
-      <path d={brand.path} />
+      {brand.marks.map((mark) => (
+        <path key={mark.path} d={mark.path} className={mark.color} fill="currentColor" />
+      ))}
     </svg>
   )
 }
@@ -28,7 +30,7 @@ export function ProviderBubble({
   return (
     <span
       className={cn(
-        'flex shrink-0 items-center justify-center',
+        'flex shrink-0 items-center justify-center rounded-full',
         PROVIDER_BRANDS[provider].bubble,
         className,
       )}

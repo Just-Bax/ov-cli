@@ -9,7 +9,7 @@ import {
   Trash as TrashIcon,
 } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
-import type { ModelInfo, Provider, ReasoningLevel, SkillInfo, Status } from '@shared/types.ts'
+import type { SkillInfo, Status } from '@shared/types.ts'
 import { dialog } from '@/components/common/Dialog'
 import { reportError } from '@/components/common/Toasts'
 import {
@@ -21,7 +21,6 @@ import {
   Label,
   Page,
   Segmented,
-  Select,
   Skeleton,
   SkeletonText,
   SWITCH_TRACK,
@@ -35,9 +34,11 @@ import {
   usePagerDuty,
 } from '@/components/integrations/PagerDuty'
 import { AccountRow } from '@/components/integrations/parts'
-import { PROVIDER_UI, providerReady, providerSummary } from '@/components/providers'
+import { PROVIDER_UI } from '@/components/providers'
 import { CostSettings } from '@/components/settings/CostSettings'
-import { ProviderSelect, ProviderSetup } from '@/components/settings/Providers'
+import { AccessLine } from '@/components/settings/AccessLine'
+import { ProviderSettings } from '@/components/settings/ProviderSettings'
+import { Row } from '@/components/settings/Row'
 import {
   AddInstanceForm,
   SignInModal,
@@ -49,7 +50,6 @@ import { allowNotifications, notificationsBlocked, notificationsSupported } from
 import { cn } from '@/lib/cn'
 import { useLoad } from '@/lib/hooks'
 import { useInstances } from '@/lib/instances'
-import { useModels } from '@/lib/models'
 import { PROVIDER_BRANDS } from '@/lib/providerBrand'
 import { useSettings } from '@/lib/settings'
 import { UnsavedGuard, useUnsavedWarning } from '@/lib/unsaved'
@@ -82,76 +82,9 @@ const BLOCKED_HINT =
 const NEW = '__new__'
 const EMPTY_DRAFT = { title: '', description: '', content: '' }
 
-const REASONING: { value: ReasoningLevel | ''; label: string }[] = [
-  { value: '', label: 'Auto' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'max', label: 'Max' },
-]
-
-function reasoningHint(levels: ReasoningLevel[] | undefined, wanted: ReasoningLevel | ''): string {
-  const base = 'How long models think before answering. Higher is slower and costs more.'
-  if (levels && !levels.length) return `${base} Your main model has no levels.`
-  if (levels && wanted && !levels.includes(wanted))
-    return `${base} Your main model uses the nearest one it has.`
-  return base
-}
-
-const MODEL_FIELD = 'w-[260px]'
-
-function ModelSelect({
-  models,
-  value,
-  placeholder,
-  onChange,
-}: {
-  models: ModelInfo[] | undefined
-  value: string
-  placeholder: string
-  onChange: (value: string) => void
-}) {
-  if (!models) return <Skeleton className={cn(MODEL_FIELD, 'h-9 rounded-full')} />
-
-  return (
-    <Select
-      className={MODEL_FIELD}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      options={models.map((m) => ({ value: m.id, label: m.name }))}
-    />
-  )
-}
-
-function Row({
-  title,
-  hint,
-  children,
-}: {
-  title: string
-  hint: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
-      <div className="min-w-[240px] flex-1">
-        <div className="text-fg text-[13.5px] font-medium">{title}</div>
-        <div className="text-muted mt-0.5 text-[12px] leading-relaxed">{hint}</div>
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  )
-}
-
-function Preferences({ status, onChange }: { status?: Status; onChange: () => void }) {
-  const { settings, providers, update } = useSettings()
-  const models = useModels(settings.provider)
+function Preferences() {
+  const { settings, update } = useSettings()
   const [advanced, setAdvanced] = useState(false)
-
-  const pickProvider = (provider: Provider) => {
-    update({ provider }).then(onChange, reportError)
-  }
 
   const toggleNotify = async () => {
     if (settings.notify) return update({ notify: false })
@@ -163,55 +96,6 @@ function Preferences({ status, onChange }: { status?: Status; onChange: () => vo
 
   return (
     <Card className="divide-line divide-y">
-      <Row
-        title="Provider"
-        hint={`${status ? providerSummary(status) : 'Who runs the agent.'} Existing threads keep theirs.`}
-      >
-        <ProviderSelect
-          className="w-[260px]"
-          providers={providers}
-          value={settings.provider}
-          onChange={pickProvider}
-        />
-      </Row>
-      {status && !providerReady(status) ? (
-        <div className="px-5 py-4">
-          <ProviderSetup status={status} onRefresh={onChange} />
-        </div>
-      ) : null}
-      <Row title="Main model" hint="Used for every new thread.">
-        <ModelSelect
-          models={models}
-          value={settings.defaultModel}
-          placeholder="Pick a model"
-          onChange={(v) => void update({ defaultModel: v })}
-        />
-      </Row>
-      <Row
-        title="Reasoning"
-        hint={reasoningHint(
-          models?.find((m) => m.id === settings.defaultModel)?.reasoning,
-          settings.reasoning,
-        )}
-      >
-        <Segmented
-          label="Reasoning"
-          value={settings.reasoning}
-          options={REASONING}
-          onChange={(v) => void update({ reasoning: v })}
-        />
-      </Row>
-      <Row
-        title="Fast model"
-        hint="Writes thread titles, drives the browser and checks every command and change before it runs. Pick a quick, cheap model such as Haiku."
-      >
-        <ModelSelect
-          models={models}
-          value={settings.fastModel}
-          placeholder="Pick a fast model"
-          onChange={(v) => void update({ fastModel: v })}
-        />
-      </Row>
       <Row title="Desktop notifications" hint={notificationsBlocked() ? BLOCKED_HINT : NOTIFY_HINT}>
         <Switch
           on={settings.notify && !notificationsBlocked()}
@@ -289,6 +173,18 @@ function Instances() {
 
   const signedIn = instances?.filter((i) => i.valid).length ?? 0
 
+  const checkAccess = (alias: string) => {
+    setInstances((list) =>
+      list?.map((i) =>
+        i.alias === alias ? { ...i, access: { ...i.access, checking: true, error: undefined } } : i,
+      ),
+    )
+    api.checkAccess(alias).then(setInstances, (e: unknown) => {
+      reportError(e)
+      void reload()
+    })
+  }
+
   return (
     <Card className="overflow-hidden">
       <div className="border-line flex items-center gap-2 border-b px-5 py-2.5">
@@ -307,7 +203,7 @@ function Instances() {
           </span>
         ) : null}
       </div>
-      <div className="divide-line max-h-[320px] scrollbar-thin divide-y overflow-y-auto">
+      <div className="divide-line max-h-[420px] scrollbar-thin divide-y overflow-y-auto">
         {!instances
           ? [0, 1, 2].map((i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-3">
@@ -329,10 +225,16 @@ function Instances() {
 
               return (
                 <div key={i.alias} className="flex items-center gap-2.5 px-5 py-2.5">
-                  <span className="text-fg min-w-0 truncate text-[13px] font-medium">{i.host}</span>
-                  {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
-                  {i.mode === 'token' ? <Chip tone="neutral">API token</Chip> : null}
-                  <div className="flex-1" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="text-fg min-w-0 truncate text-[13px] font-medium">
+                        {i.host}
+                      </span>
+                      {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
+                      {i.mode === 'token' ? <Chip tone="neutral">API token</Chip> : null}
+                    </div>
+                    <AccessLine instance={i} onCheck={() => checkAccess(i.alias)} />
+                  </div>
                   <Chip tone={i.valid ? 'ok' : 'neutral'}>{i.valid ? 'Signed in' : 'Expired'}</Chip>
                   <Button
                     size="sm"
@@ -356,9 +258,11 @@ function Instances() {
                       })
                       if (!ok) return
 
+                      setInstances((list) => list?.filter((x) => x.alias !== i.alias))
                       try {
                         setInstances(await api.removeInstance(i.alias))
                       } catch (e) {
+                        void reload()
                         await dialog.alert('Could not remove it', (e as Error).message)
                       }
                     }}
@@ -812,8 +716,8 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
       title="Settings"
       subtitle={
         <span>
-          Profile, defaults, instances, workspace, integrations, skills, cost and accounts. Stored
-          on this machine.
+          Profile, provider, preferences, instances, workspace, integrations, skills, cost and
+          accounts. Stored on this machine.
         </span>
       }
     >
@@ -825,14 +729,20 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           <Profile />
         </Section>
         <Section
-          title="Preferences"
-          hint="How threads start and what you see. Saved as you change them."
+          title="Provider"
+          hint="Who runs the agent, its account and its models. Saved as you change them."
         >
-          <Preferences status={status} onChange={changed} />
+          <ProviderSettings onChange={changed} />
+        </Section>
+        <Section
+          title="Preferences"
+          hint="What you see and how far threads go. Saved as you change them."
+        >
+          <Preferences />
         </Section>
         <Section
           title="Instances"
-          hint="OneVizion instances signed in with ov. The agent only reads from them unless you allow changes in a thread."
+          hint="OneVizion instances signed in with ov, and what your account can use on each. The agent picks its sources from that, and only reads unless you allow changes in a thread."
         >
           <Instances />
         </Section>

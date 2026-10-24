@@ -4,13 +4,15 @@ import json
 import re
 import shutil
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from ov.agent import workspace
+from ov.agent.engine.cases import TRACKOR_HOST, WEBSITE_FIELD
 from ov.agent.engine.files import within
-from ov.agent.instances import components, graph
+from ov.agent.instances import access, components, graph
 from ov.agent.instances.ovproc import OvResult, find_instance, host_of, instances, run_ov, url_for
 from ov.agent.tools.base import (
     SECRET_JSON,
@@ -26,7 +28,7 @@ from ov.agent.tools.base import (
     string_param,
     strings_param,
 )
-from ov.core.errors import EXIT_READ_ONLY
+from ov.core.errors import EXIT_READ_ONLY, SessionExpired
 
 OV_TIMEOUT_SECONDS = 180
 SQL_TIMEOUT_SECONDS = 300
@@ -68,6 +70,12 @@ LABEL_ARGS = 4
 SIGN_IN_ATTEMPTS = 2
 APPLIED = "Applied.\n"
 IMPORT_FILE_PREFIX = "import-"
+NO_TEST_SQL = (
+    "Your account on {instance} has no Test SQL privilege, so SQL cannot run there. Read the same facts another "
+    "way: ov_map and ov_export for configuration and code, ov_ddl for platform tables and packages, and API calls "
+    "through ov for data and run logs."
+)
+MAP_SOURCES = {"sql": " from Test SQL", "export": " from component exports and the API"}
 
 BLOCKED_COMMANDS = {"login", "logout", "use", "config", "setup", "spec", "tenants", "agent", "ui"}
 CONFINED_FLAGS = ("--out", "--file", "--data")
@@ -109,7 +117,7 @@ def _output(result: OvResult) -> str:
     return body or "(empty response)"
 
 
-def _target(instance: str | None, ctx: ToolContext) -> str:
+def target_instance(instance: str | None, ctx: ToolContext) -> str:
     target = (instance or ctx.instance).strip()
     if target:
         return target
@@ -122,7 +130,7 @@ def _target(instance: str | None, ctx: ToolContext) -> str:
     return ctx.ask_user([item])[0].strip()
 
 
-def _alias_for(target: str, ctx: ToolContext) -> tuple[str, str, str]:
+def alias_for(target: str, ctx: ToolContext) -> tuple[str, str, str]:
     found = find_instance(target)
     if found is not None:
         return found["alias"], found["host"], found["tenant"] or ""
@@ -134,6 +142,16 @@ def _alias_for(target: str, ctx: ToolContext) -> tuple[str, str, str]:
     if found is None:
         raise ToolError(f"Still no signed-in instance for {target}.")
     return found["alias"], found["host"], found["tenant"] or ""
+
+
+def with_sign_in(signed_in: tuple[str, str, str], ctx: ToolContext, work: Callable[[str], Any]) -> Any:
+    alias, host, tenant = signed_in
+    try:
+        return work(alias)
+    except SessionExpired:
+        if not ctx.require_login(host, tenant):
+            raise ToolError(f"The session for {alias} expired and the user skipped sign-in.") from None
+        return work(alias)
 
 
 def _quoted(args: list[str]) -> str:
@@ -181,7 +199,7 @@ def _confine_files(args: list[str], ctx: ToolContext) -> list[str]:
     return out
 
 
-def _check_ov_args(args: list[str], allow_sql: bool) -> None:
+def check_ov_args(args: list[str], allow_sql: bool) -> None:
     if not args:
         raise ToolError("No ov arguments given.")
 
@@ -211,13 +229,13 @@ def run_ov_tool(
     if cleaned[:1] == ["ov"]:
         cleaned.pop(0)
 
-    _check_ov_args(cleaned, allow_sql)
+    check_ov_args(cleaned, allow_sql)
 
     cleaned = _confine_files(cleaned, ctx)
-    target = _target(instance, ctx)
+    target = target_instance(instance, ctx)
 
     for attempt in range(SIGN_IN_ATTEMPTS):
-        alias, host, tenant = _alias_for(target, ctx)
+        alias, host, tenant = alias_for(target, ctx)
         result = run_ov(
             ["-i", alias, *cleaned],
             timeout=timeout,
@@ -283,7 +301,7 @@ def _secret_value(cell: str) -> bool:
     return bool(_SECRET_VALUE.match(cell)) and not cell.isdigit() and not _IDENTIFIER.match(cell)
 
 
-def _masked(columns: list[str], cells: list[Any]) -> list[Any]:
+def masked(columns: list[str], cells: list[Any]) -> list[Any]:
     secret_row = any(_secret_key(c) for c in cells)
     out = []
     for name, cell in zip(columns, cells, strict=True):
@@ -315,7 +333,7 @@ def _format_sql(parsed: dict[str, Any]) -> str:
     rows = parsed["rows"]
     columns = parsed["columns"]
     lines = ["\t".join(columns)]
-    lines += ["\t".join(_sql_cell(c) for c in _masked(columns, row["cells"])) for row in rows]
+    lines += ["\t".join(_sql_cell(c) for c in masked(columns, row["cells"])) for row in rows]
     total = parsed.get("total_rows")
     more = f", {total} total" if total and total > len(rows) else ""
     return f"{len(rows)} rows{more} (tab separated)\n" + "\n".join(lines)
@@ -393,9 +411,16 @@ def _explained(exc: ToolError, query: str, instance: str, ctx: ToolContext) -> T
         return ToolError(f"{message}\n(Looking up the real table and column names also failed: {lookup})")
 
 
+def require_test_sql(target: str) -> None:
+    found = find_instance(target)
+    if found is not None and access.allows(found["alias"], "testSql") is False:
+        raise ToolError(NO_TEST_SQL.format(instance=found["alias"]))
+
+
 def run_sql(raw_query: str, instance: str | None, ctx: ToolContext, rows: int = DEFAULT_SQL_ROWS) -> tuple[str, float]:
     query = _checked_query(raw_query)
-    target = _target(instance, ctx)
+    target = target_instance(instance, ctx)
+    require_test_sql(target)
     started = time.monotonic()
     try:
         table = _format_sql(_sql_request(query, target, rows, ctx))
@@ -517,23 +542,25 @@ def _ov_search(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 def _ov_map(args: dict[str, Any], ctx: ToolContext) -> str:
-    target = _target(args.get("instance"), ctx)
-    found = find_instance(target)
-    if found is None:
-        raise ToolError(f"Not signed in to {target}.")
+    alias, _, _ = alias_for(target_instance(args.get("instance"), ctx), ctx)
+    try:
+        data = graph.load(alias) or graph.build(alias, cancel=ctx.cancel)
+    except graph.GraphError as exc:
+        raise ToolError(str(exc)) from None
 
-    data = graph.load(found["alias"]) or graph.build(found["alias"], cancel=ctx.cancel)
     matches = graph.find(data, str(args["object"]))
     if not matches:
-        return f"Nothing named like {args['object']!r} on the {found['alias']} map."
+        return f"Nothing named like {args['object']!r} on the {alias} map."
 
     if len(matches) > MAP_MAX_MATCHES:
         listed = "\n".join(f"- {m['type']} {m['name']} ({m['ref']})" for m in matches[:MAP_LISTED_MATCHES])
         return f"{len(matches)} matches; pass the exact name or id:\n{listed}"
 
     built = time.strftime("%Y-%m-%d %H:%M", time.localtime(data["builtAt"] / 1000))
+    source = MAP_SOURCES.get(data.get("source") or "", "")
+    warnings = "".join(f"\nNot on this map: {w}" for w in data["warnings"])
     body = "\n\n".join(graph.describe(data, m) for m in matches)
-    return clip(f"Map of {found['alias']} built {built}.\n\n{body}", ctx, "map")
+    return clip(f"Map of {alias} built {built}{source}.{warnings}\n\n{body}", ctx, "map")
 
 
 def _ov_label(a: dict[str, Any]) -> str:
@@ -546,10 +573,10 @@ INSTANCE = string_param("Instance alias or host. Defaults to the run's instance,
 TOOLS = [
     Tool(
         "ov_case",
-        "Read a support case from trackor.onevizion.com: every field, the full chat, and all "
+        f"Read a support case from {TRACKOR_HOST}: every field, the full chat, and all "
         "attachments (saved to the run folder; open each with run_read). Also sets the run's "
-        "instance to the case's affected instance (C_WEBSITE).",
-        {"case": string_param("Case number (e.g. 193915) or a trackor.onevizion.com case link")},
+        f"instance to the case's affected instance ({WEBSITE_FIELD}).",
+        {"case": string_param(f"Case number (e.g. 193915) or a {TRACKOR_HOST} case link")},
         ["case"],
         lambda a: f"Read case {a.get('case')} from trackor",
         lambda a, ctx: clip(ctx.load_case(str(a["case"])), ctx, "case"),

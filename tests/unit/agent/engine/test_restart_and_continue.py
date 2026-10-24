@@ -27,13 +27,14 @@ def _copilot_chat(monkeypatch, *texts: str) -> list[list[dict]]:
 
 
 def _start(prompt: str = "which tags?"):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     return runs.create({"access": "read", "prompt": prompt, "instance": "acme"}, "copilot", "test-model")
 
 
 def test_a_thread_cut_off_by_a_restart_carries_on_by_itself(logged_in, monkeypatch):
-    from ov.agent.engine.run import RESTART_NOTE, runs
+    from ov.agent.engine.run import RESTART_NOTE
+    from ov.agent.engine.run_manager import runs
 
     sent = _copilot_chat(monkeypatch, "Looking.", "Carried on.")
     run = _start()
@@ -58,7 +59,7 @@ def test_a_thread_cut_off_by_a_restart_carries_on_by_itself(logged_in, monkeypat
 
 
 def test_a_finished_thread_is_not_resumed(logged_in, monkeypatch):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     sent = _copilot_chat(monkeypatch, "Done.")
     run = _start()
@@ -72,7 +73,7 @@ def test_a_finished_thread_is_not_resumed(logged_in, monkeypatch):
 
 
 def test_a_thread_continues_in_a_new_one_from_a_summary(logged_in, monkeypatch):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     summarized: list[tuple[str, str]] = []
 
@@ -101,7 +102,8 @@ def test_a_thread_continues_in_a_new_one_from_a_summary(logged_in, monkeypatch):
 
 
 def test_a_busy_or_empty_thread_cannot_be_continued(logged_in, monkeypatch):
-    from ov.agent.engine.run import RunError, runs
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import runs
 
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     run = _start()

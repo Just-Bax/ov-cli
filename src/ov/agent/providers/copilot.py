@@ -1,19 +1,14 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from typing_extensions import override
 
-from ov.agent.engine import compaction
-from ov.agent.engine.cancel import Cancel
 from ov.agent.integrations import copilot
-from ov.agent.integrations.common import Usage
-from ov.agent.providers import copilot_turn
-from ov.agent.providers.base import AgentProvider, CostUnit, Initiator
-
-if TYPE_CHECKING:
-    from ov.agent.engine.run import Run
+from ov.agent.providers import chat_turn
+from ov.agent.providers.base import CostUnit
+from ov.agent.providers.chat import ChatProvider
 
 PREFERRED_MODEL = re.compile(r"^claude-opus-(\d+(?:\.\d+)?)$")
 FAST_MODEL = re.compile(r"^claude-haiku-(\d+(?:\.\d+)?)$")
@@ -31,12 +26,13 @@ def _newest(listed: list[dict[str, Any]], pattern: re.Pattern[str]) -> str:
     return str(max(listed, key=lambda m: _version(pattern, m["id"]))["id"])
 
 
-class CopilotProvider(AgentProvider):
+class CopilotProvider(ChatProvider):
     id = "copilot"
     name = "GitHub Copilot"
     cost_unit = CostUnit.CREDITS
-    cache_ttl_ms = None
-    errors = (copilot.CopilotError, copilot_turn.CompactionError)
+    errors = (copilot.CopilotError, chat_turn.CompactionError)
+    backend = copilot
+    helper_read_timeout = copilot.HTTP_TIMEOUT_SECONDS
 
     @override
     def account(self) -> dict[str, Any]:
@@ -64,49 +60,3 @@ class CopilotProvider(AgentProvider):
         if not chosen:
             raise copilot.CopilotError(NO_FAST_MODEL)
         return chosen
-
-    @override
-    def supports_vision(self, model: str) -> bool:
-        return copilot.supports_vision(model)
-
-    @override
-    def complete(self, model: str, system: str, user_text: str, max_tokens: int) -> tuple[str, Usage | None]:
-        return copilot.complete(model, system, user_text, max_tokens)
-
-    @override
-    def summarize(self, model: str, transcript: str) -> tuple[str, Usage | None]:
-        return copilot.complete(
-            model,
-            compaction.SUMMARY_PROMPT,
-            transcript,
-            compaction.SUMMARY_MAX_TOKENS,
-            copilot_turn.SUMMARY_READ_TIMEOUT_SECONDS,
-        )
-
-    @override
-    def run_turn(self, run: Run, initiator: Initiator) -> None:
-        copilot_turn.run_turn(run, initiator)
-
-    @override
-    def has_context(self, run: Run) -> bool:
-        return copilot_turn.has_context(run)
-
-    @override
-    def compact(self, run: Run) -> None:
-        copilot_turn.summarize(run, run.model, "manual")
-
-    @override
-    def drive_browser(self, run: Run, model: str, goal: str, cancel: Cancel) -> str:
-        return copilot_turn.drive_browser(run, model, goal, cancel)
-
-    @override
-    def retry_anchor(self, run: Run, item_id: str) -> dict[str, Any] | None:
-        return None
-
-    @override
-    def forget_thread(self, events: list[dict[str, Any]], folder: str) -> None:
-        return None
-
-    @override
-    def close(self) -> None:
-        return None

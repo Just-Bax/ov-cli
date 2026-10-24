@@ -16,6 +16,8 @@ from ov.agent.instances.ovproc import find_instance, run_ov
 TRACKOR_HOST = "trackor.onevizion.com"
 FORM_PATH = "/form/ConfigAppForm.do?id="
 CASE_TYPE = "Cases"
+TITLE_FIELD = "C_TITLE"
+WEBSITE_FIELD = "C_WEBSITE"
 FIELD_BATCH = 40
 FETCH_WORKERS = 6
 MAX_FIELD_CHARS = 6000
@@ -219,8 +221,8 @@ def load_case(ref: str, work_dir: Path, cancel: Cancel) -> dict[str, Any]:
         "key": case_key,
         "trackorId": tid,
         "url": form_url(tid),
-        "title": str(row.get("C_TITLE") or ""),
-        "website": str(row["C_WEBSITE"]).strip() if row.get("C_WEBSITE") else None,
+        "title": str(row.get(TITLE_FIELD) or ""),
+        "website": str(row[WEBSITE_FIELD]).strip() if row.get(WEBSITE_FIELD) else None,
         "fields": _field_texts(row, labels),
         "chat": chat,
         "attachments": attachments,
@@ -281,7 +283,7 @@ def render(bundle: dict[str, Any], work_dir: Path) -> str:
     lines = [
         f"# Case {bundle['key']}: {bundle['title']}",
         f"Trackor link: {bundle['url']}",
-        f"Affected instance (C_WEBSITE): {website}"
+        f"Affected instance ({WEBSITE_FIELD}): {website}"
         if website
         else "Affected instance: not set on the case, find it from the text.",
         "",

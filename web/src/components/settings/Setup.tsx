@@ -20,6 +20,10 @@ import { loadModels } from '@/lib/models'
 
 const STEPS = [1, 2, 3]
 
+function choices(names: string[]): string {
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names.join('')
+}
+
 function Step({
   n,
   done,
@@ -116,7 +120,7 @@ function InstanceSignIn({ onDone }: { onDone: () => void }) {
 }
 
 export function Setup({
-  status,
+  status: saved,
   onDone,
   onFinish,
 }: {
@@ -125,9 +129,11 @@ export function Setup({
   onFinish: () => void
 }) {
   const [models, setModels] = useState<ModelInfo[]>()
-  const [model, setModel] = useState(status.settings.defaultModel)
+  const [model, setModel] = useState(saved.settings.defaultModel)
   const [saving, setSaving] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [pending, setPending] = useState<Provider>()
+  const status = pending ? { ...saved, provider: pending } : saved
 
   const providerOk = providerReady(status)
   const instancesOk = status.instances.total > 0
@@ -144,7 +150,13 @@ export function Setup({
   }, [providerOk, status.provider])
 
   const pickProvider = (provider: Provider) => {
-    api.saveSettings({ provider }).then(onDone, reportError)
+    if (provider === status.provider) return
+
+    setPending(provider)
+    api
+      .saveSettings({ provider })
+      .then(onDone, reportError)
+      .finally(() => setPending(undefined))
   }
 
   useEffect(() => setAdding(false), [status.instances.total])
@@ -173,8 +185,9 @@ export function Setup({
           Set up OV Agent
         </h1>
         <p className="text-muted mt-2 text-[14px] leading-relaxed">
-          Troubleshoot OneVizion cases with an agent that reads the case, the instance and the code
-          for you. Everything stays on this computer.
+          Ask about OneVizion instances, investigate problems and cases, and change configuration
+          and data with an agent that reads the instances for you. Everything stays on this
+          computer.
         </p>
 
         <Card className="mt-10 w-full p-7 text-left shadow-[0_12px_40px_rgba(38,50,56,0.08)]">
@@ -206,7 +219,7 @@ export function Setup({
               subtitle={
                 providerOk
                   ? `${PROVIDER_BRANDS[status.provider].name} runs the agent.`
-                  : `${status.providers.map((p) => PROVIDER_BRANDS[p.id].name).join(' or ')}.`
+                  : `${choices(status.providers.map((p) => PROVIDER_BRANDS[p.id].name))}.`
               }
             >
               {current === 1 ? (

@@ -35,7 +35,7 @@ def test_an_unusable_judgement_stops_the_command(reply):
 def test_the_run_judges_each_command_once_and_records_it(logged_in, monkeypatch):
     calls: list[str] = []
 
-    def fake_complete(model, system, user_text, max_tokens=200):
+    def fake_complete(model, system, user_text, max_tokens, read_timeout):
         calls.append(user_text)
         return '{"effect": "change", "reason": "writes build output"}', Usage(tokens={"output": 5}, nano=1)
 
@@ -47,7 +47,7 @@ def test_the_run_judges_each_command_once_and_records_it(logged_in, monkeypatch)
 
     from helpers.agent import wait_done
 
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
     from ov.agent.storage import db
 
     run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")

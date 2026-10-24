@@ -1,4 +1,8 @@
-import { Warning as ExclamationTriangleIcon, X as XMarkIcon } from '@phosphor-icons/react'
+import {
+  CircleNotch as SpinnerIcon,
+  Warning as ExclamationTriangleIcon,
+  X as XMarkIcon,
+} from '@phosphor-icons/react'
 import { type AnimationEvent, useEffect, useState } from 'react'
 import { cn } from '@/lib/cn'
 
@@ -10,6 +14,7 @@ type Toast = {
   message: string
   action?: { label: string; run: () => void }
   ms?: number
+  progress?: boolean
   leaving?: boolean
 }
 
@@ -31,6 +36,19 @@ export function notifyAction(message: string, label: string, run: () => void, ms
   return emit({ id: ++nextId, message, action: { label, run }, ms })
 }
 
+export function notifyProgress(message: string): number {
+  return emit({ id: ++nextId, message, progress: true })
+}
+
+export async function withProgress<T>(message: string, work: () => Promise<T>): Promise<T> {
+  const id = notifyProgress(message)
+  try {
+    return await work()
+  } finally {
+    dismissToast(id)
+  }
+}
+
 export function dismissToast(id: number): void {
   for (const dismiss of dismissers) dismiss(id)
 }
@@ -49,6 +67,8 @@ export function Toasts() {
     const timers = new Set<ReturnType<typeof setTimeout>>()
     const listen = (toast: Toast) => {
       setToasts((all) => [...all.filter((t) => t.message !== toast.message), toast])
+      if (toast.progress) return
+
       const timer = setTimeout(() => {
         timers.delete(timer)
         remove(toast.id)
@@ -68,7 +88,20 @@ export function Toasts() {
   return (
     <div className="fixed right-4 bottom-4 z-[200] flex w-[360px] flex-col gap-2">
       {toasts.map((t) =>
-        t.action ? (
+        t.progress ? (
+          <div
+            key={t.id}
+            role="status"
+            onAnimationEnd={dropAfterExit(t)}
+            className={cn(
+              motion(t),
+              'border-line-strong/70 flex items-center gap-3 rounded-full border bg-white px-4 py-2.5 shadow-[0_8px_28px_rgba(38,50,56,0.16)]',
+            )}
+          >
+            <SpinnerIcon className="text-brand size-4 shrink-0 animate-spin" />
+            <span className="text-fg min-w-0 flex-1 truncate text-[13px]">{t.message}</span>
+          </div>
+        ) : t.action ? (
           <div
             key={t.id}
             role="status"

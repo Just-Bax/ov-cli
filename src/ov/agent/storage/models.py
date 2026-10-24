@@ -28,6 +28,7 @@ class EventType(StrEnum):
     MESSAGE = "message"
     USER = "user"
     CHANGE = "change"
+    GRID = "grid"
     EDIT = "edit"
     OUTCOME = "outcome"
     QUESTION = "question"

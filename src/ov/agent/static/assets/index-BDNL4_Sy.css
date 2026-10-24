@@ -22,6 +22,7 @@
     --radius-3xl: 1.5rem;
     --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
     --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --animate-spin: spin 1s linear infinite;
     --blur-sm: 8px;
     --default-transition-duration: 150ms;
     --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -362,6 +363,9 @@
   .z-50 {
     z-index: 50;
   }
+  .z-\[1\] {
+    z-index: 1;
+  }
   .z-\[60\] {
     z-index: 60;
   }
@@ -496,6 +500,9 @@
   }
   .mb-3 {
     margin-bottom: calc(var(--spacing) * 3);
+  }
+  .mb-4 {
+    margin-bottom: calc(var(--spacing) * 4);
   }
   .mb-6 {
     margin-bottom: calc(var(--spacing) * 6);
@@ -667,6 +674,9 @@
   .h-0\.5 {
     height: calc(var(--spacing) * 0.5);
   }
+  .h-1 {
+    height: var(--spacing);
+  }
   .h-1\.5 {
     height: calc(var(--spacing) * 1.5);
   }
@@ -796,11 +806,11 @@
   .max-h-\[280px\] {
     max-height: 280px;
   }
-  .max-h-\[320px\] {
-    max-height: 320px;
-  }
   .max-h-\[380px\] {
     max-height: 380px;
+  }
+  .max-h-\[420px\] {
+    max-height: 420px;
   }
   .max-h-\[520px\] {
     max-height: 520px;
@@ -1220,6 +1230,9 @@
   .animate-slide-in {
     animation: slide-in var(--duration-medium) var(--ease-out) both;
   }
+  .animate-spin {
+    animation: var(--animate-spin);
+  }
   .animate-tap {
     animation: tap 400ms var(--ease-out) both;
   }
@@ -1240,6 +1253,9 @@
   }
   .cursor-grab {
     cursor: grab;
+  }
+  .cursor-help {
+    cursor: help;
   }
   .cursor-pointer {
     cursor: pointer;
@@ -1286,6 +1302,9 @@
   }
   .flex-wrap {
     flex-wrap: wrap;
+  }
+  .place-items-center {
+    place-items: center;
   }
   .items-baseline {
     align-items: baseline;
@@ -1868,6 +1887,9 @@
   .py-12 {
     padding-block: calc(var(--spacing) * 12);
   }
+  .py-px {
+    padding-block: 1px;
+  }
   .pt-0\.5 {
     padding-top: calc(var(--spacing) * 0.5);
   }
@@ -2012,6 +2034,9 @@
   .align-\[-1px\] {
     vertical-align: -1px;
   }
+  .align-middle {
+    vertical-align: middle;
+  }
   .font-mono {
     font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
   }
@@ -2140,8 +2165,14 @@
   .whitespace-pre-wrap {
     white-space: pre-wrap;
   }
+  .text-\[\#30A2FF\] {
+    color: #30A2FF;
+  }
   .text-\[\#D97757\] {
     color: #D97757;
+  }
+  .text-\[\#FDB515\] {
+    color: #FDB515;
   }
   .text-brand {
     color: #42a5f5;
@@ -2178,6 +2209,9 @@
   }
   .text-text {
     color: #455a64;
+  }
+  .text-transparent {
+    color: transparent;
   }
   .text-warn {
     color: #e46b00;
@@ -2218,6 +2252,9 @@
   .tabular-nums {
     --tw-numeric-spacing: tabular-nums;
     font-variant-numeric: var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,);
+  }
+  .line-through {
+    text-decoration-line: line-through;
   }
   .underline {
     text-decoration-line: underline;
@@ -2518,8 +2555,15 @@
   .placeholder\:text-faint::placeholder {
     color: #90a4ae;
   }
+  .last\:border-b-0:last-child {
+    border-bottom-style: var(--tw-border-style);
+    border-bottom-width: 0px;
+  }
   .last\:pb-0:last-child {
     padding-bottom: 0px;
+  }
+  .even\:bg-raised\/60:nth-child(even) {
+    background-color: color-mix(in oklab, #f4f6f7 60%, transparent);
   }
   .focus-within\:border-brand:focus-within {
     border-color: #42a5f5;
@@ -2771,6 +2815,7 @@
   --duration-exit: 160ms;
   --duration-travel: 360ms;
   --stagger-step: 24ms;
+  --count-step: 120ms;
 }
 @layer base {
   html, body, #root {
@@ -2965,6 +3010,21 @@
   }
   100% {
     background-position: calc(100% + 220px) 0;
+  }
+}
+.counting > span {
+  display: inline-block;
+  animation: count-wave 1.4s ease-in-out infinite;
+  animation-delay: calc(var(--count-index, 0) * var(--count-step));
+}
+@keyframes count-wave {
+  0%, 60%, 100% {
+    filter: none;
+    opacity: 1;
+  }
+  30% {
+    filter: blur(2px);
+    opacity: 0.5;
   }
 }
 @keyframes text-sweep {
@@ -3487,6 +3547,11 @@
 @property --tw-ease {
   syntax: "*";
   inherits: false;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { reduce } from '@shared/reduce.ts'
-import type { RunState, RunWindow, StoredEvent } from '@shared/types.ts'
+import type { RunEvent, RunState, RunWindow, StoredEvent } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
 import { api } from './api'
 import { prefetch, take } from './prefetch'
@@ -25,6 +25,7 @@ function withOlder(state: RunState, older: RunWindow): RunState {
     chat: [...older.chat, ...state.chat],
     tools: [...older.tools, ...state.tools],
     changes: [...older.changes, ...state.changes],
+    grids: [...older.grids, ...state.grids],
     questions: [...older.questions, ...state.questions],
     logins: [...older.logins, ...state.logins],
     compactions: [...older.compactions, ...state.compactions],
@@ -37,6 +38,7 @@ export function useRun(id: string): {
   error?: string
   loadOlder: (until?: number) => Promise<void>
   loadingOlder: boolean
+  apply: (event: RunEvent) => void
 } {
   const [state, setState] = useState<RunState>()
   const [error, setError] = useState<string>()
@@ -122,5 +124,13 @@ export function useRun(id: string): {
     [id],
   )
 
-  return { state, error, loadOlder, loadingOlder }
+  const apply = useCallback((event: RunEvent) => {
+    const now = current.current
+    if (!now) return
+
+    current.current = reduce(now, { seq: -1, ts: Date.now(), live: true, event })
+    setState(current.current)
+  }, [])
+
+  return { state, error, loadOlder, loadingOlder, apply }
 }

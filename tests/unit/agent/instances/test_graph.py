@@ -5,7 +5,7 @@ import json
 import pytest
 from helpers.sessions import BASE_URL, seed_session
 
-from ov.agent.instances import graph
+from ov.agent.instances import graph, linking
 from ov.agent.tools import TOOLS_BY_NAME
 from ov.core.paths import write_atomic
 
@@ -92,7 +92,7 @@ def test_find_and_describe():
 
 def test_the_agent_reads_a_cached_map(ov_home, tmp_path):
     seed_session(BASE_URL)
-    data = {**graph._assemble(RESULTS), "instance": "acme", "host": "acme", "builtAt": 0}
+    data = {**graph._assemble(RESULTS), "instance": "acme", "host": "acme", "builtAt": 0, "warnings": []}
     write_atomic(graph.graph_file("acme"), json.dumps(data))
 
     class Ctx:
@@ -121,7 +121,7 @@ def test_the_agent_reads_a_cached_map(ov_home, tmp_path):
     ],
 )
 def test_ids_link_only_with_context(before, kind):
-    assert graph.id_kind(before) == kind
+    assert linking.id_kind(before) == kind
 
 
 def test_ids_resolve_by_context_or_name_comment():
@@ -143,3 +143,25 @@ def test_ids_resolve_by_context_or_name_comment():
     edges = {(e["source"], e["target"]) for e in g["edges"]}
     assert not any(s == "rule:1" for s, _ in edges)
     assert {("rule:2", "field:1000240"), ("rule:2", "automation:1000240")} <= edges
+
+
+@pytest.mark.parametrize(("versioned", "expected"), [(1, "t.is_current_version = 1"), (0, "1 = 1")])
+def test_workflow_queries_follow_the_instance_schema(monkeypatch, versioned, expected):
+    seen: list[str] = []
+
+    class Reader:
+        alias = "acme"
+
+        def page(self, sql, offset, size):
+            seen.append(sql)
+            return [{"N": versioned}]
+
+        def rows(self, sql, size):
+            seen.append(sql)
+            return []
+
+    monkeypatch.setattr(graph, "EXPORTS", {})
+    graph._read_all(Reader(), lambda _: None)
+
+    workflow_sql = [q for q in seen if "from wf_template" in q]
+    assert len(workflow_sql) == 2 and all(expected in q and "{current}" not in q for q in workflow_sql)

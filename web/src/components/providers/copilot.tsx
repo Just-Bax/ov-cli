@@ -11,10 +11,8 @@ import { api } from '@/lib/api'
 import { formatCredits } from '@/lib/cost'
 import { useLoad } from '@/lib/hooks'
 import { go } from '@/lib/route'
+import { providerStatus, useSettings } from '@/lib/settings'
 import { capitalized, PlanRow, type ProviderUi } from './parts'
-
-const GITHUB_URL = 'https://github.com'
-const AVATAR_PX = 64
 
 function copilotOf(account: ProviderAccount): CopilotUser {
   return account as CopilotUser
@@ -24,7 +22,7 @@ function resetDay(day: string): string {
   return new Date(`${day}T00:00:00`).toLocaleDateString([], { month: 'long', day: 'numeric' })
 }
 
-function CopilotPlan() {
+function CopilotUsage() {
   const { value: account, loading, reload } = useLoad(api.copilotAccount, [])
   const skeleton = useSkeleton(loading)
   const detail = !account
@@ -55,6 +53,17 @@ function CopilotPlan() {
   )
 }
 
+function CopilotPlan() {
+  const { providers } = useSettings()
+  if (providerStatus(providers, 'copilot').account.signedIn) return <CopilotUsage />
+
+  return (
+    <PlanRow title="GitHub Copilot" action={null}>
+      Not signed in to GitHub.
+    </PlanRow>
+  )
+}
+
 function SignOut({ account, onChange }: { account: ProviderAccount; onChange: () => void }) {
   if (!copilotOf(account).signedIn) return null
 
@@ -81,13 +90,7 @@ export const COPILOT_UI: ProviderUi = {
   },
   sidebar: (account) => {
     const { user } = copilotOf(account)
-    return {
-      name: user ?? undefined,
-      detail: 'GitHub Copilot',
-      imageUrl: user
-        ? `${GITHUB_URL}/${encodeURIComponent(user)}.png?size=${AVATAR_PX}`
-        : undefined,
-    }
+    return { detail: user ?? 'Not signed in' }
   },
   accountDetail: (account, runsAgent) => {
     const { user } = copilotOf(account)

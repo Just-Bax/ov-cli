@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from ov.agent import workspace as project
 from ov.agent.engine.browsing import loop_span
 from ov.agent.engine.files import within
 from ov.agent.engine.guard import Effect
@@ -120,6 +122,17 @@ TOO_MANY_FILES = f"Upload at most {MAX_UPLOAD_FILES} files at once."
 OUTSIDE_RUN = "{name} is outside the run folder; only files of this run and its attachments can be uploaded."
 NO_RUN_FILE = "No file {name} in the run folder or its attachments."
 NOT_SIGNED_IN = "{host} still shows its sign-in page after signing in. Ask the user to check the account."
+PREVIEW_QUESTION = "Run the widget {name} in the browser as you on {host}?"
+PREVIEW_DETAIL = (
+    "The widget's own code runs with your session, the way an External Widget would: it can read and change "
+    "whatever your account can on {host}."
+)
+PREVIEW_BLOCKED = (
+    "Not previewed: the widget would run with the user's session, which needs changes allowed in this thread "
+    "(Always ask or Auto). Tell the user, or hand them the file to open."
+)
+PREVIEW_REJECTED = "The user did not allow the preview. Do not retry it."
+_PREVIEW_NAME = re.compile(r"[^a-z0-9-]+")
 OFF_SITE = "Stayed on this page: the browser only opens this site, so it did not go to {urls}."
 TABS_NOTE = "Tabs: the page opened more windows. You see the shown one; switch or close them with browser_tab."
 LOADING_NOTE = "The page is still loading; wait or look again if parts are missing."
@@ -815,4 +828,49 @@ HANDS += [
 ]
 HANDS = [replace(t, handler=_dialog_aware(_not_repeated(t.name, t.handler))) for t in HANDS]
 
-MAIN = [OPEN, RUN, CLOSE]
+
+def _widget_page(name: str, ctx: ToolContext) -> str:
+    in_run = within(ctx.work_dir, name)
+    if in_run.is_file():
+        return in_run.read_text(encoding="utf-8")
+    if project.configured():
+        return project.text_of(name)
+    raise ToolError(f"No file {name} in the run folder, and no workspace is set.")
+
+
+def _preview(args: dict[str, Any], ctx: ToolContext) -> str:
+    file = str(args["file"])
+    page = _widget_page(file, ctx)
+    found = _instance(args, ctx)
+    name = _PREVIEW_NAME.sub("-", Path(file).stem.lower()).strip("-") or "widget"
+
+    if not ctx.can_write():
+        raise ToolError(PREVIEW_BLOCKED)
+    if not approved(
+        ctx, PREVIEW_QUESTION.format(name=name, host=found["host"]), PREVIEW_DETAIL.format(host=found["host"])
+    ):
+        raise ToolError(PREVIEW_REJECTED)
+
+    _open({"instance": found["alias"], "say": args["say"]}, ctx)
+    pilot = ctx.browser.pilot()
+    ctx.browser.navigate(pilot.preview(name, page))
+    return _look(ctx, pilot, screenshot=True)
+
+
+PREVIEW = Tool(
+    "browser_preview",
+    "Run a single-file HTML widget you built inside the instance, in the live browser, the way an External Widget "
+    "runs: same origin, the user's session, so its token request and API calls hit live data. Nothing is deployed. "
+    "Use it to check a widget before handing the file over; then look at it with browser_run or the snapshot it "
+    "returns. Needs changes allowed and the user's approval, because the widget's code acts as the user.",
+    {
+        "file": string_param("The widget HTML: a file in the run folder or a path in the workspace"),
+        "instance": string_param("Instance alias or host. Defaults to the run's instance."),
+        "say": SAY,
+    },
+    ["file", "say"],
+    _said("Opening the widget preview"),
+    _preview,
+)
+
+MAIN = [OPEN, PREVIEW, RUN, CLOSE]

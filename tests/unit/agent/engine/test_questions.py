@@ -17,7 +17,8 @@ def _item(question: str) -> dict:
 
 
 def test_stopping_closes_open_questions(logged_in, monkeypatch):
-    from ov.agent.engine.run import RunError, runs
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import runs
 
     item = {"header": "Instance", "question": "Which instance?", "options": [{"label": "acme"}, {"label": "other"}]}
     ask = {"questions": [item]}
@@ -47,7 +48,7 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
 
 
 def test_two_open_questions_keep_the_run_waiting(logged_in):
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     db.create_thread("rwait", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rwait")
@@ -69,7 +70,7 @@ def test_two_open_questions_keep_the_run_waiting(logged_in):
 
 def test_a_skipped_sign_in_is_marked_skipped_not_failed(logged_in, monkeypatch):
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     run = runs.create({"access": "read", "prompt": "x"}, "copilot", "m")
     prompt = {"id": "login_1", "instance": "acme.example", "url": "https://acme.example", "state": "needed"}
@@ -87,7 +88,8 @@ def _asking(run, ask):
 
 
 def test_a_batch_is_answered_all_at_once(logged_in):
-    from ov.agent.engine.run import RunError, runs
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import runs
 
     db.create_thread("rbatch", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rbatch")
@@ -103,7 +105,8 @@ def test_a_batch_is_answered_all_at_once(logged_in):
 
 
 def test_an_approval_keeps_the_rejection_note(logged_in):
-    from ov.agent.engine.run import RunError, runs
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import runs
 
     db.create_thread("rappr", "t", "copilot", "m", prompt="x", instance=None, access=Access.ASK)
     run = runs.get("rappr")

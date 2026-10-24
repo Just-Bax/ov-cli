@@ -11,6 +11,7 @@ import { useRef, useState } from 'react'
 import type { ChatMessage } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
 import { Shimmer } from '@/components/common/ui'
+import { useQueueActions } from '@/lib/queueActions'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 
@@ -61,6 +62,8 @@ export function QueuedPanel({
     move(id, queued[insert]?.id ?? null)
   }
 
+  const actions = useQueueActions(runId, queued, held)
+
   return (
     <div
       role="region"
@@ -90,7 +93,7 @@ export function QueuedPanel({
           <button
             type="button"
             title="Start the queue again after this turn"
-            onClick={() => void api.resumeQueue(runId).catch(reportError)}
+            onClick={actions.resume}
             className={cn(ACTION, 'text-brand-strong px-2 text-[12px] font-medium')}
           >
             <PlayIcon weight="fill" className="size-2.5" />
@@ -228,7 +231,7 @@ export function QueuedPanel({
                         title="Remove from queue"
                         aria-label="Remove from queue"
                         disabled={moving}
-                        onClick={() => void api.removeQueued(runId, message.id).catch(reportError)}
+                        onClick={() => actions.remove(message.id)}
                         className={cn(ACTION, 'w-6')}
                       >
                         <XMarkIcon className="size-3.5" />
@@ -243,7 +246,7 @@ export function QueuedPanel({
                         type="button"
                         title={`Send into the running turn${index === 0 ? ' (Ctrl+Shift+Enter)' : ''}`}
                         disabled={moving}
-                        onClick={() => void api.steerQueued(runId, message.id).catch(reportError)}
+                        onClick={() => actions.steer(message.id)}
                         className={cn(
                           ACTION,
                           'text-muted hover:text-brand-strong hover:bg-brand-soft px-2 text-[12px] font-medium',

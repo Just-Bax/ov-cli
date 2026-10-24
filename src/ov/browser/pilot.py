@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import html
 import queue
 import re
 import tempfile
@@ -47,6 +49,18 @@ PAGE_REQUESTS = [{"urlPattern": "*", "resourceType": "Document", "requestStage":
 PROMPT = "prompt"
 NOT_INSTALLED = "The browser is not installed. Run: ov setup"
 CLOSED = "The browser has closed."
+PREVIEW_PATH = "/ov-agent-preview/"
+PREVIEW_WIDGET = "widget.html"
+PREVIEW_STATUS = 200
+PREVIEW_SANDBOX = "allow-same-origin allow-scripts allow-forms allow-downloads allow-popups"
+CSRF_SCRIPT = "() => document.querySelector('meta[name=_csrf]')?.getAttribute('content') || ''"
+NO_CSRF = "Open a OneVizion page of the instance first; the preview takes its session from that page."
+PREVIEW_PAGE = (
+    '<!doctype html><html><head><meta charset="utf-8"><meta name="_csrf" content="{csrf}">'
+    "<title>{name} preview</title><style>html,body{{margin:0;height:100%}}"
+    "iframe{{border:0;width:100%;height:100%;display:block}}</style></head>"
+    '<body><iframe src="{src}" sandbox="{sandbox}"></iframe></body></html>'
+)
 NO_DIALOG = "No dialog is open on the page."
 ONLY_TAB = "This is the only tab; close the browser instead."
 UNKNOWN_REF = "There is no {ref} in the last snapshot. Take a new snapshot and use its refs."
@@ -241,6 +255,7 @@ class Driver:
         self._tabs: list[Page] = []
         self._active: Page | None = None
         self._targets: dict[Page, str] = {}
+        self._previews: dict[str, bytes] = {}
         self.changed = True
 
         self._fence()
@@ -282,10 +297,26 @@ class Driver:
 
     def _paused(self, session: CDPSession, event: dict[str, Any]) -> None:
         request = event["requestId"]
-        if "redirectedRequestId" in event or self._allows(event["request"]["url"]):
+        url = event["request"]["url"]
+        if "redirectedRequestId" in event:
             session.send("Fetch.continueRequest", {"requestId": request})
-        else:
+        elif not self._allows(url):
             session.send("Fetch.fulfillRequest", {"requestId": request, "responseCode": STAY_PUT_STATUS})
+        elif urlsplit(url).path in self._previews:
+            self._serve_preview(session, request, self._previews[urlsplit(url).path])
+        else:
+            session.send("Fetch.continueRequest", {"requestId": request})
+
+    def _serve_preview(self, session: CDPSession, request: str, page: bytes) -> None:
+        session.send(
+            "Fetch.fulfillRequest",
+            {
+                "requestId": request,
+                "responseCode": PREVIEW_STATUS,
+                "responseHeaders": [{"name": "Content-Type", "value": "text/html; charset=utf-8"}],
+                "body": base64.b64encode(page).decode("ascii"),
+            },
+        )
 
     def _loaded(self, _: Page) -> None:
         self.changed = True
@@ -331,6 +362,19 @@ class Driver:
         self._context.add_cookies(
             [{"name": name, "value": value, "domain": self._hostname, "path": "/"} for name, value in cookies.items()]
         )
+
+    def preview(self, name: str, page: str) -> str:
+        csrf = self.page.evaluate(CSRF_SCRIPT)
+        if not csrf:
+            raise BrowserError(NO_CSRF)
+
+        wrapper = f"{PREVIEW_PATH}{name}"
+        widget = f"{wrapper}/{PREVIEW_WIDGET}"
+        self._previews[widget] = page.encode()
+        self._previews[wrapper] = PREVIEW_PAGE.format(
+            csrf=html.escape(csrf), name=html.escape(name), src=widget, sandbox=PREVIEW_SANDBOX
+        ).encode()
+        return wrapper
 
     def goto(self, url: str) -> None:
         try:
@@ -701,6 +745,9 @@ class Pilot:
 
     def add_cookies(self, cookies: dict[str, str]) -> None:
         self.call(lambda d: d.add_cookies(cookies))
+
+    def preview(self, name: str, page: str) -> str:
+        return self.url_of(self.call(lambda d: d.preview(name, page)))
 
     def snapshot(self) -> View:
         return self.call(lambda d: d.snapshot())

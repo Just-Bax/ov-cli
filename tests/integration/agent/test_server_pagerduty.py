@@ -13,7 +13,8 @@ def linked(monkeypatch, logged_in):
 
 
 def test_the_api_never_returns_the_key(linked):
-    from ov.agent.api.server import AgentServer, Handler
+    from ov.agent.api.handler import Handler
+    from ov.agent.api.server import AgentServer
 
     httpd = AgentServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

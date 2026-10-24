@@ -145,18 +145,69 @@ export async function setSettled(id: string, settled: boolean, undoable = true):
     )
 }
 
+export function patchLocally(id: string, patch: Partial<RunSummary>) {
+  if (!list) return
+
+  const patched = (runs: RunSummary[]) => runs.map((r) => (r.id === id ? { ...r, ...patch } : r))
+  publish({
+    ...list,
+    active: patched(list.active),
+    snoozed: patched(list.snoozed),
+    settled: patched(list.settled),
+  })
+}
+
+function snoozeLocally(id: string, until: number | null) {
+  const run = allRuns(list).find((r) => r.id === id)
+  if (!list || !run) return
+
+  const moved = { ...run, snoozedUntil: until ?? undefined }
+  const active = list.active.filter((r) => r.id !== id)
+  const snoozed = list.snoozed.filter((r) => r.id !== id)
+
+  publish({
+    ...list,
+    active: until ? active : [...active, moved].sort(byNewest),
+    snoozed: until ? [...snoozed, moved] : snoozed,
+  })
+}
+
+export function removeLocally(id: string) {
+  if (!list) return
+
+  const kept = (runs: RunSummary[]) => runs.filter((r) => r.id !== id)
+  const wasSettled = list.settled.some((r) => r.id === id)
+  publish({
+    ...list,
+    active: kept(list.active),
+    snoozed: kept(list.snoozed),
+    settled: kept(list.settled),
+    settledTotal: list.settledTotal - (wasSettled ? 1 : 0),
+  })
+}
+
 export async function setPinned(id: string, pinned: boolean, undoable = true): Promise<void> {
-  await api.pinRun(id, pinned)
-  await refreshRuns()
+  patchLocally(id, { pinned })
+
+  try {
+    await api.pinRun(id, pinned)
+  } finally {
+    await refreshRuns()
+  }
+
   if (undoable)
     remember(pinned ? 'Thread pinned' : 'Thread unpinned', () => setPinned(id, !pinned, false))
 }
 
 export async function setSnoozed(id: string, until: number | null, undoable = true): Promise<void> {
   const before = list?.snoozed.find((r) => r.id === id)?.snoozedUntil ?? null
+  snoozeLocally(id, until)
 
-  await api.snoozeRun(id, until)
-  await refreshRuns()
+  try {
+    await api.snoozeRun(id, until)
+  } finally {
+    await refreshRuns()
+  }
 
   if (undoable)
     remember(until ? 'Thread snoozed' : 'Thread woken up', () =>

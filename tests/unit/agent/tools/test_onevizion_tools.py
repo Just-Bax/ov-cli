@@ -142,11 +142,11 @@ def test_the_generic_sql_error_gets_a_hint(logged_in, tmp_path, monkeypatch):
 
 
 def test_a_missing_instance_is_asked_for(logged_in, tmp_path, monkeypatch):
-    from ov.agent.tools.onevizion import _target
+    from ov.agent.tools.onevizion import target_instance
 
     ctx = FakeContext(tmp_path, approve="acme")
     ctx.instance = ""
-    assert _target(None, ctx) == "acme"
+    assert target_instance(None, ctx) == "acme"
     assert ctx.asked == ["Which instance should I use?"]
 
 

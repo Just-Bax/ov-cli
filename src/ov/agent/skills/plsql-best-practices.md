@@ -21,13 +21,29 @@ Check a signature on the instance before using it (`select text from all_source 
 
 ## Name objects, do not hard-code ids
 
-Use the ID package: `id.<trackor_type>.tt`, `id.<trackor_type>.cf.<field>`, `id.<trackor_type>.rel.<child_type>`, `id.vt.<vtable>.<value>`, `id.wp.datepair.<abbr>`, `id.imp.<import>`, `id.rpt.<report>` (lowercase, spaces as underscores; in plain SQL `id.get('id.site.tt')`). It survives renumbering and copies between instances. When an id must stay literal, put it in a named constant with the object's name next to it.
+Use the ID package: `id.<trackor_type>.tt`, `id.<trackor_type>.cf.<field>`, `id.<trackor_type>.rel.<child_type>`, `id.<parent>.rt.<child>` (relation type), `id.<trackor_type>.class.<class>`, `id.vtable.<vtable>`, `id.vt.<vtable>.<value>`, `id.wp_template.<template>`, `id.wp.<template>.tord_<n>` (template task), `id.wp.datepair.<abbr>`, `id.imp.<import>`, `id.rpt.<report>` (lowercase, spaces as underscores; in plain SQL `id.get('id.site.tt')`). It survives renumbering and copies between instances. Look the reference up on the instance rather than building it from a name by hand. Object references are already numbers: use `id.site.tt` directly, never select it into a variable first. When an id must stay literal, put it in a named constant with the object's name next to it.
+
+A field whose name is not a valid Oracle identifier has no object reference; only then use the name-based functions (`util.GetValStr(:pk, 'FIELD')`).
 
 ## Rule code
 
-- Read the trigger's bind variables (for example :pk, :imp_run_id, :process_id) once into variables.
-- Keep rules small and fast: they run inside the user's save. Select by key, never loop over every trackor of a type in an update rule.
-- Do not commit or roll back in a rule, and do not swallow errors with `when others then null`; let the error reach the user or raise a clear one.
+- Read the trigger's bind variables (for example :pk, :imp_run_id, :process_id) once into variables; onevizion-reference lists them per trigger.
+- Keep rules small and fast: they run inside the user's save. Select by key, never loop over every trackor of a type in an update rule. Past about 100 lines, or when logic repeats across rules, move it into a DB package and suggest that.
+- Do not commit or roll back in a rule (only inside `pragma autonomous_transaction`), and do not swallow errors with `when others then null`; let the error reach the user or raise a clear one. Any unhandled error rolls back the whole save.
+- No package functions (`util.GetVal...`, your own) in WHERE, JOIN ON or HAVING: each call switches between the SQL and PL/SQL engines for every row. Put them in the select list, or fetch the rows and test the value in PL/SQL.
+- Aggregate in SQL (`sum`, `listagg ... on overflow truncate`) instead of looping to add up or concatenate; fetch a single row with `select ... into`, not a loop.
+- Set drop-down values by id: `util.SetValNumByID(:pk, id.site.cf.s_status, id.vt.s_status.ready)`, not by text.
+- DBMS_OUTPUT goes nowhere when a rule runs. Show a message with `util.setMessage(text)`; stop with `util.RaiseError`.
+- Text users see comes from labels: `util.RaiseError(pkg_label.format(label_id, pkg_label.list_label_params('id' => v_id)))`.
+- Never call `pkg_sec.set_cu` or `pkg_sec.set_pid`, even when asked: they act as another user or reach another tenant's data. If it is truly needed, the user adds it by hand.
+- Initialize constants and `pkg_sec.get_pid` / `get_cu` in DECLARE; read business data (util.GetVal..., queries) in BEGIN.
+
+## DB packages
+
+- One public entry point in the spec; helpers stay private in the body, in this order: `load_*` (reads), `validate_*`, `calc_*` (pure, no side effects), `determine_*` (statuses and messages), `apply_*` (the only routines that set values), then the public routine that calls them.
+- Pass related values as a record type, not long parameter lists. Package-level variables hold constants or a deliberate cache, never per-call state.
+- Read each stable input once and reuse it; do not call `util.GetVal...` for the same value twice.
+- Functions return values and change nothing; anything with side effects is a procedure.
 
 ## Data fixes
 

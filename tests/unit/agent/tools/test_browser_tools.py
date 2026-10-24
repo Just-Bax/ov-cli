@@ -261,7 +261,7 @@ def test_sign_in_pages_are_recognised():
 def test_a_run_stores_browser_events_and_forgets_them_on_reload(logged_in, monkeypatch):
     from helpers.agent import wait_done
 
-    from ov.agent.engine.run import RunManager, runs
+    from ov.agent.engine.run_manager import RunManager, runs
     from ov.agent.integrations.copilot import StreamResult
 
     monkeypatch.setattr(

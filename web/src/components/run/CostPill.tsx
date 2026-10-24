@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { CostTotal, Provider, RunCost } from '@shared/types.ts'
+import { type CSSProperties, useState } from 'react'
+import type { ContextUsage, CostTotal, Provider, RunCost } from '@shared/types.ts'
 import { ProviderLogo } from '@/components/common/ProviderLogo'
 import { reportError } from '@/components/common/Toasts'
 import { Shimmer } from '@/components/common/ui'
@@ -9,14 +9,30 @@ import { formatAmount, formatCost, formatTokens, orderedTokens, tokenLabel } fro
 import { modelName, useModels } from '@/lib/models'
 import { providerStatus, useSettings } from '@/lib/settings'
 
+function Counting({ text }: { text: string }) {
+  return (
+    <span className="counting" title="Still counting while the thread works">
+      {[...text].map((char, index) => (
+        <span key={index} style={{ '--count-index': index } as CSSProperties}>
+          {char}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 export function CostPill({
   runId,
   provider,
   cost,
+  context,
+  counting,
 }: {
   runId: string
   provider: Provider
   cost?: CostTotal
+  context?: ContextUsage
+  counting: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState<RunCost>()
@@ -35,6 +51,9 @@ export function CostPill({
     )
   }
 
+  const ui = PROVIDER_UI[provider]
+  const hint = detail ? ui.usageHint?.(detail.tokens) : undefined
+
   const show = () => {
     setOpen(true)
     api.runCost(runId).then(setDetail, reportError)
@@ -44,17 +63,27 @@ export function CostPill({
     <span className="relative" onMouseEnter={show} onMouseLeave={() => setOpen(false)}>
       <span className="bg-raised text-text inline-flex h-8 cursor-default items-center gap-1.5 rounded-full px-3 text-[12px] font-medium tabular-nums">
         <ProviderLogo provider={provider} className="size-3.5" />
-        {formatCost(cost, unit)}
+        {counting ? <Counting text={formatCost(cost, unit)} /> : formatCost(cost, unit)}
       </span>
       {open ? (
-        <div className="border-line animate-pop absolute top-full right-0 z-30 mt-1.5 w-[280px] rounded-2xl border bg-white p-3.5 text-[12px] shadow-[0_6px_20px_rgba(38,50,56,0.14)]">
+        <div className="border-line animate-pop absolute top-full right-0 z-30 mt-1.5 w-[300px] rounded-2xl border bg-white p-3.5 text-[12px] shadow-[0_6px_20px_rgba(38,50,56,0.14)]">
           <div className="text-fg flex items-baseline justify-between font-semibold">
-            <span>{PROVIDER_UI[provider].usageTitle}</span>
+            <span>{ui.usageTitle}</span>
             <span className="tabular-nums">{formatCost(cost, unit)}</span>
           </div>
           <div className="text-muted mt-0.5">
             {cost.requests} request{cost.requests === 1 ? '' : 's'}
+            {unit === 'tokens' && cost.requests
+              ? `, about ${formatTokens(cost.amount / cost.requests)} tokens each`
+              : ''}
           </div>
+          <div className="text-muted mt-2 leading-relaxed">{ui.usageNote}</div>
+          {context ? (
+            <div className="mt-2 flex justify-between">
+              <span className="text-muted">In context now</span>
+              <span className="text-text tabular-nums">{formatTokens(context.tokens)} tokens</span>
+            </div>
+          ) : null}
           {detail ? (
             <>
               <div className="border-line mt-3 space-y-1 border-t pt-3">
@@ -65,6 +94,7 @@ export function CostPill({
                   </div>
                 ))}
               </div>
+              {hint ? <div className="text-muted mt-3 leading-relaxed">{hint}</div> : null}
               {detail.models.length > 1 ? (
                 <div className="border-line mt-3 space-y-1 border-t pt-3">
                   {detail.models.map((m) => (

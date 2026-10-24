@@ -90,6 +90,23 @@ def _text(message: dict[str, Any]) -> list[str]:
     return [text] if text else []
 
 
+def _cell(value: Any) -> str:
+    if isinstance(value, dict):
+        return f"{_cell(value.get('before'))} -> {_cell(value.get('after'))}"
+    return "" if value is None else str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def _grid(grid: dict[str, Any]) -> list[str]:
+    columns = grid["columns"]
+    rows = grid.get("rows") or []
+    shown = f"{len(rows)} of {grid['total']}" if grid["total"] > len(rows) else str(len(rows))
+    lines = [f"#### {grid['title']} ({shown} rows)", ""]
+    lines.append("| " + " | ".join(c["label"] for c in columns) + " |")
+    lines.append("|" + "---|" * len(columns))
+    lines += ["| " + " | ".join(_cell(row.get(c["key"])) for c in columns) + " |" for row in rows]
+    return lines
+
+
 def _login(login: dict[str, Any]) -> list[str]:
     return [f"- Sign-in to {login['instance']}: {login['state']}"]
 
@@ -98,6 +115,7 @@ RENDERERS: dict[str, Callable[[dict[str, Any]], list[str]]] = {
     "text": _text,
     "tool": lambda tool: [_tool(tool)],
     "change": _change,
+    "grid": _grid,
     "question": _question,
     "login": _login,
 }
@@ -122,6 +140,7 @@ def to_markdown(state: dict[str, Any]) -> str:
         "text": chat,
         "tool": {t["id"]: t for t in state["tools"]},
         "change": {c["id"]: c for c in state["changes"]},
+        "grid": {g["id"]: g for g in state["grids"]},
         "question": {q["id"]: q for q in state["questions"]},
         "login": {x["id"]: x for x in state["logins"]},
     }

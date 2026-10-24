@@ -18,7 +18,7 @@ def test_uploads_round_trip(agent_server):
 
 def test_attachments_that_could_run_script_are_downloaded(agent_server, monkeypatch):
     from ov.agent.engine.files import attachments_dir
-    from ov.agent.engine.run import runs
+    from ov.agent.engine.run_manager import runs
 
     monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
     run = runs.create({"access": "read", "prompt": "x"}, "copilot", "m")

@@ -34,8 +34,8 @@ Keep identifiers, numbers, SQL and file paths exact. Do not invent anything. Rep
 only."""
 
 
-def estimate_tokens(messages: list[dict[str, Any]]) -> int:
-    return sum(_message_tokens(m) for m in messages)
+def estimate_tokens(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> int:
+    return sum(_message_tokens(m) for m in messages) + len(json.dumps(tools or [])) // CHARS_PER_TOKEN
 
 
 def _message_tokens(message: dict[str, Any]) -> int:

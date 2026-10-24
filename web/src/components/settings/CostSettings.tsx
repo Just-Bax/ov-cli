@@ -26,6 +26,7 @@ const MIN_BAR_PX = 2
 const AMOUNT_LABELS: Record<CostUnit, string> = {
   credits: 'Credits',
   usd: 'Estimated value',
+  tokens: 'Tokens',
 }
 
 function formatDay(day: string, month: 'short' | 'long'): string {
