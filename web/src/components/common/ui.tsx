@@ -352,6 +352,11 @@ export function Select({
 const REMARK_PLUGINS = [remarkGfm]
 const MARKDOWN_COMPONENTS: Components = {
   a: ({ node: _node, ...p }) => <a {...p} target="_blank" rel="noreferrer" />,
+  table: ({ node: _node, ...p }) => (
+    <div className="md-table">
+      <table {...p} />
+    </div>
+  ),
 }
 
 const CODE_SPANS = /(```[\s\S]*?```|`[^`\n]*`)/
@@ -406,6 +411,7 @@ export const Markdown = memo(function Markdown({
     if (!flagged.size) return MARKDOWN_COMPONENTS
 
     return {
+      ...MARKDOWN_COMPONENTS,
       a: ({ node: _node, ...p }) =>
         p.href && flagged.has(p.href) ? (
           <a

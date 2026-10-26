@@ -570,6 +570,9 @@
   .inline-flex {
     display: inline-flex;
   }
+  .table {
+    display: table;
+  }
   .field-sizing-content {
     field-sizing: content;
   }
@@ -2973,8 +2976,13 @@
     font-weight: var(--font-weight-semibold);
     color: #263238;
   }
-  .md table {
+  .md-table {
     margin-block: calc(var(--spacing) * 2);
+    scrollbar-width: thin;
+    scrollbar-gutter: stable;
+    overflow-x: auto;
+  }
+  .md table {
     width: 100%;
     border-collapse: collapse;
     font-size: 12.5px;
@@ -2992,7 +3000,7 @@
     --tw-leading: var(--leading-snug);
     line-height: var(--leading-snug);
   }
-  .md-compact :is(p, ul, ol, pre, table, blockquote, h1, h2, h3, h4, h5, h6) {
+  .md-compact :is(p, ul, ol, pre, .md-table, blockquote, h1, h2, h3, h4, h5, h6) {
     margin-block: 0px;
   }
   .md-compact :is(h1, h2, h3, h4, h5, h6) {

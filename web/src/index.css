@@ -209,8 +209,11 @@
   .md strong {
     @apply text-fg font-semibold;
   }
+  .md-table {
+    @apply my-2 scrollbar-thin overflow-x-auto;
+  }
   .md table {
-    @apply my-2 w-full border-collapse text-[12.5px];
+    @apply w-full border-collapse text-[12.5px];
   }
   .md th,
   .md td {
@@ -219,7 +222,7 @@
   .md-compact {
     @apply text-[12px] leading-snug;
   }
-  .md-compact :is(p, ul, ol, pre, table, blockquote, h1, h2, h3, h4, h5, h6) {
+  .md-compact :is(p, ul, ol, pre, .md-table, blockquote, h1, h2, h3, h4, h5, h6) {
     @apply my-0;
   }
   .md-compact :is(h1, h2, h3, h4, h5, h6) {
