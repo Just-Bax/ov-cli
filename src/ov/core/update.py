@@ -18,6 +18,7 @@ from ov.core.errors import EXIT_IN_USE, OvError
 PACKAGE = "ov-cli"
 REPO_URL = "https://github.com/Just-Bax/ov-cli.git"
 BRANCH = "master"
+GIT_SOURCE = f"{PACKAGE} @ git+{REPO_URL}@{BRANCH}"
 COMMAND_TIMEOUT_SECONDS = 120
 DEPENDENCY_FILES = ("pyproject.toml", "uv.lock")
 MIGRATE_ARGS = ("agent", "--migrate")
@@ -169,13 +170,13 @@ def pull(found: Plan) -> None:
 
 
 def install_command(found: Plan) -> list[str]:
+    checkout = found.install.checkout
     if found.install.uv_tool:
-        return ["uv", "tool", "upgrade", "--reinstall-package", PACKAGE, PACKAGE]
+        uv = ["uv", "pip", "install", "--python", sys.executable]
+        return [*uv, "--editable", str(checkout)] if checkout else [*uv, "--reinstall-package", PACKAGE, GIT_SOURCE]
 
-    if found.install.checkout is not None:
-        return [sys.executable, "-m", "pip", "install", "--editable", str(found.install.checkout)]
-
-    return [sys.executable, "-m", "pip", "install", "--upgrade", f"git+{REPO_URL}@{BRANCH}"]
+    pip = [sys.executable, "-m", "pip", "install"]
+    return [*pip, "--editable", str(checkout)] if checkout else [*pip, "--upgrade", GIT_SOURCE]
 
 
 def migrate_command() -> list[str]:
@@ -199,7 +200,8 @@ def migrate() -> bool:
     return True
 
 
-def reinstall(command: list[str]) -> None:
+def reinstall(found: Plan) -> None:
+    command = install_command(found)
     result = subprocess.run(command, stdout=sys.stderr)
     if result.returncode != 0:
         raise OvError(

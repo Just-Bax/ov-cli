@@ -56,7 +56,7 @@ def cmd_update(ctx: Context) -> int:
 
     if found.reinstall:
         note(ctx, "Installing...")
-        update.reinstall(update.install_command(found))
+        update.reinstall(found)
 
     note(ctx, "Upgrading the agent database...")
     migrated = update.migrate()

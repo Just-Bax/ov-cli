@@ -8,9 +8,11 @@ from ov.core import update
 from ov.core.errors import OvError
 
 
-def test_a_tool_install_upgrades_in_place():
+def test_a_tool_install_upgrades_its_environment_without_touching_the_launcher():
     found = update.Plan(update.Install(None, "abc", uv_tool=True), "abc", "def", [], True)
-    assert update.install_command(found) == ["uv", "tool", "upgrade", "--reinstall-package", "ov-cli", "ov-cli"]
+    command = update.install_command(found)
+    assert command[:5] == ["uv", "pip", "install", "--python", update.sys.executable]
+    assert command[5:] == ["--reinstall-package", "ov-cli", f"ov-cli @ git+{update.REPO_URL}@{update.BRANCH}"]
 
 
 def test_a_pip_checkout_reinstalls_editable(tmp_path):
@@ -58,13 +60,14 @@ def test_the_install_runs_in_the_foreground_and_stops_on_failure(monkeypatch):
         return subprocess.CompletedProcess(command, fake_run.code)
 
     monkeypatch.setattr(update.subprocess, "run", fake_run)
+    found = update.Plan(update.Install(None, "abc", uv_tool=False), "abc", "def", [], True)
     fake_run.code = 0
-    update.reinstall(["uv", "tool", "upgrade"])
-    assert calls == [["uv", "tool", "upgrade"]]
+    update.reinstall(found)
+    assert calls == [update.install_command(found)]
 
     fake_run.code = 2
-    with pytest.raises(OvError, match="uv tool upgrade exited with 2"):
-        update.reinstall(["uv", "tool", "upgrade"])
+    with pytest.raises(OvError, match="exited with 2"):
+        update.reinstall(found)
 
 
 def test_an_editable_install_checks_the_dependencies_of_its_checkout(tmp_path, monkeypatch):
