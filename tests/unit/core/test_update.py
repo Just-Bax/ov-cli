@@ -8,11 +8,14 @@ from ov.core import update
 from ov.core.errors import OvError
 
 
-def test_a_tool_install_reinstalls_from_git():
+def test_a_tool_install_upgrades_in_place():
     found = update.Plan(update.Install(None, "abc", uv_tool=True), "abc", "def", [], True)
-    command = update.install_command(found)
-    assert command[:4] == ["uv", "tool", "install", "--force"]
-    assert command[-1] == f"ov-cli @ git+{update.REPO_URL}@{update.BRANCH}"
+    assert update.install_command(found) == ["uv", "tool", "upgrade", "--reinstall-package", "ov-cli", "ov-cli"]
+
+
+def test_a_pip_checkout_reinstalls_editable(tmp_path):
+    found = update.Plan(update.Install(tmp_path, "abc", uv_tool=False), "abc", "abc", [], True)
+    assert update.install_command(found)[-2:] == ["--editable", str(tmp_path)]
 
 
 def test_missing_packages_stop_the_agent_with_a_clear_message(monkeypatch):
@@ -47,16 +50,21 @@ def test_the_database_upgrade_runs_in_the_new_code_and_waits_for_a_running_agent
         update.migrate()
 
 
-def test_the_windows_reinstall_upgrades_the_database_after_installing(monkeypatch):
-    started = []
-    monkeypatch.setattr(update.sys, "platform", "win32")
-    monkeypatch.setattr(update.subprocess, "Popen", lambda args, **_: started.append(args))
-    for flag in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP", "CREATE_NO_WINDOW"):
-        monkeypatch.setattr(update.subprocess, flag, 0, raising=False)
+def test_the_install_runs_in_the_foreground_and_stops_on_failure(monkeypatch):
+    calls = []
 
-    assert update.reinstall(["uv", "tool", "install"]) is True
-    script = started[0][-1]
-    assert script.index("'uv', 'tool', 'install'") < script.index("'agent', '--migrate'")
+    def fake_run(command, **_):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, fake_run.code)
+
+    monkeypatch.setattr(update.subprocess, "run", fake_run)
+    fake_run.code = 0
+    update.reinstall(["uv", "tool", "upgrade"])
+    assert calls == [["uv", "tool", "upgrade"]]
+
+    fake_run.code = 2
+    with pytest.raises(OvError, match="uv tool upgrade exited with 2"):
+        update.reinstall(["uv", "tool", "upgrade"])
 
 
 def test_an_editable_install_checks_the_dependencies_of_its_checkout(tmp_path, monkeypatch):

@@ -29,7 +29,7 @@ def _short(commit: str) -> str:
 
 
 def cmd_update(ctx: Context) -> int:
-    note(ctx, "Checking GitHub for the latest version...")
+    note(ctx, "Checking for updates...")
     found = update.plan()
     data = {
         "current": found.current,
@@ -49,18 +49,18 @@ def cmd_update(ctx: Context) -> int:
         emit(ctx, {**data, "status": "up_to_date", "database": migrated}, text=_up_to_date(found, migrated))
         return 0
 
+    note(ctx, _starting_text(found))
     if found.install.checkout is not None and found.current != found.latest:
         note(ctx, f"Pulling into {found.install.checkout}...")
         update.pull(found)
 
-    finishing = update.reinstall(update.install_command(found)) if found.reinstall else False
-    migrated = None if finishing else update.migrate()
+    if found.reinstall:
+        note(ctx, "Installing...")
+        update.reinstall(update.install_command(found))
 
-    emit(
-        ctx,
-        {**data, "status": "updating" if finishing else "updated", "database": migrated},
-        text=_done_text(found, finishing, migrated),
-    )
+    note(ctx, "Upgrading the agent database...")
+    migrated = update.migrate()
+    emit(ctx, {**data, "status": "updated", "database": migrated}, text=_done_text(found, migrated))
     return 0
 
 
@@ -76,15 +76,15 @@ def _available_text(found: update.Plan) -> str:
     return "\n".join([*lines, "Run 'ov update' to install it."])
 
 
-def _done_text(found: update.Plan, finishing: bool, migrated: bool | None) -> str:
-    lines = [f"[green]Updated[/green] {_short(found.current)} -> {_short(found.latest)}.", *found.commits]
-    if finishing:
-        lines.append(
-            f"Reinstalling in the background, then upgrading the agent database; it finishes a few seconds "
-            f"after this command exits (log: {update.log_file()})."
-        )
+def _starting_text(found: update.Plan) -> str:
+    if found.current == found.latest:
+        return f"Reinstalling ov {_short(found.current)} to restore missing packages."
+    return "\n".join([f"Updating ov {_short(found.current)} -> {_short(found.latest)}:", *found.commits])
 
-    if migrated is False:
+
+def _done_text(found: update.Plan, migrated: bool) -> str:
+    lines = [f"[green]ov is now at {_short(found.latest)}.[/green]"]
+    if not migrated:
         lines.append(DATABASE_WAITS)
     lines.append("Restart a running 'ov agent' to use the new version.")
     return "\n".join(lines)

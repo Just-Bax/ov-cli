@@ -58,7 +58,7 @@ def test_dependency_changes_reinstall_the_tool(repos, monkeypatch):
 
     found = update.plan()
     assert found.reinstall
-    assert update.install_command(found)[:5] == ["uv", "tool", "install", "--force", "--editable"]
+    assert update.install_command(found)[:3] == ["uv", "tool", "upgrade"]
 
 
 def test_local_changes_that_conflict_stop_the_pull(repos, monkeypatch):

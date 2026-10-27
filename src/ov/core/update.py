@@ -14,17 +14,12 @@ from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
 from ov.core.errors import EXIT_IN_USE, OvError
-from ov.core.paths import home
 
 PACKAGE = "ov-cli"
 REPO_URL = "https://github.com/Just-Bax/ov-cli.git"
 BRANCH = "master"
 COMMAND_TIMEOUT_SECONDS = 120
-INSTALL_TIMEOUT_SECONDS = 600
-LOG_LINES = 20
 DEPENDENCY_FILES = ("pyproject.toml", "uv.lock")
-SYNCHRONIZE = 0x00100000
-WAIT_MS = 120_000
 MIGRATE_ARGS = ("agent", "--migrate")
 REQUIREMENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 
@@ -150,7 +145,7 @@ def _checkout_plan(install: Install) -> Plan:
         install.commit,
         latest,
         log.splitlines(),
-        install.uv_tool and (any(name in DEPENDENCY_FILES for name in changed) or bool(missing_dependencies())),
+        any(name in DEPENDENCY_FILES for name in changed) or bool(missing_dependencies()),
     )
 
 
@@ -174,19 +169,13 @@ def pull(found: Plan) -> None:
 
 
 def install_command(found: Plan) -> list[str]:
-    if found.install.checkout is not None:
-        source = str(found.install.checkout)
-        return ["uv", "tool", "install", "--force", "--editable", source]
-
     if found.install.uv_tool:
-        source = f"{PACKAGE} @ git+{REPO_URL}@{BRANCH}"
-        return ["uv", "tool", "install", "--force", "--reinstall-package", PACKAGE, source]
+        return ["uv", "tool", "upgrade", "--reinstall-package", PACKAGE, PACKAGE]
+
+    if found.install.checkout is not None:
+        return [sys.executable, "-m", "pip", "install", "--editable", str(found.install.checkout)]
 
     return [sys.executable, "-m", "pip", "install", "--upgrade", f"git+{REPO_URL}@{BRANCH}"]
-
-
-def log_file() -> Path:
-    return home() / "update.log"
 
 
 def migrate_command() -> list[str]:
@@ -210,32 +199,10 @@ def migrate() -> bool:
     return True
 
 
-def reinstall(command: list[str]) -> bool:
-    if sys.platform == "win32":
-        return _reinstall_detached(command)
-
-    result = subprocess.run(command, capture_output=True, text=True, timeout=INSTALL_TIMEOUT_SECONDS)
-    log_file().write_text(result.stdout + result.stderr, encoding="utf-8")
+def reinstall(command: list[str]) -> None:
+    result = subprocess.run(command, stdout=sys.stderr)
     if result.returncode != 0:
-        tail = "\n".join((result.stderr or result.stdout).splitlines()[-LOG_LINES:])
-        raise OvError(f"Reinstall failed:\n{tail}")
-    return False
-
-
-def _reinstall_detached(command: list[str]) -> bool:
-    script = (
-        "import ctypes, subprocess\n"
-        "kernel = ctypes.windll.kernel32\n"
-        f"handle = kernel.OpenProcess({SYNCHRONIZE}, False, {os.getpid()})\n"
-        "if handle:\n"
-        f"    kernel.WaitForSingleObject(handle, {WAIT_MS})\n"
-        "    kernel.CloseHandle(handle)\n"
-        f"with open({str(log_file())!r}, 'w', encoding='utf-8') as out:\n"
-        f"    if subprocess.run({command!r}, stdout=out, stderr=subprocess.STDOUT).returncode == 0:\n"
-        f"        subprocess.run({migrate_command()!r}, stdout=out, stderr=subprocess.STDOUT)\n"
-    )
-
-    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-    python = getattr(sys, "_base_executable", sys.executable)
-    subprocess.Popen([python, "-c", script], creationflags=flags, close_fds=True)
-    return True
+        raise OvError(
+            f"Installing the update failed: {' '.join(command[:3])} exited with {result.returncode} (see above). "
+            "Run 'ov update' again to retry."
+        )
