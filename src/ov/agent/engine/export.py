@@ -4,6 +4,8 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from ov.agent import providers
+from ov.agent.providers.base import CostUnit
 from ov.agent.storage import db
 
 MS_PER_SECOND = 1000
@@ -21,12 +23,17 @@ def _when(ms: int) -> str:
     return datetime.fromtimestamp(ms / MS_PER_SECOND).strftime("%Y-%m-%d %H:%M")
 
 
-def _cost(cost: dict[str, Any]) -> str:
+COST_FORMATS: dict[CostUnit, Callable[[float], str]] = {
+    CostUnit.USD: lambda amount: f"${amount:,.2f}",
+    CostUnit.CREDITS: lambda amount: f"{amount:,.2f} credits",
+    CostUnit.TOKENS: lambda amount: f"{amount:,.0f} tokens",
+}
+
+
+def _cost(cost: dict[str, Any], provider_id: str) -> str:
     if not cost["requests"]:
         return "not tracked"
-    if cost["usd"]:
-        return f"about ${cost['usd']:,.2f} of Claude plan usage"
-    return f"{cost['credits']:,.2f} credits"
+    return COST_FORMATS[providers.get(provider_id).cost_unit](cost["amount"])
 
 
 def _header(state: dict[str, Any]) -> list[str]:
@@ -40,7 +47,7 @@ def _header(state: dict[str, Any]) -> list[str]:
     facts.append(f"Status: {summary['status']}")
 
     cost = db.thread_cost(summary["id"])
-    facts.append(f"Cost: {_cost(cost)}")
+    facts.append(f"Cost: {_cost(cost, summary['provider'])}")
     return [f"# {summary['title']}", "", " | ".join(facts)]
 
 

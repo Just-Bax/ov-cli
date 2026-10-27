@@ -72,6 +72,9 @@ def test_a_thread_exports_as_markdown(agent_server, monkeypatch):
     assert "(ok, " in text
     assert text.rstrip().endswith("There are **3** tags.")
 
+    db.add_usage(run.id, "copilot", "test-model", "turn", tokens={"input": 10}, nano=1_500_000_000)
+    assert "Cost: 1.50 credits" in httpx.get(f"{agent_server}/api/runs/{run.id}/export").text
+
 
 def test_cost_routes_answer(agent_server):
     assert httpx.get(f"{agent_server}/api/cost?range=7d").json()["requests"] == 0
