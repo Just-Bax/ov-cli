@@ -178,7 +178,7 @@ export function QueuedPanel({
                   f.kind === 'image' ? (
                     <img
                       key={f.name}
-                      src={api.fileUrl(runId, f.name)}
+                      src={api.imageUrl(runId, f)}
                       alt={f.name}
                       title={f.name}
                       className="border-line size-5 shrink-0 rounded border object-cover"

@@ -99,7 +99,7 @@ function FileChips({ runId, files }: { runId: string; files: MessageFile[] }) {
             className="cursor-zoom-in"
           >
             <img
-              src={api.fileUrl(runId, f.name)}
+              src={api.imageUrl(runId, f)}
               alt={f.name}
               className="border-line bg-raised h-28 max-w-[260px] rounded-2xl border object-contain transition-opacity hover:opacity-90"
             />

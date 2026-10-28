@@ -22,7 +22,8 @@ export function newMessageId(): string {
 
 export function fileOf(file: File): MessageFile {
   if (EMAIL_NAME.test(file.name)) return { name: file.name, kind: 'email' }
-  if (file.type.startsWith(IMAGE_TYPE)) return { name: file.name, kind: 'image' }
+  if (file.type.startsWith(IMAGE_TYPE))
+    return { name: file.name, kind: 'image', localUrl: URL.createObjectURL(file) }
   if (file.type === PDF_TYPE) return { name: file.name, kind: 'pdf' }
   if (file.type.startsWith(TEXT_TYPE)) return { name: file.name, kind: 'text' }
   return { name: file.name, kind: 'other' }

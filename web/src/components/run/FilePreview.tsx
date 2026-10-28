@@ -165,7 +165,7 @@ function Body({ runId, file }: { runId: string; file: MessageFile }) {
   if (file.kind === 'image') {
     return (
       <img
-        src={url}
+        src={api.imageUrl(runId, file)}
         alt={file.name}
         className="max-h-full max-w-full rounded-lg object-contain shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
       />
@@ -216,7 +216,7 @@ function Thumb({
     >
       {file.kind === 'image' ? (
         <img
-          src={api.fileUrl(runId, file.name)}
+          src={api.imageUrl(runId, file)}
           alt=""
           className="size-full bg-white/10 object-cover"
         />

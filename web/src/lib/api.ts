@@ -2,6 +2,7 @@ import type {
   Access,
   FollowUp,
   CodeSection,
+  MessageFile,
   ClaudeAccount,
   CopilotAccount,
   CostRange,
@@ -227,6 +228,8 @@ export const api = {
   revertGrid: (id: string, gridId: string) => post(`/runs/${id}/grids/${seg(gridId)}/revert`),
   removeQueued: (id: string, mid: string) => del(`/runs/${id}/queued/${seg(mid)}`),
   fileUrl: (id: string, name: string) => `${API_ROOT}/runs/${id}/files/${seg(name)}`,
+  imageUrl: (id: string, file: MessageFile) =>
+    file.localUrl ?? `${API_ROOT}/runs/${id}/files/${seg(file.name)}`,
   setAccess: (id: string, access: Access) => post(`/runs/${id}/access`, { access }),
   cancel: (id: string) => post(`/runs/${id}/cancel`),
   browserScreenUrl: (id: string) => `${API_ROOT}/runs/${id}/browser/screen`,

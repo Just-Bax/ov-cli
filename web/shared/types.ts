@@ -201,6 +201,7 @@ export interface LoginPrompt {
 export interface MessageFile {
   name: string
   kind: 'image' | 'email' | 'text' | 'pdf' | 'other'
+  localUrl?: string
 }
 
 export interface ChatMessage {
