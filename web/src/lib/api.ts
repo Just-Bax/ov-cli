@@ -219,7 +219,7 @@ export const api = {
   moveQueued: (id: string, mid: string, before: string | null) =>
     post(`/runs/${id}/queued/${seg(mid)}/move`, { before }),
   resumeQueue: (id: string) => post(`/runs/${id}/queue/resume`),
-  steerQueued: (id: string, mid: string) => post(`/runs/${id}/queued/${seg(mid)}/steer`),
+  sendQueued: (id: string, mid: string) => post(`/runs/${id}/queued/${seg(mid)}/send`),
   editQueued: (id: string, mid: string, text: string) =>
     post(`/runs/${id}/queued/${seg(mid)}/text`, { text }),
   retry: (id: string, itemId: string) => post(`/runs/${id}/retry`, { itemId }),

@@ -25,14 +25,16 @@ MESSAGE_ID = re.compile(r"^u_[A-Za-z0-9_]{6,64}$")
 class QueueMixin:
     def _restore_queue(self) -> None:
         for message in self.state["queued"]:
-            files = message.get("files") or []
-            uploaded = [describe(attachments_dir(self.id) / f["name"], "upload") for f in files]
-            self._queue.append((message, uploaded))
-            self._held.add(message["id"])
+            self._queue.append((message, self._attached(message)))
 
         self._queue_held = bool(self._queue)
-        self.state["queued"] = [{**m, "steer": False} for m in self.state["queued"]]
         self.state["queueHeld"] = self._queue_held
+
+        undelivered = set(self.state["steering"])
+        self._steers = [(m, self._attached(m)) for m in self.state["chat"] if m["id"] in undelivered]
+
+    def _attached(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+        return [describe(attachments_dir(self.id) / f["name"], "upload") for f in message.get("files") or []]
 
     def follow_up(self, message_id: str, text: str, files: list[dict[str, str]], steer: bool) -> None:
         self._check_new_id(message_id)
@@ -50,18 +52,31 @@ class QueueMixin:
                 self._busy = False
             raise
 
-        if not claimed:
-            with self._lock:
-                self._queue.append((message, uploaded))
-                if not steer:
-                    self._held.add(message["id"])
-            self.emit({"type": "queued", "message": {**message, "steer": steer}})
-            self._pick_up_queue()
+        if claimed:
+            self._start_with(message, content)
             return
 
+        if steer:
+            self._steer(message, uploaded)
+            return
+
+        with self._lock:
+            self._queue.append((message, uploaded))
+        self.emit({"type": "queued", "message": message})
+        self._pick_up_queue()
+
+    def _start_with(self, message: dict[str, Any], content: Any) -> None:
+        self._push_steers()
         self.emit({"type": "user", "message": message})
         self._push_turn(message["id"], content)
         self._spawn(self._run_turn)
+
+    def _steer(self, message: dict[str, Any], uploaded: list[dict[str, Any]]) -> None:
+        with self._lock:
+            self._steers.append((message, uploaded))
+        self.emit({"type": "user", "message": {**message, "steer": True, "ts": db.now_ms()}})
+        self._emit_queue()
+        self._pick_up_queue()
 
     def _check_new_id(self, message_id: str) -> None:
         if not MESSAGE_ID.match(message_id):
@@ -75,7 +90,7 @@ class QueueMixin:
             raise RunError("That message was already sent.")
 
     def _startable(self) -> bool:
-        return bool(self._queue) and not self._queue_held
+        return (bool(self._queue) and not self._queue_held) or (bool(self._steers) and not self.cancel.is_set())
 
     def _pick_up_queue(self) -> None:
         with self._lock:
@@ -87,17 +102,21 @@ class QueueMixin:
     def remove_queued(self, message_id: str) -> None:
         with self._lock:
             self._queue = [q for q in self._queue if q[0]["id"] != message_id]
-            self._held.discard(message_id)
         self.emit({"type": "unqueue", "id": message_id})
         self._settle_queue()
 
-    def steer_queued(self, message_id: str) -> None:
+    def send_queued(self, message_id: str) -> None:
         with self._lock:
-            if not self._busy:
-                raise RunError("There is no running turn to steer.")
-            self._queued(message_id)
-            self._held.discard(message_id)
-        self._emit_queue()
+            entry = self._queued(message_id)
+            self._queue = [q for q in self._queue if q is not entry]
+        self._settle_queue()
+
+        message, uploaded = entry
+        if self._claim():
+            self._start_with({**message, "ts": db.now_ms()}, self._user_content(message["text"], uploaded))
+            return
+
+        self._steer(message, uploaded)
 
     def edit_queued(self, message_id: str, text: str) -> None:
         with self._lock:
@@ -107,8 +126,7 @@ class QueueMixin:
 
             edited = {**message, "text": text}
             self._queue = [(edited, uploaded) if q[0]["id"] == message_id else q for q in self._queue]
-            steer = message_id not in self._held
-        self.emit({"type": "queued", "message": {**edited, "steer": steer}})
+        self.emit({"type": "queued", "message": edited})
 
     def move_queued(self, message_id: str, before_id: str | None) -> None:
         with self._lock:
@@ -140,7 +158,7 @@ class QueueMixin:
     def _emit_queue(self) -> None:
         with self._lock:
             order = [q[0]["id"] for q in self._queue]
-            steering = [i for i in order if i not in self._held]
+            steering = [m["id"] for m, _ in self._steers]
             held = self._queue_held
         self.emit({"type": "queue", "order": order, "steering": steering, "held": held})
 
@@ -152,18 +170,33 @@ class QueueMixin:
 
     def _steering(self) -> bool:
         with self._lock:
-            return any(q[0]["id"] not in self._held for q in self._queue)
+            return bool(self._steers)
 
     def has_news(self) -> bool:
         with self._lock:
             return self._steering() or bool(self._finished_tasks)
 
-    def _deliver_queued(self, starting_turn: bool = False) -> None:
+    def _take_steers(self) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         with self._lock:
-            steered = [q for q in self._queue if q[0]["id"] not in self._held]
-            ready = steered or (self._queue[:1] if starting_turn and self._startable() else [])
-            self._queue = [q for q in self._queue if q not in ready]
-            self._held -= {q[0]["id"] for q in ready}
+            steers, self._steers = self._steers, []
+        if steers:
+            self._emit_queue()
+        return steers
+
+    def _push_steers(self) -> None:
+        for message, uploaded in self._take_steers():
+            self._push_turn(message["id"], self._user_content(message["text"], uploaded))
+
+    def _deliver_queued(self, starting_turn: bool = False) -> None:
+        if self._steering():
+            self._push_steers()
+            return
+        if not starting_turn:
+            return
+
+        with self._lock:
+            ready = self._queue[:1] if not self._queue_held else []
+            self._queue = self._queue[len(ready) :]
         for message, uploaded in ready:
             self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
             self._push_turn(message["id"], self._user_content(message["text"], uploaded))
@@ -171,20 +204,16 @@ class QueueMixin:
 
     def call_tool_with_steering(self, name: str, args: dict[str, Any]) -> tuple[str, list[tuple[str, str]]]:
         output, images = self.call_tool_named(name, args)
-        with self._lock:
-            ready = [q for q in self._queue if q[0]["id"] not in self._held]
-            self._queue = [q for q in self._queue if q not in ready]
-        if not ready:
+        steers = self._take_steers()
+        if not steers:
             return output, images
 
         texts = []
-        for message, uploaded in ready:
-            self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
+        for message, uploaded in steers:
             content = self._user_content(message["text"], uploaded)
             parts = content if isinstance(content, list) else [{"type": "text", "text": content}]
             texts += [p["text"] for p in parts if p["type"] == "text"]
             images += [(message["id"], p["image_url"]["url"]) for p in parts if p["type"] == "image_url"]
-        self._settle_queue()
         return f"{output}\n\n{STEERED.format(text=chr(10).join(texts))}", images
 
     def _message(self, message_id: str, text: str, uploaded: list[dict[str, Any]]) -> dict:

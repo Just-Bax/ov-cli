@@ -36,7 +36,7 @@ import {
 import { AccountRow } from '@/components/integrations/parts'
 import { PROVIDER_UI } from '@/components/providers'
 import { CostSettings } from '@/components/settings/CostSettings'
-import { AccessLine } from '@/components/settings/AccessLine'
+import { AccessLine, PlatformLabel } from '@/components/settings/AccessLine'
 import { ProviderSettings } from '@/components/settings/ProviderSettings'
 import { Row } from '@/components/settings/Row'
 import {
@@ -232,6 +232,7 @@ function Instances() {
                       </span>
                       {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
                       {i.mode === 'token' ? <Chip tone="neutral">API token</Chip> : null}
+                      <PlatformLabel instance={i} />
                     </div>
                     <AccessLine instance={i} onCheck={() => checkAccess(i.alias)} />
                   </div>

@@ -19,6 +19,18 @@ function CheckButton({ label, onCheck }: { label: string; onCheck: () => void })
   )
 }
 
+export function PlatformLabel({ instance }: { instance: Instance }) {
+  const { access } = instance
+  const platform = [editionLabel(access), access.version].filter(Boolean).join(' ')
+  if (!platform || access.checking || access.error) return null
+
+  return (
+    <span title={platform} className="text-muted min-w-0 flex-1 truncate text-[11.5px]">
+      {platform}
+    </span>
+  )
+}
+
 export function AccessLine({ instance, onCheck }: { instance: Instance; onCheck: () => void }) {
   const { access } = instance
   const recheck = instance.valid ? (
@@ -59,17 +71,14 @@ export function AccessLine({ instance, onCheck }: { instance: Instance; onCheck:
     )
   }
 
-  const platform = [editionLabel(access), access.version].filter(Boolean).join(' ')
-
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11.5px]">
-      {platform ? <span className="text-muted mr-1">{platform}</span> : null}
       {allowedLabels(access).map(({ label, on }) => (
         <span
           key={label}
           title={on ? undefined : NOT_ALLOWED}
           className={cn(
-            'rounded-full px-2 py-px font-medium',
+            'rounded-full px-2 py-px font-medium whitespace-nowrap',
             on ? 'bg-ok-soft text-ok' : 'bg-canvas text-faint line-through',
           )}
         >

@@ -96,7 +96,12 @@ def test_a_queued_message_waits_for_the_turn_and_a_steered_one_does_not(logged_i
 
     assert seen[1][-1].endswith(BREAK + "now") and not any(m.endswith("later") for m in seen[1])
     assert seen[2][-1].startswith("[Sent ") and seen[2][-1].endswith(BREAK + "later")
-    assert not run.state["queued"]
+    assert not run.state["queued"] and not run.state["steering"]
+    assert [(m["text"], m.get("steer")) for m in run.state["chat"] if m["role"] == "user"] == [
+        ("start", None),
+        ("now", True),
+        ("later", None),
+    ]
 
 
 def test_queued_messages_are_sent_one_turn_at_a_time(logged_in, monkeypatch):
@@ -135,7 +140,12 @@ def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch
     monkeypatch.setattr(run, "call_tool_named", lambda name, args: ("rows", []))
     run.follow_up(new_message_id(), "skip VHMKFBC_PKG", [], steer=False)
     run.follow_up(new_message_id(), "after the turn", [], steer=False)
-    run.steer_queued(run.state["queued"][0]["id"])
+    steered = run.state["queued"][0]["id"]
+    run.send_queued(steered)
+
+    assert run.state["chat"][-1]["text"] == "skip VHMKFBC_PKG" and run.state["chat"][-1]["steer"]
+    assert run.state["steering"] == [steered]
+    assert [m["text"] for m in run.state["queued"]] == ["after the turn"]
 
     output, _ = run.call_tool_with_steering("ov_sql", {})
     again, _ = run.call_tool_with_steering("ov_sql", {})
@@ -143,8 +153,7 @@ def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch
 
     assert output.startswith("rows") and output.endswith("[The user wrote while you worked: skip VHMKFBC_PKG]")
     assert again == "rows"
-    assert [m["text"] for m in run.state["queued"]] == ["after the turn"]
-    assert run.state["chat"][-1]["text"] == "skip VHMKFBC_PKG"
+    assert not run.state["steering"]
 
 
 def test_an_edited_queued_message_keeps_its_place(logged_in):
@@ -195,6 +204,7 @@ def test_stop_holds_the_queue_until_it_is_resumed(logged_in, monkeypatch):
     db.create_thread("rhold", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rhold")
     run._busy = True
+    run.follow_up(new_message_id(), "now", [], steer=False)
     run.follow_up(new_message_id(), "later", [], steer=False)
     run.stop()
     run._busy = False
@@ -203,12 +213,41 @@ def test_stop_holds_the_queue_until_it_is_resumed(logged_in, monkeypatch):
 
     run._pick_up_queue()
     assert run.state["queueHeld"] and not started
-    with pytest.raises(RunError, match="no running turn"):
-        run.steer_queued(run.state["queued"][0]["id"])
+
+    run.send_queued(run.state["queued"][0]["id"])
+    run._busy = False
+    assert run.state["chat"][-1]["text"] == "now" and not run.state["chat"][-1].get("steer")
+    assert run.state["queueHeld"] and started == ["_run_turn"]
+    with pytest.raises(RunError, match="no longer queued"):
+        run.send_queued("u_gone_000001")
 
     run.resume_queue()
     run._busy = False
-    assert not run.state["queueHeld"] and started == ["_run_turn"]
+    assert not run.state["queueHeld"] and started == ["_run_turn", "_run_turn"]
+
+
+def test_a_steer_left_by_a_stop_waits_and_goes_before_the_next_message(logged_in, monkeypatch):
+    from ov.agent.engine.run_manager import runs
+
+    db.create_thread("rsteerstop", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
+    run = runs.get("rsteerstop")
+    started: list[str] = []
+    monkeypatch.setattr(run, "_spawn", lambda target, *args: started.append(target.__name__))
+    run.messages.append({"role": "system", "content": "s"})
+    run._busy = True
+    run.follow_up(new_message_id(), "use the other table", [], steer=True)
+    run.stop()
+    run._busy = False
+
+    run._pick_up_queue()
+    assert not started and len(run.state["steering"]) == 1
+
+    run.follow_up(new_message_id(), "go on", [], steer=False)
+    run._busy = False
+
+    texts = [m["content"].rsplit(BREAK, 1)[-1] for m in run.messages if m["role"] == "user"]
+    assert texts == ["use the other table", "go on"]
+    assert started == ["_run_turn"] and not run.state["steering"]
 
 
 def test_a_reloaded_thread_holds_its_queue(logged_in):
@@ -217,13 +256,14 @@ def test_a_reloaded_thread_holds_its_queue(logged_in):
     db.create_thread("rload", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
     run = runs.get("rload")
     run._busy = True
-    run.follow_up(new_message_id(), "kept", [], steer=True)
+    run.follow_up(new_message_id(), "kept", [], steer=False)
+    run.follow_up(new_message_id(), "steered", [], steer=True)
     run._busy = False
 
     loaded = RunManager().get("rload")
     assert loaded is not None
-    assert [(m["text"], m["steer"]) for m in loaded.state["queued"]] == [("kept", False)]
-    assert loaded.state["queueHeld"] and loaded._held == {loaded.state["queued"][0]["id"]}
+    assert [m["text"] for m in loaded.state["queued"]] == ["kept"] and loaded.state["queueHeld"]
+    assert [m["text"] for m, _ in loaded._steers] == ["steered"]
 
 
 def test_full_access_needs_the_flag_and_falls_back_to_auto_without_it(logged_in, monkeypatch):

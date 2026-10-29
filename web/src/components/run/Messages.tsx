@@ -1,4 +1,5 @@
 import {
+  ArrowBendUpRight as SteerIcon,
   ArrowUUpLeft as ArrowUturnLeftIcon,
   Check as CheckIcon,
   FileText as DocumentTextIcon,
@@ -16,7 +17,7 @@ import { FilePreview } from './FilePreview'
 const LONG_MESSAGE_CHARS = 1200
 const LONG_MESSAGE_LINES = 14
 
-function formatTime(ts: number): string {
+export function formatTime(ts: number): string {
   return timeWithDay(ts, { month: 'short', day: 'numeric' })
 }
 
@@ -161,6 +162,15 @@ export function UserMessage({
 }) {
   return (
     <div className="group flex flex-col items-end gap-1.5">
+      {message.steer ? (
+        <span
+          title="Sent into the running turn"
+          className="text-muted mr-1 flex items-center gap-1 text-[11.5px]"
+        >
+          <SteerIcon weight="bold" className="size-3" />
+          Steer
+        </span>
+      ) : null}
       <FileChips runId={runId} files={message.files ?? []} />
       {message.text ? <UserText text={message.text} /> : null}
       <div className="flex h-7 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

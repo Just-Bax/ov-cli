@@ -68,7 +68,7 @@ import { Answer, LoginCard } from './Panels'
 import { Reasoning } from '@/components/run/Reasoning'
 import { useQueueActions } from '@/lib/queueActions'
 import { ApplyContext, fileOf, newMessageId, stopEvents, useApply } from '@/lib/optimistic'
-import { QueuedPanel } from './QueuedPanel'
+import { QueuedMessages } from './QueuedMessages'
 import { AnsweredQuestion, QuestionComposer } from './QuestionDock'
 import { RunMenu } from './RunMenu'
 import { RUN_STATUS, StatusIcon } from './RunStatus'
@@ -346,49 +346,13 @@ function ThreadBlock({ block, state }: { block: Block; state: RunState }) {
   }
 }
 
-const FOLLOW_UP_HINT: Record<FollowUp, string> = {
-  queue: 'Queue: sent as its own turn after this one',
-  steer: 'Steer: picked up at the next step',
-}
+type QueuedEdit = ReturnType<typeof useQueuedEdit>
 
-function Footer({
-  runId,
-  provider,
-  idleSince,
-  busy,
-  status,
-  access,
-  context,
-  compact,
-  question,
-  tool,
-  queued,
-  queueHeld,
-  onStop,
-  onSend,
-}: {
-  runId: string
-  provider: Provider
-  idleSince: number
-  busy: boolean
-  status: RunStatus
-  access: Access
-  context?: ContextUsage
-  compact: boolean
-  question?: Question
-  tool?: ToolActivity
-  queued: ChatMessage[]
-  queueHeld: boolean
-  onStop: () => void
-  onSend: () => void
-}) {
-  const apply = useApply()
-  const queue = useQueueActions(runId, queued, queueHeld)
-  const { cacheTtlMs } = useProvider(provider)
-  const [error, setError] = useState<string>()
+const NO_MESSAGES: ChatMessage[] = []
+
+function useQueuedEdit(runId: string, queued: ChatMessage[]) {
   const [editing, setEditing] = useState<ChatMessage>()
   const [draft, setDraft] = useState<{ text: string; at: number }>()
-  const modeFor = (alternate: boolean): FollowUp => (alternate ? 'steer' : 'queue')
   const runKey = `run-${runId}`
   const editKey = editing ? `queued-${editing.id}` : runKey
 
@@ -409,6 +373,54 @@ function Footer({
     if (edited.trim() && edited !== editing.text && !loadText(runKey).trim())
       setDraft({ text: edited, at: Date.now() })
   }, [queued, editing])
+
+  return { editing, setEditing, draft, startEdit, endEdit, editKey }
+}
+
+const FOLLOW_UP_HINT: Record<FollowUp, string> = {
+  queue: 'Queue: sent as its own turn after this one',
+  steer: 'Steer: sent into the running turn',
+}
+
+function Footer({
+  runId,
+  provider,
+  idleSince,
+  busy,
+  status,
+  access,
+  context,
+  compact,
+  question,
+  tool,
+  queued,
+  queueHeld,
+  edit,
+  onStop,
+  onSend,
+}: {
+  runId: string
+  provider: Provider
+  idleSince: number
+  busy: boolean
+  status: RunStatus
+  access: Access
+  context?: ContextUsage
+  compact: boolean
+  question?: Question
+  tool?: ToolActivity
+  queued: ChatMessage[]
+  queueHeld: boolean
+  edit: QueuedEdit
+  onStop: () => void
+  onSend: () => void
+}) {
+  const apply = useApply()
+  const queue = useQueueActions(runId, queued, status)
+  const { cacheTtlMs } = useProvider(provider)
+  const [error, setError] = useState<string>()
+  const { editing, setEditing, draft, startEdit, endEdit, editKey } = edit
+  const modeFor = (alternate: boolean): FollowUp => (alternate ? 'steer' : 'queue')
 
   const send = async (text: string, files: File[], alternate: boolean) => {
     setError(undefined)
@@ -442,7 +454,9 @@ function Footer({
       files: files.map(fileOf),
     }
 
-    if (busy) apply({ type: 'queued', message: { ...message, steer: mode === 'steer' } })
+    const steering = busy && mode === 'steer'
+    if (steering) apply({ type: 'user', message: { ...message, steer: true } })
+    else if (busy) apply({ type: 'queued', message })
     else {
       apply({ type: 'user', message })
       apply({ type: 'status', status: 'running' })
@@ -453,7 +467,8 @@ function Footer({
       const uploaded = files.length ? await api.upload(files) : []
       await api.message(runId, message.id, text, uploaded, mode)
     } catch (e) {
-      if (busy) apply({ type: 'unqueue', id: message.id })
+      if (steering) apply({ type: 'rewind', itemId: message.id })
+      else if (busy) apply({ type: 'unqueue', id: message.id })
       else {
         apply({ type: 'rewind', itemId: message.id })
         apply({ type: 'status', status })
@@ -468,9 +483,9 @@ function Footer({
       return true
     }
 
-    const steerable = queued.find((m) => !m.steer)
-    if (e.key === 'Enter' && e.shiftKey && (e.ctrlKey || e.metaKey) && busy && steerable) {
-      queue.steer(steerable.id)
+    const oldest = queued[0]
+    if (e.key === 'Enter' && e.shiftKey && (e.ctrlKey || e.metaKey) && busy && oldest) {
+      queue.send(oldest.id)
       return true
     }
 
@@ -510,16 +525,6 @@ function Footer({
             cacheTtlMs={cacheTtlMs}
           />
         ) : null}
-        <QueuedPanel
-          runId={runId}
-          queued={queued}
-          held={queueHeld}
-          busy={busy}
-          editingId={editing?.id}
-          canEdit={!question}
-          onEdit={startEdit}
-          onCancelEdit={endEdit}
-        />
         {question ? (
           <QuestionComposer
             runId={runId}
@@ -661,6 +666,7 @@ export function RunView({ id }: { id: string }) {
   const restoreHeight = useRef<number | undefined>(undefined)
   const [finding, setFinding] = useState(false)
   const arrivedLive = useArrivedLive(state)
+  const edit = useQueuedEdit(id, state?.queued ?? NO_MESSAGES)
 
   useEffect(() => {
     const open = Boolean(state?.browser?.open)
@@ -884,6 +890,7 @@ export function RunView({ id }: { id: string }) {
             tool={state.tools.find((t) => t.id === docked?.toolId)}
             queued={state.queued}
             queueHeld={state.queueHeld}
+            edit={edit}
             onStop={stop}
             onSend={() => {
               followBottom.current = true
@@ -1002,6 +1009,16 @@ export function RunView({ id }: { id: string }) {
               <Shimmer>Thinking</Shimmer>
             </div>
           ) : null}
+          <QueuedMessages
+            runId={id}
+            queued={state.queued}
+            held={state.queueHeld}
+            status={summary.status}
+            editingId={edit.editing?.id}
+            canEdit={!docked}
+            onEdit={edit.startEdit}
+            onCancelEdit={edit.endEdit}
+          />
           {state.continuedIn ? <ThreadLink label="Continued in" link={state.continuedIn} /> : null}
           {state.error && summary.status === 'error' ? (
             <div

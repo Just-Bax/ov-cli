@@ -99,7 +99,7 @@ class Run(
         self._notes: list[str] = []
         self._waits, self._background = 0, 0
         self._queue: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
-        self._held: set[str] = set()
+        self._steers: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
         self._questions: dict[str, tuple[threading.Event, list[tuple[list[str], str]]]] = {}
         self._logins: dict[str, tuple[threading.Event, list[bool]]] = {}
         self._busy, self.finished = False, False
@@ -222,7 +222,6 @@ class Run(
             questions, self._questions = self._questions, {}
             logins, self._logins = self._logins, {}
             self._finished_tasks = []
-            self._held = {q[0]["id"] for q in self._queue}
             self._queue_held = bool(self._queue)
         self._stop_tasks()
         if self._queue_held:
@@ -278,6 +277,7 @@ class Run(
         self._stop_tasks()
         with self._lock:
             self._finished_tasks = []
+        self._take_steers()
 
         self._fork = anchor
 

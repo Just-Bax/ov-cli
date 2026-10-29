@@ -27,6 +27,7 @@ def empty_state(summary: dict[str, Any], access: str) -> State:
         "access": access,
         "queued": [],
         "queueHeld": False,
+        "steering": [],
         "session": {"id": None, "turns": {}, "spent": 0.0},
     }
 
@@ -137,6 +138,8 @@ def _on_message(state: State, stored: Stored) -> None:
 def _on_user(state: State, stored: Stored) -> None:
     message = stored["event"]["message"]
     state["queued"] = _without(state["queued"], message["id"])
+    if not message.get("steer"):
+        state["steering"] = [i for i in state["steering"] if i != message["id"]]
     state["chat"] = [*_without(state["chat"], message["id"]), message]
     _add_item(state, "user", message["id"])
 
@@ -175,9 +178,9 @@ def _on_queued(state: State, stored: Stored) -> None:
 def _on_queue(state: State, stored: Stored) -> None:
     event = stored["event"]
     by_id = {m["id"]: m for m in state["queued"]}
-    steering = set(event["steering"])
-    state["queued"] = [{**by_id[i], "steer": i in steering} for i in event["order"] if i in by_id]
+    state["queued"] = [by_id[i] for i in event["order"] if i in by_id]
     state["queueHeld"] = event["held"]
+    state["steering"] = event["steering"]
 
 
 def _on_unqueue(state: State, stored: Stored) -> None:

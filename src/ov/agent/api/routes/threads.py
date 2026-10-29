@@ -285,9 +285,9 @@ def retry(h: Handler, run_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/steer")
-def steer_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
-    require_run(run_id).steer_queued(message_id)
+@route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/send")
+def send_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
+    require_run(run_id).send_queued(message_id)
     return {"ok": True}
 
 

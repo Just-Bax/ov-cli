@@ -151,7 +151,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       const byId = new Map(state.queued.map((m) => [m.id, m]))
       const queued = event.order.flatMap((id) => {
         const message = byId.get(id)
-        return message ? [{ ...message, steer: event.steering.includes(id) }] : []
+        return message ? [message] : []
       })
 
       return { ...state, queued, queueHeld: event.held }
