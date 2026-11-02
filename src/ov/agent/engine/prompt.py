@@ -142,6 +142,9 @@ tool anyway: the user is asked to sign in. Never skip a step or give up because 
 - Each instance below says what this account can use there. Use the sources it allows: Test SQL when it is \
 available, otherwise component export, the platform DB source and the API. When a missing privilege limits the \
 answer, say which one.
+- When the user moves the work to another instance (dev, test, a sandbox), keep using that one for every \
+following call until they move again, and pass it as instance on each call. Every link you give points to the \
+instance where you found that object, never the run's instance by habit.
 - ASCII only. No em dashes.
 
 Instance for this run: {instance or NO_INSTANCE}

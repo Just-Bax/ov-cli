@@ -30,12 +30,31 @@ _MENTION = re.compile(
 _NUMBER = re.compile(rf"\d{{{MIN_ID_DIGITS},}}")
 _LINK = re.compile(r"\]\((https?://[^)\s]+)\)")
 _CODE = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
+_INSTANCE_ARG = re.compile(r'"instance"\s*:\s*"([^"]+)"')
 
 
-def seen_ids(state: dict[str, Any]) -> set[str]:
-    texts = [f"{t.get('input') or ''} {t.get('output') or ''} {t.get('label') or ''}" for t in state["tools"]]
-    texts += [m["text"] for m in state["chat"] if m["role"] == "user"]
-    return {n for text in texts for n in _NUMBER.findall(text)}
+def _tool_instance(tool: dict[str, Any]) -> str | None:
+    found = _INSTANCE_ARG.search(str(tool.get("input") or ""))
+    return found.group(1) if found else None
+
+
+def seen_ids(state: dict[str, Any], instance: str) -> dict[str, str]:
+    tools = {t["id"]: t for t in state["tools"]}
+    users = {m["id"]: m for m in state["chat"] if m["role"] == "user"}
+    current = instance
+    seen: dict[str, str] = {}
+
+    for item in state["items"]:
+        if item["kind"] == "tool" and item["id"] in tools:
+            tool = tools[item["id"]]
+            current = _tool_instance(tool) or current
+            text = f"{tool.get('input') or ''} {tool.get('output') or ''} {tool.get('label') or ''}"
+        elif item["kind"] == "user" and item["id"] in users:
+            text = users[item["id"]]["text"]
+        else:
+            continue
+        seen.update(dict.fromkeys(_NUMBER.findall(text), current))
+    return seen
 
 
 def _form_for(word: str) -> str:
@@ -43,19 +62,20 @@ def _form_for(word: str) -> str:
     return next(path for pattern, path in FORMS if re.fullmatch(pattern, normalized))
 
 
-def links_for(text: str, base_url: str, seen: set[str]) -> dict[str, Any]:
-    host = urlsplit(base_url).netloc.lower()
+def links_for(text: str, seen: dict[str, str], base_urls: dict[str, str]) -> dict[str, Any]:
+    hosts = {urlsplit(url).netloc.lower(): ref for ref, url in base_urls.items()}
     prose = _CODE.sub(" ", text)
     mentions = []
     for match in _MENTION.finditer(prose):
         word, number = match.group(1), match.group(2)
-        if number in seen:
+        base_url = base_urls.get(seen.get(number, ""))
+        if base_url:
             mentions.append({"text": match.group(0), "url": f"{base_url}{_form_for(word)}{number}"})
 
     unverified = []
     for url in _LINK.findall(prose):
         parts = urlsplit(url)
         ids = parse_qs(parts.query).get("id") or []
-        if parts.netloc.lower() == host and ids and ids[0] not in seen:
+        if parts.netloc.lower() in hosts and ids and ids[0] not in seen:
             unverified.append(url)
     return {"mentions": mentions, "unverified": unverified}

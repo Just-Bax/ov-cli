@@ -82,12 +82,11 @@ class EventsMixin:
 
         event = _message_event(message)
 
-        found = find_instance(self.instance) if self.instance else None
-        if found is not None:
-            with self._lock:
-                linked = links_for(message["text"], found["url"], seen_ids(self.state))
-            if linked["mentions"] or linked["unverified"]:
-                event["links"] = linked
+        with self._lock:
+            seen = seen_ids(self.state, self.instance)
+        linked = links_for(message["text"], seen, _base_urls(set(seen.values())))
+        if linked["mentions"] or linked["unverified"]:
+            event["links"] = linked
 
         self.emit(event)
 
@@ -150,3 +149,8 @@ def _message_event(message: dict[str, Any]) -> dict[str, Any]:
     if message.get("reasoning"):
         event["reasoning"] = message["reasoning"]
     return event
+
+
+def _base_urls(refs: set[str]) -> dict[str, str]:
+    found = {ref: find_instance(ref) for ref in refs if ref}
+    return {ref: row["url"] for ref, row in found.items() if row is not None}

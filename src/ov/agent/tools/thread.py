@@ -33,6 +33,10 @@ MAX_QUESTIONS = 5
 MIN_OPTIONS = 2
 MAX_OPTIONS = 5
 HEADER_CHARS = 12
+WRONG_OPTION_COUNT = (
+    f'"{{question}}" has {{count}} option(s); give {MIN_OPTIONS}-{MAX_OPTIONS}, the user can also type their own. '
+    "If there is only one sensible choice, do not ask it: go with that choice and say so."
+)
 
 ENTITY_TYPES = (
     "rule",
@@ -190,7 +194,7 @@ def _question_item(raw: Any) -> dict[str, Any]:
 
     options = [_option(o) for o in raw.get("options") or []]
     if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
-        raise ToolError(f"Give {MIN_OPTIONS}-{MAX_OPTIONS} options per question; the user can also type their own.")
+        raise ToolError(WRONG_OPTION_COUNT.format(question=str(raw["question"]).strip(), count=len(options)))
 
     return {
         "header": str(raw.get("header") or "").strip()[:HEADER_CHARS],

@@ -146,3 +146,7 @@ def test_a_recursive_model_is_cut_off_rather_than_unrolled():
 def test_markup_is_stripped_from_descriptions():
     assert plain("Use <b>[filter]</b><br>or trackor_id") == "Use [filter] or trackor_id"
     assert plain("") == ""
+
+
+def test_a_server_without_url_uses_the_api_prefix():
+    assert parse({**OPENAPI, "servers": [{}]}, "v3").server == parse({**OPENAPI, "servers": []}, "v3").server

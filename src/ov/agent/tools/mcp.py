@@ -28,6 +28,7 @@ NO_MCP = (
     "Your account on {instance} cannot use the platform's MCP server: it needs an AI Enabled instance and the "
     "MCP_SERVER privilege. Use ov, ov_search and ov_export instead."
 )
+CHECK_NAME = "Use a tool name exactly as listed: call ov_mcp without tool to list the tools and their arguments."
 BLOCKED = (
     "Blocked: this MCP tool changes data and this thread is Read-only. Do not retry; tell the user what it would do."
 )
@@ -42,7 +43,8 @@ def _rpc(alias: str, method: str, params: dict[str, Any]) -> Any:
     with open_client(alias) as client:
         body = client.post_json(MCP_PATH, message).json()
     if body.get("error"):
-        raise ToolError(f"The MCP server refused {method}: {body['error'].get('message') or body['error']}")
+        refused = f"The MCP server refused {method}: {body['error'].get('message') or body['error']}"
+        raise ToolError(f"{refused} {CHECK_NAME}" if method == "tools/call" else refused)
     return body["result"]
 
 
@@ -99,7 +101,10 @@ TOOLS = [
         {
             "instance": INSTANCE,
             "tool": string_param("MCP tool name; leave out to list the tools"),
-            "arguments": {"type": "object", "description": "Arguments for the MCP tool, as its schema says"},
+            "arguments": {
+                "type": "object",
+                "description": "Every argument of the MCP tool goes in here, as its schema says",
+            },
         },
         [],
         lambda a: brief(f"mcp {a.get('tool') or 'tools'}{' @ ' + a['instance'] if a.get('instance') else ''}"),

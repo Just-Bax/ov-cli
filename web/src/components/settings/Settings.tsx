@@ -703,6 +703,7 @@ function ProviderAccounts({ status, onChange }: { status?: Status; onChange: () 
 }
 
 export function SettingsPage({ onChange }: { onChange: () => void }) {
+  const { settings } = useSettings()
   const { value: status, reload } = useLoad(api.status, [])
   const datadog = useDatadog()
   const pd = usePagerDuty()
@@ -717,7 +718,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
       title="Settings"
       subtitle={
         <span>
-          Profile, provider, preferences, instances, workspace, integrations, skills, cost and
+          Profile, provider, cost, preferences, instances, integrations, skills, workspace and
           accounts. Stored on this machine.
         </span>
       }
@@ -734,6 +735,12 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           hint="Who runs the agent, its account and its models. Saved as you change them."
         >
           <ProviderSettings onChange={changed} />
+        </Section>
+        <Section
+          title="Cost"
+          hint="What the agent used on the provider above; pick another one to compare. Each thread shows its own total in its header."
+        >
+          <CostSettings key={settings.provider} />
         </Section>
         <Section
           title="Preferences"
@@ -767,12 +774,6 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
           hint="One folder with your code. The agent reads, edits and runs commands only inside it; deleting files, git push and the like wait for your approval."
         >
           <Workspace />
-        </Section>
-        <Section
-          title="Cost"
-          hint="What the agent used, per provider. Each thread shows its own total in its header."
-        >
-          <CostSettings />
         </Section>
         <Section title="Accounts" hint="Services this computer is signed in to.">
           <Card className="divide-line divide-y overflow-hidden">

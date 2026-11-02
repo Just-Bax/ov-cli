@@ -232,6 +232,11 @@ def _tool_args(tool: Tool, raw: str) -> dict[str, Any]:
     missing = [key for key in tool.required if key not in args]
     if missing:
         raise ToolError(f"missing required arguments: {', '.join(missing)}")
+
+    known = tool.spec["function"]["parameters"]["properties"]
+    unknown = [key for key in args if key not in known]
+    if unknown:
+        raise ToolError(f"{tool.name} has no argument {', '.join(unknown)}; it takes {', '.join(known)}.")
     return args
 
 

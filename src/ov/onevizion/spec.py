@@ -224,13 +224,13 @@ def parse(document: dict[str, Any], group: str) -> Spec:
 
 def _parse(document: dict[str, Any], group: str) -> Spec:
     info = document["info"]
-    servers = document.get("servers")
+    servers = [s["url"] for s in document.get("servers") or [] if s.get("url")]
 
     spec = Spec(
         title=info["title"],
         version=info["version"],
         group=group,
-        server=servers[0]["url"] if servers else API_PREFIX,
+        server=servers[0] if servers else API_PREFIX,
         fetched_at=time.time(),
     )
 
