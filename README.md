@@ -93,8 +93,9 @@ ov update --check   # only say whether one is available
 `ov update` uses git with your own GitHub access, so it also works while the repo is
 private. From a clone (`pip install -e` or `uv tool install --editable`) it fast-forwards
 the clone, and stops without touching your work if your local changes conflict; it
-reinstalls when dependencies changed or a required package is missing. Otherwise it installs `ov` from the latest
-commit on GitHub. The install upgrades `ov` in place, in the same terminal, with uv showing its
+reinstalls when dependencies changed or a required package is missing. Otherwise it fetches
+only the latest commit (a shallow copy kept in `~/.ov/cache/source`) and reinstalls just
+`ov`; dependencies are installed only when that commit changes them. The install upgrades `ov` in place, in the same terminal, with uv showing its
 progress; if it is interrupted, the old environment stays and `ov update` again finishes the job.
 Settings, sign-ins and agent history in `~/.ov` are kept.
 

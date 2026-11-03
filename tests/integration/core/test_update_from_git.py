@@ -58,7 +58,7 @@ def test_dependency_changes_reinstall_the_tool(repos, monkeypatch):
 
     found = update.plan()
     assert found.reinstall
-    assert update.install_command(found)[:3] == ["uv", "pip", "install"]
+    assert update.editable_command(found.install)[:3] == ["uv", "pip", "install"]
 
 
 def test_local_changes_that_conflict_stop_the_pull(repos, monkeypatch):
@@ -84,3 +84,22 @@ def test_missing_packages_reinstall_even_when_the_code_is_current(repos, monkeyp
     found = update.plan()
     assert found.current == found.latest
     assert found.reinstall
+
+
+def test_the_latest_commit_is_fetched_shallow_into_its_own_folder(repos, tmp_path, monkeypatch):
+    origin, _ = repos
+    monkeypatch.setattr(update, "REPO_URL", origin.as_uri())
+    monkeypatch.setattr(update, "source_root", lambda: tmp_path / "source")
+
+    first = update.fetch_source()
+    assert first.name == git("rev-parse", "HEAD", cwd=origin)
+    assert (first / "app.py").read_text(encoding="utf-8") == "x = 1"
+    assert git("rev-parse", "--is-shallow-repository", cwd=first.parent / update.REPO_DIR) == "true"
+
+    (origin / "app.py").unlink()
+    git("commit", "-qam", "drop app", cwd=origin)
+    second = update.fetch_source()
+    assert not (second / "app.py").exists()
+
+    update._prune_sources(second)
+    assert sorted(p.name for p in second.parent.iterdir()) == sorted([update.REPO_DIR, second.name])

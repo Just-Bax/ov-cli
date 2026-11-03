@@ -14,15 +14,17 @@ from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
 from ov.core.errors import EXIT_IN_USE, OvError
+from ov.core.paths import cache_dir
 
 PACKAGE = "ov-cli"
 REPO_URL = "https://github.com/Just-Bax/ov-cli.git"
 BRANCH = "master"
-GIT_SOURCE = f"{PACKAGE} @ git+{REPO_URL}@{BRANCH}"
 COMMAND_TIMEOUT_SECONDS = 120
 DEPENDENCY_FILES = ("pyproject.toml", "uv.lock")
 MIGRATE_ARGS = ("agent", "--migrate")
 REQUIREMENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
+SOURCE_DIR = "source"
+REPO_DIR = "repo"
 
 
 @dataclass
@@ -86,21 +88,30 @@ def _declared_requirements() -> list[str]:
         return tomllib.load(file)["project"]["dependencies"]
 
 
-def missing_dependencies() -> list[str]:
+def _requirement_name(requirement: str) -> str:
+    name = REQUIREMENT_NAME.match(requirement)
+    if name is None:
+        raise OvError(f"Cannot read the requirement {requirement!r} of {PACKAGE}.")
+    return name.group()
+
+
+def _runtime(requirements: list[str]) -> list[str]:
+    return [requirement for requirement in requirements if "extra ==" not in requirement]
+
+
+def _missing(requirements: list[str]) -> list[str]:
     missing = []
-    for requirement in _declared_requirements():
-        if "extra ==" in requirement:
-            continue
-
-        name = REQUIREMENT_NAME.match(requirement)
-        if name is None:
-            raise OvError(f"Cannot read the requirement {requirement!r} of {PACKAGE}.")
-
+    for requirement in _runtime(requirements):
+        name = _requirement_name(requirement)
         try:
-            metadata.distribution(name.group())
+            metadata.distribution(name)
         except metadata.PackageNotFoundError:
-            missing.append(name.group())
+            missing.append(name)
     return missing
+
+
+def missing_dependencies() -> list[str]:
+    return _missing(_declared_requirements())
 
 
 def require_dependencies() -> None:
@@ -116,6 +127,17 @@ def _uv_tool() -> bool:
     return tools.returncode == 0 and Path(sys.prefix).resolve().parent == Path(tools.stdout.strip()).resolve()
 
 
+def source_root() -> Path:
+    return cache_dir() / SOURCE_DIR
+
+
+def _source_commit(info: dict) -> str:
+    if "dir_info" not in info:
+        return ""
+    source = _checkout_of(info)
+    return source.name if source.parent.resolve() == source_root().resolve() else ""
+
+
 def detect() -> Install:
     info = _direct_url()
     if _editable(info):
@@ -124,7 +146,7 @@ def detect() -> Install:
             raise OvError(f"ov runs from {checkout}, which is not a git checkout. Update it by hand.")
         return Install(checkout, _git(["rev-parse", "HEAD"], checkout), _uv_tool())
 
-    commit = info.get("vcs_info", {}).get("commit_id")
+    commit = info.get("vcs_info", {}).get("commit_id") or _source_commit(info)
     if not commit:
         raise OvError(
             f"{PACKAGE} was not installed from git, so its version is unknown. Reinstall it with the install script."
@@ -169,14 +191,68 @@ def pull(found: Plan) -> None:
     _git(["merge", "--ff-only", found.latest], repo)
 
 
-def install_command(found: Plan) -> list[str]:
-    checkout = found.install.checkout
-    if found.install.uv_tool:
-        uv = ["uv", "pip", "install", "--python", sys.executable]
-        return [*uv, "--editable", str(checkout)] if checkout else [*uv, "--reinstall-package", PACKAGE, GIT_SOURCE]
+def _installer(install: Install) -> list[str]:
+    if install.uv_tool:
+        return ["uv", "pip", "install", "--python", sys.executable]
+    return [sys.executable, "-m", "pip", "install"]
 
-    pip = [sys.executable, "-m", "pip", "install"]
-    return [*pip, "--editable", str(checkout)] if checkout else [*pip, "--upgrade", GIT_SOURCE]
+
+def _force(install: Install) -> list[str]:
+    return ["--reinstall-package", PACKAGE] if install.uv_tool else ["--force-reinstall"]
+
+
+def editable_command(install: Install) -> list[str]:
+    return [*_installer(install), "--editable", str(install.checkout)]
+
+
+def _requirement_key(requirement: str) -> tuple[str, tuple[str, ...]]:
+    text = requirement.split(";")[0].replace(" ", "")
+    name = _requirement_name(text)
+    specifiers = sorted(part for part in text[len(name) :].split(",") if part)
+    return name.lower().replace("_", "-"), tuple(specifiers)
+
+
+def _requirements_of(source: Path) -> list[str]:
+    with (source / "pyproject.toml").open("rb") as file:
+        return tomllib.load(file)["project"]["dependencies"]
+
+
+def dependencies_changed(requirements: list[str]) -> bool:
+    installed = _runtime(metadata.requires(PACKAGE) or [])
+    wanted = {_requirement_key(requirement) for requirement in _runtime(requirements)}
+    return wanted != {_requirement_key(requirement) for requirement in installed} or bool(_missing(requirements))
+
+
+def source_commands(install: Install, source: Path) -> list[list[str]]:
+    package = [*_installer(install), "--no-deps", *_force(install), str(source)]
+    requirements = _requirements_of(source)
+    if not dependencies_changed(requirements):
+        return [package]
+    return [[*_installer(install), *_runtime(requirements)], package]
+
+
+def fetch_source() -> Path:
+    root = source_root()
+    repo = root / REPO_DIR
+    if not (repo / ".git").exists():
+        _git(["init", "--quiet", str(repo)])
+        _git(["remote", "add", "origin", REPO_URL], repo)
+
+    _git(["fetch", "--quiet", "--depth", "1", "origin", BRANCH], repo)
+    commit = _git(["rev-parse", "FETCH_HEAD"], repo)
+
+    target = root / commit
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir()
+    _git([f"--work-tree={target}", "checkout", "--force", commit, "--", "."], repo)
+    return target
+
+
+def _prune_sources(keep: Path) -> None:
+    for entry in keep.parent.iterdir():
+        if entry.is_dir() and entry.name not in (REPO_DIR, keep.name):
+            shutil.rmtree(entry)
 
 
 def migrate_command() -> list[str]:
@@ -200,11 +276,21 @@ def migrate() -> bool:
     return True
 
 
-def reinstall(found: Plan) -> None:
-    command = install_command(found)
+def _install(command: list[str]) -> None:
     result = subprocess.run(command, stdout=sys.stderr)
     if result.returncode != 0:
         raise OvError(
             f"Installing the update failed: {' '.join(command[:3])} exited with {result.returncode} (see above). "
             "Run 'ov update' again to retry."
         )
+
+
+def reinstall(found: Plan) -> None:
+    if found.install.checkout is not None:
+        _install(editable_command(found.install))
+        return
+
+    source = fetch_source()
+    for command in source_commands(found.install, source):
+        _install(command)
+    _prune_sources(source)
