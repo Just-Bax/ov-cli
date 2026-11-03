@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from ov.agent import providers
+from ov.agent.engine.state import State, empty_state, reduce
 from ov.agent.providers.base import CostUnit
 from ov.agent.storage import db
 
@@ -17,6 +18,19 @@ VERDICTS = {
     "info": "Info",
     "unknown": "Unclear",
 }
+
+
+def stored_state(thread_id: str) -> tuple[State, int] | None:
+    summary = db.get_thread(thread_id)
+    if summary is None:
+        return None
+
+    state = empty_state(summary, db.thread_access(thread_id))
+    events = db.load_events(thread_id)
+    for event in events:
+        reduce(state, event)
+    state["summary"] = {**state["summary"], **summary}
+    return state, events[-1]["seq"] if events else -1
 
 
 def _when(ms: int) -> str:

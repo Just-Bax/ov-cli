@@ -27,3 +27,20 @@ def test_status_lists_every_provider_and_settings_hold_the_profile(agent_server,
 
     refused = httpx.put(f"{agent_server}/api/settings", json={"provider": "nope"})
     assert refused.status_code == 400 and "Unknown provider: nope" in refused.json()["error"]
+
+    blank = httpx.put(f"{agent_server}/api/settings", json={"fullName": "   "})
+    assert blank.status_code == 400 and "full name is required" in blank.json()["error"]
+
+
+def test_each_provider_keeps_its_own_models_across_switches(agent_server):
+    settings = f"{agent_server}/api/settings"
+    httpx.put(settings, json={"defaultModel": "gpt-main", "fastModel": "gpt-fast"})
+
+    on_claude = httpx.put(settings, json={"provider": "claude"}).json()
+    httpx.put(settings, json={"fastModel": "haiku"})
+    back = httpx.put(settings, json={"provider": "copilot"}).json()
+    again = httpx.put(settings, json={"provider": "claude"}).json()
+
+    assert on_claude["provider"] == "claude" and on_claude["defaultModel"] != "gpt-main"
+    assert (back["defaultModel"], back["fastModel"]) == ("gpt-main", "gpt-fast")
+    assert again["fastModel"] == "haiku"

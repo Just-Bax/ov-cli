@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from ov.agent.tools.base import (
 )
 from ov.agent.tools.onevizion import INSTANCE, entity_link, run_sql
 
+THREAD_ID = re.compile(r"([a-z0-9]+)/?$")
 MAX_WAIT_SECONDS = 1800
 DEFAULT_WAIT_EVERY_SECONDS = 30
 MIN_WAIT_EVERY_SECONDS = 10
@@ -287,6 +289,13 @@ def _wait(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(f"No change in {seconds}s. Last result:\n{latest}", ctx, "result")
 
 
+def _read_thread(args: dict[str, Any], ctx: ToolContext) -> str:
+    found = THREAD_ID.search(str(args["thread"]).strip())
+    if found is None:
+        raise ToolError(f"Not a thread id or link: {args['thread']}")
+    return clip(ctx.read_thread(found.group(1)), ctx, "thread")
+
+
 def _wait_label(args: dict[str, Any]) -> str:
     what = " for a SQL result to change" if args.get("sql") else ""
     return f"Wait up to {args.get('seconds')}s{what}"
@@ -314,6 +323,16 @@ TOOLS = [
         ["path"],
         lambda a: f"read {a.get('path')}",
         _read_file,
+    ),
+    Tool(
+        "thread_read",
+        "Read another OV Agent thread the user points you to, by its id or link: its title, instance and status, "
+        "every user message, the agent's replies, tool steps, questions, proposed changes and results. Use it to "
+        "check what was done there or to carry on from it. Read-only.",
+        {"thread": string_param("Thread id, like rmvz9w924azo9, or the thread's link")},
+        ["thread"],
+        lambda a: f"read thread {a.get('thread')}",
+        _read_thread,
     ),
     Tool(
         "run_wait",

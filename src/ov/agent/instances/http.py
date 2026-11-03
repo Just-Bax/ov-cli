@@ -8,3 +8,8 @@ from ov.onevizion.client import Client
 
 def open_client(alias: str) -> Client:
     return build_client(config_module.load(), session_store.load(alias))
+
+
+def web_session_alive(alias: str) -> bool:
+    with open_client(alias) as client:
+        return client.web_session_alive()

@@ -624,6 +624,7 @@ function Profile() {
   useEffect(() => setInstructions(settings.instructions), [settings.instructions])
 
   const dirty = name.trim() !== settings.fullName || instructions !== settings.instructions
+  const named = Boolean(name.trim())
   useUnsavedWarning(dirty)
 
   const save = async () => {
@@ -641,7 +642,7 @@ function Profile() {
   return (
     <Card className="space-y-4 p-5">
       <div>
-        <Label>Full name</Label>
+        <Label>Full name (required)</Label>
         <Input
           aria-label="Full name"
           className="w-[320px]"
@@ -671,11 +672,14 @@ function Profile() {
           variant="primary"
           size="sm"
           busy={saving}
-          disabled={!dirty || saving}
+          disabled={!dirty || !named || saving}
           onClick={() => void save()}
         >
           <CheckIcon className="size-3.5" /> Save
         </Button>
+        {named ? null : (
+          <span className="text-danger text-[12px]">Your full name is required.</span>
+        )}
         {error ? <span className="text-danger text-[12px]">{error}</span> : null}
       </div>
     </Card>

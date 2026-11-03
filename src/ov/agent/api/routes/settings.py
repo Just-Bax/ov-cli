@@ -134,7 +134,7 @@ def put_settings(h: Handler) -> dict[str, Any]:
     switching = patch.get("provider") and patch["provider"] != db.get_preferences()["provider"]
     if switching:
         chosen = providers.get(patch["provider"])
-        if "defaultModel" not in patch:
+        if "defaultModel" not in patch and not db.has_provider_models(chosen.id):
             patch["defaultModel"], patch["fastModel"] = chosen.default_models()
     return db.save_preferences(patch)
 

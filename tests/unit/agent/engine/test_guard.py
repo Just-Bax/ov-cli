@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from helpers.agent import TEST_TITLE_REPLY, is_title_prompt
 
 from ov.agent.engine.guard import COMMAND_EFFECTS, PAGE_EFFECTS, Effect, GuardError, Verdict, parse
 from ov.agent.integrations.copilot import StreamResult, Usage
@@ -36,6 +37,8 @@ def test_the_run_judges_each_command_once_and_records_it(logged_in, monkeypatch)
     calls: list[str] = []
 
     def fake_complete(model, system, user_text, max_tokens, read_timeout):
+        if is_title_prompt(system):
+            return TEST_TITLE_REPLY, None
         calls.append(user_text)
         return '{"effect": "change", "reason": "writes build output"}', Usage(tokens={"output": 5}, nano=1)
 

@@ -90,7 +90,11 @@ const ANOTHER_SIGN_IN = /another sign-in is still/
 const DEFAULT_FIX =
   'Check that the address is right and that you can sign in to it in a normal browser.'
 
-const FIXES: { pattern: RegExp; tip: (tenant?: string) => string | undefined }[] = [
+const FIXES: {
+  pattern: RegExp
+  method?: SignInMethod
+  tip: (tenant?: string) => string | undefined
+}[] = [
   {
     pattern: /tenant|not allowed|no tenant/,
     tip: (tenant) =>
@@ -98,8 +102,14 @@ const FIXES: { pattern: RegExp; tip: (tenant?: string) => string | undefined }[]
       `${tenant} needs a user with your email address. Ask an admin of that tenant to add one, or sign in without a tenant.`,
   },
   {
-    pattern: /accesskey|auth tokens|not accepted|401|unauthori/,
+    pattern: /not accepted|401|unauthori|rejected/,
+    method: 'token',
     tip: () => 'Check both keys in Admin > Auth Tokens, and that the token is still active.',
+  },
+  {
+    pattern: /failed while issuing an api token/,
+    tip: () =>
+      'The instance hit an error of its own. Its server log shows why; an API token works meanwhile.',
   },
   {
     pattern: /may not create api tokens/,
@@ -107,7 +117,7 @@ const FIXES: { pattern: RegExp; tip: (tenant?: string) => string | undefined }[]
       `Turn off "Stay signed in for ${REMEMBER_DAYS} days" to sign in with a session token instead.`,
   },
   {
-    pattern: /widget|token endpoint|refus/,
+    pattern: /widget module/,
     tip: () => 'Your account needs the Widget module at Read; the token request depends on it.',
   },
   {
@@ -121,11 +131,11 @@ const FIXES: { pattern: RegExp; tip: (tenant?: string) => string | undefined }[]
   },
 ]
 
-function likelyFixes(message: string, tenant?: string): string[] {
+function likelyFixes(message: string, method: SignInMethod, tenant?: string): string[] {
   const text = message.toLowerCase()
   if (ANOTHER_SIGN_IN.test(text)) return []
 
-  const tips = FIXES.filter((f) => f.pattern.test(text))
+  const tips = FIXES.filter((f) => (f.method ?? method) === method && f.pattern.test(text))
     .map((f) => f.tip(tenant))
     .filter((tip): tip is string => Boolean(tip))
   return tips.length ? tips : [DEFAULT_FIX]
@@ -442,7 +452,7 @@ export function SignInModal({
               {message}
             </div>
             <ul className="space-y-1.5">
-              {likelyFixes(message, tenant).map((tip) => (
+              {likelyFixes(message, method, tenant).map((tip) => (
                 <li key={tip} className="text-muted flex gap-2 text-[12.5px] leading-relaxed">
                   <span className="bg-brand mt-2 size-1.5 shrink-0 rounded-full" />
                   {tip}

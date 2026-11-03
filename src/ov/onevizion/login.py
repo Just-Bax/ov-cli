@@ -17,10 +17,10 @@ import playwright
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
-from ov.core.errors import Forbidden, LoginFailed, OvError
+from ov.core.errors import ApiError, Forbidden, LoginFailed, OvError
 from ov.core.paths import browser_profile_dir
 from ov.onevizion import auth
-from ov.onevizion.auth import AJAX_HEADERS, CSRF_PATH, LOGIN_PATH, MINT_PATH
+from ov.onevizion.auth import AJAX_HEADERS, CSRF_PATH, LOGIN_PATH, MINT_PATH, SERVER_ERROR, server_message
 from ov.onevizion.session import Session, cookies_from_playwright, expiry_to_epoch
 
 LOGIN_WAIT_MS = 5 * 60 * 1000
@@ -66,6 +66,11 @@ NO_WIDGET_PRIV = (
     "Admin > Auth Tokens."
 )
 
+USE_A_TOKEN = (
+    "Sign in with an API token instead: Admin > Auth Tokens, create one of type API, then\n"
+    "  ov login <url> --token accessKey:secretKey"
+)
+
 MINT_SCRIPT = """
 async (paths) => {
   const port = location.port ? ':' + location.port : '';
@@ -91,6 +96,7 @@ async (paths) => {
   if (!response.ok) {
     return {
       status: response.status,
+      body: await response.text(),
       error: 'page: ' + paths.mint + ' returned ' + response.status,
     };
   }
@@ -217,13 +223,19 @@ def _timeout_message(base_url: str, last_error: str, seen: list[str]) -> str:
 
 def _stuck_message(base_url: str, last_error: str, seen: list[str]) -> str:
     return (
-        f"Signed in at {base_url}, but the instance would not issue an API token.\n"
+        f"Signed in at {base_url}, but the instance kept refusing to issue an API token.\n"
         f"Tried three ways, all refused: {last_error}\n"
         f"Open tabs: {', '.join(seen)}\n\n"
-        "Most likely the account lacks the WIDGET module at Read, which is what the "
-        "token endpoint requires.\n"
-        "Use a token instead: Admin > Auth Tokens, create one of type API, then\n"
-        f"  ov login {base_url} --token accessKey:secretKey"
+        f"{USE_A_TOKEN}"
+    )
+
+
+def _server_failed(status: int, said: str) -> LoginFailed:
+    reason = f"The server said: {said}" if said else "The server gave no reason; its log shows the error."
+    return LoginFailed(
+        f"Signed in, but the instance failed while issuing an API token: {MINT_PATH} returned {status}.\n"
+        f"{reason}\n\n"
+        f"{USE_A_TOKEN}"
     )
 
 
@@ -288,6 +300,8 @@ def _mint_over_http(context: Any, base_url: str, verify: bool) -> Minted:
             auth.mint_web_session_token(http, session)
     except Forbidden as exc:
         raise LoginFailed(str(exc)) from None
+    except ApiError as exc:
+        raise _server_failed(exc.status, str(exc)) from None
     except (OvError, httpx.HTTPError) as exc:
         return None, f"http: {_first_line(exc)}"
 
@@ -317,6 +331,8 @@ def _mint_from_context(context: Any, base_url: str) -> Minted:
 
     if response.status == 403:
         raise LoginFailed(NO_WIDGET_PRIV)
+    if response.status >= SERVER_ERROR:
+        raise _server_failed(response.status, server_message(response.text()))
     if not response.ok:
         return None, f"request: {MINT_PATH} returned {response.status}"
 
@@ -330,8 +346,11 @@ def _mint_from_context(context: Any, base_url: str) -> Minted:
 def _read_minted(result: Any, source: str) -> Minted:
     if not isinstance(result, dict):
         return None, f"{source}: unreadable response"
-    if result.get("status") == 403:
+    status = result.get("status") or 0
+    if status == 403:
         raise LoginFailed(NO_WIDGET_PRIV)
+    if status >= SERVER_ERROR:
+        raise _server_failed(status, server_message(result.get("body") or ""))
     if result.get("error"):
         return None, str(result["error"])
     if not result.get("bearerToken") or not result.get("expirationTime"):

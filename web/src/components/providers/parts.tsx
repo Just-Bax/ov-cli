@@ -1,6 +1,5 @@
 import type { ComponentType, ReactNode } from 'react'
 import type { ProviderAccount } from '@shared/types.ts'
-import type { SidebarAccount } from '@/components/layout/Sidebar'
 
 export interface ProviderUi {
   usageTitle: string
@@ -8,7 +7,7 @@ export interface ProviderUi {
   usageHint?: (tokens: Record<string, number>) => string | undefined
   accountBadge: ReactNode
   summary: (account: ProviderAccount) => string
-  sidebar: (account: ProviderAccount) => Omit<SidebarAccount, 'provider'>
+  plan: (account: ProviderAccount) => string
   accountDetail: (account: ProviderAccount, runsAgent: boolean) => string
   SignIn: ComponentType<{ account: ProviderAccount; onRefresh: () => void }>
   Plan: ComponentType

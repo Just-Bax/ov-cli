@@ -50,9 +50,10 @@ class FakePage:
 
 
 class FakeResponse:
-    def __init__(self, status: int = 200, payload: Any = None) -> None:
+    def __init__(self, status: int = 200, payload: Any = None, body: str = "") -> None:
         self.status = status
         self._payload = payload
+        self.body = body
 
     @property
     def ok(self) -> bool:
@@ -63,11 +64,15 @@ class FakeResponse:
             raise ValueError("not json")
         return self._payload
 
+    def text(self) -> str:
+        return self.body
+
 
 class FakeRequest:
-    def __init__(self, rejects: float = 0, mint_status: int = 200) -> None:
+    def __init__(self, rejects: float = 0, mint_status: int = 200, mint_body: str = "") -> None:
         self.rejects = rejects
         self.mint_status = mint_status
+        self.mint_body = mint_body
         self.rounds = 0
         self.calls: list[str] = []
 
@@ -81,7 +86,7 @@ class FakeRequest:
     def post(self, url: str, headers: Any = None) -> FakeResponse:
         self.calls.append(f"POST {url}")
         if self.mint_status != 200:
-            return FakeResponse(self.mint_status)
+            return FakeResponse(self.mint_status, body=self.mint_body)
         return FakeResponse(200, MINTED)
 
 
@@ -168,6 +173,48 @@ def test_a_missing_widget_privilege_from_the_request_api_fails_fast():
         _mint(FakeContext(request, [page]), page, BASE_URL)
 
 
+def test_a_server_error_from_the_page_fails_fast_with_what_the_server_said():
+    page = FakePage(
+        [f"{BASE_URL}/Home.do"],
+        result={"status": 500, "body": '{"message": "Encryption key is not set"}', "error": "page: 500"},
+    )
+    with pytest.raises(LoginFailed) as caught:
+        _mint(FakeContext(FakeRequest(), [page]), page, BASE_URL)
+
+    message = str(caught.value)
+    assert "returned 500" in message
+    assert "Encryption key is not set" in message
+    assert "WIDGET" not in message
+    assert "session expired" not in message.lower()
+
+
+def test_a_server_error_from_the_request_api_fails_fast():
+    page = FakePage([f"{BASE_URL}/Home.do"], result=PlaywrightError(DESTROYED))
+    request = FakeRequest(mint_status=502, mint_body="<html>Bad Gateway</html>")
+    with pytest.raises(LoginFailed) as caught:
+        _mint(FakeContext(request, [page]), page, BASE_URL)
+
+    message = str(caught.value)
+    assert "returned 502" in message
+    assert "log shows the error" in message
+
+
+def test_a_server_error_over_plain_http_fails_fast(monkeypatch):
+    from ov.core.errors import ApiError
+
+    page = FakePage([f"{BASE_URL}/Home.do"], result=PlaywrightError(DESTROYED))
+    context = FakeContext(
+        DeadRequest(), [page], browser_cookies=[{"name": "JSESSIONID", "value": "abc", "domain": HOST}]
+    )
+
+    def crash(http, session):
+        raise ApiError(500, "NullPointerException")
+
+    monkeypatch.setattr("ov.onevizion.auth.mint_web_session_token", crash)
+    with pytest.raises(LoginFailed, match="NullPointerException"):
+        _mint(context, page, BASE_URL)
+
+
 def test_waiting_polls_until_the_instance_accepts_the_user():
     page = FakePage(
         [
@@ -216,8 +263,8 @@ def test_a_signed_in_tab_that_keeps_being_refused_stops_waiting():
     assert page.evaluated == login_module.STUCK_AFTER_ROUNDS
 
     message = str(caught.value)
-    assert "would not issue an API token" in message
-    assert "WIDGET" in message
+    assert "kept refusing to issue an API token" in message
+    assert "WIDGET" not in message
     assert f"{BASE_URL}/Home.do" in message
     assert "--token" in message
 

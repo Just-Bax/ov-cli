@@ -7,12 +7,13 @@ import threading
 from typing import Any
 
 from ov.agent import providers
+from ov.agent.engine.export import stored_state
 from ov.agent.engine.feed import status_feed
 from ov.agent.engine.files import run_dir
 from ov.agent.engine.run import Run
 from ov.agent.engine.run_common import RunError
 from ov.agent.engine.run_titles import TITLE_CHARS, short_title
-from ov.agent.engine.state import empty_state, reduce
+from ov.agent.engine.state import empty_state
 from ov.agent.storage import db
 from ov.agent.storage.models import Access
 
@@ -103,17 +104,13 @@ class RunManager:
                 self._evict()
                 return live
 
-            summary = db.get_thread(run_id)
-            if summary is None:
+            stored = stored_state(run_id)
+            if stored is None:
                 return None
 
-            state = empty_state(summary, db.thread_access(run_id))
-            events = db.load_events(run_id)
-            for event in events:
-                reduce(state, event)
-            state["summary"] = {**state["summary"], **summary}
+            state, seq = stored
             state.pop("browser", None)
-            run = Run(run_id, state, events[-1]["seq"] if events else -1)
+            run = Run(run_id, state, seq)
             if run.access == Access.FULL and not self.full_access:
                 run.set_access(Access.AUTO, FULL_ACCESS_OFF_NOTE)
             self._evict()

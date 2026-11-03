@@ -88,10 +88,10 @@ export const CLAUDE_UI: ProviderUi = {
       ? `Claude Code as ${email}, ${planLabel(plan)}.`
       : 'Claude Code is not signed in.'
   },
-  sidebar: (account) => {
+  plan: (account) => {
     const { signedIn, plan } = claudeOf(account)
-    if (!signedIn) return { detail: 'Not signed in' }
-    return { detail: plan ? `${capitalized(plan)} plan` : 'Signed in' }
+    if (!signedIn) return 'Not signed in'
+    return plan ? `${capitalized(plan)} plan` : 'Signed in'
   },
   accountDetail: (account, runsAgent) => {
     const { signedIn, email } = claudeOf(account)

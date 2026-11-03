@@ -135,8 +135,9 @@ so within a few seconds instead of waiting out the timeout, and names the likely
 `ov login <url> --verbose` prints each attempt: which tabs are open, and exactly what each
 of the three token requests got back.
 
-The commonest cause is the account lacking the **Widget** module at Read, which is what the
-token endpoint requires.
+A 403 means the account lacks the **Widget** module at Read, which is what the token
+endpoint requires. A 5xx means the instance itself failed; the error shows what the server
+said, and the instance's log has the rest.
 
 Your password is typed into the real login page. This tool never reads it, never asks for
 it, and never writes it anywhere. Token requests only ever go to the host you named, never

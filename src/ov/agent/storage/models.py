@@ -201,8 +201,6 @@ class Preference(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     provider: Mapped[str] = mapped_column(Text)
-    default_model: Mapped[str | None] = mapped_column(Text)
-    fast_model: Mapped[str | None] = mapped_column(Text)
     reasoning: Mapped[str | None] = mapped_column(Text)
     max_steps: Mapped[int] = mapped_column(Integer)
     workspace: Mapped[str | None] = mapped_column(Text)
@@ -211,6 +209,15 @@ class Preference(Base):
     instructions: Mapped[str | None] = mapped_column(Text)
     notify: Mapped[bool] = mapped_column(Integer)
     tab_badge: Mapped[bool] = mapped_column(Integer)
+    updated_at: Mapped[int] = mapped_column(Integer)
+
+
+class ProviderModel(Base):
+    __tablename__ = "provider_model"
+
+    provider: Mapped[str] = mapped_column(Text, primary_key=True)
+    default_model: Mapped[str | None] = mapped_column(Text)
+    fast_model: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[int] = mapped_column(Integer)
 
 

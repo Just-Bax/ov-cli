@@ -32,6 +32,10 @@ export function reportError(error: unknown): void {
   emit({ id: ++nextId, message })
 }
 
+export function notify(message: string): number {
+  return emit({ id: ++nextId, message })
+}
+
 export function notifyAction(message: string, label: string, run: () => void, ms: number): number {
   return emit({ id: ++nextId, message, action: { label, run }, ms })
 }

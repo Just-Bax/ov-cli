@@ -2,7 +2,8 @@ import {
   Alarm as AlarmIcon,
   Bell as BellIcon,
   BellZ as SnoozedIcon,
-  CheckCircle as CheckCircleIcon,
+  Check as CheckIcon,
+  CircleNotch as SpinnerIcon,
   Checks as DoubleCheckIcon,
   Code as CodeBracketIcon,
   GearSix as Cog6ToothIcon,
@@ -17,15 +18,14 @@ import {
 } from '@phosphor-icons/react'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { Attention, Provider, RunSummary } from '@shared/types.ts'
+import type { Attention, RunSummary } from '@shared/types.ts'
 import mark from '@/assets/ov-mark.svg'
 import wordmark from '@/assets/ov-agent-wordmark.svg'
 import { EditableTitle } from '@/components/common/EditableTitle'
-import { ProviderBubble } from '@/components/common/ProviderLogo'
-import { PROVIDER_BRANDS } from '@/lib/providerBrand'
-import { type Icon, PulseDot, Shimmer, Skeleton, SlideIndicator } from '@/components/common/ui'
+import { AccountButton, type SidebarAccount } from '@/components/layout/AccountMenu'
+import { type Icon, PulseDot, Skeleton, SlideIndicator } from '@/components/common/ui'
 import { OPEN_PALETTE, TOGGLE_SIDEBAR } from '@/components/layout/CommandPalette'
-import { RunMenu, snoozeLabel } from '@/components/run/RunMenu'
+import { RunMenu } from '@/components/run/RunMenu'
 import { RUN_STATUS, StatusIcon } from '@/components/run/RunStatus'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -67,10 +67,16 @@ const ACCOUNT_INSET = 'pr-3 pl-2'
 type NavTool = { route: Route; label: string; icon: Icon }
 type Signal = { label: string; icon: Icon; tone: string }
 
+const WORKING_SIGNAL: Signal = {
+  label: 'Working',
+  icon: SpinnerIcon,
+  tone: 'text-brand animate-spin',
+}
 const NEEDS_YOU: Signal = { label: 'Needs you', icon: BellIcon, tone: 'text-warn' }
+const SNOOZED: Signal = { label: 'Snoozed', icon: SnoozedIcon, tone: 'text-brand' }
 const ATTENTION: Record<Attention, Signal> = {
   woke: { label: 'Woke', icon: AlarmIcon, tone: 'text-woke' },
-  done: { label: 'Done', icon: CheckCircleIcon, tone: 'text-ok' },
+  done: { label: 'Done', icon: CheckIcon, tone: 'text-ok' },
   failed: { label: 'Failed', icon: WarningCircleIcon, tone: 'text-danger' },
 }
 
@@ -108,48 +114,31 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
   return pinned.length ? [['Pinned', pinned], ...rest] : rest
 }
 
-export type SidebarAccount = {
-  provider: Provider
-  detail: string
-}
-
-function Avatar({ account, loading }: { account?: SidebarAccount; loading?: boolean }) {
-  if (loading) return <Skeleton className="size-8 rounded-full" />
-  if (!account) return <span className="bg-raised size-8 rounded-full" />
-  return <ProviderBubble provider={account.provider} className="size-8" />
-}
-
 function runSignal(run: RunSummary, open: boolean): Signal | undefined {
+  if (BUSY.has(run.status)) return WORKING_SIGNAL
   if (run.status === 'waiting') return NEEDS_YOU
-  if (open || !run.attention) return undefined
-  return ATTENTION[run.attention]
+  if (!open && run.attention) return ATTENTION[run.attention]
+  return run.snoozedUntil ? SNOOZED : undefined
 }
 
-function RunMeta({ run, open }: { run: RunSummary; open: boolean }) {
-  if (BUSY.has(run.status))
-    return (
-      <Shimmer tone="brand" className="font-semibold">
-        Working
-      </Shimmer>
-    )
-
-  const signal = runSignal(run, open)
-  if (signal)
-    return (
-      <span className={cn('inline-flex items-center gap-1 font-semibold', signal.tone)}>
-        <signal.icon weight="bold" className="size-3.5" />
-        {signal.label}
-      </span>
-    )
-
-  if (run.snoozedUntil)
-    return (
-      <span title={`Snoozed until ${snoozeLabel(run.snoozedUntil)}`} className="text-brand">
-        {shortSpan(run.snoozedUntil - Date.now())}
-      </span>
-    )
-
+function RunTime({ run }: { run: RunSummary }) {
+  if (run.snoozedUntil && !BUSY.has(run.status))
+    return <span className="text-brand">{shortSpan(run.snoozedUntil - Date.now())}</span>
   return <span className="text-faint">{shortSpan(Date.now() - run.updatedAt)}</span>
+}
+
+function RunSignal({ run, open }: { run: RunSummary; open: boolean }) {
+  const signal = runSignal(run, open)
+  if (!signal) return <span aria-hidden className="bg-line-strong size-1 rounded-full" />
+
+  return (
+    <signal.icon
+      weight="bold"
+      role="img"
+      aria-label={signal.label}
+      className={cn('size-3.5', signal.tone)}
+    />
+  )
 }
 
 function RunItem({
@@ -197,11 +186,14 @@ function RunItem({
       {run.pinned && !settled ? (
         <BookmarkIcon className="text-brand size-3.5 shrink-0 group-hover/run:hidden" />
       ) : null}
-      <span className="relative flex h-7 min-w-7 shrink-0 items-center justify-end text-[11.5px] font-normal tabular-nums">
-        <span className="group-focus-within/run:invisible group-hover/run:invisible">
-          <RunMeta run={run} open={active} />
+      <span className="w-7 shrink-0 text-right text-[11.5px] font-normal tabular-nums">
+        <RunTime run={run} />
+      </span>
+      <span className="relative -mr-1.5 flex size-7 shrink-0 items-center justify-center">
+        <span className="flex items-center group-focus-within/run:invisible group-hover/run:invisible">
+          <RunSignal run={run} open={active} />
         </span>
-        <span className="absolute inset-y-0 -right-[5px] flex items-center">
+        <span className="absolute inset-0 flex items-center justify-center">
           <RunMenu run={run} settled={Boolean(settled)} inRow />
         </span>
       </span>
@@ -521,15 +513,7 @@ function Shelf({
   )
 }
 
-export function Sidebar({
-  route,
-  account,
-  loading,
-}: {
-  route: Route
-  account?: SidebarAccount
-  loading?: boolean
-}) {
+export function Sidebar({ route, account }: { route: Route; account?: SidebarAccount }) {
   const list = useRuns()
   const [showAll, setShowAll] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
@@ -545,7 +529,6 @@ export function Sidebar({
   const moreTip = useRailTip()
   const settledTip = useRailTip()
   const snoozedTip = useRailTip()
-  const settingsTip = useRailTip()
   const docked = useDocked()
   const collapsed = docked ? pinnedCollapsed : !drawer
   const overlay = !docked && drawer
@@ -830,19 +813,11 @@ export function Sidebar({
 
         {collapsed ? (
           <div className="border-line-strong/60 flex h-16 shrink-0 items-center justify-center border-t">
-            <a
-              href={href({ page: 'settings' })}
-              aria-label="Settings"
-              onMouseEnter={settingsTip.show}
-              onMouseLeave={settingsTip.hide}
-              className={cn(
-                'relative flex size-10 items-center justify-center rounded-full transition-colors',
-                onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
-              )}
-            >
-              <Avatar account={account} loading={loading} />
-              <RailTip at={settingsTip.at}>Settings</RailTip>
-            </a>
+            {account ? (
+              <AccountButton account={account} collapsed active={onSettings} />
+            ) : (
+              <Skeleton className="size-8 rounded-full" />
+            )}
           </div>
         ) : (
           <div
@@ -851,29 +826,17 @@ export function Sidebar({
               FOOTER_INSET,
             )}
           >
-            <a
-              href={href({ page: 'settings' })}
-              className={cn(
-                'flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full transition-colors',
-                ACCOUNT_INSET,
-                onSettings ? 'bg-brand-soft' : 'hover:bg-canvas',
-              )}
-            >
-              <Avatar account={account} loading={loading} />
-              {loading ? (
+            {account ? (
+              <AccountButton account={account} collapsed={false} active={onSettings} />
+            ) : (
+              <span className={cn('flex h-11 min-w-0 flex-1 items-center gap-2.5', ACCOUNT_INSET)}>
+                <Skeleton className="size-8 rounded-full" />
                 <span className="space-y-1.5">
                   <Skeleton className="h-3 w-20" />
                   <Skeleton className="h-2.5 w-24" />
                 </span>
-              ) : (
-                <span className="min-w-0">
-                  <span className="text-fg block truncate text-[13px] font-medium">
-                    {account ? PROVIDER_BRANDS[account.provider].name : 'Not signed in'}
-                  </span>
-                  <span className="text-faint block truncate text-[11.5px]">{account?.detail}</span>
-                </span>
-              )}
-            </a>
+              </span>
+            )}
             <a
               href={href({ page: 'settings' })}
               aria-label="Settings"

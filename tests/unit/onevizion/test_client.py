@@ -87,6 +87,22 @@ def test_a_rejected_token_is_reminted_once_and_the_call_retried():
     assert calls["api"] == 2
 
 
+def test_a_crashing_token_endpoint_is_an_api_error_not_an_expired_session():
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/CsrfToken.do":
+            return httpx.Response(200, json={"headerName": "X-CSRF-TOKEN", "token": "csrf-1"}, request=request)
+        if path == "/widget/GenerateApiTokenForWebSession":
+            return httpx.Response(500, json={"message": "Encryption key is not set"}, request=request)
+        return httpx.Response(401, text="expired", request=request)
+
+    with (
+        Client(session(), transport=httpx.MockTransport(handler)) as api,
+        pytest.raises(ApiError, match="Encryption key is not set"),
+    ):
+        api.api("GET", "/v3/users")
+
+
 def test_a_static_token_is_never_reminted():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, text="nope", request=request)
@@ -134,3 +150,21 @@ def test_a_timeout_says_which_setting_to_raise():
     transport = httpx.MockTransport(handler)
     with Client(session(), transport=transport) as api, pytest.raises(Unreachable, match="timeout_seconds"):
         api.api("GET", "/v3/users")
+
+
+@pytest.mark.parametrize(
+    ("response", "alive"),
+    [
+        (httpx.Response(200, json={"headerName": "X-CSRF", "token": "t"}), True),
+        (httpx.Response(302, headers={"Location": "/Login.do"}), False),
+        (httpx.Response(200, text="<html>Sign in with Microsoft</html>"), False),
+    ],
+)
+def test_the_web_session_is_alive_only_when_the_csrf_endpoint_answers(response, alive):
+    with Client(session(), transport=httpx.MockTransport(lambda _: response)) as api:
+        assert api.web_session_alive() is alive
+
+
+def test_a_session_without_cookies_has_no_web_session():
+    with Client(session("token"), transport=httpx.MockTransport(lambda _: httpx.Response(500))) as api:
+        assert api.web_session_alive() is False

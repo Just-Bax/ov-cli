@@ -37,6 +37,7 @@ from ov.agent.storage.models import (
     EventType,
     Message,
     Preference,
+    ProviderModel,
     Reasoning,
     Skill,
     SkillSource,
@@ -48,6 +49,7 @@ from ov.core.errors import EXIT_IN_USE, OvError
 from ov.core.paths import agent_dir
 
 DB_FILE = "agent.db"
+FULL_NAME_REQUIRED = "Your full name is required."
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 BUSY_TIMEOUT_MS = 10_000
 
@@ -56,8 +58,6 @@ DEFAULT_MAX_STEPS = 80
 MAX_STEPS_LIMIT = 500
 PREFERENCE_COLUMNS = {
     "provider": "provider",
-    "defaultModel": "default_model",
-    "fastModel": "fast_model",
     "reasoning": "reasoning",
     "maxSteps": "max_steps",
     "workspace": "workspace",
@@ -68,7 +68,8 @@ PREFERENCE_COLUMNS = {
     "tabBadge": "tab_badge",
 }
 BOOLEAN_PREFERENCES = ("notify", "tabBadge")
-TEXT_PREFERENCES = ("defaultModel", "fastModel", "workspace", "workspaceNotes", "fullName", "instructions")
+TEXT_PREFERENCES = ("workspace", "workspaceNotes", "fullName", "instructions")
+MODEL_PREFERENCES = {"defaultModel": "default_model", "fastModel": "fast_model"}
 REASONING_LEVELS = tuple(level.value for level in Reasoning)
 DEFAULT_PROVIDER = "copilot"
 NANO_PER_UNIT = 1_000_000_000
@@ -293,9 +294,12 @@ def get_preferences() -> dict[str, Any]:
         row = conn.execute(select(Preference).where(Preference.id == PREFERENCE_ROW)).one()
 
     values = {key: getattr(row, column) for key, column in PREFERENCE_COLUMNS.items()}
+    main, fast = provider_models(row.provider)
 
     return {
         **values,
+        "defaultModel": main,
+        "fastModel": fast,
         **{key: values[key] or "" for key in (*TEXT_PREFERENCES, "reasoning")},
         **{key: bool(values[key]) for key in BOOLEAN_PREFERENCES},
     }
@@ -309,12 +313,38 @@ def _max_steps(value: Any) -> int:
     return min(max(steps, 1), MAX_STEPS_LIMIT)
 
 
+def provider_models(provider: str) -> tuple[str, str]:
+    with _begin() as conn:
+        row = conn.execute(select(ProviderModel).where(ProviderModel.provider == provider)).one_or_none()
+    if row is None:
+        return "", ""
+    return row.default_model or "", row.fast_model or ""
+
+
+def has_provider_models(provider: str) -> bool:
+    with _begin() as conn:
+        found = conn.execute(select(ProviderModel.provider).where(ProviderModel.provider == provider)).first()
+    return found is not None
+
+
+def _save_models(conn: Any, provider: str, models: dict[str, Any]) -> None:
+    values = {MODEL_PREFERENCES[key]: str(value or "").strip() or None for key, value in models.items()}
+    statement = insert(ProviderModel).values(provider=provider, updated_at=now_ms(), **values)
+    conn.execute(
+        statement.on_conflict_do_update(
+            index_elements=[ProviderModel.provider], set_={**values, "updated_at": now_ms()}
+        )
+    )
+
+
 def _check_preferences(patch: dict[str, Any]) -> None:
-    unknown = set(patch) - set(PREFERENCE_COLUMNS)
+    unknown = set(patch) - set(PREFERENCE_COLUMNS) - set(MODEL_PREFERENCES)
     if unknown:
         raise ValueError(f"Unknown settings: {', '.join(sorted(unknown))}.")
     if patch.get("reasoning") and patch["reasoning"] not in REASONING_LEVELS:
         raise ValueError(f"Unknown reasoning level: {patch['reasoning']}")
+    if "fullName" in patch and not str(patch["fullName"] or "").strip():
+        raise ValueError(FULL_NAME_REQUIRED)
 
 
 def _preference_values(patch: dict[str, Any]) -> dict[str, Any]:
@@ -339,9 +369,13 @@ def _preference_values(patch: dict[str, Any]) -> dict[str, Any]:
 
 
 def save_preferences(patch: dict[str, Any]) -> dict[str, Any]:
-    values = _preference_values(patch)
+    models = {key: value for key, value in patch.items() if key in MODEL_PREFERENCES}
+    values = _preference_values({key: value for key, value in patch.items() if key not in MODEL_PREFERENCES})
     with _begin() as conn:
         conn.execute(update(Preference).where(Preference.id == PREFERENCE_ROW).values(updated_at=now_ms(), **values))
+        if models:
+            provider = conn.execute(select(Preference.provider).where(Preference.id == PREFERENCE_ROW)).scalar_one()
+            _save_models(conn, provider, models)
     return get_preferences()
 
 

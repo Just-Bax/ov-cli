@@ -13,6 +13,7 @@ from ov.agent import workspace as project
 from ov.agent.engine.browsing import loop_span
 from ov.agent.engine.files import within
 from ov.agent.engine.guard import Effect
+from ov.agent.instances.http import web_session_alive
 from ov.agent.instances.ovproc import find_instance, web_cookies
 from ov.agent.tools.base import (
     Handler,
@@ -155,8 +156,9 @@ AIM_HELP = "Aim with one of: ref from the last snapshot (best), a Playwright loc
 BUTTON = {"type": "string", "enum": list(BUTTONS), "description": f"Mouse button, default {DEFAULT_BUTTON}"}
 
 
-def _signed_out(url: str) -> bool:
-    return urlsplit(url).path.lower().startswith(PENDING_PATHS)
+def _signed_out(url: str, host: str) -> bool:
+    parts = urlsplit(url)
+    return parts.netloc.lower() != host.lower() or parts.path.lower().startswith(PENDING_PATHS)
 
 
 def _aimed(args: dict[str, Any], prefix: str = "") -> bool:
@@ -262,7 +264,7 @@ def _look(ctx: ToolContext, pilot: Pilot, screenshot: bool) -> str:
 
 def _open(args: dict[str, Any], ctx: ToolContext) -> str:
     found = _instance(args, ctx)
-    if not found["valid"]:
+    if not found["valid"] or not web_session_alive(found["alias"]):
         _sign_in(ctx, found)
 
     pilot = ctx.browser.start(found["alias"], found["url"], web_cookies(found["alias"]))
@@ -271,13 +273,13 @@ def _open(args: dict[str, Any], ctx: ToolContext) -> str:
         _check(ctx, pilot, f"go to {target}", str(args["say"]))
 
     ctx.browser.navigate(target)
-    if not _signed_out(pilot.where()[1]):
+    if not _signed_out(pilot.where()[1], found["host"]):
         return _look(ctx, pilot, screenshot=True)
 
     _sign_in(ctx, found)
     pilot.add_cookies(web_cookies(found["alias"]))
     ctx.browser.navigate(target)
-    if _signed_out(pilot.where()[1]):
+    if _signed_out(pilot.where()[1], found["host"]):
         raise ToolError(NOT_SIGNED_IN.format(host=found["host"]))
     return _look(ctx, pilot, screenshot=True)
 

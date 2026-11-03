@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 
 import pytest
-from helpers.agent import wait_done, wait_for
+from helpers.agent import TEST_TITLE_REPLY, is_title_prompt, wait_done, wait_for
 
 from ov.agent.integrations.copilot import StreamResult
 from ov.agent.storage import db
@@ -78,6 +78,8 @@ def test_a_thread_continues_in_a_new_one_from_a_summary(logged_in, monkeypatch):
     summarized: list[tuple[str, str]] = []
 
     def complete(model, system, text, *a):
+        if is_title_prompt(system):
+            return TEST_TITLE_REPLY, None
         summarized.append((model, text))
         return SUMMARY, None
 

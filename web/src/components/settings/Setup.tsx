@@ -3,6 +3,7 @@ import {
   ArrowRight as ArrowRightIcon,
   Check as CheckIcon,
   HardDrives as ServerIcon,
+  User as UserIcon,
 } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { ModelInfo, Provider, Status } from '@shared/types.ts'
@@ -13,12 +14,12 @@ import { ProviderSelect, ProviderSetup } from '@/components/settings/Providers'
 import { PROVIDER_BRANDS } from '@/lib/providerBrand'
 import { AddInstanceForm, SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Card, Label, Select, Skeleton } from '@/components/common/ui'
+import { Button, Card, Input, Label, Select, Skeleton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { loadModels } from '@/lib/models'
 
-const STEPS = [1, 2, 3]
+const STEPS = [1, 2, 3, 4]
 
 function choices(names: string[]): string {
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names.join('')
@@ -95,6 +96,46 @@ function pickModel(models: ModelInfo[]): string {
   return (opus[0] ?? models[0])?.id ?? ''
 }
 
+function NameForm({ onSaved }: { onSaved: () => void }) {
+  const [name, setName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const trimmed = name.trim()
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await api.saveSettings({ fullName: trimmed })
+      onSaved()
+    } catch (e) {
+      reportError(e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form
+      className="flex items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (trimmed) void save()
+      }}
+    >
+      <Input
+        aria-label="Full name"
+        autoFocus
+        className="min-w-0 flex-1"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Your full name"
+      />
+      <Button type="submit" variant="primary" busy={saving} disabled={!trimmed || saving}>
+        Continue
+      </Button>
+    </form>
+  )
+}
+
 function InstanceSignIn({ onDone }: { onDone: () => void }) {
   const [target, setTarget] = useState<SignInTarget>()
   const [pending, setPending] = useState(false)
@@ -135,11 +176,12 @@ export function Setup({
   const [pending, setPending] = useState<Provider>()
   const status = pending ? { ...saved, provider: pending } : saved
 
+  const nameOk = Boolean(status.settings.fullName.trim())
   const providerOk = providerReady(status)
   const instancesOk = status.instances.total > 0
 
   useEffect(() => {
-    if (!providerOk) return
+    if (!nameOk || !providerOk) return
 
     loadModels(status.provider)
       .then((m) => {
@@ -147,7 +189,7 @@ export function Setup({
         if (!model || !m.some((x) => x.id === model)) setModel(pickModel(m))
       })
       .catch(reportError)
-  }, [providerOk, status.provider])
+  }, [nameOk, providerOk, status.provider])
 
   const pickProvider = (provider: Provider) => {
     if (provider === status.provider) return
@@ -161,7 +203,7 @@ export function Setup({
 
   useEffect(() => setAdding(false), [status.instances.total])
 
-  const current = !providerOk ? 1 : !instancesOk ? 2 : 3
+  const current = !nameOk ? 1 : !providerOk ? 2 : !instancesOk ? 3 : 4
 
   const finish = async () => {
     setSaving(true)
@@ -197,7 +239,7 @@ export function Setup({
               Step {current} of {STEPS.length}
             </div>
           </div>
-          <div className="mt-4 grid grid-cols-3 gap-1.5">
+          <div className="mt-4 grid grid-cols-4 gap-1.5">
             {STEPS.map((n) => (
               <span
                 key={n}
@@ -212,8 +254,22 @@ export function Setup({
           <div className="mt-7">
             <Step
               n={1}
-              done={providerOk}
+              done={nameOk}
               active={current === 1}
+              icon={<UserIcon className="size-5" />}
+              title="Tell us your name"
+              subtitle={
+                nameOk
+                  ? `Hi, ${status.settings.fullName}.`
+                  : 'Shown on your account and given to the agent, so it knows who it works for.'
+              }
+            >
+              {current === 1 ? <NameForm onSaved={onDone} /> : null}
+            </Step>
+            <Step
+              n={2}
+              done={providerOk}
+              active={current === 2}
               icon={<ProviderLogo provider={status.provider} className="size-5" />}
               title="Pick who runs the agent"
               subtitle={
@@ -222,7 +278,7 @@ export function Setup({
                   : `${choices(status.providers.map((p) => PROVIDER_BRANDS[p.id].name))}.`
               }
             >
-              {current === 1 ? (
+              {current === 2 ? (
                 <div className="space-y-3">
                   <ProviderSelect
                     className="w-[260px]"
@@ -236,9 +292,9 @@ export function Setup({
               ) : null}
             </Step>
             <Step
-              n={2}
+              n={3}
               done={instancesOk}
-              active={current === 2}
+              active={current === 3}
               icon={<ServerIcon className="size-5" />}
               title="Add a OneVizion instance"
               subtitle={
@@ -254,18 +310,18 @@ export function Setup({
                 ) : null
               }
             >
-              {current === 2 || adding ? <InstanceSignIn onDone={onDone} /> : null}
+              {current === 3 || adding ? <InstanceSignIn onDone={onDone} /> : null}
             </Step>
             <Step
-              n={3}
+              n={4}
               last
               done={false}
-              active={current === 3}
+              active={current === 4}
               icon={<AdjustmentsHorizontalIcon className="size-5" />}
               title="Pick a model"
               subtitle="The default for new threads. You can switch it for any thread."
             >
-              {current === 3 ? (
+              {current === 4 ? (
                 <div className="grid gap-4">
                   <div>
                     <Label>Default model</Label>

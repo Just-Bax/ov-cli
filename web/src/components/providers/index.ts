@@ -1,5 +1,5 @@
 import type { Provider, ProviderStatus, Status } from '@shared/types.ts'
-import type { SidebarAccount } from '@/components/layout/Sidebar'
+import type { SidebarAccount } from '@/components/layout/AccountMenu'
 import { providerStatus } from '@/lib/settings'
 import { CLAUDE_UI } from './claude'
 import { COPILOT_UI } from './copilot'
@@ -27,5 +27,11 @@ export function providerSummary(status: Status): string {
 
 export function sidebarAccount(status: Status): SidebarAccount {
   const current = currentProvider(status)
-  return { provider: current.id, ...PROVIDER_UI[current.id].sidebar(current.account) }
+  return {
+    name: status.settings.fullName,
+    provider: current.id,
+    unit: current.costUnit,
+    instances: status.instances,
+    version: status.ov.version,
+  }
 }

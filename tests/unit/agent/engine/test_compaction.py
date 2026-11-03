@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 
 import pytest
-from helpers.agent import wait_done, wait_for
+from helpers.agent import TEST_TITLE_REPLY, is_title_prompt, wait_done, wait_for
 
 from ov.agent.engine import compaction
 from ov.agent.instances.ovproc import OvResult
@@ -75,6 +75,8 @@ def copilot_thread(logged_in, monkeypatch):
         return next(replies)
 
     def complete(model, system, text, *a):
+        if is_title_prompt(system):
+            return TEST_TITLE_REPLY, None
         summarized.append(text)
         return SUMMARY, None
 

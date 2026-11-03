@@ -3,10 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from helpers.agent import FakeContext
+from helpers.agent import FakeContext, wait_for
 
 from ov.agent.engine.browsing import BrowserSlot
 from ov.agent.engine.guard import Effect, Verdict
+from ov.agent.instances.ovproc import find_instance
+from ov.agent.storage import db
 from ov.agent.tools import browser, tool_named
 from ov.agent.tools.base import ToolError
 from ov.browser.pilot import Aim, BrowserError, Dialog, DialogOpen, Point, Tab, Target, View
@@ -254,8 +256,11 @@ def test_ov_changes_wait_for_the_ui_while_the_browser_is_open(tmp_path):
 
 
 def test_sign_in_pages_are_recognised():
-    assert browser._signed_out("https://acme.onevizion.com/Login.do?x=1")
-    assert not browser._signed_out("https://acme.onevizion.com/Dashboard.do")
+    host = "acme.onevizion.com"
+
+    assert browser._signed_out("https://acme.onevizion.com/Login.do?x=1", host)
+    assert browser._signed_out("https://login.microsoftonline.com/common/oauth2/authorize", host)
+    assert not browser._signed_out("https://acme.onevizion.com/Dashboard.do", host)
 
 
 def test_a_run_stores_browser_events_and_forgets_them_on_reload(logged_in, monkeypatch):
@@ -268,7 +273,7 @@ def test_a_run_stores_browser_events_and_forgets_them_on_reload(logged_in, monke
         "ov.agent.integrations.copilot.stream_chat", lambda *a, cancel, on_text, **_: StreamResult(text="ok")
     )
     monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
-    monkeypatch.setattr("ov.agent.integrations.copilot.complete", lambda *a, **k: ("Title", None))
+    monkeypatch.setattr("ov.agent.integrations.copilot.complete", lambda *a, **k: ('{"title": "Title"}', None))
 
     run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
     wait_done(run)
@@ -493,3 +498,21 @@ def test_looking_at_the_same_page_again_and_again_is_stopped(tmp_path):
         tool_named("browser_wait").handler({"seconds": 1, "say": "Waiting"}, ctx)
     with pytest.raises(ToolError, match="last 4 snapshots showed the same page"):
         tool_named("browser_snapshot").handler({}, ctx)
+
+
+def test_opening_the_browser_on_an_ended_web_session_asks_to_sign_in_first(logged_in, monkeypatch):
+    from ov.agent.engine.run import Run
+    from ov.agent.engine.run_manager import runs
+    from ov.agent.storage.models import Access
+
+    asked: list[str] = []
+    shown: list[str] = []
+    monkeypatch.setattr("ov.agent.engine.run_browser.web_session_alive", lambda alias: False)
+    monkeypatch.setattr(Run, "require_login", lambda self, host, tenant="": asked.append(host) or True)
+    monkeypatch.setattr(Run, "_show_browser", lambda self, found: shown.append(found["alias"]))
+    db.create_thread("rbrowse", "Browse", "copilot", "m", prompt="x", instance="acme", access=Access.READ)
+
+    runs.get("rbrowse").open_browser("acme")
+    wait_for(lambda: shown)
+
+    assert asked == [find_instance("acme")["host"]] and shown == ["acme"]

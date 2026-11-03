@@ -94,7 +94,7 @@ def claude_thread(logged_in, monkeypatch):
     monkeypatch.setattr(
         "ov.agent.integrations.claude.list_models", lambda: [{"id": "opus", "reasoning": ["high"], "vision": True}]
     )
-    monkeypatch.setattr("ov.agent.integrations.claude.complete", lambda *a: ("Claude thread", None))
+    monkeypatch.setattr("ov.agent.integrations.claude.complete", lambda *a: ('{"title": "Claude thread"}', None))
     db.save_preferences({"provider": "claude", "reasoning": "high"})
 
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
 
-from ov.core.errors import Forbidden, SessionExpired
+from ov.core.errors import ApiError, Forbidden, SessionExpired
 from ov.onevizion.session import Session, expiry_to_epoch
 from ov.onevizion.tenants import DEFAULT_PATH, SWITCH_PATH, parse_program_menu
 
@@ -13,6 +14,9 @@ CSRF_PATH = "/CsrfToken.do"
 MINT_PATH = "/widget/GenerateApiTokenForWebSession"
 
 AJAX_HEADERS = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"}
+SERVER_ERROR = 500
+MESSAGE_LIMIT = 1000
+MESSAGE_KEYS = ("message", "error", "detail", "description")
 
 NO_WIDGET_PRIV = (
     "Minting an API token needs the WIDGET module at Read. "
@@ -29,6 +33,9 @@ def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
     _guard(response)
     if response.status_code == 403:
         raise Forbidden(NO_WIDGET_PRIV)
+    if response.status_code >= SERVER_ERROR:
+        message = server_message(response.text)
+        raise ApiError(response.status_code, message, message, str(response.url))
     if response.status_code >= 400:
         raise SessionExpired(f"token endpoint returned {response.status_code}")
 
@@ -60,6 +67,19 @@ def list_tenants(http: httpx.Client) -> dict[str, str]:
     if response.status_code >= 400:
         raise SessionExpired(f"{DEFAULT_PATH} returned {response.status_code}")
     return parse_program_menu(response.text)
+
+
+def server_message(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("<"):
+        return ""
+    try:
+        payload = json.loads(stripped)
+    except ValueError:
+        return stripped[:MESSAGE_LIMIT]
+    if not isinstance(payload, dict):
+        return stripped[:MESSAGE_LIMIT]
+    return next((str(payload[key]) for key in MESSAGE_KEYS if payload.get(key)), "")
 
 
 def _csrf_headers(http: httpx.Client) -> dict[str, str]:

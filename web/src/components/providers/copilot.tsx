@@ -88,9 +88,9 @@ export const COPILOT_UI: ProviderUi = {
     const { signedIn, user } = copilotOf(account)
     return signedIn ? `GitHub as ${user}, paid in Copilot credits.` : 'Not signed in to GitHub.'
   },
-  sidebar: (account) => {
+  plan: (account) => {
     const { user } = copilotOf(account)
-    return { detail: user ?? 'Not signed in' }
+    return user ?? 'Not signed in'
   },
   accountDetail: (account, runsAgent) => {
     const { user } = copilotOf(account)

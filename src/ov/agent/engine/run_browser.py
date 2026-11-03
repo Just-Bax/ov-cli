@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
+
 from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.run_common import RunError
+from ov.agent.instances.http import web_session_alive
 from ov.agent.instances.ovproc import find_instance, web_cookies
 from ov.agent.integrations.common import Usage
 from ov.agent.storage.models import UsageKind
@@ -12,6 +15,7 @@ BROWSER_OPENED_NOTE = (
     "hand them to browser_run as goals; ov only reads while it is open."
 )
 BROWSER_CLOSED_NOTE = "The user closed the browser."
+SIGN_IN_SKIPPED = "{alias} needs a new sign-in before the browser can open it."
 
 
 class BrowserMixin:
@@ -24,6 +28,17 @@ class BrowserMixin:
         if found is None:
             raise RunError(f"{wanted} is not a signed-in instance.")
 
+        if found["valid"] and web_session_alive(found["alias"]):
+            self._show_browser(found)
+            return
+        self._spawn(self._sign_in_then_show, found)
+
+    def _sign_in_then_show(self, found: dict[str, Any]) -> None:
+        if not self.require_login(found["host"], found["tenant"] or ""):
+            raise RunError(SIGN_IN_SKIPPED.format(alias=found["alias"]))
+        self._show_browser(found)
+
+    def _show_browser(self, found: dict[str, Any]) -> None:
         pilot = self.browser.start(found["alias"], found["url"], web_cookies(found["alias"]))
         self._notes.append(BROWSER_OPENED_NOTE.format(alias=found["alias"]))
         self.browser.navigate(pilot.url_of(""))

@@ -7,12 +7,18 @@ from pathlib import Path
 from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.guard import Effect, Verdict
 from ov.agent.engine.run_manager import runs
+from ov.agent.engine.run_titles import NAMING_PROMPT, RETITLE_PROMPT
 from ov.agent.storage import db
 from ov.agent.tools.base import APPROVE, Approval
 
 RUN_POLLS = 100
 RUN_POLL_SECONDS = 0.05
 SLOW_POLLS = 200
+TEST_TITLE_REPLY = '{"title": "Test thread"}'
+
+
+def is_title_prompt(system: str) -> bool:
+    return system in (NAMING_PROMPT, RETITLE_PROMPT)
 
 
 class ClosedBrowser:
@@ -118,7 +124,7 @@ def wait_done(run):
 
 
 def isolated_agent_db(monkeypatch):
-    monkeypatch.setattr("ov.agent.integrations.copilot.complete", lambda *a, **k: ("Test thread", None))
+    monkeypatch.setattr("ov.agent.integrations.copilot.complete", lambda *a, **k: (TEST_TITLE_REPLY, None))
     db.close()
     yield
     runs.close()

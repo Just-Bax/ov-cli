@@ -199,9 +199,9 @@ export const OPENAI_UI: ProviderUi = {
     const { signedIn, baseUrl } = openaiOf(account)
     return signedIn ? `Your server at ${baseUrl}, counted in tokens.` : 'No server connected.'
   },
-  sidebar: (account) => {
+  plan: (account) => {
     const { baseUrl } = openaiOf(account)
-    return { detail: baseUrl ? new URL(baseUrl).host : 'Not connected' }
+    return baseUrl ? new URL(baseUrl).host : 'Not connected'
   },
   accountDetail: (account, runsAgent) => {
     const { signedIn, baseUrl, hasKey } = openaiOf(account)

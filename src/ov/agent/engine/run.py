@@ -12,6 +12,7 @@ from ov.agent.engine import cases, guard
 from ov.agent.engine.browsing import BrowserSlot
 from ov.agent.engine.cancel import Cancel
 from ov.agent.engine.conversation import answered
+from ov.agent.engine.export import stored_state, to_markdown
 from ov.agent.engine.files import run_dir
 from ov.agent.engine.prompt import system_prompt
 from ov.agent.engine.run_browser import BrowserMixin
@@ -39,6 +40,8 @@ START_TURN = "u_start"
 SHUTDOWN_SECONDS = 10
 SHUTDOWN_POLL_SECONDS = 0.05
 STREAM_END = object()
+SAME_THREAD = "That is this thread; its history is already in your context."
+NO_THREAD = "No thread {id}. Ask the user for the id from the thread's menu: Copy thread ID."
 STOPPABLE = ("queued", "running", "waiting")
 TASK_FINISHED = "[Background task finished: {label}]\n{result}"
 
@@ -82,6 +85,7 @@ class Run(
     _verdicts: dict[tuple[str, ...], guard.Verdict]
     _fork: dict[str, Any] | None
     _compacting: dict[str, Any] | None
+    _vague_title: str | None
 
     def __init__(self, run_id: str, state: dict[str, Any], seq: int) -> None:
         self.id, self.state, self.seq = run_id, state, seq
@@ -103,6 +107,7 @@ class Run(
         self._questions: dict[str, tuple[threading.Event, list[tuple[list[str], str]]]] = {}
         self._logins: dict[str, tuple[threading.Event, list[bool]]] = {}
         self._busy, self.finished = False, False
+        self._vague_title, self._first_turn_over = None, False
         self._streaming: str | None = None
         self._tasks, self._finished_tasks, self._verdicts, self._fork = {}, [], {}, None
         self._compacting, self.context_tokens = None, int((state.get("context") or {}).get("tokens") or 0)
@@ -155,9 +160,7 @@ class Run(
         return Access(self.state["access"])
 
     def _helper_model(self) -> str:
-        preferences = db.get_preferences()
-        chosen = preferences["fastModel"] if preferences["provider"] == self.provider else ""
-        return self.agent.helper_model(chosen)
+        return self.agent.helper_model(db.provider_models(self.provider)[1])
 
     def working(self) -> bool:
         with self._lock:
@@ -240,6 +243,15 @@ class Run(
         self.finished = True
         self.emit({"type": "outcome", "outcome": outcome})
 
+    def read_thread(self, thread_id: str) -> str:
+        if thread_id == self.id:
+            raise RunError(SAME_THREAD)
+
+        stored = stored_state(thread_id)
+        if stored is None:
+            raise RunError(NO_THREAD.format(id=thread_id))
+        return to_markdown(stored[0])
+
     def begin(self, data: dict[str, Any]) -> None:
         self._busy = True
         self._spawn(self._start, data)
@@ -263,6 +275,7 @@ class Run(
             self._fail(exc)
         finally:
             self._busy = False
+            self._first_turn_ended()
             self._pick_up_queue()
 
     def retry(self, item_id: str) -> None:

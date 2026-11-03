@@ -5,6 +5,7 @@ import {
   BellZ,
   CaretRight,
   Checks,
+  CopySimple,
   DotsThree,
   DownloadSimple,
   PushPin,
@@ -17,7 +18,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 're
 import { createPortal } from 'react-dom'
 import type { RunSummary } from '@shared/types.ts'
 import { dialog } from '@/components/common/Dialog'
-import { reportError, withProgress } from '@/components/common/Toasts'
+import { notify, reportError, withProgress } from '@/components/common/Toasts'
 import { Button } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { useClickOutside } from '@/lib/hooks'
@@ -54,7 +55,7 @@ function localInput(ms: number): string {
   return d.toISOString().slice(0, DATETIME_LOCAL_CHARS)
 }
 
-export function snoozeLabel(until: number): string {
+function snoozeLabel(until: number): string {
   return timeWithDay(until, { weekday: 'short', day: 'numeric' })
 }
 
@@ -274,7 +275,6 @@ export function RunMenu({
         ref={trigger}
         type="button"
         aria-label="Thread actions"
-        title="More"
         onClick={(e) => {
           e.stopPropagation()
           if (pos) return close()
@@ -388,9 +388,20 @@ export function RunMenu({
                   }
                 />
               )}
+              <div className="bg-line mx-2 my-1 h-px" />
+              <Item
+                icon={<CopySimple className="size-4" />}
+                label="Copy thread ID"
+                onHover={() => setSnoozing(false)}
+                onClick={() =>
+                  act(async () => {
+                    await navigator.clipboard.writeText(run.id)
+                    notify(`Copied thread ID ${run.id}`)
+                  })
+                }
+              />
               {inRow ? null : (
                 <>
-                  <div className="bg-line mx-2 my-1 h-px" />
                   <Item
                     icon={<DownloadSimple className="size-4" />}
                     label="Export as Markdown"

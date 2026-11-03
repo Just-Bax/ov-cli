@@ -32,7 +32,6 @@ export function EditableTitle({
   if (!editing)
     return (
       <span
-        title="Double-click to rename"
         className={cn('select-none', className)}
         onDoubleClick={(e) => {
           e.preventDefault()

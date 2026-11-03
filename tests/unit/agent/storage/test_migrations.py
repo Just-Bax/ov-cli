@@ -180,3 +180,26 @@ def test_claude_sessions_become_provider_sessions_and_providers_are_open(ov_home
     }
     db.create_thread("rn", "New", "some-new-provider", "m", prompt="", instance=None, access=models.Access.READ)
     assert db.get_preferences()["instructions"] == ""
+
+
+def test_the_chosen_models_move_to_their_provider(ov_home, monkeypatch):
+    from alembic import command
+
+    home = ov_home / "models"
+    monkeypatch.setenv("OV_HOME", str(home))
+    path = home / "agent" / "agent.db"
+    path.parent.mkdir(parents=True)
+    engine = db._new_engine(path)
+    config = db._alembic_config()
+    with engine.begin() as conn:
+        config.attributes["connection"] = conn
+        command.upgrade(config, "0019")
+        conn.exec_driver_sql(
+            "UPDATE preference SET provider = 'copilot', default_model = 'gpt-main', fast_model = 'gpt-fast'"
+        )
+
+    engine.dispose()
+
+    assert db.migrate() is True
+    assert db.provider_models("copilot") == ("gpt-main", "gpt-fast")
+    assert db.provider_models("claude") == ("", "")

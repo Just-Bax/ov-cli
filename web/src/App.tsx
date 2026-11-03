@@ -26,7 +26,11 @@ const SettingsPage = lazy(() =>
 )
 
 function needsOnboarding(status: Status): boolean {
-  return status.instances.total === 0 || !status.providers.some((p) => p.account.signedIn)
+  return (
+    !status.settings.fullName.trim() ||
+    status.instances.total === 0 ||
+    !status.providers.some((p) => p.account.signedIn)
+  )
 }
 
 export function App() {
@@ -58,7 +62,7 @@ export function App() {
 
   const update = useCallback(async (patch: Partial<Settings>) => {
     const settings = await api.saveSettings(patch)
-    setStatus((s) => (s ? { ...s, settings } : s))
+    setStatus((s) => (s ? { ...s, settings, provider: settings.provider } : s))
   }, [])
 
   if (error && !status) {
@@ -75,7 +79,7 @@ export function App() {
   if (!status)
     return (
       <div className="flex h-full">
-        <Sidebar route={route} loading />
+        <Sidebar route={route} />
         <main className="min-w-0 flex-1 bg-white">
           {route.page === 'home' ? <HomeSkeleton /> : null}
         </main>

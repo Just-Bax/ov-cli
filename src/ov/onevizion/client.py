@@ -13,7 +13,14 @@ import httpx
 from ov import API_PREFIX
 from ov.core.errors import ApiError, Forbidden, NotFound, ReadOnlyBlocked, SessionExpired, Unreachable
 from ov.onevizion import session as session_store
-from ov.onevizion.auth import LOGIN_PATH, list_tenants, mint_web_session_token
+from ov.onevizion.auth import (
+    AJAX_HEADERS,
+    CSRF_PATH,
+    LOGIN_PATH,
+    list_tenants,
+    mint_web_session_token,
+    server_message,
+)
 from ov.onevizion.session import Session
 
 USER_AGENT = "ov-cli"
@@ -21,8 +28,6 @@ READ_ONLY_ENV = "OV_READONLY"
 TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
 DEFAULT_TIMEOUT_SECONDS = 60.0
 ERROR_BODY_LIMIT = 2000
-ERROR_DETAIL_LIMIT = 1000
-ERROR_DETAIL_KEYS = ("message", "error", "detail", "description")
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -168,6 +173,21 @@ class Client:
             raise SessionExpired("redirected to the login page")
         return self._checked(response)
 
+    def web_session_alive(self) -> bool:
+        if not self.session.cookies:
+            return False
+
+        with _reachable(self.base_url):
+            response = self._http.get(CSRF_PATH, headers=AJAX_HEADERS, follow_redirects=False)
+        if response.status_code != httpx.codes.OK:
+            return False
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return False
+        return isinstance(payload, dict) and bool(payload.get("token"))
+
     def post_json(self, path: str, payload: Any) -> httpx.Response:
         if self.session.needs_refresh():
             self.refresh_token()
@@ -238,15 +258,4 @@ def _body(response: httpx.Response) -> Any:
 
 
 def _detail(response: httpx.Response) -> str:
-    if "json" in response.headers.get("content-type", "").lower():
-        return _json_detail(_body(response))
-    text = response.text.strip()
-    if text.startswith("<"):
-        return ""
-    return text[:ERROR_DETAIL_LIMIT]
-
-
-def _json_detail(payload: Any) -> str:
-    if not isinstance(payload, dict):
-        return ""
-    return next((str(payload[key]) for key in ERROR_DETAIL_KEYS if payload.get(key)), "")
+    return server_message(response.text)
