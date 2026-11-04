@@ -4,6 +4,7 @@ import {
   Key as KeyIcon,
 } from '@phosphor-icons/react'
 import { useRef, useState } from 'react'
+import type { Instance } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
 import { Button } from '@/components/common/ui'
 import { SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
@@ -16,6 +17,8 @@ import { hostOf } from '@/lib/url'
 type Check = { version: string | null; ms: number }
 type State = 'loading' | 'missing' | 'ok' | 'expired'
 
+const MAX_SHOWN = 3
+
 const STATE_DOT: Record<State, string> = {
   ok: 'bg-ok',
   loading: 'bg-line-strong',
@@ -23,8 +26,54 @@ const STATE_DOT: Record<State, string> = {
   expired: 'bg-warn',
 }
 
-export function InstanceChip({ instance }: { instance: string }) {
+function resolve(instance: string, known: Instance[] | undefined): Instance | undefined {
+  return known?.find((i) => i.alias === instance) ?? known?.find((i) => i.host === hostOf(instance))
+}
+
+export function InstanceChips({ instances }: { instances: string[] }) {
   const { instances: known, reload } = useInstances()
+  const byRecent = [...instances].reverse()
+  const keyOf = (instance: string) => resolve(instance, known)?.alias ?? hostOf(instance)
+  const distinct = byRecent.filter(
+    (i, index) => byRecent.findIndex((j) => keyOf(j) === keyOf(i)) === index,
+  )
+  const shown = distinct.slice(0, MAX_SHOWN)
+  const hidden = distinct.slice(MAX_SHOWN)
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-3">
+      {shown.map((instance, index) => (
+        <InstanceChip
+          key={keyOf(instance)}
+          instance={instance}
+          found={resolve(instance, known)}
+          loading={!known}
+          latest={index === 0 && distinct.length > 1}
+          reload={reload}
+        />
+      ))}
+      {hidden.length ? (
+        <span className="text-faint" title={hidden.map(hostOf).join(', ')}>
+          +{hidden.length}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+function InstanceChip({
+  instance,
+  found,
+  loading,
+  latest,
+  reload,
+}: {
+  instance: string
+  found: Instance | undefined
+  loading: boolean
+  latest: boolean
+  reload: () => Promise<void>
+}) {
   const [open, setOpen] = useState(false)
   const [check, setCheck] = useState<Check>()
   const [checking, setChecking] = useState(false)
@@ -33,10 +82,8 @@ export function InstanceChip({ instance }: { instance: string }) {
 
   useClickOutside([box], () => setOpen(false), open)
 
-  const found =
-    known?.find((i) => i.alias === instance) ?? known?.find((i) => i.host === hostOf(instance))
   const host = found?.host ?? hostOf(instance)
-  const state: State = !known ? 'loading' : !found ? 'missing' : found.valid ? 'ok' : 'expired'
+  const state: State = loading ? 'loading' : !found ? 'missing' : found.valid ? 'ok' : 'expired'
   const url = found?.url ?? `https://${host}`
 
   const runCheck = () => {
@@ -52,8 +99,8 @@ export function InstanceChip({ instance }: { instance: string }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title="Instance details"
-        className="hover:text-brand-strong inline-flex items-center gap-1.5"
+        title={latest ? 'Used last in this thread' : 'Instance details'}
+        className="hover:text-brand-strong inline-flex items-center gap-1.5 whitespace-nowrap"
       >
         <span className={cn('size-1.5 rounded-full', STATE_DOT[state])} />
         {host}

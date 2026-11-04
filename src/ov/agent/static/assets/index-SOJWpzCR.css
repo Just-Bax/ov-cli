@@ -1654,6 +1654,9 @@
   .bg-brand-soft\/50 {
     background-color: color-mix(in oklab, #e1f5fe 50%, transparent);
   }
+  .bg-brand-soft\/60 {
+    background-color: color-mix(in oklab, #e1f5fe 60%, transparent);
+  }
   .bg-brand-strong {
     background-color: #1e88e5;
   }

@@ -17,6 +17,7 @@ import type {
   Question,
   RunState,
   RunStatus,
+  RunSummary,
   ThreadItem,
   ThreadLink as ThreadLinkTarget,
   ToolActivity,
@@ -53,7 +54,7 @@ import { CompactionNote, ContextMeter, StaleCacheNotice } from './Context'
 import { CostPill } from './CostPill'
 import { FilesChanged } from './FilesChanged'
 import { FIND_LABEL, FindBar } from './FindBar'
-import { InstanceChip } from './InstanceChip'
+import { InstanceChips } from './InstanceChip'
 import {
   BrowserBackdrop,
   BrowserPane,
@@ -70,7 +71,7 @@ import { useQueueActions } from '@/lib/queueActions'
 import { ApplyContext, fileOf, newMessageId, stopEvents, useApply } from '@/lib/optimistic'
 import { QueuedMessages } from './QueuedMessages'
 import { AnsweredQuestion, QuestionComposer } from './QuestionDock'
-import { RunMenu } from './RunMenu'
+import { ParkedNotice, RunMenu } from './RunMenu'
 import { RUN_STATUS, StatusIcon } from './RunStatus'
 import { ThreadRail } from './ThreadRail'
 import { summarize, ToolGroup } from './ToolGroup'
@@ -386,6 +387,8 @@ function Footer({
   runId,
   provider,
   idleSince,
+  run,
+  settled,
   busy,
   status,
   access,
@@ -402,6 +405,8 @@ function Footer({
   runId: string
   provider: Provider
   idleSince: number
+  run: RunSummary
+  settled: boolean
   busy: boolean
   status: RunStatus
   access: Access
@@ -421,6 +426,7 @@ function Footer({
   const [error, setError] = useState<string>()
   const { editing, setEditing, draft, startEdit, endEdit, editKey } = edit
   const modeFor = (alternate: boolean): FollowUp => (alternate ? 'steer' : 'queue')
+  const parked = settled || Boolean(run.snoozedUntil)
 
   const send = async (text: string, files: File[], alternate: boolean) => {
     setError(undefined)
@@ -517,7 +523,8 @@ function Footer({
     <div className={cn('pt-1 pb-4', compact ? 'px-4' : 'px-6')}>
       <div className="mx-auto max-w-[860px]">
         {error ? <div className="text-danger mb-1.5 text-[12px]">{error}</div> : null}
-        {context && cacheTtlMs && !busy && !question ? (
+        {!busy && !question ? <ParkedNotice run={run} settled={settled} /> : null}
+        {context && cacheTtlMs && !busy && !question && !parked ? (
           <StaleCacheNotice
             runId={runId}
             context={context}
@@ -822,10 +829,10 @@ export function RunView({ id }: { id: string }) {
           </a>
         </>
       ) : null}
-      {summary.instance && !browsing ? (
+      {state.instances.length > 0 && !browsing ? (
         <>
           <Dot />
-          <InstanceChip instance={summary.instance} />
+          <InstanceChips instances={state.instances} />
         </>
       ) : null}
     </>
@@ -834,6 +841,7 @@ export function RunView({ id }: { id: string }) {
   const listed = allRuns(list).find((r) => r.id === id)
   const settled = list?.settled.some((r) => r.id === id) ?? Boolean(summary.settled)
   const browser = state.browser?.open ? state.browser : undefined
+  const lastInstance = state.instances.at(-1)
   const actions = (
     <>
       {browser && !browsing ? (
@@ -843,9 +851,7 @@ export function RunView({ id }: { id: string }) {
           onShow={() => setHiddenSession(undefined)}
         />
       ) : null}
-      {summary.instance && !browser ? (
-        <OpenBrowserButton runId={id} instance={summary.instance} />
-      ) : null}
+      {lastInstance && !browser ? <OpenBrowserButton runId={id} instance={lastInstance} /> : null}
       <CostPill
         runId={id}
         provider={summary.provider}
@@ -881,6 +887,8 @@ export function RunView({ id }: { id: string }) {
             runId={id}
             provider={summary.provider}
             idleSince={summary.updatedAt}
+            run={listed ?? summary}
+            settled={settled}
             busy={busy}
             status={summary.status}
             access={state.access}

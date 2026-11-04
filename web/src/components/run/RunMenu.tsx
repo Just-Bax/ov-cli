@@ -440,3 +440,40 @@ export function RunMenu({
     </>
   )
 }
+
+export function ParkedNotice({ run, settled }: { run: RunSummary; settled: boolean }) {
+  const [busy, setBusy] = useState(false)
+
+  const until = run.snoozedUntil
+  const message = settled
+    ? 'Settled. A new message moves it back to active.'
+    : until
+      ? `Snoozed until ${snoozeLabel(until)}. A new message wakes it up.`
+      : undefined
+  if (!message) return null
+
+  const reopen = () => {
+    setBusy(true)
+    const done = settled ? setSettled(run.id, false) : setSnoozed(run.id, null)
+    done.catch(reportError).finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="bg-brand-soft/60 text-text mb-2 flex items-center gap-3 rounded-2xl px-4 py-2.5 text-[12.5px]">
+      {settled ? (
+        <Checks className="text-brand size-4 shrink-0" />
+      ) : (
+        <BellZ className="text-brand size-4 shrink-0" />
+      )}
+      <span className="min-w-0 flex-1 leading-relaxed">{message}</span>
+      <Button size="sm" className="shrink-0 gap-1.5" busy={busy} disabled={busy} onClick={reopen}>
+        {settled ? (
+          <ArrowCounterClockwise className="size-3.5" />
+        ) : (
+          <SunHorizon className="size-3.5" />
+        )}
+        {settled ? 'Move back to active' : 'Wake up now'}
+      </Button>
+    </div>
+  )
+}

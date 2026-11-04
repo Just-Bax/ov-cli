@@ -12,7 +12,8 @@ from ov.agent.instances.ovproc import find_instance
 from ov.agent.integrations.common import Usage
 from ov.agent.storage import db
 
-WAKE_STATUSES = ("waiting", "error", "done")
+WAKE_STATUSES = ("running", "waiting", "error", "done")
+REOPEN_STATUSES = ("running", "waiting")
 
 
 class EventsMixin:
@@ -125,7 +126,7 @@ class EventsMixin:
     def _raise_hand(self, status: str) -> None:
         if status in WAKE_STATUSES:
             db.set_snoozed(self.id, None)
-        if status == "waiting":
+        if status in REOPEN_STATUSES:
             db.set_settled(self.id, False)
 
     def _set_status(self, status: str, error: str | None = None, woken_by: str | None = None) -> None:

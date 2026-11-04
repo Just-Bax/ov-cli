@@ -439,6 +439,7 @@ export interface RunState extends RunWindow {
   access: Access
   queued: ChatMessage[]
   queueHeld: boolean
+  instances: string[]
   browser?: BrowserState
   context?: ContextUsage
   continuedFrom?: ThreadLink

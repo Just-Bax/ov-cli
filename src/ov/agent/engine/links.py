@@ -33,7 +33,7 @@ _CODE = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
 _INSTANCE_ARG = re.compile(r'"instance"\s*:\s*"([^"]+)"')
 
 
-def _tool_instance(tool: dict[str, Any]) -> str | None:
+def tool_instance(tool: dict[str, Any]) -> str | None:
     found = _INSTANCE_ARG.search(str(tool.get("input") or ""))
     return found.group(1) if found else None
 
@@ -47,7 +47,7 @@ def seen_ids(state: dict[str, Any], instance: str) -> dict[str, str]:
     for item in state["items"]:
         if item["kind"] == "tool" and item["id"] in tools:
             tool = tools[item["id"]]
-            current = _tool_instance(tool) or current
+            current = tool_instance(tool) or current
             text = f"{tool.get('input') or ''} {tool.get('output') or ''} {tool.get('label') or ''}"
         elif item["kind"] == "user" and item["id"] in users:
             text = users[item["id"]]["text"]

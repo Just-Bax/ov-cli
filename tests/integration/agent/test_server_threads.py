@@ -210,6 +210,19 @@ def test_snooze_and_settle_wait_for_an_answer_and_a_waiting_thread_wakes(agent_s
     assert "snoozedUntil" not in db.get_thread("rwake")
 
 
+def test_a_new_turn_brings_a_settled_or_snoozed_thread_back(agent_server):
+    from ov.agent.engine.run_manager import runs
+
+    db.create_thread("rback", "Back", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.set_snoozed("rback", db.now_ms() + 3_600_000)
+    db.set_settled("rback", True)
+
+    runs.get("rback").emit({"type": "status", "status": "running"})
+
+    thread = db.get_thread("rback")
+    assert "snoozedUntil" not in thread and "settled" not in thread
+
+
 def test_tool_routes_refuse_a_tool_that_is_not_running(agent_server, monkeypatch):
     from ov.agent.engine.run_manager import runs
 

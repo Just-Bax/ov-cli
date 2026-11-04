@@ -6,6 +6,13 @@ function upsert<T extends { id: string }>(list: T[], next: T, merge = false): T[
   return list.map((x, j) => (j === i ? (merge ? { ...x, ...next } : next) : x))
 }
 
+const INSTANCE_ARG = /"instance"\s*:\s*"([^"]+)"/
+
+function touched(instances: string[], instance: string | undefined): string[] {
+  if (!instance) return instances
+  return [...instances.filter((i) => i !== instance), instance]
+}
+
 function withItem(items: ThreadItem[], item: ThreadItem): ThreadItem[] {
   return items.some((x) => x.kind === item.kind && x.id === item.id) ? items : [...items, item]
 }
@@ -32,12 +39,14 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
           caseKey: event.caseKey ?? state.summary.caseKey,
           instance: event.instance ?? state.summary.instance,
         },
+        instances: touched(state.instances, event.instance),
       }
     case 'tool':
       return {
         ...state,
         tools: upsert(state.tools, event.tool as ToolActivity, true),
         items: withItem(state.items, { kind: 'tool', id: event.tool.id }),
+        instances: touched(state.instances, INSTANCE_ARG.exec(event.tool.input ?? '')?.[1]),
       }
     case 'text': {
       const i = state.chat.findIndex((m) => m.id === event.messageId)

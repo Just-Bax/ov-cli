@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from ov.agent.engine.links import tool_instance
+
 State = dict[str, Any]
 Stored = dict[str, Any]
 
@@ -24,6 +26,7 @@ def empty_state(summary: dict[str, Any], access: str) -> State:
         "logins": [],
         "compactions": [],
         "chat": [],
+        "instances": [summary["instance"]] if summary.get("instance") else [],
         "access": access,
         "queued": [],
         "queueHeld": False,
@@ -56,11 +59,17 @@ def _on_status(state: State, stored: Stored) -> None:
         state["error"] = event["error"]
 
 
+def _touch_instance(state: State, instance: str) -> None:
+    state["instances"] = [*(i for i in state["instances"] if i != instance), instance]
+
+
 def _on_meta(state: State, stored: Stored) -> None:
     event = stored["event"]
     for key in ("title", "instance", "caseKey"):
         if event.get(key) is not None:
             state["summary"][key] = event[key]
+    if event.get("instance"):
+        _touch_instance(state, event["instance"])
 
     if event.get("caseUrl"):
         state["caseUrl"] = event["caseUrl"]
@@ -86,6 +95,9 @@ def _on_tool(state: State, stored: Stored) -> None:
     tool = stored["event"]["tool"]
     _upsert(state["tools"], tool, merge=True)
     _add_item(state, "tool", tool["id"])
+    instance = tool_instance(tool)
+    if instance:
+        _touch_instance(state, instance)
 
 
 def _streamed_message(state: State, stored: Stored) -> dict[str, Any]:

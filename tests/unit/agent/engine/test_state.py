@@ -119,3 +119,15 @@ def test_streamed_reasoning_is_kept_on_the_message_it_belongs_to():
         ("a2", "", "Only thought."),
     ]
     assert [i["id"] for i in s["items"]] == ["a1", "a2"]
+
+
+def test_instances_are_ordered_by_last_use():
+    s = state.empty_state({"id": "r1", "status": "queued", "instance": "prod.example.com"}, "read")
+    tools = [("t1", '{"instance": "dev"}'), ("t2", "{}"), ("t3", '{"instance": "prod.example.com"}')]
+    for seq, (tool_id, args) in enumerate(tools):
+        tool = {"id": tool_id, "name": "ov", "label": "x", "status": "ok", "input": args}
+        state.reduce(s, {"seq": seq, "ts": seq, "event": {"type": "tool", "tool": tool}})
+    assert s["instances"] == ["dev", "prod.example.com"]
+
+    state.reduce(s, {"seq": 9, "ts": 9, "event": {"type": "meta", "instance": "test"}})
+    assert s["instances"] == ["dev", "prod.example.com", "test"]
