@@ -65,8 +65,14 @@ export function AccessLine({ instance, onCheck }: { instance: Instance; onCheck:
   if (!access.checkedAt) {
     return (
       <div className="text-faint mt-0.5 flex items-center gap-2 text-[11.5px]">
-        Access not checked yet.
-        {instance.valid ? <CheckButton label="Check" onCheck={onCheck} /> : 'Sign in to check it.'}
+        {instance.valid ? (
+          <>
+            Access not checked yet.
+            <CheckButton label="Check" onCheck={onCheck} />
+          </>
+        ) : (
+          'Access not checked yet. Sign in to check it.'
+        )}
       </div>
     )
   }

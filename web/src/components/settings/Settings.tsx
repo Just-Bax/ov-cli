@@ -226,7 +226,7 @@ function Instances() {
               return (
                 <div key={i.alias} className="flex items-center gap-2.5 px-5 py-2.5">
                   <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       <span className="text-fg min-w-0 truncate text-[13px] font-medium">
                         {i.host}
                       </span>
@@ -408,8 +408,8 @@ function Skills() {
 
   return (
     <Card className="grid overflow-hidden md:grid-cols-[230px_1fr]">
-      <div className="border-line scrollbar-thin border-b p-2 md:max-h-[560px] md:overflow-y-auto md:border-r md:border-b-0">
-        <div className="space-y-0.5">
+      <div className="border-line flex flex-col border-b md:h-[560px] md:border-r md:border-b-0">
+        <div className="min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto p-2">
           {skills.map((s) => {
             const on = s.name === selected
             return (
@@ -439,6 +439,8 @@ function Skills() {
               </button>
             )
           })}
+        </div>
+        <div className="border-line shrink-0 border-t p-2">
           <button
             type="button"
             onClick={() => select(NEW)}

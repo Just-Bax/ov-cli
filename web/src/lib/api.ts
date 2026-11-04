@@ -83,7 +83,6 @@ export const api = {
   copilotAccount: () => request<CopilotAccount>('/copilot/account'),
   cost: (range: CostRange, provider: Provider) =>
     request<CostReport>(`/cost?range=${range}&provider=${provider}`),
-  retitleRun: (id: string) => post<{ title: string }>(`/runs/${id}/retitle`),
   compactRun: (id: string) => post(`/runs/${id}/compact`),
   continueRun: (id: string) => post<{ id: string }>(`/runs/${id}/continue`),
   pinRun: (id: string, pinned: boolean) => post(`/runs/${id}/pin`, { pinned }),

@@ -112,11 +112,6 @@ def run_details(h: Handler, run_id: str) -> str:
     return require_run(run_id).details(tools, edits)
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/retitle")
-def retitle(_: Handler, run_id: str) -> dict[str, str]:
-    return {"title": require_run(run_id).retitle()}
-
-
 @route("POST", "/api/runs/([a-z0-9]+)/compact")
 def compact(_: Handler, run_id: str) -> dict[str, bool]:
     require_run(run_id).compact()

@@ -101,7 +101,7 @@ class TitlesMixin:
         self.record_usage(model, UsageKind.NAMING, usage)
         return parse_title(reply, model)
 
-    def retitle(self) -> str:
+    def retitle(self) -> None:
         with self._lock:
             chat = list(self.state["chat"])
             previous = self.state["summary"]["title"]
@@ -109,7 +109,6 @@ class TitlesMixin:
         body = json.dumps({"previousTitle": previous, "messages": retitle_messages(chat)})
         title, _ = self._ask_title(RETITLE_PROMPT, body)
         self.rename(title)
-        return title
 
     def rename(self, title: str) -> None:
         cleaned = short_title(title, TITLE_CHARS)

@@ -171,21 +171,25 @@ export function StaleCacheNotice({
   }
 
   return (
-    <div className="bg-warn-soft/60 text-text mb-2 flex items-center gap-3 rounded-2xl px-4 py-2.5 text-[12.5px]">
-      <ClockIcon className="text-warn size-4 shrink-0" />
-      <span className="min-w-0 flex-1 leading-relaxed">
-        Idle for {shortSpan(idle)}, so the cache expired. Your next message re-sends about{' '}
-        {formatTokens(context.tokens)} tokens at full price. Compacting first sends far less.
+    <div className="text-muted mb-1.5 flex items-center gap-2 px-3 text-[12px]">
+      <ClockIcon className="text-warn size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">
+        Cache expired after {shortSpan(idle)} idle. Next message re-sends{' '}
+        <span className="text-text font-medium tabular-nums">
+          {formatTokens(context.tokens)} tokens
+        </span>{' '}
+        at full price.
       </span>
       <Button
+        variant="ghost"
         size="sm"
-        className="shrink-0 gap-1.5"
+        className="text-brand shrink-0 gap-1.5 px-2"
         busy={asking}
         disabled={asking}
         onClick={compact}
       >
         <CompactIcon className="size-3.5" />
-        Compact now
+        Compact first
       </Button>
     </div>
   )

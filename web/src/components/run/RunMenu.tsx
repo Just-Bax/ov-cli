@@ -10,7 +10,6 @@ import {
   DownloadSimple,
   PushPin,
   PushPinSlash,
-  Sparkle,
   SunHorizon,
   Trash,
 } from '@phosphor-icons/react'
@@ -343,19 +342,6 @@ export function RunMenu({
                   onClick={() => act(() => setSnoozed(run.id, null))}
                 />
               ) : null}
-              <Item
-                icon={<Sparkle className="size-4" />}
-                label="Regenerate title"
-                onHover={() => setSnoozing(false)}
-                onClick={() =>
-                  act(() =>
-                    withProgress('Writing a new title', async () => {
-                      await api.retitleRun(run.id)
-                      await refreshRuns()
-                    }),
-                  )
-                }
-              />
               {inRow ? null : (
                 <Item
                   icon={<ArrowsInLineVertical className="size-4" />}

@@ -1696,6 +1696,9 @@
   .bg-line-strong\/60 {
     background-color: color-mix(in oklab, #cfd8dc 60%, transparent);
   }
+  .bg-line\/50 {
+    background-color: color-mix(in oklab, #eceff1 50%, transparent);
+  }
   .bg-ok {
     background-color: #2e7d32;
   }
@@ -1719,9 +1722,6 @@
   }
   .bg-warn-soft {
     background-color: #ffe4cc;
-  }
-  .bg-warn-soft\/60 {
-    background-color: color-mix(in oklab, #ffe4cc 60%, transparent);
   }
   .bg-white {
     background-color: var(--color-white);
@@ -2746,8 +2746,8 @@
     }
   }
   @media (width >= 48rem) {
-    .md\:max-h-\[560px\] {
-      max-height: 560px;
+    .md\:h-\[560px\] {
+      height: 560px;
     }
     .md\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2760,9 +2760,6 @@
     }
     .md\:grid-cols-\[230px_1fr\] {
       grid-template-columns: 230px 1fr;
-    }
-    .md\:overflow-y-auto {
-      overflow-y: auto;
     }
     .md\:border-r {
       border-right-style: var(--tw-border-style);

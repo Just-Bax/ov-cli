@@ -33,6 +33,27 @@ function formatDay(day: string, month: 'short' | 'long'): string {
   return new Date(`${day}T00:00:00`).toLocaleDateString([], { month, day: 'numeric' })
 }
 
+function isoDay(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+function restOfMonth(days: CostReport['days']): string[] {
+  if (!days.length) return []
+
+  const cursor = new Date(`${days[days.length - 1].day}T00:00:00`)
+  const month = cursor.getMonth()
+  const rest: string[] = []
+  cursor.setDate(cursor.getDate() + 1)
+  while (cursor.getMonth() === month) {
+    rest.push(isoDay(cursor))
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return rest
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-raised rounded-2xl px-4 py-3">
@@ -42,10 +63,19 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function DayChart({ days, unit }: { days: CostReport['days']; unit: CostUnit }) {
+function DayChart({
+  days,
+  upcoming,
+  unit,
+}: {
+  days: CostReport['days']
+  upcoming: string[]
+  unit: CostUnit
+}) {
   const top = Math.max(...days.map((d) => d.amount), 0)
   const [hover, setHover] = useState<number>()
   const shown = hover === undefined ? undefined : days[hover]
+  const lastDay = upcoming.length ? upcoming[upcoming.length - 1] : days[days.length - 1]?.day
 
   return (
     <div>
@@ -79,10 +109,17 @@ function DayChart({ days, unit }: { days: CostReport['days']; unit: CostUnit }) 
             />
           </div>
         ))}
+        {upcoming.map((day) => (
+          <div
+            key={day}
+            className="bg-line/50 min-w-0 flex-1 rounded-t-[3px]"
+            style={{ height: MIN_BAR_PX }}
+          />
+        ))}
       </div>
       <div className="text-faint mt-1.5 flex justify-between text-[11px]">
         <span>{days.length ? formatDay(days[0].day, 'short') : ''}</span>
-        <span>{days.length ? formatDay(days[days.length - 1].day, 'short') : ''}</span>
+        <span>{lastDay ? formatDay(lastDay, 'short') : ''}</span>
       </div>
     </div>
   )
@@ -169,7 +206,11 @@ function Usage({ provider }: { provider: Provider }) {
 
           {report.requests ? (
             <>
-              <DayChart days={report.days} unit={unit} />
+              <DayChart
+                days={report.days}
+                upcoming={range === 'month' ? restOfMonth(report.days) : []}
+                unit={unit}
+              />
               <div className="grid gap-6 md:grid-cols-2">
                 <Breakdown
                   title="By model"
