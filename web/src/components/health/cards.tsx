@@ -26,8 +26,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { openDraft } from '@/lib/draft'
 import { shortHost } from '@/lib/servers'
-import { MINUTE_MS } from '@/lib/time'
-import { type Lane, Sparkline, Timeline } from './charts'
+import { Timeline } from './charts'
 import { DatabasePicker } from './DatabasePicker'
 import {
   count,
@@ -45,7 +44,6 @@ import {
 
 const BLUE = '#42a5f5'
 const RED = '#e53935'
-const ORANGE = '#fb8c00'
 
 const ERROR_SPIKE_PERCENT = 50
 const ERROR_SPIKE_MIN = 10
@@ -79,38 +77,44 @@ function atMost(limits: { warn: number; danger: number }): (v: number) => Tone {
   return (v) => (v <= limits.danger ? 'danger' : v <= limits.warn ? 'warn' : null)
 }
 
-const THRESHOLDS: Record<string, { title: string; unit: string; tone: (v: number) => Tone }> = {
-  cpu: { title: 'CPU', unit: '%', tone: atLeast(SERVER_CPU) },
-  memory: { title: 'Memory free', unit: '%', tone: atMost(SERVER_FREE_MEMORY) },
-  disk: { title: 'Disk used', unit: '%', tone: atLeast(SERVER_DISK) },
-  load: { title: 'Load', unit: '', tone: atLeast(SERVER_LOAD) },
-  heap: { title: 'JVM heap', unit: 'B', tone: () => null },
+type MetricSpec = {
+  title: string
+  format: (v: number) => string
+  tone: (v: number) => Tone
+  worst: 'high' | 'low'
 }
 
 const percent = (v: number) => fmt(v, '%')
+const bytes = (v: number) => fmt(v, 'B')
+const plain = (v: number) => fmt(v, '')
+const calm = () => null
 
-const DATABASE_METRICS: Record<
-  HealthDatabaseMetricKey,
-  { title: string; format: (v: number) => string; tone: (v: number) => Tone }
-> = {
-  cpu: { title: 'CPU', format: percent, tone: atLeast(DB_CPU) },
-  memory: { title: 'Free memory', format: (v) => fmt(v, 'B'), tone: () => null },
-  storage: { title: 'Storage used', format: percent, tone: atLeast(DB_STORAGE) },
-  connections: { title: 'Connections', format: count, tone: () => null },
-  readLatency: { title: 'Read latency', format: duration, tone: () => null },
-  writeLatency: { title: 'Write latency', format: duration, tone: () => null },
-  activeSessions: { title: 'Active sessions', format: (v) => fmt(v, ''), tone: () => null },
-  responseTime: { title: 'Response time', format: duration, tone: () => null },
-  sessions: { title: 'Session limit', format: percent, tone: atLeast(DB_SESSIONS) },
-  tablespace: { title: 'Tablespace', format: percent, tone: atLeast(DB_TABLESPACE) },
+const THRESHOLDS: Record<string, MetricSpec> = {
+  cpu: { title: 'CPU', format: percent, tone: atLeast(SERVER_CPU), worst: 'high' },
+  memory: { title: 'Memory free', format: percent, tone: atMost(SERVER_FREE_MEMORY), worst: 'low' },
+  disk: { title: 'Disk used', format: percent, tone: atLeast(SERVER_DISK), worst: 'high' },
+  load: { title: 'Load', format: plain, tone: atLeast(SERVER_LOAD), worst: 'high' },
+  heap: { title: 'JVM heap', format: bytes, tone: calm, worst: 'high' },
 }
+
+const DATABASE_METRICS: Record<HealthDatabaseMetricKey, MetricSpec> = {
+  cpu: { title: 'CPU', format: percent, tone: atLeast(DB_CPU), worst: 'high' },
+  memory: { title: 'Free memory', format: bytes, tone: calm, worst: 'low' },
+  storage: { title: 'Storage used', format: percent, tone: atLeast(DB_STORAGE), worst: 'high' },
+  connections: { title: 'Connections', format: count, tone: calm, worst: 'high' },
+  readLatency: { title: 'Read latency', format: duration, tone: calm, worst: 'high' },
+  writeLatency: { title: 'Write latency', format: duration, tone: calm, worst: 'high' },
+  activeSessions: { title: 'Active sessions', format: plain, tone: calm, worst: 'high' },
+  responseTime: { title: 'Response time', format: duration, tone: calm, worst: 'high' },
+  sessions: { title: 'Session limit', format: percent, tone: atLeast(DB_SESSIONS), worst: 'high' },
+  tablespace: { title: 'Tablespace', format: percent, tone: atLeast(DB_TABLESPACE), worst: 'high' },
+}
+
+type Metric = { latest: number; max: number; points: HealthPoint[] }
+
+const METRIC_HINT = 'Value now, with the worst point of the window below it'
 
 const TONE_TEXT: Record<'danger' | 'warn', string> = { danger: 'text-danger', warn: 'text-warn' }
-const TONE_LINE: Record<'danger' | 'warn' | 'ok', string> = {
-  danger: RED,
-  warn: ORANGE,
-  ok: DATADOG_PURPLE,
-}
 
 const INCIDENT_DOT: Record<string, string> = {
   triggered: 'bg-danger',
@@ -293,7 +297,7 @@ function signals(slots: Slots): Signal[] {
       if (tone)
         out.push({
           tone,
-          text: `${shortHost(server.host)} ${THRESHOLDS[key].title.toLowerCase()} ${fmt(metric.latest, THRESHOLDS[key].unit)}`,
+          text: `${shortHost(server.host)} ${THRESHOLDS[key].title.toLowerCase()} ${THRESHOLDS[key].format(metric.latest)}`,
         })
     }
 
@@ -510,43 +514,14 @@ export function TimelineCard({ ctx }: { ctx: Context }) {
   const { slots, meta } = ctx
   const traffic = ready(slots.traffic)
   const logs = ready(slots.logs)
-  const incidents = ready(slots.incidents)
-  const events = ready(slots.events)
-  const failures = ready(slots.onevizion)
   const hasTraffic = Boolean(traffic?.traffic.requests.some((p) => p.v > 0))
-  const loading = (['traffic', 'logs', 'incidents', 'events', 'onevizion'] as const).some(
-    (s) => slots[s].state === 'loading',
-  )
+  const loading = slots.traffic.state === 'loading' || slots.logs.state === 'loading'
   const showSkeleton = useSkeleton(loading && !traffic && !logs)
-
-  const lanes: Lane[] = [
-    {
-      label: 'Incidents',
-      color: RED,
-      items: (incidents ? openFirst(incidents) : []).map((i) => ({
-        t: utcMs(i.created),
-        title: `#${i.number} ${i.title}`,
-      })),
-    },
-    {
-      label: 'Events',
-      color: DATADOG_PURPLE,
-      items: (events?.events ?? []).map((e) => ({ t: utcMs(e.time), title: e.title || e.message })),
-    },
-    {
-      label: 'Failed runs',
-      color: ORANGE,
-      items: (failures?.failures ?? []).map((f) => ({
-        t: utcMs(f.at) - failures!.utcOffsetMinutes * MINUTE_MS,
-        title: f.type,
-      })),
-    },
-  ]
 
   return (
     <Panel
       title="Timeline"
-      hint="What lined up with what: traffic, latency and errors, with incidents, deploys and failed runs below"
+      hint="Traffic, latency and errors over the window. Hover for the numbers."
       link={meta.links.apm}
       onAsk={() =>
         ask(
@@ -605,7 +580,6 @@ export function TimelineCard({ ctx }: { ctx: Context }) {
                 ]
               : []),
           ]}
-          lanes={lanes}
         />
       )}
     </Panel>
@@ -770,7 +744,7 @@ export function ServersCard({ ctx }: { ctx: Context }) {
   return (
     <Panel
       title="Servers"
-      hint="Each metric over the window, latest value on the right"
+      hint={METRIC_HINT}
       link={ctx.meta.links.metrics}
       onAsk={() =>
         ask(
@@ -809,18 +783,13 @@ export function ServersCard({ ctx }: { ctx: Context }) {
                         </span>
                         <span className="text-fg">{shortHost(s.host)}</span>
                       </td>
-                      {shown.map((k) => {
-                        const m = s.metrics[k as keyof HealthServer['metrics']]
-
-                        return (
-                          <MetricCell
-                            key={k}
-                            metric={m}
-                            tone={m ? THRESHOLDS[k].tone(m.latest) : null}
-                            text={m ? fmt(m.latest, THRESHOLDS[k].unit) : ''}
-                          />
-                        )
-                      })}
+                      {shown.map((k) => (
+                        <MetricCell
+                          key={k}
+                          metric={s.metrics[k as keyof HealthServer['metrics']]}
+                          spec={THRESHOLDS[k]}
+                        />
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -833,31 +802,34 @@ export function ServersCard({ ctx }: { ctx: Context }) {
   )
 }
 
-function MetricCell({
-  metric,
-  tone,
-  text,
-}: {
-  metric?: { points: HealthPoint[] }
-  tone: Tone
-  text: string
-}) {
-  return (
-    <td className="py-2.5 pl-4">
-      {metric ? (
-        <div className="flex items-center gap-2">
-          <Sparkline points={metric.points} color={TONE_LINE[tone ?? 'ok']} className="w-20" />
-          <span
-            className={cn(
-              'w-14 shrink-0 text-right tabular-nums',
-              tone ? `${TONE_TEXT[tone]} font-semibold` : 'text-text',
-            )}
-          >
-            {text}
-          </span>
-        </div>
-      ) : (
+function worstOf(metric: Metric, spec: MetricSpec): number | null {
+  if (spec.worst === 'high') return metric.max
+  return metric.points.length ? Math.min(...metric.points.map((p) => p.v)) : null
+}
+
+function toneText(tone: Tone, quiet: string): string {
+  return tone ? `${TONE_TEXT[tone]} font-semibold` : quiet
+}
+
+function MetricCell({ metric, spec }: { metric?: Metric; spec: MetricSpec }) {
+  if (!metric)
+    return (
+      <td className="py-2.5 pl-4">
         <span className="text-faint">-</span>
+      </td>
+    )
+
+  const worst = worstOf(metric, spec)
+
+  return (
+    <td className="py-2.5 pl-4 whitespace-nowrap tabular-nums">
+      <div className={cn('text-[13px]', toneText(spec.tone(metric.latest), 'text-fg'))}>
+        {spec.format(metric.latest)}
+      </div>
+      {worst === null ? null : (
+        <div className={cn('text-[11px]', toneText(spec.tone(worst), 'text-faint'))}>
+          {spec.worst === 'low' ? 'low' : 'peak'} {spec.format(worst)}
+        </div>
       )}
     </td>
   )
@@ -879,7 +851,7 @@ export function DatabaseCard({
   return (
     <Panel
       title="Database"
-      hint="RDS and Oracle metrics over the window, latest value on the right"
+      hint={METRIC_HINT}
       actions={
         notFound ? null : (
           <button
@@ -947,18 +919,9 @@ export function DatabaseCard({
                           </span>
                         ) : null}
                       </td>
-                      {shown.map((k) => {
-                        const m = d.metrics[k]
-
-                        return (
-                          <MetricCell
-                            key={k}
-                            metric={m}
-                            tone={m ? DATABASE_METRICS[k].tone(m.latest) : null}
-                            text={m ? DATABASE_METRICS[k].format(m.latest) : ''}
-                          />
-                        )
-                      })}
+                      {shown.map((k) => (
+                        <MetricCell key={k} metric={d.metrics[k]} spec={DATABASE_METRICS[k]} />
+                      ))}
                     </tr>
                   ))}
                 </tbody>

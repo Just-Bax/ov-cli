@@ -64,12 +64,12 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section className="grid gap-6 py-6 xl:grid-cols-[200px_1fr]">
+    <section className="grid gap-6 py-6 xl:grid-cols-[200px_minmax(0,1fr)]">
       <div>
         <div className="text-fg text-[13.5px] font-semibold">{title}</div>
         {hint ? <div className="text-muted mt-1 text-[12px] leading-relaxed">{hint}</div> : null}
       </div>
-      <div>{children}</div>
+      <div className="min-w-0">{children}</div>
     </section>
   )
 }

@@ -196,6 +196,7 @@ def test_database_pages_are_tied_to_the_instance_through_its_datadog_databases(l
         "oracle.session_count": ["server:acme-db.abc123.us-east-1.rds.amazonaws.com"],
         "aws.rds.cpuutilization": ["dbinstanceidentifier:acme-vpc,engine:oracle-ee"],
     }
+    datadog.save_databases({"acme": ["acme-db", "acme-vpc"]})
 
     rows = [
         pagerduty._incident(incident(11, "triggered", "RDS storage low on dbinstanceidentifier:acme-vpc", "x")),

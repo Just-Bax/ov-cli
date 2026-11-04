@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DatadogArea, DatadogDiscovery, DatadogStatus } from '@shared/types.ts'
 import datadogMark from '@/assets/datadog.svg'
 import { Dropdown } from '@/components/common/Dropdown'
+import { DatadogDatabaseMatches } from '@/components/integrations/DatadogDatabases'
 import { Button, IconBadge, Select, Skeleton, useCopy } from '@/components/common/ui'
 import {
   ConnectModal,
@@ -451,8 +452,9 @@ export function DatadogCard({
       keysTitle={(s) => `API key ...${s.apiKeyLast4}, application key ...${s.appKeyLast4}`}
       test={api.datadogTest}
       footer={(s) => (
-        <div className="border-line border-t">
+        <div className="divide-line border-line divide-y border-t">
           <DatadogMatches status={s} onSaved={setStatus} />
+          <DatadogDatabaseMatches status={s} onSaved={setStatus} />
         </div>
       )}
       renderConnect={renderConnect}

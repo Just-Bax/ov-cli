@@ -1,33 +1,21 @@
 import { useState } from 'react'
 import type { HealthPoint } from '@shared/types.ts'
-import { cn } from '@/lib/cn'
 import { clock, type Range } from './data'
 
 const BUCKETS = 48
 const WIDTH = 1000
 const HEIGHT = 170
 const TOP_PAD = 10
-const LANE_HEIGHT = 26
-const DOT_MIN = 4
-const DOT_MAX = 8
-const TOOLTIP_TITLES = 3
 const TOOLTIP_FLIP = 0.65
 const GRID_LINES = [0.25, 0.5, 0.75]
-const SPARK_WIDTH = 120
-const SPARK_HEIGHT = 28
 const BOTTOM_PAD = 4
 const BAR_GAP = 2
-const SPARK_PAD_RATIO = 0.15
-const SPARK_FLAT_PAD_RATIO = 0.1
 const GRID_COLOR = '#eceff1'
 const CURSOR_COLOR = '#90a4ae'
 const BAR_RADIUS = 3
 const BAR_OPACITY = 0.55
 const DIMMED_BAR_OPACITY = 0.25
-const DIMMED_DOT_OPACITY = 0.55
 const LINE_WIDTH = 2
-const SPARK_LINE_WIDTH = 1.5
-const SPARK_FILL_OPACITY = 0.1
 
 type Series = {
   label: string
@@ -36,8 +24,6 @@ type Series = {
   combine: 'sum' | 'max'
   format: (v: number) => string
 }
-
-export type Lane = { label: string; color: string; items: { t: number; title: string }[] }
 
 function bucketOf(t: number, from: number, width: number): number | undefined {
   const i = Math.floor((t - from) / width)
@@ -83,14 +69,12 @@ export function Timeline({
   range,
   bars,
   lines,
-  lanes,
 }: {
   from: number
   to: number
   range: Range
   bars?: Series
   lines: Series[]
-  lanes: Lane[]
 }) {
   const [hover, setHover] = useState<number>()
   const width = (to - from) / BUCKETS
@@ -98,14 +82,6 @@ export function Timeline({
   const barValues = bars ? bucketize(bars.points, from, width, bars.combine) : []
   const barMax = Math.max(1, ...barValues.map((v) => v ?? 0))
   const lineValues = lines.map((l) => bucketize(l.points, from, width, l.combine))
-  const laneBuckets = lanes.map((lane) => {
-    const buckets: Lane['items'][] = Array.from({ length: BUCKETS }, () => [])
-    for (const item of lane.items) {
-      const i = bucketOf(item.t, from, width)
-      if (i !== undefined) buckets[i].push(item)
-    }
-    return buckets
-  })
 
   const at = hover ?? -1
   const startOf = (i: number) => from + i * width
@@ -197,35 +173,6 @@ export function Timeline({
             ) : null}
           </svg>
 
-          <div className="border-line mt-1 border-t">
-            {lanes.map((lane, k) => (
-              <div
-                key={lane.label}
-                className="relative flex items-center"
-                style={{ height: LANE_HEIGHT }}
-              >
-                <span className="text-faint absolute -left-20 w-20 truncate pr-2 text-[10.5px] font-medium">
-                  {lane.label}
-                </span>
-                {laneBuckets[k].map((items, i) =>
-                  items.length ? (
-                    <span
-                      key={i}
-                      className="absolute -translate-x-1/2 rounded-full ring-2 ring-white"
-                      style={{
-                        left: `${((i + 0.5) / BUCKETS) * 100}%`,
-                        background: lane.color,
-                        width: Math.min(DOT_MAX, DOT_MIN + items.length) * 2,
-                        height: Math.min(DOT_MAX, DOT_MIN + items.length) * 2,
-                        opacity: at === -1 || at === i ? 1 : DIMMED_DOT_OPACITY,
-                      }}
-                    />
-                  ) : null,
-                )}
-              </div>
-            ))}
-          </div>
-
           {at >= 0 ? (
             <div
               className="border-line pointer-events-none absolute top-1 z-10 max-w-[320px] rounded-2xl border bg-white px-3 py-2 text-[11.5px] shadow-[0_6px_20px_rgba(38,50,56,0.14)]"
@@ -249,21 +196,6 @@ export function Timeline({
                   {s.label} {v === null ? '-' : s.format(v)}
                 </div>
               ))}
-              {lanes.map((lane, k) =>
-                laneBuckets[k][at].length ? (
-                  <div key={lane.label} className="mt-1.5">
-                    <div className="text-fg flex items-center gap-1.5 font-medium">
-                      <span className="size-2 rounded-full" style={{ background: lane.color }} />
-                      {laneBuckets[k][at].length} {lane.label.toLowerCase()}
-                    </div>
-                    {laneBuckets[k][at].slice(0, TOOLTIP_TITLES).map((item, i) => (
-                      <div key={i} className="text-muted truncate pl-3.5">
-                        {item.title}
-                      </div>
-                    ))}
-                  </div>
-                ) : null,
-              )}
             </div>
           ) : null}
         </div>
@@ -274,51 +206,5 @@ export function Timeline({
         <span>{clock(to, range)}</span>
       </div>
     </div>
-  )
-}
-
-export function Sparkline({
-  points,
-  color,
-  className,
-}: {
-  points: HealthPoint[]
-  color: string
-  className?: string
-}) {
-  if (points.length < 2) return <div className={className} style={{ height: SPARK_HEIGHT }} />
-
-  const ys = points.map((p) => p.v)
-  const [lo, hi] = [Math.min(...ys), Math.max(...ys)]
-  const pad = (hi - lo) * SPARK_PAD_RATIO || Math.abs(hi) * SPARK_FLAT_PAD_RATIO || 1
-  const [y0, y1] = [lo - pad, hi + pad]
-  const x = (i: number) => (i / (points.length - 1)) * SPARK_WIDTH
-  const y = (v: number) => SPARK_HEIGHT - ((v - y0) / (y1 - y0)) * SPARK_HEIGHT
-
-  const line = points
-    .map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`)
-    .join(' ')
-
-  return (
-    <svg
-      viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
-      preserveAspectRatio="none"
-      className={cn('block w-full', className)}
-      style={{ height: SPARK_HEIGHT }}
-    >
-      <path
-        d={`${line} L${SPARK_WIDTH},${SPARK_HEIGHT} L0,${SPARK_HEIGHT} Z`}
-        fill={color}
-        opacity={SPARK_FILL_OPACITY}
-      />
-      <path
-        d={line}
-        fill="none"
-        stroke={color}
-        strokeWidth={SPARK_LINE_WIDTH}
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
   )
 }

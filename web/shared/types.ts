@@ -623,6 +623,11 @@ export interface DatadogDatabase {
   endpoint: string
 }
 
+export interface DatadogDatabaseDiscovery {
+  databases: DatadogDatabase[]
+  groups: Record<string, string[]>
+}
+
 export interface DatadogDiscovery {
   hosts: { name: string; role: string; alias: string | null }[]
   groups: Record<string, string>

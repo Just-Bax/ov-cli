@@ -233,7 +233,11 @@ def test_datadog_queries_naming_a_host_skip_the_instance_lookup(logged_in, tmp_p
 ACME_HOSTS = "host:(app01.acme-vpc.example OR web01.acme-vpc.example)"
 ACME_ENDPOINT = "acme-vpc.abc123.us-east-1.rds.amazonaws.com"
 DATABASE_SCOPES = {
-    "oracle.session_count": [f"server:{ACME_ENDPOINT}", "server:db01.shared.example"],
+    "oracle.session_count": [
+        f"server:{ACME_ENDPOINT},ddagenthostname:app01.acme-vpc.example",
+        "server:db01.shared.example,ddagenthostname:web01.acme-vpc.example",
+        "server:globex.abc123.us-east-1.rds.amazonaws.com,ddagenthostname:app01.globex.example",
+    ],
     "aws.rds.cpuutilization{*}": [
         "dbinstanceidentifier:acme-vpc,engine:oracle-ee",
         "dbinstanceidentifier:acme-archive,engine:oracle-se2",
@@ -251,18 +255,25 @@ def with_databases(linked):
     seed_session("https://acme-north.onevizion.test")
     datadog.save_matches({"acme": ACME_HOSTS})
     linked.metric_scopes = dict(DATABASE_SCOPES)
+    datadog.save_databases({"acme": ["acme-archive", "acme-vpc", "db01.shared.example"]})
     return linked
 
 
-def test_databases_come_from_oracle_agents_and_rds_names(with_databases):
-    found = datadog.databases_for("acme")
-    assert found == [
-        {"id": "acme-archive", "endpoint": "", "engine": "oracle-se2", "shared": False},
+def test_detected_databases_come_from_oracle_agents_and_rds_names(with_databases):
+    found = datadog.discover_databases()
+    assert found["groups"] == {"acme": ["acme-archive", "acme-vpc", "db01.shared.example"]}
+    assert {"acme-vpc", "globex", "db01.shared.example"} <= {d["id"] for d in found["databases"]}
+
+
+def test_only_matched_databases_are_used(with_databases):
+    datadog.save_databases({"acme": []})
+    assert datadog.databases_for("acme") == []
+
+    datadog.save_databases({"acme": ["acme-vpc", "db01.shared.example"]})
+    assert datadog.databases_for("acme") == [
         {"id": "acme-vpc", "engine": "oracle-ee", "endpoint": ACME_ENDPOINT, "shared": False},
         {"id": "db01.shared.example", "engine": "oracle", "endpoint": "db01.shared.example", "shared": True},
     ]
-    probe = next(r.url.params["query"] for r in with_databases.requests if "session_count" in str(r.url))
-    assert "ddagenthostname IN (app01.acme-vpc.example,web01.acme-vpc.example)" in probe
 
     before = len(with_databases.requests)
     datadog.databases_for("acme")
@@ -309,18 +320,9 @@ def test_cpu_comes_from_rds_before_the_oracle_agent(with_databases):
     assert any("aws.rds.cpuutilization{dbinstanceidentifier IN (acme-archive,acme-vpc)}" in q for q in queries)
 
 
-def test_a_picked_shared_database_replaces_the_detected_ones(with_databases):
-    catalog = {d["id"]: d for d in datadog.database_catalog()}
-    assert {"acme-vpc", "globex", "db01.shared.example"} <= set(catalog)
-
+def test_picked_databases_are_normalized(with_databases):
     status = datadog.save_databases({"acme": [" DB01.shared.example ", ""]})
     assert status["databases"] == {"acme": ["db01.shared.example"]}
-    assert datadog.databases_for("acme") == [
-        {"id": "db01.shared.example", "engine": "oracle", "endpoint": "db01.shared.example", "shared": True}
-    ]
-
-    datadog.save_databases({"acme": []})
-    assert "acme-vpc" in {d["id"] for d in datadog.databases_for("acme")}
 
 
 def test_picked_databases_are_forgotten_with_the_instance(with_databases):
@@ -332,7 +334,7 @@ def test_picked_databases_are_forgotten_with_the_instance(with_databases):
 def test_an_instance_without_a_database_says_so(linked):
     datadog.save_matches({"acme": ACME_HOSTS})
     meta = datadog.health_meta("acme", "24h")
-    with pytest.raises(datadog.Unavailable, match="No database found"):
+    with pytest.raises(datadog.Unavailable, match="No database is matched"):
         datadog.health_section("acme", "24h", "database", meta["to"])
 
 

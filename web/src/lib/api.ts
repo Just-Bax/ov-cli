@@ -9,6 +9,7 @@ import type {
   CostReport,
   RunCost,
   DatadogDatabase,
+  DatadogDatabaseDiscovery,
   DatadogDiscovery,
   DatadogStatus,
   GraphStatus,
@@ -131,6 +132,7 @@ export const api = {
   datadogMatches: (matches: Record<string, string>) =>
     put<DatadogStatus>('/datadog/matches', { matches }),
   datadogDatabases: () => request<{ databases: DatadogDatabase[] }>('/datadog/databases'),
+  datadogDiscoverDatabases: () => request<DatadogDatabaseDiscovery>('/datadog/databases/discover'),
   datadogPickDatabases: (databases: Record<string, string[]>) =>
     put<DatadogStatus>('/datadog/databases', { databases }),
   pagerduty: () => request<PagerDutyStatus>('/pagerduty'),

@@ -194,10 +194,7 @@ def _series_metric(series: list[dict[str, Any]], tag: str, value: str) -> dict[s
 def _database_section(alias: str, _scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
     databases = databases_for(alias)
     if not databases:
-        raise Unavailable(
-            "No database found for this instance in Datadog: its servers send no Oracle metrics "
-            "and no RDS instance is named after it. If it runs on a shared database, pick it."
-        )
+        raise Unavailable("No database is matched to this instance yet. Match it in Settings > Integrations > Datadog.")
 
     values = {
         RDS_TAG: [d["id"] for d in databases if not d["endpoint"] or d["endpoint"].endswith(RDS_ENDPOINT_SUFFIX)],

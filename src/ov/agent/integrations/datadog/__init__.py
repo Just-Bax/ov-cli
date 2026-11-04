@@ -26,6 +26,7 @@ from ov.agent.integrations.datadog.databases import (
     database_id,
     database_needles,
     databases_for,
+    discover_databases,
     known_databases,
 )
 from ov.agent.integrations.datadog.health import RANGES, Unavailable, downsample, health_meta, health_section, window
@@ -73,6 +74,7 @@ __all__ = [
     "databases_for",
     "disconnect",
     "discover",
+    "discover_databases",
     "downsample",
     "error_spans",
     "events_for",

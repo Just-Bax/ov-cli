@@ -403,7 +403,7 @@ export function AccountRow({
       {badge}
       <div className="min-w-0 flex-1">
         <div className="text-fg text-[13.5px] font-semibold">{title}</div>
-        <div className="text-muted truncate text-[12.5px]">{detail}</div>
+        <div className="text-muted text-[12.5px] break-words">{detail}</div>
       </div>
       {action}
     </div>

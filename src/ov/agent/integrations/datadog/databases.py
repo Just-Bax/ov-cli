@@ -14,7 +14,7 @@ from ov.agent.integrations.datadog.hosts import (
     owner_of_parts,
     picked_databases,
 )
-from ov.agent.integrations.datadog.queries import metric_scope, parallel, query_metric, tag_of
+from ov.agent.integrations.datadog.queries import parallel, query_metric, tag_of
 from ov.agent.storage.db import now_ms
 
 DATABASE_LOOKBACK_SECONDS = 3600
@@ -24,7 +24,7 @@ ORACLE_TAG = "server"
 ORACLE_HOST_TAG = "ddagenthostname"
 ORACLE_ENGINE = "oracle"
 RDS_ENDPOINT_SUFFIX = ".rds.amazonaws.com"
-ORACLE_PROBE = "avg:oracle.session_count{%s} by {server}"
+ORACLE_PROBE = "avg:oracle.session_count{*} by {server,ddagenthostname}"
 CATALOG_KEY = "catalog"
 RDS_PROBE = "avg:aws.rds.cpuutilization{*} by {dbinstanceidentifier,engine}"
 
@@ -74,11 +74,30 @@ def database_catalog() -> list[dict[str, Any]]:
     if cached is not None:
         return cached
 
-    probes = _probes({"rds": RDS_PROBE, "oracle": ORACLE_PROBE % "*"})
+    return _catalog_of(_probes({"rds": RDS_PROBE, "oracle": ORACLE_PROBE}))
+
+
+def _catalog_of(probes: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
     found = _merge_databases(probes["oracle"], probes["rds"], lambda _: True)
     catalog = [found[k] for k in sorted(found)]
     database_cache.put(CATALOG_KEY, catalog)
     return catalog
+
+
+def _detected(alias: str, probes: dict[str, list[dict[str, Any]]]) -> list[str]:
+    scope = filter_for(alias)
+    agents = {h.lower() for h in hosts_in(scope) or []}
+    if not agents:
+        return []
+
+    oracle = [s for s in probes["oracle"] if (tag_of(s, ORACLE_HOST_TAG) or "").lower() in agents]
+    return sorted(_merge_databases(oracle, probes["rds"], _database_owner(alias, scope)))
+
+
+def discover_databases() -> dict[str, Any]:
+    probes = _probes({"rds": RDS_PROBE, "oracle": ORACLE_PROBE})
+    groups = {i["alias"]: _detected(i["alias"], probes) for i in main_instances()}
+    return {"databases": _catalog_of(probes), "groups": {alias: ids for alias, ids in groups.items() if ids}}
 
 
 def _picked(ids: list[str]) -> dict[str, dict[str, Any]]:
@@ -86,29 +105,19 @@ def _picked(ids: list[str]) -> dict[str, dict[str, Any]]:
     return {i: catalog.get(i, {"id": i, "engine": "", "endpoint": ""}) for i in ids}
 
 
-def _detected(scope: str, owns: Callable[[str], bool]) -> dict[str, dict[str, Any]]:
-    agents = metric_scope(scope, ORACLE_HOST_TAG)
-    jobs = {"rds": RDS_PROBE}
-    if agents != "*":
-        jobs["oracle"] = ORACLE_PROBE % agents
-
-    probes = _probes(jobs)
-    return _merge_databases(probes.get("oracle", []), probes["rds"], owns)
-
-
 def databases_for(alias: str) -> list[dict[str, Any]]:
-    scope = filter_for(alias)
     picked = picked_databases(alias)
-    if not scope and not picked:
+    if not picked:
         return []
 
+    scope = filter_for(alias)
     key = (alias, scope, tuple(picked))
     cached = database_cache.get(key)
     if cached is not None:
         return cached
 
     owns = _database_owner(alias, scope)
-    found = _picked(picked) if picked else _detected(scope, owns)
+    found = _picked(picked)
     rows = [{**found[k], "shared": not owns(k)} for k in sorted(found)]
     database_cache.put(key, rows)
     return rows

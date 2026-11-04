@@ -56,6 +56,11 @@ def datadog_databases(_: Handler) -> dict[str, Any]:
     return {"databases": datadog.database_catalog()}
 
 
+@route("GET", "/api/datadog/databases/discover")
+def datadog_discover_databases(_: Handler) -> dict[str, Any]:
+    return datadog.discover_databases()
+
+
 @route("PUT", "/api/datadog/databases")
 def datadog_pick_databases(h: Handler) -> dict[str, Any]:
     databases = h.json().get("databases")

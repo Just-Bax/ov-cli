@@ -1,8 +1,8 @@
-import { X as XMarkIcon } from '@phosphor-icons/react'
+import { Sparkle as SparklesIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import type { DatadogStatus } from '@shared/types.ts'
-import { Dropdown } from '@/components/common/Dropdown'
-import { Button, Skeleton } from '@/components/common/ui'
+import { Button } from '@/components/common/ui'
+import { DatabaseChips } from '@/components/integrations/DatadogDatabases'
 import { api } from '@/lib/api'
 import { useLoad } from '@/lib/hooks'
 
@@ -18,73 +18,62 @@ export function DatabasePicker({
   const { value: catalog } = useLoad(api.datadogDatabases, [])
   const saved = status.databases[alias] ?? []
   const [picked, setPicked] = useState<string[]>(saved)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'detect' | 'save'>()
+  const [note, setNote] = useState<string>()
   const [error, setError] = useState<string>()
   const dirty = picked.join() !== saved.join()
 
-  const save = async (next: string[]) => {
-    setBusy(true)
+  const run = async (kind: 'detect' | 'save', work: () => Promise<void>) => {
+    setBusy(kind)
     setError(undefined)
     try {
-      onSaved(await api.datadogPickDatabases({ ...status.databases, [alias]: next }))
+      await work()
     } catch (e) {
       setError((e as Error).message)
     } finally {
-      setBusy(false)
+      setBusy(undefined)
     }
   }
 
-  const options = (catalog?.databases ?? [])
-    .filter((d) => !picked.includes(d.id))
-    .map((d) => ({ value: d.id, label: d.id, hint: d.engine }))
+  const detect = () =>
+    run('detect', async () => {
+      const ids = (await api.datadogDiscoverDatabases()).groups[alias] ?? []
+      setNote(
+        ids.length
+          ? `Its servers' Oracle agent watches ${ids.join(', ')}. Check it before saving.`
+          : 'No database found from its servers. Pick it below.',
+      )
+      if (ids.length) setPicked(ids)
+    })
+
+  const save = () =>
+    run('save', async () =>
+      onSaved(await api.datadogPickDatabases({ ...status.databases, [alias]: picked })),
+    )
 
   return (
     <div className="bg-raised rounded-2xl p-3">
       <div className="text-muted mb-2 text-[12px]">
-        Pick the database this instance runs on, such as a shared one. Picked databases replace the
-        ones found from its servers.
+        {note ?? 'Pick the database this instance runs on, such as its own RDS or a shared one.'}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        {picked.map((id) => (
-          <span
-            key={id}
-            className="text-text inline-flex h-7 items-center gap-1 rounded-full bg-white pr-1 pl-2.5 text-[12px]"
-          >
-            {id}
-            <button
-              type="button"
-              aria-label={`Remove ${id}`}
-              onClick={() => setPicked((all) => all.filter((p) => p !== id))}
-              className="text-faint hover:text-fg hover:bg-raised flex size-5 items-center justify-center rounded-full"
-            >
-              <XMarkIcon className="size-3" />
-            </button>
-          </span>
-        ))}
-        {catalog ? (
-          <Dropdown
-            variant="plain"
-            searchable
-            value=""
-            placeholder={picked.length ? 'Add' : 'Pick a database'}
-            options={options}
-            onChange={(id) => setPicked((all) => [...all, id])}
-          />
-        ) : (
-          <Skeleton className="h-8 w-32 rounded-full" />
-        )}
-        <span className="flex-1" />
-        {saved.length ? (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save([])}>
-            Find from servers
-          </Button>
-        ) : null}
+        <DatabaseChips picked={picked} catalog={catalog?.databases} onChange={setPicked} />
+        <Button
+          size="sm"
+          variant="ghost"
+          busy={busy === 'detect'}
+          disabled={Boolean(busy)}
+          onClick={() => void detect()}
+        >
+          <SparklesIcon className="size-3.5" />
+          Detect
+        </Button>
         <Button
           size="sm"
           variant="primary"
-          busy={busy}
-          disabled={!dirty || !picked.length || busy}
-          onClick={() => void save(picked)}
+          busy={busy === 'save'}
+          disabled={!dirty || !picked.length || Boolean(busy)}
+          onClick={() => void save()}
         >
           Save
         </Button>
