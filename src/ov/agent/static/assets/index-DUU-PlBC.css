@@ -655,6 +655,10 @@
     width: calc(var(--spacing) * 16);
     height: calc(var(--spacing) * 16);
   }
+  .size-24 {
+    width: calc(var(--spacing) * 24);
+    height: calc(var(--spacing) * 24);
+  }
   .size-\[18px\] {
     width: 18px;
     height: 18px;
@@ -727,9 +731,6 @@
   }
   .h-24 {
     height: calc(var(--spacing) * 24);
-  }
-  .h-28 {
-    height: calc(var(--spacing) * 28);
   }
   .h-\[2px\] {
     height: 2px;
@@ -1003,6 +1004,9 @@
   }
   .max-w-56 {
     max-width: calc(var(--spacing) * 56);
+  }
+  .max-w-80 {
+    max-width: calc(var(--spacing) * 80);
   }
   .max-w-\[50\%\] {
     max-width: 50%;
@@ -1784,6 +1788,9 @@
   }
   .object-cover {
     object-fit: cover;
+  }
+  .object-top {
+    object-position: top;
   }
   .p-0 {
     padding: 0px;

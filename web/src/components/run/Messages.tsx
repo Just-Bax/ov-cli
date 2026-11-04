@@ -87,38 +87,53 @@ function FileChips({ runId, files }: { runId: string; files: MessageFile[] }) {
   const [open, setOpen] = useState<number>()
   if (!files.length) return null
 
+  const indexed = files.map((file, index) => ({ file, index }))
+  const images = indexed.filter(({ file }) => file.kind === 'image')
+  const documents = indexed.filter(({ file }) => file.kind !== 'image')
+  const single = images.length === 1
+
   return (
-    <div className="flex flex-wrap justify-end gap-1.5">
-      {files.map((f, i) =>
-        f.kind === 'image' ? (
-          <button
-            key={f.name}
-            type="button"
-            title={f.name}
-            aria-label={`Preview ${f.name}`}
-            onClick={() => setOpen(i)}
-            className="cursor-zoom-in"
-          >
-            <img
-              src={api.imageUrl(runId, f)}
-              alt={f.name}
-              className="border-line bg-raised h-28 max-w-[260px] rounded-2xl border object-contain transition-opacity hover:opacity-90"
-            />
-          </button>
-        ) : (
-          <button
-            key={f.name}
-            type="button"
-            title={f.name}
-            aria-label={`Preview ${f.name}`}
-            onClick={() => setOpen(i)}
-            className="border-line text-text hover:bg-raised inline-flex h-9 items-center gap-2 rounded-full border bg-white px-3 text-[12.5px] transition-colors"
-          >
-            <DocumentTextIcon className="text-muted size-4" />
-            <span className="max-w-[200px] truncate">{f.name}</span>
-          </button>
-        ),
-      )}
+    <div className="flex max-w-[80%] flex-col items-end gap-1.5">
+      {documents.length ? (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {documents.map(({ file, index }) => (
+            <button
+              key={file.name}
+              type="button"
+              title={file.name}
+              aria-label={`Preview ${file.name}`}
+              onClick={() => setOpen(index)}
+              className="border-line text-text hover:bg-raised inline-flex h-9 items-center gap-2 rounded-full border bg-white px-3 text-[12.5px] transition-colors"
+            >
+              <DocumentTextIcon className="text-muted size-4 shrink-0" />
+              <span className="max-w-[220px] truncate">{file.name}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {images.length ? (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {images.map(({ file, index }) => (
+            <button
+              key={file.name}
+              type="button"
+              title={file.name}
+              aria-label={`Preview ${file.name}`}
+              onClick={() => setOpen(index)}
+              className="border-line bg-raised cursor-zoom-in overflow-hidden rounded-2xl border"
+            >
+              <img
+                src={api.imageUrl(runId, file)}
+                alt={file.name}
+                className={cn(
+                  'block transition-opacity hover:opacity-90',
+                  single ? 'max-h-60 max-w-80 object-contain' : 'size-24 object-cover object-top',
+                )}
+              />
+            </button>
+          ))}
+        </div>
+      ) : null}
       {open !== undefined ? (
         <FilePreview runId={runId} files={files} start={open} onClose={() => setOpen(undefined)} />
       ) : null}
