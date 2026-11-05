@@ -25,12 +25,27 @@ def stored_state(thread_id: str) -> tuple[State, int] | None:
     if summary is None:
         return None
 
-    state = empty_state(summary, db.thread_access(thread_id))
+    state = empty_state(dict(summary), db.thread_access(thread_id))
     events = db.load_events(thread_id)
-    for event in events:
+    inherited = summary.get("inheritedUntil", 0)
+    for event in (e for e in events if e["seq"] < inherited):
         reduce(state, event)
+    if inherited:
+        state["inheritedItems"] = len(state["items"])
+    for event in (e for e in events if e["seq"] >= inherited):
+        reduce(state, event)
+
     state["summary"] = {**state["summary"], **summary}
-    return state, events[-1]["seq"] if events else -1
+    _attach_parent(state, summary)
+    last = events[-1]["seq"] if events else -1
+    return state, max(last, inherited - 1)
+
+
+def _attach_parent(state: State, summary: dict[str, Any]) -> None:
+    if not summary.get("origin"):
+        return
+    parent = db.get_thread(summary["parentId"]) if summary.get("parentId") else None
+    state["parent"] = {"id": parent["id"], "title": parent["title"]} if parent else None
 
 
 def _when(ms: int) -> str:

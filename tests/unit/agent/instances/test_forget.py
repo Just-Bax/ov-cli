@@ -14,8 +14,8 @@ def test_forgetting_an_instance_removes_its_local_data_but_keeps_runs(logged_in)
 
     for alias in ("acme", "gone"):
         graph.graph_file(alias).write_text("{}", encoding="utf-8")
-        db.create_thread(f"r{alias}", "t", "copilot", "m", prompt="x", instance=alias, access=Access.READ)
-    db.create_thread("rcase", "t", "copilot", "m", prompt="x", instance="acme.onevizion.test", access=Access.READ)
+        db.create_thread(f"r{alias}", "t", "copilot", "m", instance=alias, access=Access.READ)
+    db.create_thread("rcase", "t", "copilot", "m", instance="acme.onevizion.test", access=Access.READ)
 
     datadog.save_matches({"acme": "host:a", "gone": "host:b"})
 

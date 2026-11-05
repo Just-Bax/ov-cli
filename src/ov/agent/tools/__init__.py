@@ -56,8 +56,8 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
     ("Skills", "guides for each area", ["skill_read"]),
     (
         "Run",
-        "the run folder, other threads, waiting, questions to the user and the result",
-        ["run_read", "thread_read", "run_grid", "run_wait", "run_ask", "run_report"],
+        "the run folder, other threads, findings, waiting, questions to the user and the result",
+        ["run_read", "thread_read", "thread_search", "finding_save", "run_grid", "run_wait", "run_ask", "run_report"],
     ),
 ]
 

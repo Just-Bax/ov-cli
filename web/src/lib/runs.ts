@@ -109,8 +109,8 @@ export function showMoreSettled(): Promise<void> {
   return refreshRuns()
 }
 
-function byNewest(a: RunSummary, b: RunSummary): number {
-  return b.createdAt - a.createdAt
+function byLatestActivity(a: RunSummary, b: RunSummary): number {
+  return b.updatedAt - a.updatedAt
 }
 
 function moveLocally(id: string, settled: boolean) {
@@ -123,9 +123,9 @@ function moveLocally(id: string, settled: boolean) {
 
   publish({
     ...list,
-    active: settled ? active : [...active, moved].sort(byNewest),
+    active: settled ? active : [...active, moved].sort(byLatestActivity),
     snoozed: list.snoozed.filter((r) => r.id !== id),
-    settled: settled ? [...done, moved].sort(byNewest) : done,
+    settled: settled ? [...done, moved].sort(byLatestActivity) : done,
     settledTotal: list.settledTotal + (settled ? 1 : -1),
   })
 }
@@ -167,7 +167,7 @@ function snoozeLocally(id: string, until: number | null) {
 
   publish({
     ...list,
-    active: until ? active : [...active, moved].sort(byNewest),
+    active: until ? active : [...active, moved].sort(byLatestActivity),
     snoozed: until ? [...snoozed, moved] : snoozed,
   })
 }

@@ -15,7 +15,7 @@ import {
   SLOW_P95_MS,
   SLUGGISH_P95_MS,
 } from './signals'
-import { ask, Bar, Body, type Context, Quiet, Stat, Tile } from './tiles'
+import { ask, Bar, Body, type Context, Quiet, Stat, Tile, tileId } from './tiles'
 
 const BLUE = '#42a5f5'
 const RED = '#e53935'
@@ -96,6 +96,7 @@ export function PerformanceTile({ ctx, className }: { ctx: Context; className?: 
 
   return (
     <Tile
+      id={tileId('traffic')}
       vendor="datadog"
       area="APM"
       title="Requests and latency"

@@ -7,7 +7,7 @@ from ov.agent.storage.models import Access
 
 
 def test_a_restart_marks_running_runs_interrupted(ov_home):
-    db.create_thread("rabc", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rabc", "t", "copilot", "m", instance=None, access=Access.READ)
     db.update_thread("rabc", status="running")
     db.append_event("rabc", 0, {"type": "status", "status": "running"})
     db.close()
@@ -16,7 +16,7 @@ def test_a_restart_marks_running_runs_interrupted(ov_home):
 
 
 def test_restart_closes_tools_left_running():
-    db.create_thread("r1", "t", "copilot", "m", prompt="", instance=None, access=Access.READ)
+    db.create_thread("r1", "t", "copilot", "m", instance=None, access=Access.READ)
     db.append_event("r1", 0, {"type": "tool", "tool": {"id": "a", "status": "running"}})
     db.append_event("r1", 1, {"type": "tool", "tool": {"id": "b", "status": "running"}})
     db.append_event("r1", 2, {"type": "tool", "tool": {"id": "b", "status": "ok"}})
@@ -29,7 +29,7 @@ def test_restart_closes_tools_left_running():
 
 
 def test_runs_can_be_settled_and_a_follow_up_unsettles_them(logged_in):
-    db.create_thread("rsettle", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rsettle", "t", "copilot", "m", instance=None, access=Access.READ)
     db.set_settled("rsettle", True)
     assert db.list_threads()[0]["settled"] is True
     db.set_settled("rsettle", False)
@@ -38,7 +38,7 @@ def test_runs_can_be_settled_and_a_follow_up_unsettles_them(logged_in):
 
 def test_run_list_splits_active_and_settled(logged_in):
     for n in range(3):
-        db.create_thread(f"rlist{n}", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+        db.create_thread(f"rlist{n}", "t", "copilot", "m", instance=None, access=Access.READ)
     db.set_settled("rlist0", True)
     assert {r["id"] for r in db.list_threads(settled=False)} >= {"rlist1", "rlist2"}
     assert [r["id"] for r in db.list_threads(settled=True)] == ["rlist0"]
@@ -46,8 +46,8 @@ def test_run_list_splits_active_and_settled(logged_in):
 
 
 def test_finished_threads_need_attention_until_they_are_seen(ov_home):
-    db.create_thread("rdone", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
-    db.create_thread("rfail", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rdone", "t", "copilot", "m", instance=None, access=Access.READ)
+    db.create_thread("rfail", "t", "copilot", "m", instance=None, access=Access.READ)
     assert "attention" not in db.get_thread("rdone")
 
     db.update_thread("rdone", status="done")
@@ -61,7 +61,7 @@ def test_finished_threads_need_attention_until_they_are_seen(ov_home):
 
 
 def test_a_snoozed_thread_wakes_until_it_is_seen(ov_home):
-    db.create_thread("rnap", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rnap", "t", "copilot", "m", instance=None, access=Access.READ)
     db.set_snoozed("rnap", db.now_ms() + 60_000)
     assert "attention" not in db.get_thread("rnap")
 
@@ -71,3 +71,15 @@ def test_a_snoozed_thread_wakes_until_it_is_seen(ov_home):
 
     db.set_seen("rnap")
     assert "attention" not in db.get_thread("rnap")
+
+
+def test_threads_are_listed_by_their_latest_activity(ov_home):
+    for thread_id in ("rold", "rnew"):
+        db.create_thread(thread_id, thread_id, "copilot", "m", instance=None, access=Access.READ)
+    with db._begin() as conn:
+        conn.execute(update(models.Thread).where(models.Thread.id == "rold").values(created_at=1, updated_at=1))
+        conn.execute(update(models.Thread).where(models.Thread.id == "rnew").values(created_at=2, updated_at=2))
+
+    db.update_thread("rold", status="done")
+
+    assert [t["id"] for t in db.list_threads()] == ["rold", "rnew"]

@@ -366,7 +366,7 @@ export function BrowserPane({
   )
 }
 
-const HEADER_PILL =
+export const HEADER_PILL =
   'bg-raised text-text hover:bg-line-strong/45 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium whitespace-nowrap transition-colors disabled:opacity-60'
 
 export function OpenBrowserButton({ runId, instance }: { runId: string; instance: string }) {

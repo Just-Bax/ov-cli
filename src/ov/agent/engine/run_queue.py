@@ -44,7 +44,7 @@ class QueueMixin:
             raise RunError("This run has no conversation to continue.")
 
         try:
-            uploaded = self._copy_uploads(files, message_id)
+            uploaded = self._copy_uploads(files)
             message = self._message(message_id, text, uploaded)
             content = self._user_content(text, uploaded) if claimed else None
         except Exception:
@@ -62,19 +62,20 @@ class QueueMixin:
 
         with self._lock:
             self._queue.append((message, uploaded))
-        self.emit({"type": "queued", "message": message})
+        self.emit({"type": "queue_add", "message": message})
         self._pick_up_queue()
 
     def _start_with(self, message: dict[str, Any], content: Any) -> None:
         self._push_steers()
-        self.emit({"type": "user", "message": message})
+        self.name_branch(message["text"])
+        self.emit({"type": "user_message", "message": message})
         self._push_turn(message["id"], content)
         self._spawn(self._run_turn)
 
     def _steer(self, message: dict[str, Any], uploaded: list[dict[str, Any]]) -> None:
         with self._lock:
             self._steers.append((message, uploaded))
-        self.emit({"type": "user", "message": {**message, "steer": True, "ts": db.now_ms()}})
+        self.emit({"type": "user_message", "message": {**message, "steer": True, "ts": db.now_ms()}})
         self._emit_queue()
         self._pick_up_queue()
 
@@ -102,7 +103,7 @@ class QueueMixin:
     def remove_queued(self, message_id: str) -> None:
         with self._lock:
             self._queue = [q for q in self._queue if q[0]["id"] != message_id]
-        self.emit({"type": "unqueue", "id": message_id})
+        self.emit({"type": "queue_remove", "id": message_id})
         self._settle_queue()
 
     def send_queued(self, message_id: str) -> None:
@@ -126,7 +127,7 @@ class QueueMixin:
 
             edited = {**message, "text": text}
             self._queue = [(edited, uploaded) if q[0]["id"] == message_id else q for q in self._queue]
-        self.emit({"type": "queued", "message": edited})
+        self.emit({"type": "queue_add", "message": edited})
 
     def move_queued(self, message_id: str, before_id: str | None) -> None:
         with self._lock:
@@ -160,7 +161,7 @@ class QueueMixin:
             order = [q[0]["id"] for q in self._queue]
             steering = [m["id"] for m, _ in self._steers]
             held = self._queue_held
-        self.emit({"type": "queue", "order": order, "steering": steering, "held": held})
+        self.emit({"type": "queue_order", "order": order, "steering": steering, "held": held})
 
     def _queued(self, message_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         entry = next((q for q in self._queue if q[0]["id"] == message_id), None)
@@ -198,7 +199,7 @@ class QueueMixin:
             ready = self._queue[:1] if not self._queue_held else []
             self._queue = self._queue[len(ready) :]
         for message, uploaded in ready:
-            self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
+            self.emit({"type": "user_message", "message": {**message, "ts": db.now_ms()}})
             self._push_turn(message["id"], self._user_content(message["text"], uploaded))
         self._settle_queue()
 
@@ -230,7 +231,7 @@ class QueueMixin:
         self.messages.append({"role": "user", "content": stamped(content)})
         self.persist()
 
-    def _copy_uploads(self, files: list[dict[str, str]], turn_id: str) -> list[dict[str, Any]]:
+    def _copy_uploads(self, files: list[dict[str, str]]) -> list[dict[str, Any]]:
         target_dir = attachments_dir(self.id)
         copied = []
         for item in files:
@@ -244,7 +245,6 @@ class QueueMixin:
             shutil.move(source, target)
             copied.append(describe(target, "upload"))
 
-        db.add_attachments(self.id, turn_id, [item["name"] for item in copied])
         return copied
 
     def _user_content(self, text: str, uploaded: list[dict[str, Any]]) -> Any:

@@ -5,6 +5,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from sqlalchemy import (
     Connection,
     Engine,
     and_,
+    case,
     create_engine,
     delete,
     desc,
@@ -24,6 +26,7 @@ from sqlalchemy import (
     exists,
     func,
     inspect,
+    literal,
     select,
     update,
 )
@@ -32,10 +35,12 @@ from sqlalchemy.orm import Session, aliased
 
 from ov.agent.storage.models import (
     Access,
-    Attachment,
+    Base,
     Event,
     EventType,
+    Finding,
     Message,
+    Origin,
     Preference,
     ProviderModel,
     Reasoning,
@@ -49,6 +54,8 @@ from ov.core.errors import EXIT_IN_USE, OvError
 from ov.core.paths import agent_dir
 
 DB_FILE = "agent.db"
+OLDEST_SUPPORTED = "0020"
+LAST_COMMIT_FOR_OLDER = "e4ab0e9"
 FULL_NAME_REQUIRED = "Your full name is required."
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 BUSY_TIMEOUT_MS = 10_000
@@ -82,16 +89,47 @@ THREAD_COLUMNS = ("title", "instance", "status", "access")
 ATTENTION_OF_STATUS = {ThreadStatus.DONE: "done", ThreadStatus.ERROR: "failed"}
 TOKEN_COLUMNS = {
     "input": "input_tokens",
-    "cache_read": "cached_tokens",
+    "cache_read": "cache_read_tokens",
     "cache_write": "cache_write_tokens",
     "output": "output_tokens",
 }
 SKILL_FIELDS = ("title", "description", "content", "enabled")
+NOT_INHERITED = (
+    EventType.STATUS,
+    EventType.LOGIN,
+    EventType.BROWSER,
+    EventType.QUEUE_ADD,
+    EventType.QUEUE_REMOVE,
+    EventType.QUEUE_ORDER,
+    EventType.CONTEXT,
+)
+SEARCHED_EVENTS = (EventType.USER_MESSAGE, EventType.AGENT_MESSAGE)
+SEARCH_TEXT = {EventType.USER_MESSAGE: "$.message.text", EventType.AGENT_MESSAGE: "$.text"}
+SEARCH_LIMIT = 20
+SNIPPET_CHARS = 160
+LIKE_ESCAPE = "\\"
+
+
+@dataclass(frozen=True)
+class Lineage:
+    parent_id: str
+    origin: Origin
+    turn_id: str | None
+    inherited_until: int
+
 
 _lock = threading.RLock()
 _engine: Engine | None = None
 _engine_path = ""
 _interrupted: list[str] = []
+
+
+class DatabaseTooOld(OvError):
+    def __init__(self, revision: str | None) -> None:
+        super().__init__(
+            f"The agent database (revision {revision or 'before migrations'}) is older than this version of ov can "
+            f"upgrade. Install ov at commit {LAST_COMMIT_FOR_OLDER}, run 'ov agent --migrate', then update again."
+        )
 
 
 class DatabaseInUse(OvError):
@@ -146,9 +184,17 @@ def _ensure_alone(path: Path) -> None:
         probe.close()
 
 
+def _create_fresh(engine: Engine, config: Config) -> None:
+    with engine.begin() as conn:
+        Base.metadata.create_all(conn)
+        config.attributes["connection"] = conn
+        command.stamp(config, "head")
+
+
 def _migrate(engine: Engine, path: Path) -> bool:
     config = _alembic_config()
-    head = ScriptDirectory.from_config(config).get_current_head()
+    scripts = ScriptDirectory.from_config(config)
+    head = scripts.get_current_head()
     with engine.connect() as conn:
         current = MigrationContext.configure(conn).get_current_revision()
         has_data = bool(inspect(conn).get_table_names())
@@ -156,10 +202,21 @@ def _migrate(engine: Engine, path: Path) -> bool:
     if current == head:
         return False
 
-    if has_data:
-        _ensure_alone(path)
-        _backup(path, current)
+    if not has_data:
+        _create_fresh(engine, config)
+        return True
 
+    known = {script.revision for script in scripts.walk_revisions()}
+    if current not in known:
+        raise DatabaseTooOld(current)
+
+    _ensure_alone(path)
+    _backup(path, current)
+    _upgrade(engine, config)
+    return True
+
+
+def _upgrade(engine: Engine, config: Config) -> None:
     with engine.connect() as conn:
         raw = conn.connection.dbapi_connection
         raw.execute("PRAGMA foreign_keys = OFF")
@@ -170,8 +227,6 @@ def _migrate(engine: Engine, path: Path) -> bool:
                 _check_foreign_keys(conn)
         finally:
             raw.execute("PRAGMA foreign_keys = ON")
-
-    return True
 
 
 def _check_foreign_keys(conn: Connection) -> None:
@@ -396,7 +451,7 @@ def _attention(thread: Thread) -> str | None:
     snoozed = thread.snoozed_until
     if snoozed is not None and snoozed <= now_ms() and _unseen_since(thread, snoozed):
         return "woke"
-    if not _unseen_since(thread, thread.status_at):
+    if not _unseen_since(thread, thread.status_changed_at):
         return None
     return ATTENTION_OF_STATUS.get(thread.status)
 
@@ -412,8 +467,15 @@ def _summary(thread: Thread, nano: int | None, requests: int) -> dict[str, Any]:
         "updatedAt": thread.updated_at,
     }
 
-    if thread.instance:
-        summary["instance"] = thread.instance
+    optional = {
+        "instance": thread.instance,
+        "parentId": thread.parent_id,
+        "origin": thread.origin,
+        "originTurnId": thread.origin_turn_id,
+        "inheritedUntil": thread.inherited_until,
+    }
+    summary.update({key: value for key, value in optional.items() if value})
+
     if thread.settled_at:
         summary["settled"] = True
     if thread.pinned_at:
@@ -442,18 +504,21 @@ def create_thread(
     provider: str,
     model: str,
     *,
-    prompt: str,
     instance: str | None,
     access: Access,
+    lineage: Lineage | None = None,
 ) -> dict[str, Any]:
     now = now_ms()
     values = {
         "title": title,
         "provider": provider,
         "model": model,
-        "prompt": prompt,
         "instance": instance,
         "access": access,
+        "parent_id": lineage.parent_id if lineage else None,
+        "origin": lineage.origin if lineage else None,
+        "origin_turn_id": lineage.turn_id if lineage else None,
+        "inherited_until": lineage.inherited_until if lineage else 0,
     }
 
     with _begin() as conn:
@@ -475,7 +540,7 @@ def update_thread(thread_id: str, **patch: Any) -> None:
     values = {k: v for k, v in patch.items() if v is not None}
     now = now_ms()
     if "status" in values:
-        values["status_at"] = now
+        values["status_changed_at"] = now
 
     with _begin() as conn:
         conn.execute(update(Thread).where(Thread.id == thread_id).values(updated_at=now, **values))
@@ -485,7 +550,7 @@ def list_threads(settled: bool | None = None, limit: int = RUN_LIST_LIMIT) -> li
     query = _thread_query()
     if settled is not None:
         query = query.where(Thread.settled_at.is_not(None) if settled else Thread.settled_at.is_(None))
-    return _rows(query.order_by(Thread.created_at.desc()).limit(limit))
+    return _rows(query.order_by(Thread.updated_at.desc()).limit(limit))
 
 
 def get_thread(thread_id: str) -> dict[str, Any] | None:
@@ -515,6 +580,168 @@ def set_snoozed(thread_id: str, until: int | None) -> None:
 
 def set_seen(thread_id: str) -> None:
     _set_thread(thread_id, seen_at=now_ms())
+
+
+def child_threads(thread_id: str) -> list[dict[str, Any]]:
+    return _rows(_thread_query().where(Thread.parent_id == thread_id).order_by(Thread.created_at))
+
+
+def _turn_ids(conn: Connection, thread_id: str, until: int) -> list[str]:
+    turn_id = func.json_extract(Event.data, "$.message.id")
+    query = select(turn_id).where(
+        Event.thread_id == thread_id, Event.position < until, Event.type == EventType.USER_MESSAGE
+    )
+    return [str(found) for found in conn.scalars(query).all() if found]
+
+
+def turn_event_position(thread_id: str, turn_id: str) -> int | None:
+    query = select(func.max(Event.position)).where(
+        Event.thread_id == thread_id,
+        Event.type == EventType.USER_MESSAGE,
+        func.json_extract(Event.data, "$.message.id") == turn_id,
+    )
+    with _begin() as conn:
+        return conn.scalar(query)
+
+
+def copy_inherited(parent_id: str, child_id: str, *, until: int, messages: int, findings: bool = True) -> None:
+    events = select(literal(child_id), Event.position, Event.type, Event.data, Event.created_at).where(
+        Event.thread_id == parent_id, Event.position < until, Event.type.not_in(NOT_INHERITED)
+    )
+    history = select(
+        literal(child_id),
+        Message.position,
+        Message.role,
+        Message.content,
+        Message.tool_calls,
+        Message.tool_call_id,
+        Message.turn_id,
+        Message.created_at,
+    ).where(Message.thread_id == parent_id, Message.position < messages)
+
+    with _begin() as conn:
+        event_columns = ["thread_id", "position", "type", "data", "created_at"]
+        conn.execute(insert(Event).from_select(event_columns, events))
+        message_columns = [
+            "thread_id",
+            "position",
+            "role",
+            "content",
+            "tool_calls",
+            "tool_call_id",
+            "turn_id",
+            "created_at",
+        ]
+        conn.execute(insert(Message).from_select(message_columns, history))
+
+        if findings:
+            _copy_findings(conn, parent_id, child_id, _turn_ids(conn, parent_id, until))
+
+
+def _copy_findings(conn: Connection, source_id: str, target_id: str, turn_ids: list[str] | None) -> None:
+    query = select(literal(target_id), Finding.text, Finding.turn_id, Finding.created_at, Finding.updated_at).where(
+        Finding.thread_id == source_id
+    )
+    if turn_ids is not None:
+        query = query.where(Finding.turn_id.in_(turn_ids))
+    columns = ["thread_id", "text", "turn_id", "created_at", "updated_at"]
+    conn.execute(insert(Finding).from_select(columns, query.order_by(Finding.id)))
+
+
+def copy_all_findings(source_id: str, target_id: str) -> None:
+    with _begin() as conn:
+        _copy_findings(conn, source_id, target_id, None)
+
+
+def _finding_dict(row: Finding) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "text": row.text,
+        "turnId": row.turn_id,
+        "createdAt": row.created_at,
+        "updatedAt": row.updated_at,
+    }
+
+
+def list_findings(thread_id: str) -> list[dict[str, Any]]:
+    query = select(Finding).where(Finding.thread_id == thread_id).order_by(Finding.id)
+    with _begin() as conn, Session(bind=conn) as session:
+        return [_finding_dict(row) for row in session.scalars(query).all()]
+
+
+def add_finding(thread_id: str, text: str, turn_id: str) -> dict[str, Any]:
+    now = now_ms()
+    with _begin() as conn:
+        found = conn.execute(
+            insert(Finding)
+            .values(thread_id=thread_id, text=text, turn_id=turn_id, created_at=now, updated_at=now)
+            .returning(Finding.id)
+        ).scalar_one()
+    return {"id": found, "text": text, "turnId": turn_id, "createdAt": now, "updatedAt": now}
+
+
+def update_finding(thread_id: str, finding_id: int, text: str) -> None:
+    with _begin() as conn:
+        changed = conn.execute(
+            update(Finding)
+            .where(Finding.thread_id == thread_id, Finding.id == finding_id)
+            .values(text=text, updated_at=now_ms())
+        ).rowcount
+    if not changed:
+        raise ValueError(f"No finding {finding_id} in this thread.")
+
+
+def delete_finding(thread_id: str, finding_id: int) -> None:
+    with _begin() as conn:
+        removed = conn.execute(delete(Finding).where(Finding.thread_id == thread_id, Finding.id == finding_id)).rowcount
+    if not removed:
+        raise ValueError(f"No finding {finding_id} in this thread.")
+
+
+def _like(query: str) -> str:
+    escaped = (
+        query.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2).replace("%", f"{LIKE_ESCAPE}%").replace("_", f"{LIKE_ESCAPE}_")
+    )
+    return f"%{escaped}%"
+
+
+def _snippet(text: str, query: str) -> str:
+    at = text.casefold().find(query.casefold())
+    start = max(0, at - SNIPPET_CHARS // 2) if at >= 0 else 0
+    piece = " ".join(text[start : start + SNIPPET_CHARS].split())
+    return f"{'...' if start else ''}{piece}{'...' if start + SNIPPET_CHARS < len(text) else ''}"
+
+
+def search_threads(query: str, limit: int = SEARCH_LIMIT) -> list[dict[str, Any]]:
+    pattern = _like(query)
+    text = case(
+        *((Event.type == kind, func.json_extract(Event.data, path)) for kind, path in SEARCH_TEXT.items())
+    ).label("text")
+    hits = (
+        select(Event.thread_id, text, Event.position)
+        .join(Thread, Thread.id == Event.thread_id)
+        .where(
+            Event.type.in_(SEARCHED_EVENTS),
+            Event.position >= Thread.inherited_until,
+            text.like(pattern, escape=LIKE_ESCAPE),
+        )
+        .order_by(Event.thread_id, Event.position.desc())
+    )
+
+    with _begin() as conn:
+        matched: dict[str, str] = {}
+        for thread_id, found, _ in conn.execute(hits).all():
+            matched.setdefault(thread_id, str(found))
+        titled = conn.scalars(select(Thread.id).where(Thread.title.like(pattern, escape=LIKE_ESCAPE))).all()
+
+    ids = set(matched) | set(titled)
+    if not ids:
+        return []
+
+    summaries = _rows(_thread_query().where(Thread.id.in_(ids)).order_by(Thread.updated_at.desc()).limit(limit))
+    return [
+        {**summary, "snippet": _snippet(matched.get(summary["id"], summary["title"]), query)} for summary in summaries
+    ]
 
 
 def set_settled(thread_id: str, settled: bool) -> None:
@@ -592,15 +819,6 @@ def save_messages(thread_id: str, start: int, messages: list[dict[str, Any]], tu
 
         if rows:
             conn.execute(insert(Message), rows)
-
-
-def add_attachments(thread_id: str, turn_id: str, names: list[str]) -> None:
-    if not names:
-        return
-    created = now_ms()
-    rows = [{"thread_id": thread_id, "turn_id": turn_id, "name": name, "created_at": created} for name in names]
-    with _begin() as conn:
-        conn.execute(insert(Attachment), rows)
 
 
 def skill_rows() -> dict[str, dict[str, Any]]:

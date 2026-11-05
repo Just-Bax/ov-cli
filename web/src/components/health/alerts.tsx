@@ -1,18 +1,13 @@
 import {
   ArrowSquareOut as ArrowTopRightOnSquareIcon,
-  CheckCircle as CheckCircleIcon,
   CaretRight as ChevronRightIcon,
-  Warning as ExclamationTriangleIcon,
-  Question as QuestionIcon,
-  ShieldWarning as ShieldExclamationIcon,
   Sparkle as SparklesIcon,
 } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import type { HealthMonitor, PagerDutyIncident, PagerDutyIncidentDetail } from '@shared/types.ts'
-import { type BadgeTone, Card, type Icon, IconBadge, Skeleton } from '@/components/common/ui'
+import { Card, Skeleton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { href } from '@/lib/route'
 import { RANGE_WORDS, ready, span, utcMs } from './data'
 import { maintenanceCheck } from './maintenance'
 import {
@@ -29,23 +24,28 @@ import {
   type Context,
   Quiet,
   RowsSkeleton,
+  ShowAll,
   SourceTag,
   STATE_DOT,
   Stat,
   Tile,
+  tileId,
   type Vendor,
 } from './tiles'
 
-const INCIDENT_ROWS = 6
+const INCIDENT_ROWS = 5
+const MONITOR_ROWS = 6
 const DETAIL_TIMELINE_ROWS = 6
 
-const VERDICTS: Record<CheckState, { title: string; tone: BadgeTone; icon: Icon }> = {
-  danger: { title: 'Needs attention', tone: 'danger', icon: ShieldExclamationIcon },
-  warn: { title: 'Worth a look', tone: 'warn', icon: ExclamationTriangleIcon },
-  ok: { title: 'All clear', tone: 'ok', icon: CheckCircleIcon },
-  loading: { title: 'Checking', tone: 'neutral', icon: CheckCircleIcon },
-  off: { title: 'Nothing to go on', tone: 'neutral', icon: QuestionIcon },
+const VERDICTS: Record<CheckState, string> = {
+  danger: 'Needs attention',
+  warn: 'Worth a look',
+  ok: 'All clear',
+  loading: 'Checking',
+  off: 'Nothing to go on',
 }
+
+const CHECK_TILES: Record<string, string> = { apm: 'traffic' }
 
 const INCIDENT_DOT: Record<string, string> = {
   triggered: 'bg-danger',
@@ -68,9 +68,19 @@ const STATE_TEXT: Record<CheckState, string> = {
   loading: 'text-muted',
 }
 
+function jumpTo(key: string) {
+  document
+    .getElementById(tileId(CHECK_TILES[key] ?? key))
+    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 function CheckCell({ check }: { check: Check }) {
   return (
-    <div className="bg-raised min-w-0 rounded-2xl px-3.5 py-2.5">
+    <button
+      type="button"
+      onClick={() => jumpTo(check.key)}
+      className="bg-raised hover:bg-line min-w-0 rounded-2xl px-3.5 py-2.5 text-left"
+    >
       <div className="text-muted flex items-center gap-1.5 text-[11.5px]">
         <span className={cn('size-1.5 shrink-0 rounded-full', STATE_DOT[check.state])} />
         {check.title}
@@ -85,7 +95,7 @@ function CheckCell({ check }: { check: Check }) {
           {check.text}
         </div>
       )}
-    </div>
+    </button>
   )
 }
 
@@ -113,21 +123,22 @@ export function Overview({ ctx, matched }: { ctx: Context; matched: boolean }) {
   const pagerduty = pagerDutyChecks(ctx.slots)
   const datadog = datadogChecks(ctx.slots, matched, ctx.meta)
   const oneteam = [maintenanceCheck(ctx.slots)]
-  const verdict = VERDICTS[verdictOf([...pagerduty, ...datadog, ...oneteam])]
+  const state = verdictOf([...pagerduty, ...datadog, ...oneteam])
 
   return (
     <Card className="p-5">
-      <div className="flex items-center gap-4">
-        <IconBadge icon={verdict.icon} tone={verdict.tone} size="lg" />
-        <div className="min-w-0 flex-1">
-          <div className="text-fg text-[17px] font-semibold">{verdict.title}</div>
-          <div className="text-muted mt-0.5 text-[12.5px]">
-            {ctx.label} over the last {RANGE_WORDS[ctx.range]}. Alerts come from PagerDuty and
-            Datadog monitors, limits from Datadog metrics, and planned work from OneTeam.
-          </div>
-        </div>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="flex items-center gap-2">
+          <span className={cn('size-2.5 shrink-0 rounded-full', STATE_DOT[state])} />
+          <span className={cn('text-[15px] font-semibold', STATE_TEXT[state])}>
+            {VERDICTS[state]}
+          </span>
+        </span>
+        <span className="text-muted text-[12.5px]">
+          {ctx.label}, last {RANGE_WORDS[ctx.range]}. Click a check to see its details.
+        </span>
       </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,4fr)_minmax(0,1fr)]">
+      <div className="mt-3.5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,4fr)_minmax(0,1fr)]">
         <CheckGroup vendor="pagerduty" checks={pagerduty} />
         <CheckGroup vendor="datadog" checks={datadog} />
         <CheckGroup vendor="oneteam" checks={oneteam} />
@@ -251,11 +262,13 @@ function IncidentRow({
 
 export function IncidentsTile({ ctx, className }: { ctx: Context; className?: string }) {
   const [open, setOpen] = useState<string>()
+  const [all, setAll] = useState(false)
   const data = ready(ctx.slots.incidents)
   const oncall = data?.oncall?.map((o) => o.user).join(', ')
 
   return (
     <Tile
+      id={tileId('incidents')}
       vendor="pagerduty"
       title="Incidents"
       aside={oncall ? `On call: ${oncall}` : undefined}
@@ -295,7 +308,7 @@ export function IncidentsTile({ ctx, className }: { ctx: Context; className?: st
               </div>
               {rows.length ? (
                 <div className="-mx-2">
-                  {rows.slice(0, INCIDENT_ROWS).map((i) => (
+                  {(all ? rows : rows.slice(0, INCIDENT_ROWS)).map((i) => (
                     <IncidentRow
                       key={i.id}
                       incident={i}
@@ -304,11 +317,12 @@ export function IncidentsTile({ ctx, className }: { ctx: Context; className?: st
                       onToggle={() => setOpen(open === i.id ? undefined : i.id)}
                     />
                   ))}
-                  {rows.length > INCIDENT_ROWS ? (
-                    <div className="text-faint px-3 pt-1 text-[11.5px]">
-                      {rows.length - INCIDENT_ROWS} more in PagerDuty
-                    </div>
-                  ) : null}
+                  <ShowAll
+                    shown={INCIDENT_ROWS}
+                    total={rows.length}
+                    open={all}
+                    onToggle={() => setAll(!all)}
+                  />
                 </div>
               ) : (
                 <Quiet>No incidents in the last {RANGE_WORDS[ctx.range]}.</Quiet>
@@ -321,39 +335,41 @@ export function IncidentsTile({ ctx, className }: { ctx: Context; className?: st
   )
 }
 
-export function PagerDutyOff({ className }: { className?: string }) {
-  return (
-    <Tile vendor="pagerduty" title="Incidents" className={className}>
-      <Quiet muted>
-        PagerDuty is not connected.{' '}
-        <a href={href({ page: 'settings' })} className="text-brand-strong hover:underline">
-          Connect it in Settings
-        </a>
-      </Quiet>
-    </Tile>
-  )
+const TEMPLATE = /\{\{\s*([\w-]+)(?:\.[\w-]+)*\s*\}\}/g
+const TRAILING_WORDS = /(?:\s+(?:on|for|host|device|in|of)|\s*[-/:—])+\s*$/i
+const WATCHING_WORDS: Record<string, [string, string]> = {
+  host: ['server', 'servers'],
+  dbinstanceidentifier: ['database', 'databases'],
+  server: ['database', 'databases'],
+  site: ['site', 'sites'],
 }
 
 function monitorName(m: HealthMonitor): string {
-  const values = new Map(
-    (m.groups[0] ?? '').split(',').map((part) => {
-      const [tag, ...rest] = part.split(':')
-      return [tag, rest.join(':').split('.')[0]] as const
-    }),
-  )
-  return m.name.replace(
-    /\{\{\s*([\w-]+)(?:\.[\w-]+)*\s*\}\}/g,
-    (_, tag: string) => values.get(tag) || '*',
-  )
+  const group = m.groups[0]
+  if (group) {
+    const values = new Map(
+      group.split(',').map((part) => {
+        const [tag, ...rest] = part.split(':')
+        return [tag, rest.join(':').split('.')[0]] as const
+      }),
+    )
+    return m.name.replace(TEMPLATE, (_, tag: string) => values.get(tag) || tag)
+  }
+
+  return m.name
+    .replace(TEMPLATE, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(TRAILING_WORDS, '')
 }
 
-function groupLabel(m: HealthMonitor): string {
-  const group = m.groups[0]
-  if (!group) return m.type
-  return group
-    .split(',')
-    .map((part) => part.split(':').pop()?.split('.')[0])
-    .join(', ')
+function watchingLabel(m: HealthMonitor): string {
+  if (m.groups.length)
+    return m.groups.map((g) => g.split(',')[0].split(':').pop()?.split('.')[0]).join(', ')
+  if (!m.watching) return ''
+
+  const [n, tag] = m.watching
+  const words = WATCHING_WORDS[tag]
+  return words ? `${n} ${n === 1 ? words[0] : words[1]}` : ''
 }
 
 function StateBar({ monitors }: { monitors: HealthMonitor[] }) {
@@ -384,12 +400,43 @@ function StateBar({ monitors }: { monitors: HealthMonitor[] }) {
   )
 }
 
+function MonitorRow({ m, appUrl }: { m: HealthMonitor; appUrl: string }) {
+  const fill = MONITOR_STATES.find((s) => s.state === m.state)?.fill ?? 'bg-line-strong'
+
+  return (
+    <a
+      href={`${appUrl}/monitors/${m.id}`}
+      target="_blank"
+      rel="noreferrer"
+      title={m.name}
+      className="hover:bg-raised flex items-center gap-2.5 rounded-full px-3 py-1.5"
+    >
+      <span className={cn('size-2 shrink-0 rounded-full', fill)} />
+      <span
+        className={cn(
+          'min-w-0 flex-1 truncate text-[12.5px]',
+          m.state === 'OK' ? 'text-text' : 'text-fg font-medium',
+        )}
+      >
+        {monitorName(m)}
+      </span>
+      <span className="text-faint max-w-[35%] shrink-0 truncate text-[11px]">
+        {watchingLabel(m)}
+      </span>
+    </a>
+  )
+}
+
 export function MonitorsTile({ ctx, className }: { ctx: Context; className?: string }) {
+  const [all, setAll] = useState(false)
+
   return (
     <Tile
+      id={tileId('monitors')}
       vendor="datadog"
       area="Monitors"
       title="Alerts"
+      aside="Monitors that watch this instance"
       link={ctx.meta.links.monitors}
       onAsk={() =>
         ask(
@@ -402,47 +449,25 @@ export function MonitorsTile({ ctx, className }: { ctx: Context; className?: str
       <Body slot={ctx.slots.monitors}>
         {(v) => {
           if (!v.monitors.length)
-            return (
-              <Quiet muted>
-                No Datadog monitor mentions these servers or this database, so nothing alerts for
-                it.
-              </Quiet>
-            )
+            return <Quiet muted>No Datadog monitor watches these servers or this database.</Quiet>
+
+          const firing = v.monitors.filter((m) => m.state !== 'OK')
+          const quiet = v.monitors.filter((m) => m.state === 'OK')
+          const shown = all ? quiet : quiet.slice(0, Math.max(0, MONITOR_ROWS - firing.length))
 
           return (
             <div className="space-y-3">
               <StateBar monitors={v.monitors} />
               <div className="-mx-2">
-                {v.monitors.map((m) => (
-                  <a
-                    key={m.id}
-                    href={`${ctx.meta.appUrl}/monitors/${m.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={m.name}
-                    className="hover:bg-raised flex items-center gap-2.5 rounded-full px-3 py-1.5"
-                  >
-                    <span
-                      className={cn(
-                        'size-2 shrink-0 rounded-full',
-                        MONITOR_STATES.find((s) => s.state === m.state)?.fill ?? 'bg-line-strong',
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        'min-w-0 flex-1 truncate text-[12.5px]',
-                        m.state === 'OK' ? 'text-muted' : 'text-fg',
-                      )}
-                    >
-                      {monitorName(m)}
-                    </span>
-                    {m.groups.length ? (
-                      <span className="text-faint max-w-[35%] shrink-0 truncate text-[11px]">
-                        {groupLabel(m)}
-                      </span>
-                    ) : null}
-                  </a>
+                {[...firing, ...shown].map((m) => (
+                  <MonitorRow key={m.id} m={m} appUrl={ctx.meta.appUrl} />
                 ))}
+                <ShowAll
+                  shown={firing.length + shown.length}
+                  total={v.monitors.length}
+                  open={all}
+                  onToggle={() => setAll(!all)}
+                />
               </div>
             </div>
           )

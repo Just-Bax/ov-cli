@@ -12,6 +12,7 @@ import { Markdown, useCopy } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { timeWithDay } from '@/lib/time'
+import { BranchIcon, openThread } from './Branches'
 import { FilePreview } from './FilePreview'
 
 const LONG_MESSAGE_CHARS = 1200
@@ -79,6 +80,25 @@ function RetryButton({ label, runId, itemId }: { label: string; runId: string; i
       }}
     >
       <ArrowUturnLeftIcon className="size-3.5" />
+    </ActionButton>
+  )
+}
+
+function BranchButton({ label, make }: { label: string; make: () => Promise<{ id: string }> }) {
+  const [branching, setBranching] = useState(false)
+
+  return (
+    <ActionButton
+      label={label}
+      busy={branching}
+      onClick={() => {
+        setBranching(true)
+        openThread(make())
+          .catch(reportError)
+          .finally(() => setBranching(false))
+      }}
+    >
+      <BranchIcon className="size-3.5" />
     </ActionButton>
   )
 }
@@ -170,10 +190,12 @@ export function UserMessage({
   runId,
   message,
   canRetry,
+  canBranch,
 }: {
   runId: string
   message: ChatMessage
   canRetry: boolean
+  canBranch: boolean
 }) {
   return (
     <div className="group flex flex-col items-end gap-1.5">
@@ -193,6 +215,12 @@ export function UserMessage({
         {canRetry ? (
           <RetryButton label="Retry from here" runId={runId} itemId={message.id} />
         ) : null}
+        {canBranch ? (
+          <BranchButton
+            label="Retry as a new branch, keeping this thread as it is"
+            make={() => api.retryAsBranch(runId, message.id)}
+          />
+        ) : null}
         <CopyAction text={message.text} />
       </div>
     </div>
@@ -205,17 +233,23 @@ export function AssistantActions({
   text,
   ts,
   canRetry,
+  nextTurnId,
 }: {
   runId: string
   turnId: string
   text: string
   ts?: number
   canRetry: boolean
+  nextTurnId?: string
 }) {
   return (
     <div className="flex flex-wrap items-center gap-0.5">
       <CopyAction text={text} />
       {canRetry ? <RetryButton label="Retry" runId={runId} itemId={turnId} /> : null}
+      <BranchButton
+        label="Branch from here: a new thread with the context up to this answer"
+        make={() => api.branch(runId, nextTurnId)}
+      />
       {ts ? <span className="text-faint ml-1.5 text-[11.5px]">{formatTime(ts)}</span> : null}
     </div>
   )

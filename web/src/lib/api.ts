@@ -33,6 +33,9 @@ import type {
   SkillInfo,
   Status,
   Upload,
+  Finding,
+  RunSummary,
+  SearchHit,
 } from '@shared/types.ts'
 
 const API_ROOT = '/api'
@@ -84,16 +87,33 @@ export const api = {
   copilotAccount: () => request<CopilotAccount>('/copilot/account'),
   cost: (range: CostRange, provider: Provider) =>
     request<CostReport>(`/cost?range=${range}&provider=${provider}`),
-  compactRun: (id: string) => post(`/runs/${id}/compact`),
-  continueRun: (id: string) => post<{ id: string }>(`/runs/${id}/continue`),
-  pinRun: (id: string, pinned: boolean) => post(`/runs/${id}/pin`, { pinned }),
-  snoozeRun: (id: string, until: number | null) => post(`/runs/${id}/snooze`, { until }),
-  markRunSeen: (id: string) => post(`/runs/${id}/seen`),
+  compactRun: (id: string) => post(`/threads/${id}/compact`),
+  continueRun: (id: string) => post<{ id: string }>(`/threads/${id}/continue`),
+  branch: (id: string, before?: string) =>
+    post<{ id: string }>(`/threads/${id}/branch`, { before: before ?? null }),
+  retryAsBranch: (id: string, itemId: string) =>
+    post<{ id: string }>(`/threads/${id}/retry-branch`, { itemId }),
+  aside: (id: string, messageId: string, text: string, files: Upload[]) =>
+    post<{ id: string }>(`/threads/${id}/aside`, { id: messageId, text, files }),
+  branches: (id: string) => request<{ branches: RunSummary[] }>(`/threads/${id}/branches`),
+  bringBackDraft: (id: string) => post<{ text: string }>(`/threads/${id}/bring-back/draft`),
+  bringBack: (id: string, text: string) => post(`/threads/${id}/bring-back`, { text }),
+  fromFindings: (id: string) => post<{ id: string }>(`/threads/${id}/from-findings`),
+  findings: (id: string) => request<{ findings: Finding[] }>(`/threads/${id}/findings`),
+  addFinding: (id: string, text: string) => post<Finding>(`/threads/${id}/findings`, { text }),
+  editFinding: (id: string, findingId: number, text: string) =>
+    post(`/threads/${id}/findings/${findingId}`, { text }),
+  deleteFinding: (id: string, findingId: number) => del(`/threads/${id}/findings/${findingId}`),
+  searchThreads: (q: string, signal?: AbortSignal) =>
+    request<{ threads: SearchHit[] }>(`/search?q=${seg(q)}`, { signal }),
+  pinRun: (id: string, pinned: boolean) => post(`/threads/${id}/pin`, { pinned }),
+  snoozeRun: (id: string, until: number | null) => post(`/threads/${id}/snooze`, { until }),
+  markRunSeen: (id: string) => post(`/threads/${id}/seen`),
   searchRun: (id: string, q: string, signal?: AbortSignal) =>
-    request<{ items: number[] }>(`/runs/${id}/search?q=${seg(q)}`, { signal }),
-  runCost: (id: string) => request<RunCost>(`/runs/${id}/cost`),
-  exportUrl: (id: string) => `${API_ROOT}/runs/${id}/export`,
-  runEventsUrl: (id: string, after: number) => `${API_ROOT}/runs/${id}/events?after=${after}`,
+    request<{ items: number[] }>(`/threads/${id}/search?q=${seg(q)}`, { signal }),
+  runCost: (id: string) => request<RunCost>(`/threads/${id}/cost`),
+  exportUrl: (id: string) => `${API_ROOT}/threads/${id}/export`,
+  runEventsUrl: (id: string, after: number) => `${API_ROOT}/threads/${id}/events?after=${after}`,
   statusEventsUrl: () => `${API_ROOT}/status-events`,
   models: (provider: Provider) => request<ModelInfo[]>(`/models?provider=${provider}`),
   claudeAccount: () => request<ClaudeAccount>('/claude/account'),
@@ -196,17 +216,17 @@ export const api = {
     ),
   activity: (instance: string, id: string) =>
     request<ObjectActivity[]>(`/explorer/activity?instance=${seg(instance)}&id=${seg(id)}`),
-  runs: (settled: number) => request<RunList>(`/runs?settled=${settled}`),
-  run: (id: string, turns: number) => request<RunSnapshot>(`/runs/${id}?turns=${turns}`),
+  runs: (settled: number) => request<RunList>(`/threads?settled=${settled}`),
+  run: (id: string, turns: number) => request<RunSnapshot>(`/threads/${id}?turns=${turns}`),
   runHistory: (id: string, end: number, turns: number) =>
-    request<RunWindow>(`/runs/${id}/history?end=${end}&turns=${turns}`),
+    request<RunWindow>(`/threads/${id}/history?end=${end}&turns=${turns}`),
   runDetails: (id: string, tools: string[], edits: string[]) =>
     request<RunDetails>(
-      `/runs/${id}/details?tools=${tools.map(seg).join(',')}&edits=${edits.map(seg).join(',')}`,
+      `/threads/${id}/details?tools=${tools.map(seg).join(',')}&edits=${edits.map(seg).join(',')}`,
     ),
-  startRun: (input: RunInput) => post<{ id: string }>('/runs', input),
+  startRun: (input: RunInput) => post<{ id: string }>('/threads', input),
   answer: (id: string, questionId: string, answers: string[], note = '') =>
-    post(`/runs/${id}/answer`, { questionId, answers, note }),
+    post(`/threads/${id}/answer`, { questionId, answers, note }),
   login: (
     id: string,
     loginId: string,
@@ -216,39 +236,39 @@ export const api = {
       screen?: { width: number; height: number }
       remember?: boolean
     } = {},
-  ) => post<{ ok: boolean; message: string }>(`/runs/${id}/login`, { loginId, ...options }),
+  ) => post<{ ok: boolean; message: string }>(`/threads/${id}/login`, { loginId, ...options }),
   message: (id: string, messageId: string, text: string, files: Upload[], mode: FollowUp) =>
-    post(`/runs/${id}/message`, { id: messageId, text, files, mode }),
+    post(`/threads/${id}/message`, { id: messageId, text, files, mode }),
   moveQueued: (id: string, mid: string, before: string | null) =>
-    post(`/runs/${id}/queued/${seg(mid)}/move`, { before }),
-  resumeQueue: (id: string) => post(`/runs/${id}/queue/resume`),
-  sendQueued: (id: string, mid: string) => post(`/runs/${id}/queued/${seg(mid)}/send`),
+    post(`/threads/${id}/queued/${seg(mid)}/move`, { before }),
+  resumeQueue: (id: string) => post(`/threads/${id}/queue/resume`),
+  sendQueued: (id: string, mid: string) => post(`/threads/${id}/queued/${seg(mid)}/send`),
   editQueued: (id: string, mid: string, text: string) =>
-    post(`/runs/${id}/queued/${seg(mid)}/text`, { text }),
-  retry: (id: string, itemId: string) => post(`/runs/${id}/retry`, { itemId }),
-  renameRun: (id: string, title: string) => post(`/runs/${id}/title`, { title }),
-  rerunGrid: (id: string, gridId: string) => post(`/runs/${id}/grids/${seg(gridId)}/rerun`),
-  revertGrid: (id: string, gridId: string) => post(`/runs/${id}/grids/${seg(gridId)}/revert`),
-  removeQueued: (id: string, mid: string) => del(`/runs/${id}/queued/${seg(mid)}`),
-  fileUrl: (id: string, name: string) => `${API_ROOT}/runs/${id}/files/${seg(name)}`,
+    post(`/threads/${id}/queued/${seg(mid)}/text`, { text }),
+  retry: (id: string, itemId: string) => post(`/threads/${id}/retry`, { itemId }),
+  renameRun: (id: string, title: string) => post(`/threads/${id}/title`, { title }),
+  rerunGrid: (id: string, gridId: string) => post(`/threads/${id}/grids/${seg(gridId)}/rerun`),
+  revertGrid: (id: string, gridId: string) => post(`/threads/${id}/grids/${seg(gridId)}/revert`),
+  removeQueued: (id: string, mid: string) => del(`/threads/${id}/queued/${seg(mid)}`),
+  fileUrl: (id: string, name: string) => `${API_ROOT}/threads/${id}/files/${seg(name)}`,
   imageUrl: (id: string, file: MessageFile) =>
-    file.localUrl ?? `${API_ROOT}/runs/${id}/files/${seg(file.name)}`,
-  setAccess: (id: string, access: Access) => post(`/runs/${id}/access`, { access }),
-  cancel: (id: string) => post(`/runs/${id}/cancel`),
-  browserScreenUrl: (id: string) => `${API_ROOT}/runs/${id}/browser/screen`,
+    file.localUrl ?? `${API_ROOT}/threads/${id}/files/${seg(file.name)}`,
+  setAccess: (id: string, access: Access) => post(`/threads/${id}/access`, { access }),
+  cancel: (id: string) => post(`/threads/${id}/cancel`),
+  browserScreenUrl: (id: string) => `${API_ROOT}/threads/${id}/browser/screen`,
   browserInput: (id: string, events: unknown[]) =>
-    post<{ open: boolean }>(`/runs/${id}/browser/input`, { events }),
-  closeBrowser: (id: string) => post(`/runs/${id}/browser/close`),
+    post<{ open: boolean }>(`/threads/${id}/browser/input`, { events }),
+  closeBrowser: (id: string) => post(`/threads/${id}/browser/close`),
   answerBrowserDialog: (id: string, accept: boolean, text: string) =>
-    post(`/runs/${id}/browser/dialog`, { accept, text }),
+    post(`/threads/${id}/browser/dialog`, { accept, text }),
   browserTab: (id: string, index: number, close: boolean) =>
-    post(`/runs/${id}/browser/tab`, { index, close }),
+    post(`/threads/${id}/browser/tab`, { index, close }),
   resizeBrowser: (id: string, size: { width: number; height: number }) =>
-    post(`/runs/${id}/browser/size`, size),
-  openBrowser: (id: string, instance: string) => post(`/runs/${id}/browser/open`, { instance }),
+    post(`/threads/${id}/browser/size`, size),
+  openBrowser: (id: string, instance: string) => post(`/threads/${id}/browser/open`, { instance }),
   backgroundTool: (id: string, toolId: string) =>
-    post(`/runs/${id}/tools/${seg(toolId)}/background`, {}),
-  stopTool: (id: string, toolId: string) => post(`/runs/${id}/tools/${seg(toolId)}/stop`, {}),
-  settleRun: (id: string, settled: boolean) => post(`/runs/${id}/settle`, { settled }),
-  deleteRun: (id: string) => del<{ ok: boolean }>(`/runs/${id}`),
+    post(`/threads/${id}/tools/${seg(toolId)}/background`, {}),
+  stopTool: (id: string, toolId: string) => post(`/threads/${id}/tools/${seg(toolId)}/stop`, {}),
+  settleRun: (id: string, settled: boolean) => post(`/threads/${id}/settle`, { settled }),
+  deleteRun: (id: string) => del<{ ok: boolean }>(`/threads/${id}`),
 }

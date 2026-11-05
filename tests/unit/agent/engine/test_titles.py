@@ -84,7 +84,7 @@ def test_only_the_preloaded_case_names_the_thread(logged_in, monkeypatch):
     }
     monkeypatch.setattr("ov.agent.engine.cases.load_case", lambda ref, work_dir, cancel: bundles[ref])
     monkeypatch.setattr("ov.agent.engine.cases.render", lambda bundle, work_dir: bundle["title"])
-    db.create_thread("rcase", "Kafka sync", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rcase", "Kafka sync", "copilot", "m", instance=None, access=Access.READ)
     run = runs.get("rcase")
 
     run.read_case("C1", run.cancel)

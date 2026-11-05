@@ -140,7 +140,7 @@ def _ask_model(backend: ChatBackend, run: Run, model: str, initiator: Initiator)
     finally:
         run.commit_text(message_id)
 
-    run.record_usage(model, UsageKind.TURN if initiator == Initiator.USER else UsageKind.STEP, result.usage)
+    run.record_usage(model, UsageKind.TURN if initiator == Initiator.USER else UsageKind.AGENT, result.usage)
     if result.usage is not None:
         run.context_tokens = sum(result.usage.tokens.get(kind, 0) for kind in CONTEXT_TOKEN_KINDS)
         known = limits(backend, model)
@@ -188,7 +188,7 @@ def summarize(backend: ChatBackend, run: Run, model: str, trigger: str) -> None:
         compaction.SUMMARY_MAX_TOKENS,
         SUMMARY_READ_TIMEOUT_SECONDS,
     )
-    run.record_usage(model, UsageKind.COMPACT, usage)
+    run.record_usage(model, UsageKind.SUMMARY, usage)
     if not summary.strip():
         raise CompactionError(SUMMARY_EMPTY.format(model=model))
 

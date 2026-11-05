@@ -134,7 +134,7 @@ def test_a_steer_reaches_claude_with_the_next_tool_result(logged_in, monkeypatch
     from ov.agent.engine.run_manager import runs
     from ov.agent.storage import db
 
-    db.create_thread("rsteer", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rsteer", "t", "claude", "m", instance=None, access=Access.READ)
     run = runs.get("rsteer")
     run._busy = True
     monkeypatch.setattr(run, "call_tool_named", lambda name, args: ("rows", []))
@@ -160,7 +160,7 @@ def test_an_edited_queued_message_keeps_its_place(logged_in):
     from ov.agent.engine.run_common import RunError
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("redit", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("redit", "t", "claude", "m", instance=None, access=Access.READ)
     run = runs.get("redit")
     run._busy = True
     run.follow_up(new_message_id(), "first", [], steer=False)
@@ -180,7 +180,7 @@ def test_queued_messages_can_be_reordered(logged_in):
     from ov.agent.engine.run_common import RunError
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("rmove", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rmove", "t", "claude", "m", instance=None, access=Access.READ)
     run = runs.get("rmove")
     run._busy = True
     for text in ("a", "b", "c"):
@@ -201,7 +201,7 @@ def test_stop_holds_the_queue_until_it_is_resumed(logged_in, monkeypatch):
     from ov.agent.engine.run_common import RunError
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("rhold", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rhold", "t", "claude", "m", instance=None, access=Access.READ)
     run = runs.get("rhold")
     run._busy = True
     run.follow_up(new_message_id(), "now", [], steer=False)
@@ -229,7 +229,7 @@ def test_stop_holds_the_queue_until_it_is_resumed(logged_in, monkeypatch):
 def test_a_steer_left_by_a_stop_waits_and_goes_before_the_next_message(logged_in, monkeypatch):
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("rsteerstop", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rsteerstop", "t", "claude", "m", instance=None, access=Access.READ)
     run = runs.get("rsteerstop")
     started: list[str] = []
     monkeypatch.setattr(run, "_spawn", lambda target, *args: started.append(target.__name__))
@@ -253,7 +253,7 @@ def test_a_steer_left_by_a_stop_waits_and_goes_before_the_next_message(logged_in
 def test_a_reloaded_thread_holds_its_queue(logged_in):
     from ov.agent.engine.run_manager import RunManager, runs
 
-    db.create_thread("rload", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rload", "t", "claude", "m", instance=None, access=Access.READ)
     run = runs.get("rload")
     run._busy = True
     run.follow_up(new_message_id(), "kept", [], steer=False)
@@ -318,7 +318,7 @@ def test_a_follow_up_needs_a_new_well_formed_id(logged_in):
     from ov.agent.engine.run_common import RunError
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("rids", "t", "claude", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rids", "t", "claude", "m", instance=None, access=Access.READ)
     run = runs.get("rids")
     run._busy = True
 

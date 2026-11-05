@@ -97,7 +97,7 @@ def test_status_changes_reach_the_status_feed(logged_in):
     from ov.agent.engine.feed import status_feed
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("rfeed", "Feed run", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rfeed", "Feed run", "copilot", "m", instance=None, access=Access.READ)
     run = runs.get("rfeed")
     channel, unsubscribe = status_feed.subscribe()
     try:
@@ -130,7 +130,7 @@ def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypat
 
     kinds = [e["event"]["type"] for e in db.load_events(run.id)]
     assert "text" not in kinds
-    assert kinds.count("message") == 1
+    assert kinds.count("agent_message") == 1
     runs._runs.pop(run.id)
     assert runs.get(run.id).state["chat"][-1]["text"] == "All good."
 
@@ -138,7 +138,7 @@ def test_streamed_text_is_stored_as_one_message_and_reloads(logged_in, monkeypat
 def test_resuming_a_stream_sends_the_partial_message(logged_in):
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("rlive", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rlive", "t", "copilot", "m", instance=None, access=Access.READ)
     run = runs.get("rlive")
     run.stream_text("a1", "Hel")
     channel, unsubscribe, backlog = run.resume(run.seq)
@@ -161,7 +161,7 @@ def test_idle_runs_are_dropped_from_memory_but_never_while_in_use(logged_in):
     runs._runs.clear()
     held = []
     for n in range(MAX_CACHED_RUNS + 3):
-        db.create_thread(f"revict{n}", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+        db.create_thread(f"revict{n}", "t", "copilot", "m", instance=None, access=Access.READ)
         held.append(runs.get(f"revict{n}"))
     assert all(runs.get(f"revict{n}") is held[n] for n in range(MAX_CACHED_RUNS + 3))
 
@@ -203,7 +203,7 @@ def test_a_run_records_what_each_request_cost(logged_in, monkeypatch):
         kinds = list(
             conn.scalars(select(models.Usage.kind).where(models.Usage.thread_id == run.id).order_by(models.Usage.id))
         )
-    assert kinds == ["turn", "step"]
+    assert kinds == ["turn", "agent"]
 
 
 def test_an_empty_reply_is_asked_for_once(logged_in, monkeypatch):

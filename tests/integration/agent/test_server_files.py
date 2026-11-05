@@ -25,10 +25,10 @@ def test_attachments_that_could_run_script_are_downloaded(agent_server, monkeypa
     (attachments_dir(run.id) / "page.html").write_text("<script>1</script>")
     (attachments_dir(run.id) / "shot.png").write_bytes(b"png")
 
-    html = httpx.get(f"{agent_server}/api/runs/{run.id}/files/page.html")
+    html = httpx.get(f"{agent_server}/api/threads/{run.id}/files/page.html")
     assert html.headers["content-disposition"].startswith("attachment")
     assert html.headers["content-type"] == "application/octet-stream"
 
-    png = httpx.get(f"{agent_server}/api/runs/{run.id}/files/shot.png")
+    png = httpx.get(f"{agent_server}/api/threads/{run.id}/files/shot.png")
     assert png.headers["content-disposition"].startswith("inline")
     assert png.headers["content-security-policy"] == "sandbox"

@@ -510,7 +510,7 @@ def test_opening_the_browser_on_an_ended_web_session_asks_to_sign_in_first(logge
     monkeypatch.setattr("ov.agent.engine.run_browser.web_session_alive", lambda alias: False)
     monkeypatch.setattr(Run, "require_login", lambda self, host, tenant="": asked.append(host) or True)
     monkeypatch.setattr(Run, "_show_browser", lambda self, found: shown.append(found["alias"]))
-    db.create_thread("rbrowse", "Browse", "copilot", "m", prompt="x", instance="acme", access=Access.READ)
+    db.create_thread("rbrowse", "Browse", "copilot", "m", instance="acme", access=Access.READ)
 
     runs.get("rbrowse").open_browser("acme")
     wait_for(lambda: shown)

@@ -119,7 +119,7 @@ def wait_for(check, polls: int = RUN_POLLS) -> None:
 
 
 def wait_done(run):
-    wait_for(lambda: run.state["summary"]["status"] in ("done", "error"))
+    wait_for(lambda: run.state["summary"]["status"] in ("done", "error") and not run.working())
     assert run.state["summary"]["status"] == "done", run.state.get("error")
 
 

@@ -318,3 +318,107 @@ export function Lanes({
     </div>
   )
 }
+
+const METRIC_HEIGHT = 44
+const METRIC_FILL_OPACITY = 0.14
+
+export function MetricChart({
+  points,
+  color,
+  limit,
+  ceiling,
+  format,
+}: {
+  points: HealthPoint[]
+  color: string
+  limit?: number
+  ceiling?: number
+  format: (v: number) => string
+}) {
+  const [hover, setHover] = useState<number>()
+  if (points.length < 2) return <div style={{ height: METRIC_HEIGHT }} />
+
+  const first = points[0].t
+  const span = points[points.length - 1].t - first || 1
+  const max = ceiling ?? (Math.max(...points.map((p) => p.v), limit ?? 0) || 1)
+  const at = (p: HealthPoint) =>
+    `${(((p.t - first) / span) * WIDTH).toFixed(1)},${y(Math.min(p.v, max), max, METRIC_HEIGHT).toFixed(1)}`
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${at(p)}`).join(' ')
+  const area = `${line} L${WIDTH},${METRIC_HEIGHT} L0,${METRIC_HEIGHT} Z`
+  const hovered = hover === undefined ? undefined : points[hover]
+
+  return (
+    <div
+      className="relative"
+      onMouseMove={(e) => {
+        const r = e.currentTarget.getBoundingClientRect()
+        const t = first + ((e.clientX - r.left) / r.width) * span
+        let best = 0
+        points.forEach((p, i) => {
+          if (Math.abs(p.t - t) < Math.abs(points[best].t - t)) best = i
+        })
+        setHover(best)
+      }}
+      onMouseLeave={() => setHover(undefined)}
+    >
+      <svg
+        viewBox={`0 0 ${WIDTH} ${METRIC_HEIGHT}`}
+        preserveAspectRatio="none"
+        className="block w-full overflow-visible"
+        style={{ height: METRIC_HEIGHT }}
+      >
+        <path d={area} fill={color} opacity={METRIC_FILL_OPACITY} />
+        <path
+          d={line}
+          fill="none"
+          stroke={color}
+          strokeWidth={LINE_WIDTH}
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+        {limit !== undefined && limit <= max ? (
+          <line
+            x1={0}
+            x2={WIDTH}
+            y1={y(limit, max, METRIC_HEIGHT)}
+            y2={y(limit, max, METRIC_HEIGHT)}
+            stroke={LIMIT_COLOR}
+            strokeDasharray="4 4"
+            opacity={0.7}
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
+        {hovered ? (
+          <line
+            x1={((hovered.t - first) / span) * WIDTH}
+            x2={((hovered.t - first) / span) * WIDTH}
+            y1={0}
+            y2={METRIC_HEIGHT}
+            stroke={CURSOR_COLOR}
+            strokeDasharray="3 3"
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
+      </svg>
+      {hovered ? (
+        <div
+          className="border-line pointer-events-none absolute -top-7 z-10 rounded-full border bg-white px-2 py-0.5 text-[11px] whitespace-nowrap shadow-sm"
+          style={{
+            left: `${((hovered.t - first) / span) * 100}%`,
+            transform: `translateX(${(hovered.t - first) / span > TOOLTIP_FLIP ? '-100%' : '0'})`,
+          }}
+        >
+          <span className="text-fg font-medium tabular-nums">{format(hovered.v)}</span>
+          <span className="text-faint ml-1.5">
+            {new Date(hovered.t).toLocaleString(undefined, {
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  )
+}

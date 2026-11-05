@@ -251,9 +251,17 @@ export function Segmented<T extends string | number>({
   )
 }
 
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
+export function Card({
+  id,
+  className,
+  children,
+}: {
+  id?: string
+  className?: string
+  children: ReactNode
+}) {
   return (
-    <div className={cn('border-line-strong/70 bg-panel rounded-2xl border', className)}>
+    <div id={id} className={cn('border-line-strong/70 bg-panel rounded-2xl border', className)}>
       {children}
     </div>
   )

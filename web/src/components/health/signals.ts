@@ -32,123 +32,68 @@ function shortWhen(ms: number): string {
 
 type Limits = { warn: number; danger: number }
 
-const atLeast =
-  (limits: Limits) =>
-  (v: number): Level =>
-    v >= limits.danger ? 'danger' : v >= limits.warn ? 'warn' : 'ok'
-
-const calm = (): Level => 'ok'
-
 export type Gauge = {
   title: string
   format: (v: number) => string
   level: (v: number) => Level
+  limits?: Limits
+  percent: boolean
+  series: (m: HealthServerMetric) => HealthPoint[]
   read: (m: HealthServerMetric) => { now: number; worst: number }
-  meter: boolean
 }
 
 const percent = (v: number) => fmt(v, '%')
 const bytes = (v: number) => fmt(v, 'B')
 const plain = (v: number) => fmt(v, '')
-const lowest = (points: HealthPoint[]) => Math.min(...points.map((p) => p.v))
-const highest = (m: HealthServerMetric) => ({ now: m.latest, worst: m.max })
-const lowestFirst = (m: HealthServerMetric) => ({ now: m.latest, worst: lowest(m.points) })
-const usedFromFree = (m: HealthServerMetric) => ({
-  now: PERCENT - m.latest,
-  worst: PERCENT - lowest(m.points),
-})
+
+function gauge(
+  title: string,
+  format: (v: number) => string,
+  options: { limits?: Limits; percent?: boolean; used?: boolean; low?: boolean } = {},
+): Gauge {
+  const { limits, used, low } = options
+  const series = (m: HealthServerMetric) =>
+    used ? m.points.map((p) => ({ t: p.t, v: PERCENT - p.v })) : m.points
+  const values = (m: HealthServerMetric) => series(m).map((p) => p.v)
+
+  return {
+    title,
+    format,
+    limits,
+    percent: Boolean(options.percent),
+    level: (v) =>
+      !limits ? 'ok' : v >= limits.danger ? 'danger' : v >= limits.warn ? 'warn' : 'ok',
+    series,
+    read: (m) => ({
+      now: used ? PERCENT - m.latest : m.latest,
+      worst: low ? Math.min(...values(m)) : Math.max(...values(m)),
+    }),
+  }
+}
 
 export const SERVER_GAUGES: Record<keyof HealthServer['metrics'], Gauge> = {
-  cpu: {
-    title: 'CPU',
-    format: percent,
-    level: atLeast({ warn: 65, danger: 85 }),
-    read: highest,
-    meter: true,
-  },
-  memory: {
-    title: 'Memory',
-    format: percent,
-    level: atLeast({ warn: 80, danger: 90 }),
-    read: usedFromFree,
-    meter: true,
-  },
-  disk: {
-    title: 'Disk',
-    format: percent,
-    level: atLeast({ warn: 80, danger: 90 }),
-    read: highest,
-    meter: true,
-  },
-  load: {
-    title: 'Load per core',
-    format: plain,
-    level: atLeast({ warn: 1, danger: 1.5 }),
-    read: highest,
-    meter: false,
-  },
-  heap: { title: 'JVM heap', format: bytes, level: calm, read: highest, meter: false },
+  cpu: gauge('CPU', percent, { limits: { warn: 65, danger: 85 }, percent: true }),
+  memory: gauge('Memory used', percent, {
+    limits: { warn: 80, danger: 90 },
+    percent: true,
+    used: true,
+  }),
+  disk: gauge('Disk used', percent, { limits: { warn: 80, danger: 90 }, percent: true }),
+  load: gauge('Load per core', plain, { limits: { warn: 1, danger: 1.5 } }),
+  heap: gauge('JVM heap', bytes),
 }
 
 export const DATABASE_GAUGES: Record<HealthDatabaseMetricKey, Gauge> = {
-  cpu: {
-    title: 'CPU',
-    format: percent,
-    level: atLeast({ warn: 65, danger: 85 }),
-    read: highest,
-    meter: true,
-  },
-  storage: {
-    title: 'Storage',
-    format: percent,
-    level: atLeast({ warn: 80, danger: 90 }),
-    read: highest,
-    meter: true,
-  },
-  sessions: {
-    title: 'Session limit',
-    format: percent,
-    level: atLeast({ warn: 70, danger: 90 }),
-    read: highest,
-    meter: true,
-  },
-  tablespace: {
-    title: 'Tablespace',
-    format: percent,
-    level: atLeast({ warn: 80, danger: 90 }),
-    read: highest,
-    meter: true,
-  },
-  readLatency: {
-    title: 'Read latency',
-    format: duration,
-    level: calm,
-    read: highest,
-    meter: false,
-  },
-  writeLatency: {
-    title: 'Write latency',
-    format: duration,
-    level: calm,
-    read: highest,
-    meter: false,
-  },
-  responseTime: {
-    title: 'Response time',
-    format: duration,
-    level: calm,
-    read: highest,
-    meter: false,
-  },
-  connections: { title: 'Connections', format: count, level: calm, read: highest, meter: false },
-  activeSessions: {
-    title: 'Active sessions',
-    format: plain,
-    level: calm,
-    read: highest,
-    meter: false,
-  },
-  memory: { title: 'Free memory', format: bytes, level: calm, read: lowestFirst, meter: false },
+  cpu: gauge('CPU', percent, { limits: { warn: 65, danger: 85 }, percent: true }),
+  storage: gauge('Storage used', percent, { limits: { warn: 80, danger: 90 }, percent: true }),
+  sessions: gauge('Session limit', percent, { limits: { warn: 70, danger: 90 }, percent: true }),
+  tablespace: gauge('Tablespace', percent, { limits: { warn: 80, danger: 90 }, percent: true }),
+  responseTime: gauge('Response time', duration),
+  readLatency: gauge('Read latency', duration),
+  writeLatency: gauge('Write latency', duration),
+  activeSessions: gauge('Active sessions', plain),
+  connections: gauge('Connections', count),
+  memory: gauge('Free memory', bytes, { low: true }),
 }
 
 const RANK: Record<Level, number> = { ok: 0, warn: 1, danger: 2 }

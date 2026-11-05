@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from ov.agent.engine import compaction
@@ -46,6 +47,7 @@ class CompactionMixin:
             self._fail(exc)
         finally:
             self._busy = False
+            self._mark_stable()
             self._pick_up_queue()
 
     def compaction_started(self, trigger: str) -> None:
@@ -68,9 +70,9 @@ class CompactionMixin:
         if entry is not None:
             self.emit({"type": "compact", "compact": {**entry, "status": "error", "error": error}})
 
-    def history_text(self) -> str:
+    def history_text(self, start: int = 0) -> str:
         with self._lock:
-            lines = [_history_line(self.state, item) for item in self.state["items"]]
+            lines = [_history_line(self.state, item) for item in self.state["items"][start:]]
         text = "\n\n".join(line for line in lines if line)
         if len(text) <= CONTINUE_TRANSCRIPT_CHARS:
             return text
@@ -83,8 +85,10 @@ class CompactionMixin:
         self._spawn(self._carry_over, source_title, history)
 
     def _summary_of(self, history: str) -> str:
-        summary, usage = self.agent.summarize(self.model, f"<conversation>\n{history}\n</conversation>")
-        self.record_usage(self.model, UsageKind.COMPACT, usage)
+        summary, usage = self.agent.summarize(
+            self.model, compaction.SUMMARY_PROMPT, f"<conversation>\n{history}\n</conversation>"
+        )
+        self.record_usage(self.model, UsageKind.SUMMARY, usage)
         if not summary.strip():
             raise RunError(SUMMARY_EMPTY.format(model=self.model))
         return summary
@@ -101,33 +105,58 @@ class CompactionMixin:
             self.persist()
 
             shown = CONTINUED_MESSAGE.format(title=source_title, summary=summary)
-            self.emit({"type": "message", "messageId": self.new_message_id(), "text": shown, "ts": db.now_ms()})
+            self.emit({"type": "agent_message", "messageId": self.new_message_id(), "text": shown, "ts": db.now_ms()})
             self._set_status("done")
         except Exception as exc:
             self._fail(exc)
         finally:
             self._busy = False
+            self._mark_stable()
             self._pick_up_queue()
 
 
+def _found(entries: list[dict[str, Any]], item_id: str) -> dict[str, Any] | None:
+    return next((e for e in entries if e["id"] == item_id), None)
+
+
+def _chat_line(state: dict[str, Any], item_id: str, speaker: str) -> str:
+    message = _found(state["chat"], item_id)
+    return f"{speaker}\n{message['text']}" if message and message["text"].strip() else ""
+
+
+def _tool_line(state: dict[str, Any], item_id: str) -> str:
+    tool = _found(state["tools"], item_id)
+    if tool is None:
+        return ""
+    output = (tool.get("output") or "")[: compaction.TRANSCRIPT_TOOL_CHARS]
+    return f"Agent called {tool['name']} ({tool.get('label') or ''}):\n{output}"
+
+
+def _question_line(state: dict[str, Any], item_id: str) -> str:
+    question = _found(state["questions"], item_id)
+    return f"Agent asked: {question_text(question)}" if question else ""
+
+
+def _branch_result_line(state: dict[str, Any], item_id: str) -> str:
+    result = _found(state["branchResults"], item_id)
+    return f"Brought back from the branch {result['branch']['title']}:\n{result['text']}" if result else ""
+
+
+def _outcome_line(state: dict[str, Any], _item_id: str) -> str:
+    outcome = state.get("outcome")
+    return f"{HISTORY_AGENT}\n{outcome.get('reply') or ''}" if outcome else ""
+
+
+_HISTORY_LINES: dict[str, Callable[[dict[str, Any], str], str]] = {
+    "user": lambda state, item_id: _chat_line(state, item_id, HISTORY_USER),
+    "text": lambda state, item_id: _chat_line(state, item_id, HISTORY_AGENT),
+    "tool": _tool_line,
+    "question": _question_line,
+    "branch_result": _branch_result_line,
+    "outcome": _outcome_line,
+}
+
+
 def _history_line(state: dict[str, Any], item: dict[str, Any]) -> str:
-    kind, item_id = item["kind"], item["id"]
-    if kind in ("user", "text"):
-        message = next((m for m in state["chat"] if m["id"] == item_id), None)
-        speaker = HISTORY_USER if kind == "user" else HISTORY_AGENT
-        return f"{speaker}\n{message['text']}" if message and message["text"].strip() else ""
-
-    if kind == "tool":
-        tool = next((t for t in state["tools"] if t["id"] == item_id), None)
-        if tool is None:
-            return ""
-        output = (tool.get("output") or "")[: compaction.TRANSCRIPT_TOOL_CHARS]
-        return f"Agent called {tool['name']} ({tool.get('label') or ''}):\n{output}"
-
-    if kind == "question":
-        question = next((q for q in state["questions"] if q["id"] == item_id), None)
-        return f"Agent asked: {question_text(question)}" if question else ""
-
-    if kind == "outcome" and state.get("outcome"):
-        return f"{HISTORY_AGENT}\n{state['outcome'].get('reply') or ''}"
-    return ""
+    line = _HISTORY_LINES.get(item["kind"])
+    return line(state, item["id"]) if line else ""

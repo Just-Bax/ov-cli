@@ -28,10 +28,10 @@ class ChatProvider(AgentProvider):
         return self.backend.complete(model, system, user_text, max_tokens, self.helper_read_timeout)
 
     @override
-    def summarize(self, model: str, transcript: str) -> tuple[str, Usage | None]:
+    def summarize(self, model: str, prompt: str, transcript: str) -> tuple[str, Usage | None]:
         return self.backend.complete(
             model,
-            compaction.SUMMARY_PROMPT,
+            prompt,
             transcript,
             compaction.SUMMARY_MAX_TOKENS,
             chat_turn.SUMMARY_READ_TIMEOUT_SECONDS,
@@ -55,6 +55,10 @@ class ChatProvider(AgentProvider):
 
     @override
     def retry_anchor(self, run: Run, item_id: str) -> dict[str, Any] | None:
+        return None
+
+    @override
+    def branch_context(self, source: Run, child: Run, before: str | None) -> None:
         return None
 
     @override

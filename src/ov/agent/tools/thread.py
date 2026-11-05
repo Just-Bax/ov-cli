@@ -10,6 +10,7 @@ from ov.agent import skills
 from ov.agent import workspace as project
 from ov.agent.engine.files import IMAGE_EXTS, image_mime, within
 from ov.agent.integrations import datadog, pagerduty
+from ov.agent.storage import db
 from ov.agent.tools.base import (
     Tool,
     ToolContext,
@@ -32,6 +33,9 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 BINARY_SNIFF_BYTES = 4096
 TEXT_COPY_SUFFIX = ".txt"
 MAX_QUESTIONS = 5
+MIN_SEARCH_CHARS = 3
+SEARCH_TIME_FORMAT = "%Y-%m-%d %H:%M"
+MS_PER_SECOND = 1000
 MIN_OPTIONS = 2
 MAX_OPTIONS = 5
 HEADER_CHARS = 12
@@ -296,6 +300,28 @@ def _read_thread(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip(ctx.read_thread(found.group(1)), ctx, "thread")
 
 
+def _search_threads(args: dict[str, Any], ctx: ToolContext) -> str:
+    query = str(args["query"]).strip()
+    if len(query) < MIN_SEARCH_CHARS:
+        raise ToolError(f"Search for at least {MIN_SEARCH_CHARS} characters.")
+
+    found = [t for t in db.search_threads(query) if t["id"] != ctx.id]
+    if not found:
+        return f"No other thread mentions {query!r}."
+
+    lines = [
+        f"- {t['id']} | {t['title']} | {t.get('instance') or 'no instance'} | {t['status']} | "
+        f"{time.strftime(SEARCH_TIME_FORMAT, time.localtime(t['updatedAt'] / MS_PER_SECOND))}\n  {t['snippet']}"
+        for t in found
+    ]
+    return clip("\n".join(lines), ctx, "threads")
+
+
+def _save_finding(args: dict[str, Any], ctx: ToolContext) -> str:
+    finding = ctx.save_finding(str(args["text"]))
+    return f"Saved finding {finding['id']}."
+
+
 def _wait_label(args: dict[str, Any]) -> str:
     what = " for a SQL result to change" if args.get("sql") else ""
     return f"Wait up to {args.get('seconds')}s{what}"
@@ -333,6 +359,27 @@ TOOLS = [
         ["thread"],
         lambda a: f"read thread {a.get('thread')}",
         _read_thread,
+    ),
+    Tool(
+        "thread_search",
+        "Search every other OV Agent thread by title and by what the user and the agent wrote. Use it before "
+        "investigating something that may have been checked already, then open the right thread with thread_read. "
+        "Read-only.",
+        {"query": string_param("Words to find, like a ticket key, table, rule or error text")},
+        ["query"],
+        lambda a: f"search threads for {a.get('query')}",
+        _search_threads,
+    ),
+    Tool(
+        "finding_save",
+        "Save a finding on this thread: a fact you verified yourself in this thread, with the exact values, ids, "
+        "names and instance, that later work can rely on without checking again. For example a cause you confirmed, "
+        "a count you queried, or a setting you read. Never save guesses, plans, or something the user only said. "
+        "The user sees findings, branches carry them over, and a new thread can start from them.",
+        {"text": string_param("One verified fact, in a sentence or two")},
+        ["text"],
+        lambda a: f"save finding: {brief(str(a.get('text') or ''))}",
+        _save_finding,
     ),
     Tool(
         "run_wait",

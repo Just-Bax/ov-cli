@@ -549,9 +549,10 @@ its next step.
 
 In a thread:
 
-- The header shows its credits (hover for tokens and models) and a **...** menu: pin, snooze,
-  export as Markdown, settle, and delete (removes its messages and files for good). Click the instance in the subtitle for its sign-in
-  state and to check its platform version and response time.
+- The header shows its credits (hover for tokens and models), its findings, and a **...**
+  menu: pin, snooze, findings, branch, continue in a new thread, export as Markdown, settle,
+  and delete (removes its messages and files for good). Click the instance in the
+  subtitle for its sign-in state and to check its platform version and response time.
 - Mentions like "rule 123" link to their page on the instance when that ID appeared in the
   agent's tool results; links to IDs it never looked up get a warning.
 - Ctrl+F finds text anywhere in the thread, including turns not loaded yet.
@@ -559,7 +560,39 @@ In a thread:
 Each sidebar thread has the same **...** menu. Snooze offers in 1 hour, in 3 hours, tomorrow,
 next week or a custom time; snoozed and settled threads wait in their own shelves at the
 bottom. Undo any of these from the toast or with Ctrl+Z for five seconds. Ctrl+K opens the
-command palette; press ? for every keyboard shortcut.
+command palette; it finds threads by title and by what was said in them. Press ? for every
+keyboard shortcut.
+
+### Branches, asides and findings
+
+A thread that already knows an instance and what was checked there does not have to take
+every side question. Start a new thread from it instead:
+
+- **Branch from here** (on an answer) makes a new thread with exactly the context up to that
+  answer: the same messages, model, instance and access, and the files in the run folder. The
+  branch shows the turns it came with, collapsed and dimmed, and the parent stays as it was.
+  With Claude the session itself is forked, so the cached context carries over.
+- **Retry as branch** (on one of your messages) reruns that message in a new branch and keeps
+  the original answer in the parent. **Retry from here** still rewinds the thread itself.
+- **Aside** (next to the access picker) sends the message to a new branch from the latest
+  answer, so several unrelated questions can run at once with the same context while the
+  main thread stays on topic. Asides work while the main thread is busy; they start from its
+  last finished turn.
+- **Bring back** (in a branch's header) drafts a short note of what the branch found, which
+  you edit and send. The parent gets it as a card and as context with its next message; it
+  never starts a turn there.
+- **Continue in a new thread** carries over a summary instead of the exact context.
+
+Branches sit under their parent in the sidebar, and the parent lists the threads started
+from it. Data changes made before a branch stay with the parent: a branch cannot revert them
+and cannot rerun the messages it came with, so nothing is undone or applied twice.
+
+**Findings** are facts verified in a thread, like a confirmed cause, a count or a setting. The
+agent saves them with `finding_save`, and you can add, edit or delete them from the header
+(or from **...** > Findings while there are none yet).
+Branches carry the findings made before them, and **New thread from findings** starts a clean
+thread that knows only those facts, the instance and the files: much smaller than a branch.
+The agent can also look for earlier work with `thread_search` and open it with `thread_read`.
 
 The agent's tools come in groups, and the system prompt lists the ones a thread has:
 
@@ -571,7 +604,7 @@ The agent's tools come in groups, and the system prompt lists the ones a thread 
 | Datadog | `dd_logs`, `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm` |
 | PagerDuty | `pd_incidents`, `pd_incident`, `pd_oncall`, `pd_directory`; with changes allowed also `pd_note`, `pd_ack`, `pd_resolve`, `pd_escalate`, `pd_reassign`, `pd_snooze` |
 | Skills | `skill_read` |
-| Run | `run_read` (attachments, exports and long output in the run folder), `run_grid` (records as a grid in the thread), `run_wait` (wait for a job or a value to change), `run_ask`, `run_report` |
+| Run | `run_read` (attachments, exports and long output in the run folder), `thread_read` (another thread), `thread_search` (every other thread, by title and messages), `finding_save` (a verified fact on this thread), `run_grid` (records as a grid in the thread), `run_wait` (wait for a job or a value to change), `run_ask`, `run_report` |
 
 ### Grids and data changes
 
@@ -864,18 +897,21 @@ one module per command group. `cli/dynamic.py` is what turns a schema tag into c
 - `skills/`: the bundled skills; `workspace.py` is the code workspace.
 
 The agent database is SQLite at `~/.ov/agent/agent.db`, accessed through SQLAlchemy in
-`agent/storage/db.py`, with the tables declared in `agent/storage/models.py`. Alembic
-migrations live in `agent/storage/migrations/versions` and run when the agent first opens
-the database; before upgrading an existing database it writes a copy next to it as
-`agent.<revision>.bak.db`. To change the schema, edit `models.py`, then generate and review a migration:
+`agent/storage/db.py`, with the tables declared in `agent/storage/models.py`. A new database
+is created straight from the models. Alembic migrations in `agent/storage/migrations/versions`
+upgrade existing ones when the agent first opens them, writing a copy next to the database as
+`agent.<revision>.bak.db` first. Revision 0020 is the oldest database that can still be
+upgraded; an older one stops with a message saying which version of ov to upgrade it with.
+To change the schema, edit `models.py`, then generate and review a migration:
 
 ```bash
-uv run alembic revision --autogenerate --rev-id 0019 -m "what changed"
+uv run alembic revision --autogenerate --rev-id 0022 -m "what changed"
 ```
 
 `alembic.ini` points the command at `~/.ov` (or `OV_HOME`), so set `OV_HOME` to a scratch
-folder while generating. `test_models_match_the_migrations` fails if the models and the
-migrations disagree.
+folder while generating. `test_migrations.py` upgrades `tests/fixtures/agent_0020.sql` and
+fails unless the result is exactly the schema the models create, defaults and constraints
+included.
 
 Tests use a recorded OpenAPI document and a mock transport, so `pytest` never touches the
 network. `test_login_browser.py` is the exception: it starts a real headless Chromium

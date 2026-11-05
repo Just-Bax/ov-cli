@@ -98,7 +98,11 @@ class EventsMixin:
 
         with self._lock:
             self.state["summary"]["cost"] = cost
-            live = {"seq": self.seq, "ts": db.now_ms(), "live": True, "event": {"type": "cost", "cost": cost}}
+        self.push_live({"type": "cost", "cost": cost})
+
+    def push_live(self, event: dict[str, Any]) -> None:
+        with self._lock:
+            live = {"seq": self.seq, "ts": db.now_ms(), "live": True, "event": event}
             for channel in self._listeners:
                 channel.put(live)
 
@@ -146,7 +150,7 @@ class EventsMixin:
 
 
 def _message_event(message: dict[str, Any]) -> dict[str, Any]:
-    event = {"type": "message", "messageId": message["id"], "text": message["text"], "ts": message["ts"]}
+    event = {"type": "agent_message", "messageId": message["id"], "text": message["text"], "ts": message["ts"]}
     if message.get("reasoning"):
         event["reasoning"] = message["reasoning"]
     return event

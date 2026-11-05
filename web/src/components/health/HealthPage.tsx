@@ -1,5 +1,6 @@
 import { ArrowsClockwise as ArrowPathIcon, Sparkle as SparklesIcon } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import type { HealthSection, HealthSections } from '@shared/types.ts'
 import { ActionsSkeleton, useSkeleton } from '@/components/common/skeletons'
 import { Button, Card, EmptyState, Page, Select, Skeleton } from '@/components/common/ui'
 import { DatadogBadge, DatadogConnectModal, useDatadog } from '@/components/integrations/Datadog'
@@ -8,27 +9,33 @@ import { openDraft } from '@/lib/draft'
 import { onePerHost, useInstances } from '@/lib/instances'
 import { href } from '@/lib/route'
 import { hostsIn } from '@/lib/servers'
-import { IncidentsTile, MonitorsTile, Overview, PagerDutyOff } from './alerts'
-import { RANGE_WORDS, RANGES, type Range, useHealth } from './data'
+import { IncidentsTile, MonitorsTile, Overview } from './alerts'
+import { RANGE_WORDS, RANGES, type Range, type Slot, total, useHealth } from './data'
 import { DatabaseTile, ServersTile } from './infra'
 import { MatchInstance } from './MatchInstance'
 import { MaintenanceTile } from './maintenance'
 import { EndpointsTile, PerformanceTile } from './performance'
-import type { Context } from './tiles'
+import { type Context, Notice, tileId } from './tiles'
 
 const INSTANCE_KEY = 'ov-agent.health-instance'
 const CHECK_CELLS = 6
-const THIRD = 'col-span-12 xl:col-span-4'
+const FULL = 'col-span-12'
 const MAIN = 'col-span-12 xl:col-span-8'
 const SIDE = 'col-span-12 xl:col-span-4'
-const ALERTS_ROW = 'h-[420px]'
-const TRAFFIC_ROW = 'h-[500px]'
-const INFRA_ROW = 'h-[440px]'
+const ROW_SPANS: Record<number, string> = {
+  1: FULL,
+  2: 'col-span-12 xl:col-span-6',
+  3: 'col-span-12 xl:col-span-4',
+}
+const FIRST_ROW_MIN = 'xl:min-h-[340px]'
 const SKELETON_ROWS = [
-  [THIRD, THIRD, THIRD].map((span) => `${span} ${ALERTS_ROW}`),
-  [`${MAIN} ${TRAFFIC_ROW}`, `${SIDE} ${TRAFFIC_ROW}`],
-  [`${MAIN} ${INFRA_ROW}`, `${SIDE} ${INFRA_ROW}`],
-].flat()
+  `${ROW_SPANS[3]} h-[340px]`,
+  `${ROW_SPANS[3]} h-[340px]`,
+  `${ROW_SPANS[3]} h-[340px]`,
+  `${MAIN} h-[420px]`,
+  `${SIDE} h-[420px]`,
+  `${FULL} h-[260px]`,
+]
 const HEALTH_ACTION_WIDTHS = ['w-[260px]', 'w-[112px]', 'w-9', 'w-36']
 
 function serverCount(scope: string): ReactNode {
@@ -192,16 +199,74 @@ export function HealthPage() {
   else {
     const ctx: Context = { meta, label, alias, range, slots }
     const matched = Boolean(meta.scope)
-    const incidents =
-      slots.incidents.state === 'unavailable' ? (
-        <PagerDutyOff className={`${THIRD} ${ALERTS_ROW}`} />
-      ) : (
-        <IncidentsTile ctx={ctx} className={`${THIRD} ${ALERTS_ROW}`} />
+    const notices: ReactNode[] = []
+    const first: ReactNode[] = []
+
+    const offReason = <K extends HealthSection>(
+      slot: Slot<K>,
+      empty?: (v: HealthSections[K]) => boolean,
+    ) =>
+      slot.state === 'unavailable'
+        ? slot.reason
+        : slot.state === 'ready' && empty?.(slot.value)
+          ? ''
+          : undefined
+
+    const incidentsOff = offReason(slots.incidents)
+    if (incidentsOff === undefined)
+      first.push(<IncidentsTile key="incidents" ctx={ctx} className="w-full" />)
+    else
+      notices.push(
+        <Notice key="incidents" id={tileId('incidents')} vendor="pagerduty">
+          {incidentsOff}{' '}
+          <a href={href({ page: 'settings' })} className="text-brand-strong hover:underline">
+            Settings
+          </a>
+        </Notice>,
       )
 
+    const monitorsOff = matched ? offReason(slots.monitors, (v) => !v.monitors.length) : undefined
+    if (matched && monitorsOff === undefined)
+      first.push(<MonitorsTile key="monitors" ctx={ctx} className="w-full" />)
+    else if (matched)
+      notices.push(
+        <Notice key="monitors" id={tileId('monitors')} vendor="datadog" area="Monitors">
+          {monitorsOff || 'No Datadog monitor watches these servers or this database.'}
+        </Notice>,
+      )
+
+    const maintenanceOff = offReason(slots.maintenance)
+    if (maintenanceOff === undefined)
+      first.push(<MaintenanceTile key="maintenance" ctx={ctx} className="w-full" />)
+    else
+      notices.push(
+        <Notice key="maintenance" id={tileId('maintenance')} vendor="oneteam" area="Maintenance">
+          {maintenanceOff}
+        </Notice>,
+      )
+
+    const apmOff = offReason(slots.traffic, (v) => !total(v.requests))
+    if (matched && apmOff !== undefined)
+      notices.push(
+        <Notice key="apm" id={tileId('traffic')} vendor="datadog" area="APM">
+          {apmOff ||
+            `No APM data from these servers in the last ${RANGE_WORDS[range]}. Requests and latency need the Datadog APM tracer on the web servers.`}
+        </Notice>,
+      )
+
+    const databaseOff = offReason(slots.database, (v) => !v.databases.length)
+    if (matched && databaseOff !== undefined)
+      notices.push(
+        <Notice key="database" id={tileId('database')} vendor="datadog" area="Database">
+          {databaseOff || 'No database metrics in this window.'}
+        </Notice>,
+      )
+
+    const span = ROW_SPANS[first.length] ?? FULL
+
     body = (
-      <div className="grid grid-cols-12 gap-4 p-6">
-        <div className="col-span-12">
+      <div className="grid grid-cols-12 items-stretch gap-4 p-6">
+        <div className={FULL}>
           <Overview ctx={ctx} matched={matched} />
         </div>
         {matched ? null : (
@@ -211,20 +276,23 @@ export function HealthPage() {
             alias={alias}
             status={status}
             onSaved={setStatus}
-            className="col-span-12"
+            className={FULL}
           />
         )}
-        {incidents}
-        {matched ? <MonitorsTile ctx={ctx} className={`${THIRD} ${ALERTS_ROW}`} /> : null}
-        <MaintenanceTile ctx={ctx} className={`${THIRD} ${ALERTS_ROW}`} />
-        {matched ? (
+        {first.map((tile, i) => (
+          <div key={i} className={cn('flex', span, FIRST_ROW_MIN)}>
+            {tile}
+          </div>
+        ))}
+        {matched && apmOff === undefined ? (
           <>
-            <PerformanceTile ctx={ctx} className={`${MAIN} ${TRAFFIC_ROW}`} />
-            <EndpointsTile ctx={ctx} className={`${SIDE} ${TRAFFIC_ROW}`} />
-            <ServersTile ctx={ctx} className={`${MAIN} ${INFRA_ROW}`} />
-            <DatabaseTile ctx={ctx} className={`${SIDE} ${INFRA_ROW}`} />
+            <PerformanceTile ctx={ctx} className={MAIN} />
+            <EndpointsTile ctx={ctx} className={SIDE} />
           </>
         ) : null}
+        {matched ? <ServersTile ctx={ctx} className={FULL} /> : null}
+        {matched && databaseOff === undefined ? <DatabaseTile ctx={ctx} className={FULL} /> : null}
+        {notices.length ? <div className={cn(FULL, 'space-y-2')}>{notices}</div> : null}
       </div>
     )
   }

@@ -2,6 +2,7 @@ import {
   DownloadSimple as ArrowDownTrayIcon,
   ChatsCircle as ChatBubbleLeftRightIcon,
   Code as CodeBracketIcon,
+  ChatText as ChatTextIcon,
   GearSix as Cog6ToothIcon,
   TerminalWindow as CommandLineIcon,
   Heartbeat as HeartIcon,
@@ -13,6 +14,7 @@ import {
 } from '@phosphor-icons/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import type { SearchHit } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
 import { runActions } from '@/components/run/RunMenu'
 import { api } from '@/lib/api'
@@ -28,13 +30,16 @@ import { canUndo, runUndo } from '@/lib/undo'
 const MAX_THREADS = 30
 const THREAD_CANDIDATES = MAX_THREADS * 4
 const THREAD_JUMPS = 9
+const MIN_SEARCH_CHARS = 3
+const SEARCH_DEBOUNCE_MS = 250
+const MAX_MESSAGE_HITS = 10
 export const TOGGLE_SIDEBAR = 'ov-agent:toggle-sidebar'
 export const OPEN_FIND = 'ov-agent:find'
 export const OPEN_PALETTE = 'ov-agent:open-palette'
 
 type Command = {
   id: string
-  group: 'Actions' | 'This thread' | 'Threads' | 'Go to'
+  group: 'Actions' | 'This thread' | 'Threads' | 'In messages' | 'Go to'
   label: string
   hint?: string
   keys?: string
@@ -55,6 +60,33 @@ const SHORTCUTS: [string, string][] = [
   ['Ctrl+Z', 'Undo settle, pin or snooze'],
   ['?', 'Show these shortcuts'],
 ]
+
+function useMessageSearch(query: string, open: boolean): SearchHit[] {
+  const [hits, setHits] = useState<SearchHit[]>([])
+  const wanted = query.trim()
+
+  useEffect(() => {
+    if (!open || wanted.length < MIN_SEARCH_CHARS) {
+      setHits([])
+      return
+    }
+
+    const aborted = new AbortController()
+    const timer = setTimeout(() => {
+      api
+        .searchThreads(wanted, aborted.signal)
+        .then((found) => setHits(found.threads))
+        .catch((e: Error) => e.name !== 'AbortError' && reportError(e))
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      clearTimeout(timer)
+      aborted.abort()
+    }
+  }, [wanted, open])
+
+  return hits
+}
 
 function matches(command: Command, words: string[]): boolean {
   const text = `${command.label} ${command.hint ?? ''} ${command.group}`.toLowerCase()
@@ -233,10 +265,23 @@ export function CommandPalette({ route }: { route: Route }) {
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   const shown = commands.filter((c) => matches(c, words))
+  const hits = useMessageSearch(query, open)
+  const titled = new Set(shown.filter((c) => c.group === 'Threads').map((c) => c.id))
 
   const visible = [
     ...shown.filter((c) => c.group !== 'Threads'),
     ...shown.filter((c) => c.group === 'Threads').slice(0, MAX_THREADS),
+    ...hits
+      .filter((hit) => !titled.has(`run-${hit.id}`))
+      .slice(0, MAX_MESSAGE_HITS)
+      .map((hit): Command => ({
+        id: `hit-${hit.id}`,
+        group: 'In messages',
+        label: hit.title,
+        hint: hit.snippet,
+        icon: <ChatTextIcon className="size-4" />,
+        run: () => go({ page: 'thread', id: hit.id }),
+      })),
   ]
 
   if (query.trim())
@@ -322,7 +367,14 @@ export function CommandPalette({ route }: { route: Route }) {
                   </span>
                   <span className="min-w-0 flex-1 truncate">{c.label}</span>
                   {c.hint ? (
-                    <span className="text-faint shrink-0 text-[11.5px]">{c.hint}</span>
+                    <span
+                      className={cn(
+                        'text-faint text-[11.5px]',
+                        c.group === 'In messages' ? 'max-w-[55%] min-w-0 truncate' : 'shrink-0',
+                      )}
+                    >
+                      {c.hint}
+                    </span>
                   ) : null}
                   {c.keys ? (
                     <kbd className="text-faint border-line shrink-0 rounded-md border px-1.5 text-[11px]">

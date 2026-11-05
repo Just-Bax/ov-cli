@@ -1,13 +1,15 @@
+import { useState } from 'react'
 import type { MaintenanceItem } from '@shared/types.ts'
 import { Chip, type Tone } from '@/components/common/ui'
 import { cn } from '@/lib/cn'
 import { ready, type Slots } from './data'
 import type { Check } from './signals'
-import { ask, Body, type Context, Quiet, Tile } from './tiles'
+import { ask, Body, type Context, Quiet, ShowAll, Tile, tileId } from './tiles'
 
 const CANCELLED = 'Cancelled'
 const DONE = ['Completed', CANCELLED]
 const IN_PROGRESS = 'In Progress'
+const MAINTENANCE_ROWS = 5
 
 type Phase = 'now' | 'planned' | 'done'
 
@@ -32,6 +34,14 @@ export function whenOf(ms: number): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function dayOf(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function timeOf(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
 export function maintenanceLabel(m: MaintenanceItem): string {
@@ -72,12 +82,12 @@ export function maintenanceCheck(slots: Slots): Check {
     return {
       ...base,
       state: 'ok',
-      text: `Next: ${next.start ? whenOf(next.start) : 'date not set'}, ${maintenanceLabel(next)}`,
+      text: `Next ${next.start ? dayOf(next.start) : '(no date)'}: ${maintenanceLabel(next)}`,
     }
 
   const last = items.find((m) => m.status !== CANCELLED && m.start !== null)
   if (last)
-    return { ...base, state: 'ok', text: `Last: ${whenOf(last.start!)}, ${maintenanceLabel(last)}` }
+    return { ...base, state: 'ok', text: `Last ${dayOf(last.start!)}: ${maintenanceLabel(last)}` }
 
   return { ...base, state: 'ok', text: 'None in 30 days' }
 }
@@ -95,10 +105,17 @@ function Row({ m }: { m: MaintenanceItem }) {
       target="_blank"
       rel="noreferrer"
       title={`${m.key}${m.subject ? `: ${m.subject}` : ''}\n${m.servers.join(', ')}`}
-      className="hover:bg-raised flex items-start gap-3 rounded-2xl px-3 py-2"
+      className="hover:bg-raised flex items-center gap-3 rounded-2xl px-3 py-2"
     >
-      <span className="text-faint w-[86px] shrink-0 pt-px text-[11px] tabular-nums">
-        {m.start ? whenOf(m.start) : 'Not scheduled'}
+      <span className="w-14 shrink-0 text-[11px] leading-tight tabular-nums">
+        {m.start ? (
+          <>
+            <span className="text-text block font-medium">{dayOf(m.start)}</span>
+            <span className="text-faint block">{timeOf(m.start)}</span>
+          </>
+        ) : (
+          <span className="text-faint block">No date</span>
+        )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="text-fg block truncate text-[12.5px]">{maintenanceLabel(m)}</span>
@@ -110,10 +127,12 @@ function Row({ m }: { m: MaintenanceItem }) {
 }
 
 export function MaintenanceTile({ ctx, className }: { ctx: Context; className?: string }) {
+  const [all, setAll] = useState(false)
   const data = ready(ctx.slots.maintenance)
 
   return (
     <Tile
+      id={tileId('maintenance')}
       vendor="oneteam"
       area="Maintenance"
       title="Maintenance"
@@ -132,11 +151,15 @@ export function MaintenanceTile({ ctx, className }: { ctx: Context; className?: 
           if (!v.items.length) return <Quiet>No maintenance in the last 30 days or planned.</Quiet>
 
           const now = Date.now()
+          const ordered = PHASES.flatMap(({ phase }) =>
+            v.items.filter((m) => phaseOf(m, now) === phase),
+          )
+          const shown = new Set(all ? ordered : ordered.slice(0, MAINTENANCE_ROWS))
 
           return (
             <div className="-mx-3 space-y-3">
               {PHASES.map(({ phase, title }) => {
-                const rows = v.items.filter((m) => phaseOf(m, now) === phase)
+                const rows = ordered.filter((m) => shown.has(m) && phaseOf(m, now) === phase)
                 if (!rows.length) return null
 
                 return (
@@ -155,6 +178,14 @@ export function MaintenanceTile({ ctx, className }: { ctx: Context; className?: 
                   </div>
                 )
               })}
+              <div className="px-1">
+                <ShowAll
+                  shown={MAINTENANCE_ROWS}
+                  total={ordered.length}
+                  open={all}
+                  onToggle={() => setAll(!all)}
+                />
+              </div>
             </div>
           )
         }}

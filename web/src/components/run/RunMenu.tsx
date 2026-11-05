@@ -1,6 +1,6 @@
 import {
-  ArrowBendDownRight,
   ArrowCounterClockwise,
+  ArrowRight,
   ArrowsInLineVertical,
   BellZ,
   CaretRight,
@@ -10,6 +10,7 @@ import {
   DownloadSimple,
   PushPin,
   PushPinSlash,
+  SealCheck,
   SunHorizon,
   Trash,
 } from '@phosphor-icons/react'
@@ -26,6 +27,7 @@ import { go, href } from '@/lib/route'
 import { HOUR_MS, MINUTE_MS, shortSpan, timeWithDay } from '@/lib/time'
 import { cn } from '@/lib/cn'
 import { refreshRuns, removeLocally, setPinned, setSettled, setSnoozed, WORKING } from '@/lib/runs'
+import { BranchIcon, openThread } from './Branches'
 
 const MORNING_HOUR = 9
 const MONDAY = 1
@@ -226,10 +228,12 @@ export function RunMenu({
   run,
   settled,
   inRow,
+  onFindings,
 }: {
   run: RunSummary
   settled: boolean
   inRow?: boolean
+  onFindings?: () => void
 }) {
   const [pos, setPos] = useState<{ left: number; top: number }>()
   const [snoozing, setSnoozing] = useState(false)
@@ -356,9 +360,23 @@ export function RunMenu({
                   }
                 />
               )}
+              {onFindings ? (
+                <Item
+                  icon={<SealCheck className="size-4" />}
+                  label="Findings"
+                  onHover={() => setSnoozing(false)}
+                  onClick={() => act(onFindings)}
+                />
+              ) : null}
+              <Item
+                icon={<BranchIcon className="size-4" />}
+                label="Branch"
+                onHover={() => setSnoozing(false)}
+                onClick={() => act(() => openThread(api.branch(run.id)))}
+              />
               {inRow ? null : (
                 <Item
-                  icon={<ArrowBendDownRight className="size-4" />}
+                  icon={<ArrowRight className="size-4" />}
                   label="Continue in a new thread"
                   disabled={WORKING.has(run.status)}
                   hint={WORKING.has(run.status) ? 'Working' : undefined}

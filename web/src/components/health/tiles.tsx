@@ -35,12 +35,6 @@ export const LEVEL_TEXT: Record<Level, string> = {
   ok: 'text-fg',
 }
 
-export const LEVEL_FILL: Record<Level, string> = {
-  danger: 'bg-danger',
-  warn: 'bg-warn',
-  ok: 'bg-brand',
-}
-
 export const STATE_DOT: Record<CheckState, string> = {
   danger: 'bg-danger',
   warn: 'bg-warn',
@@ -78,6 +72,7 @@ export function SourceTag({ vendor, area }: { vendor: Vendor; area?: string }) {
 }
 
 export function Tile({
+  id,
   vendor,
   area,
   title,
@@ -87,6 +82,7 @@ export function Tile({
   className,
   children,
 }: {
+  id?: string
   vendor: Vendor
   area?: string
   title: ReactNode
@@ -97,7 +93,7 @@ export function Tile({
   children: ReactNode
 }) {
   return (
-    <Card className={cn('flex min-w-0 flex-col p-5', className)}>
+    <Card className={cn('flex min-w-0 scroll-mt-4 flex-col p-5', className)} id={id}>
       <div className="flex items-start gap-2 pb-3.5">
         <div className="min-w-0 flex-1">
           <SourceTag vendor={vendor} area={area} />
@@ -128,8 +124,60 @@ export function Tile({
           </a>
         ) : null}
       </div>
-      <div className="-mr-2 min-h-0 flex-1 scrollbar-thin overflow-y-auto pr-2">{children}</div>
+      <div className="min-w-0 flex-1">{children}</div>
     </Card>
+  )
+}
+
+export function tileId(key: string): string {
+  return `health-${key}`
+}
+
+export function Notice({
+  id,
+  vendor,
+  area,
+  children,
+  className,
+}: {
+  id?: string
+  vendor: Vendor
+  area?: string
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <Card
+      id={id}
+      className={cn('flex scroll-mt-4 flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3', className)}
+    >
+      <SourceTag vendor={vendor} area={area} />
+      <span className="text-muted min-w-0 flex-1 text-[12.5px]">{children}</span>
+    </Card>
+  )
+}
+
+export function ShowAll({
+  shown,
+  total,
+  open,
+  onToggle,
+}: {
+  shown: number
+  total: number
+  open: boolean
+  onToggle: () => void
+}) {
+  if (total <= shown) return null
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="text-brand-strong hover:bg-brand-soft mt-1 h-7 rounded-full px-3 text-[12px] font-medium"
+    >
+      {open ? 'Show fewer' : `Show all ${total}`}
+    </button>
   )
 }
 
@@ -200,47 +248,6 @@ export function Stat({
   )
 }
 
-export function Meter({
-  label,
-  now,
-  worst,
-  level,
-  worstLevel,
-  format,
-}: {
-  label: string
-  now: number
-  worst: number
-  level: Level
-  worstLevel: Level
-  format: (v: number) => string
-}) {
-  const clamp = (v: number) => Math.min(FULL_PERCENT, Math.max(MIN_BAR_PERCENT, v))
-
-  return (
-    <div title={`Now ${format(now)}, worst in this window ${format(worst)}`}>
-      <div className="flex items-baseline gap-2 text-[11.5px]">
-        <span className="text-muted flex-1 truncate">{label}</span>
-        {worstLevel !== 'ok' && level === 'ok' ? (
-          <span className={cn('text-[10.5px]', LEVEL_TEXT[worstLevel])}>peak {format(worst)}</span>
-        ) : null}
-        <span className={cn('font-semibold tabular-nums', LEVEL_TEXT[level])}>{format(now)}</span>
-      </div>
-      <div className="bg-line relative mt-1 h-1.5 rounded-full">
-        <div
-          className={cn('h-full rounded-full', LEVEL_FILL[level])}
-          style={{ width: `${clamp(now)}%` }}
-        />
-        <span
-          aria-hidden
-          className="bg-fg/50 absolute -top-0.5 h-2.5 w-0.5 rounded-full"
-          style={{ left: `calc(${clamp(worst)}% - 1px)` }}
-        />
-      </div>
-    </div>
-  )
-}
-
 export function Bar({ value, max, fill }: { value: number; max: number; fill: string }) {
   return (
     <div className="bg-line mt-1.5 h-1 overflow-hidden rounded-full">
@@ -248,25 +255,6 @@ export function Bar({ value, max, fill }: { value: number; max: number; fill: st
         className={cn('h-full rounded-full', fill)}
         style={{ width: `${Math.max(MIN_BAR_PERCENT, (value / max) * FULL_PERCENT)}%` }}
       />
-    </div>
-  )
-}
-
-export function Reading({
-  label,
-  value,
-  level = 'ok',
-  hint,
-}: {
-  label: string
-  value: string
-  level?: Level
-  hint?: string
-}) {
-  return (
-    <div className="flex items-baseline gap-2 text-[11.5px]" title={hint}>
-      <span className="text-muted flex-1 truncate">{label}</span>
-      <span className={cn('font-semibold tabular-nums', LEVEL_TEXT[level])}>{value}</span>
     </div>
   )
 }

@@ -15,6 +15,7 @@ from ov.agent.engine.conversation import answered
 from ov.agent.engine.export import stored_state, to_markdown
 from ov.agent.engine.files import run_dir
 from ov.agent.engine.prompt import system_prompt
+from ov.agent.engine.run_branch import INHERITED_RETRY, BranchMixin, BranchPoint
 from ov.agent.engine.run_browser import BrowserMixin
 from ov.agent.engine.run_cases import CasesMixin
 from ov.agent.engine.run_common import RunError, uid
@@ -77,6 +78,7 @@ class Run(
     TitlesMixin,
     CompactionMixin,
     GridsMixin,
+    BranchMixin,
 ):
     turns: dict[str, int]
     _saved: list[str]
@@ -85,6 +87,7 @@ class Run(
     _verdicts: dict[tuple[str, ...], guard.Verdict]
     _fork: dict[str, Any] | None
     _compacting: dict[str, Any] | None
+    _stable: BranchPoint | None
     _vague_title: str | None
 
     def __init__(self, run_id: str, state: dict[str, Any], seq: int) -> None:
@@ -109,7 +112,7 @@ class Run(
         self._busy, self.finished = False, False
         self._vague_title, self._first_turn_over = None, False
         self._streaming: str | None = None
-        self._tasks, self._finished_tasks, self._verdicts, self._fork = {}, [], {}, None
+        self._tasks, self._finished_tasks, self._verdicts, self._fork, self._stable = {}, [], {}, None, None
         self._compacting, self.context_tokens = None, int((state.get("context") or {}).get("tokens") or 0)
         self.browser, self.touched = BrowserSlot(run_id, self.emit), db.now_ms()
         self._restore_queue()
@@ -259,9 +262,9 @@ class Run(
     def _start(self, data: dict[str, Any]) -> None:
         try:
             self._set_status("running")
-            uploaded = self._copy_uploads(data.get("attachments") or [], START_TURN)
+            uploaded = self._copy_uploads(data.get("attachments") or [])
             text = (data.get("prompt") or "").strip()
-            self.emit({"type": "user", "message": self._message(START_TURN, text, uploaded)})
+            self.emit({"type": "user_message", "message": self._message(START_TURN, text, uploaded)})
             self.vision = self.agent.supports_vision(self.model)
 
             ref = None if uploaded else cases.case_ref(text)
@@ -275,10 +278,13 @@ class Run(
             self._fail(exc)
         finally:
             self._busy = False
+            self._mark_stable()
             self._first_turn_ended()
             self._pick_up_queue()
 
     def retry(self, item_id: str) -> None:
+        if self.inherited_item(item_id):
+            raise RunError(INHERITED_RETRY)
         index = self.turns.get(item_id) if self.messages else None
         message = next((m for m in self.state["chat"] if m["id"] == item_id and m["role"] == "user"), None)
         if index is None or message is None:
@@ -298,7 +304,7 @@ class Run(
         self.messages = self.messages[:index]
         self.turns = {k: i for k, i in self.turns.items() if i < index}
         self.emit({"type": "rewind", "itemId": item_id})
-        self.emit({"type": "user", "message": {**message, "ts": db.now_ms()}})
+        self.emit({"type": "user_message", "message": {**message, "ts": db.now_ms()}})
         self._push_turn(item_id, content)
         self._spawn(self._run_turn)
 
@@ -317,6 +323,7 @@ class Run(
             self._fail(exc)
         finally:
             self._busy = False
+            self._mark_stable()
             self._pick_up_queue()
 
     def _fail(self, exc: Exception) -> None:

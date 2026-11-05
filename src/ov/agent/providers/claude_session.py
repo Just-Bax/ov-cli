@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import (
@@ -13,7 +15,9 @@ from claude_agent_sdk import (
     UserMessage,
     create_sdk_mcp_server,
     delete_session,
+    fork_session,
     get_session_messages,
+    project_key_for_directory,
     tool,
 )
 
@@ -46,6 +50,13 @@ COMPACT_SUCCESS = "success"
 COMPACT_FAILED = "Claude Code could not compact the context ({result})."
 COMPACT_UNREPORTED = "Claude Code finished without compacting the context."
 MAX_TURNS_SUBTYPE = "error_max_turns"
+CLAUDE_HOME_ENV = "CLAUDE_CONFIG_DIR"
+CLAUDE_HOME = ".claude"
+PROJECTS_DIR = "projects"
+TRANSCRIPT_SUFFIX = ".jsonl"
+NO_SESSION_POINT = "Claude has no saved point for that message, so it cannot be branched from there."
+POINT_NOT_IN_SESSION = "Claude's transcript no longer has that point, so it cannot be branched from there."
+TRANSCRIPT_NOT_FOUND = "Claude's transcript {session} is missing, so this thread cannot be branched."
 
 
 def _image_block(url: str) -> dict[str, Any]:
@@ -102,6 +113,46 @@ def _last_uuid(session: str | None, cwd: str) -> str | None:
         return None
     messages = get_session_messages(session, directory=cwd)
     return messages[-1].uuid if messages else None
+
+
+def branch_anchor(run: Run, before: str | None) -> tuple[str | None, str | None]:
+    if before is None:
+        session = run.state["session"]["id"]
+        if session is None:
+            return None, None
+        messages = get_session_messages(session)
+        if not messages:
+            raise claude.ClaudeError(TRANSCRIPT_NOT_FOUND.format(session=session))
+        return session, messages[-1].uuid
+
+    anchor = run.state["session"]["turns"].get(before)
+    if anchor is None:
+        raise claude.ClaudeError(NO_SESSION_POINT)
+    return anchor["id"], anchor.get("before")
+
+
+def _projects_root() -> Path:
+    home = os.environ.get(CLAUDE_HOME_ENV) or str(Path.home() / CLAUDE_HOME)
+    return Path(home) / PROJECTS_DIR
+
+
+def _transcript(session: str) -> Path:
+    found = list(_projects_root().glob(f"*/{session}{TRANSCRIPT_SUFFIX}"))
+    if len(found) != 1:
+        raise claude.ClaudeError(TRANSCRIPT_NOT_FOUND.format(session=session))
+    return found[0]
+
+
+def fork_into(session: str, up_to: str, cwd: Path) -> str:
+    _transcript(session)
+    if up_to not in {m.uuid for m in get_session_messages(session)}:
+        raise claude.ClaudeError(POINT_NOT_IN_SESSION)
+
+    forked = fork_session(session, up_to_message_id=up_to).session_id
+    target = _projects_root() / project_key_for_directory(cwd)
+    target.mkdir(parents=True, exist_ok=True)
+    _transcript(forked).replace(target / f"{forked}{TRANSCRIPT_SUFFIX}")
+    return forked
 
 
 def _options(run: Run) -> tuple[Any, str, dict[str, Any] | None]:

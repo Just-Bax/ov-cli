@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ov.agent.engine.cancel import Cancel
+from ov.agent.engine.run_branch import INHERITED_REVERT
 from ov.agent.engine.run_common import RunError, uid
 from ov.agent.storage import db
 from ov.agent.tools import grid as grids
@@ -43,6 +44,8 @@ class GridsMixin:
         self.emit({"type": "grid", "grid": update})
 
     def revert_grid(self, grid_id: str) -> None:
+        if self.inherited_item(grid_id):
+            raise RunError(INHERITED_REVERT)
         grid = self._grid(grid_id)
         change = grid.get("change")
         if not change or change["state"] != DONE or not change["updated"]:

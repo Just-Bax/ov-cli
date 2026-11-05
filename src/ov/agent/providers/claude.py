@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
-from ov.agent.engine import compaction
 from ov.agent.engine.cancel import Cancel
 from ov.agent.integrations import claude
 from ov.agent.integrations.common import Usage
@@ -49,8 +48,8 @@ class ClaudeProvider(AgentProvider):
         return claude.complete(model, system, user_text)
 
     @override
-    def summarize(self, model: str, transcript: str) -> tuple[str, Usage | None]:
-        return claude.complete(model, compaction.SUMMARY_PROMPT, transcript, SUMMARY_TIMEOUT_SECONDS)
+    def summarize(self, model: str, prompt: str, transcript: str) -> tuple[str, Usage | None]:
+        return claude.complete(model, prompt, transcript, SUMMARY_TIMEOUT_SECONDS)
 
     @override
     def run_turn(self, run: Run, initiator: Initiator) -> None:
@@ -74,6 +73,12 @@ class ClaudeProvider(AgentProvider):
         if anchor is None:
             raise claude.ClaudeError(NEVER_SENT)
         return anchor
+
+    @override
+    def branch_context(self, source: Run, child: Run, before: str | None) -> None:
+        session, up_to = claude_session.branch_anchor(source, before)
+        forked = claude_session.fork_into(session, up_to, child.work_dir) if session and up_to else None
+        child.emit({"type": "meta", "session": {"id": forked, "spent": 0.0}})
 
     @override
     def forget_thread(self, events: list[dict[str, Any]], folder: str) -> None:

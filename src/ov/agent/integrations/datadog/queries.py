@@ -338,8 +338,13 @@ def instance_monitors(tags: list[str], site: str) -> list[dict[str, Any]]:
         if mine:
             state = max(mine.values(), key=lambda s: MONITOR_RANK.get(s, 0))
             firing = [k for k, v in mine.items() if v != "OK"]
-            rows.append({**_monitor_row(mon), "state": state, "groups": firing[:MONITOR_GROUPS]})
-        elif named.search(str(mon.get("name") or "").lower()) or _names_a_tag(str(mon.get("query") or ""), wanted):
-            rows.append(_monitor_row(mon))
+            tag = next(iter(mine)).split(",")[0].split(":")[0]
+            rows.append(
+                {**_monitor_row(mon), "state": state, "groups": firing[:MONITOR_GROUPS], "watching": [len(mine), tag]}
+            )
+        elif named.search(str(mon.get("name") or "").lower()):
+            rows.append({**_monitor_row(mon), "watching": [1, "site"]})
+        elif _names_a_tag(str(mon.get("query") or ""), wanted):
+            rows.append({**_monitor_row(mon), "watching": [1, "query"]})
 
     return sorted(rows, key=lambda m: (MONITOR_ORDER.get(m["state"], len(MONITOR_ORDER)), m["name"]))

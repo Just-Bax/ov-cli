@@ -98,7 +98,7 @@ class TitlesMixin:
     def _ask_title(self, system: str, body: str) -> tuple[str, bool]:
         model = self._helper_model()
         reply, usage = self.agent.complete(model, system, body, NAMING_MAX_TOKENS)
-        self.record_usage(model, UsageKind.NAMING, usage)
+        self.record_usage(model, UsageKind.TITLE, usage)
         return parse_title(reply, model)
 
     def retitle(self) -> None:

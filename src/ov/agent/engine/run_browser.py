@@ -52,4 +52,4 @@ class BrowserMixin:
         return self.agent.drive_browser(self, self._helper_model(), goal, cancel)
 
     def record_step_usage(self, model: str, usage: Usage | None) -> None:
-        self.record_usage(model, UsageKind.STEP, usage)
+        self.record_usage(model, UsageKind.BROWSER, usage)

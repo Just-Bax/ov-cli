@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import pytest
+from helpers.fixture_files import read_fixture
 
 from ov.agent.storage import db
 
+OLDEST_SCHEMA = tuple(s for s in read_fixture("agent_0020.sql").split(";\n") if s.strip())
 HOLD_DATABASE = (
-    "import sqlite3, time; c = sqlite3.connect(r'{path}'); c.execute('select 1 from runs'); "
+    "import sqlite3, time; c = sqlite3.connect(r'{path}'); c.execute('select 1 from thread'); "
     "print('open', flush=True); time.sleep(30)"
 )
 
@@ -15,17 +17,15 @@ def test_an_upgrade_waits_while_another_process_has_the_database_open(ov_home, m
     import subprocess
     import sys
 
-    from ov.agent.storage.migrations.versions import v0001_baseline as baseline
-
     ov_home = ov_home / "busy"
     monkeypatch.setenv("OV_HOME", str(ov_home))
     path = ov_home / "agent" / "agent.db"
     path.parent.mkdir(parents=True)
-    with sqlite3.connect(path) as legacy:
-        legacy.execute("PRAGMA journal_mode = WAL")
-        for statement in baseline.LEGACY_SCHEMA:
-            legacy.execute(statement)
-    legacy.close()
+    with sqlite3.connect(path) as old:
+        old.execute("PRAGMA journal_mode = WAL")
+        for statement in OLDEST_SCHEMA:
+            old.execute(statement)
+    old.close()
 
     holder = subprocess.Popen(
         [sys.executable, "-c", HOLD_DATABASE.format(path=path)], stdout=subprocess.PIPE, text=True

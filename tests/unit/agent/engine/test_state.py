@@ -8,7 +8,7 @@ def _turn(seq: int, n: int) -> list[dict]:
         {
             "seq": seq,
             "ts": 1,
-            "event": {"type": "user", "message": {"id": f"u{n}", "role": "user", "text": f"q{n}", "ts": 1}},
+            "event": {"type": "user_message", "message": {"id": f"u{n}", "role": "user", "text": f"q{n}", "ts": 1}},
         },
         {
             "seq": seq + 1,
@@ -18,17 +18,17 @@ def _turn(seq: int, n: int) -> list[dict]:
                 "tool": {"id": f"t{n}", "name": "ov", "label": "x", "status": "ok", "input": "{}", "output": "big"},
             },
         },
-        {"seq": seq + 2, "ts": 1, "event": {"type": "message", "messageId": f"a{n}", "text": f"**answer {n}**"}},
+        {"seq": seq + 2, "ts": 1, "event": {"type": "agent_message", "messageId": f"a{n}", "text": f"**answer {n}**"}},
     ]
 
 
 def test_reducer_rewind_drops_later_items():
     s = state.empty_state({"id": "r1", "status": "queued"}, {"prompt": "hi"})
     events = [
-        {"type": "user", "message": {"id": "u1", "role": "user", "text": "a", "ts": 1}},
+        {"type": "user_message", "message": {"id": "u1", "role": "user", "text": "a", "ts": 1}},
         {"type": "text", "messageId": "a1", "delta": "he"},
         {"type": "text", "messageId": "a1", "delta": "llo"},
-        {"type": "user", "message": {"id": "u2", "role": "user", "text": "b", "ts": 2}},
+        {"type": "user_message", "message": {"id": "u2", "role": "user", "text": "b", "ts": 2}},
         {"type": "text", "messageId": "a2", "delta": "x"},
     ]
 
@@ -71,8 +71,8 @@ def test_snapshot_keeps_recent_turns_and_outlines_the_rest():
 def test_a_thread_is_searched_across_messages_changes_and_questions():
     s = state.empty_state({"id": "r1", "status": "done"}, {"prompt": "hi"})
     events = [
-        {"type": "user", "message": {"id": "u1", "role": "user", "text": "Why is the Rule slow?", "ts": 1}},
-        {"type": "message", "messageId": "a1", "text": "Looking at the rule queue.", "ts": 2},
+        {"type": "user_message", "message": {"id": "u1", "role": "user", "text": "Why is the Rule slow?", "ts": 1}},
+        {"type": "agent_message", "messageId": "a1", "text": "Looking at the rule queue.", "ts": 2},
         {"type": "tool", "tool": {"id": "t1", "name": "ov_sql", "label": "rule SQL", "status": "ok"}},
         {
             "type": "question",
@@ -108,7 +108,7 @@ def test_streamed_reasoning_is_kept_on_the_message_it_belongs_to():
         {"type": "reasoning", "messageId": "a1", "delta": "Check "},
         {"type": "reasoning", "messageId": "a1", "delta": "tags."},
         {"type": "text", "messageId": "a1", "delta": "Two."},
-        {"type": "message", "messageId": "a2", "text": "", "ts": 5, "reasoning": "Only thought."},
+        {"type": "agent_message", "messageId": "a2", "text": "", "ts": 5, "reasoning": "Only thought."},
     ]
 
     for seq, event in enumerate(events):

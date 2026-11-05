@@ -246,21 +246,19 @@ export type RunEvent =
       caseKey?: string
       caseUrl?: string
       instance?: string
-      continuedFrom?: ThreadLink
-      continuedIn?: ThreadLink
     }
   | { type: 'tool'; tool: ToolUpdate }
   | { type: 'text'; messageId: string; delta: string }
   | { type: 'reasoning'; messageId: string; delta: string }
   | {
-      type: 'message'
+      type: 'agent_message'
       messageId: string
       text: string
       ts?: number
       links?: MessageLinks
       reasoning?: string
     }
-  | { type: 'user'; message: ChatMessage }
+  | { type: 'user_message'; message: ChatMessage }
   | { type: 'change'; change: Change }
   | { type: 'grid'; grid: GridUpdate }
   | { type: 'edit'; edit: FileEdit }
@@ -269,13 +267,15 @@ export type RunEvent =
   | { type: 'login'; login: LoginPrompt }
   | { type: 'access'; access: Access }
   | { type: 'browser'; browser: Partial<BrowserState> }
-  | { type: 'queued'; message: ChatMessage }
-  | { type: 'unqueue'; id: string }
-  | { type: 'queue'; order: string[]; steering: string[]; held: boolean }
+  | { type: 'queue_add'; message: ChatMessage }
+  | { type: 'queue_remove'; id: string }
+  | { type: 'queue_order'; order: string[]; steering: string[]; held: boolean }
   | { type: 'rewind'; itemId: string }
   | { type: 'cost'; cost: CostTotal }
   | { type: 'compact'; compact: Compaction }
   | { type: 'context'; context: ContextUsage }
+  | { type: 'branch_result'; branch: ThreadLink; text: string }
+  | { type: 'findings' }
 
 export type Provider = 'copilot' | 'claude' | 'openai'
 
@@ -370,6 +370,7 @@ export interface RunWindow {
   questions: Question[]
   logins: LoginPrompt[]
   compactions: Compaction[]
+  branchResults: BranchResult[]
   outline: OutlineMark[]
 }
 
@@ -388,6 +389,7 @@ export type ThreadItem =
   | { kind: 'login'; id: string }
   | { kind: 'outcome'; id: string }
   | { kind: 'compact'; id: string }
+  | { kind: 'branch_result'; id: string }
 
 export interface Upload {
   id: string
@@ -405,6 +407,8 @@ export interface RunInput {
 
 export type Attention = 'done' | 'failed' | 'woke'
 
+export type Origin = 'branch' | 'summary' | 'findings'
+
 export interface RunSummary {
   id: string
   title: string
@@ -420,7 +424,28 @@ export interface RunSummary {
   snoozedUntil?: number
   attention?: Attention
   cost?: CostTotal
+  parentId?: string
+  origin?: Origin
+  originTurnId?: string
+  inheritedUntil?: number
 }
+
+export interface Finding {
+  id: number
+  text: string
+  turnId: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface BranchResult {
+  id: string
+  branch: ThreadLink
+  text: string
+  ts: number
+}
+
+export type SearchHit = RunSummary & { snippet: string }
 
 export interface RunList {
   active: RunSummary[]
@@ -443,8 +468,9 @@ export interface RunState extends RunWindow {
   instances: string[]
   browser?: BrowserState
   context?: ContextUsage
-  continuedFrom?: ThreadLink
-  continuedIn?: ThreadLink
+  parent?: ThreadLink | null
+  inheritedItems?: number
+  findingsVersion?: number
 }
 
 export type RunSnapshot = RunState & { seq: number }
@@ -686,6 +712,7 @@ export interface HealthMonitor {
   type: string
   groups: string[]
   message: string
+  watching?: [number, string]
 }
 
 export interface HealthMeta {

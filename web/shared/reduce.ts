@@ -31,8 +31,6 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       return {
         ...state,
         caseUrl: event.caseUrl ?? state.caseUrl,
-        continuedFrom: event.continuedFrom ?? state.continuedFrom,
-        continuedIn: event.continuedIn ?? state.continuedIn,
         summary: {
           ...state.summary,
           title: event.title ?? state.summary.title,
@@ -80,7 +78,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
 
       return { ...state, chat, items: withItem(state.items, { kind: 'text', id: event.messageId }) }
     }
-    case 'message': {
+    case 'agent_message': {
       const i = state.chat.findIndex((m) => m.id === event.messageId)
       const chat =
         i < 0
@@ -108,7 +106,7 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
 
       return { ...state, chat, items: withItem(state.items, { kind: 'text', id: event.messageId }) }
     }
-    case 'user':
+    case 'user_message':
       return {
         ...state,
         queued: state.queued.filter((m) => m.id !== event.message.id),
@@ -151,12 +149,12 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
         logins: upsert(state.logins, event.login),
         items: withItem(state.items, { kind: 'login', id: event.login.id }),
       }
-    case 'queued':
+    case 'queue_add':
       if (state.chat.some((m) => m.id === event.message.id)) return state
       return { ...state, queued: upsert(state.queued, event.message) }
-    case 'unqueue':
+    case 'queue_remove':
       return { ...state, queued: state.queued.filter((m) => m.id !== event.id) }
-    case 'queue': {
+    case 'queue_order': {
       const byId = new Map(state.queued.map((m) => [m.id, m]))
       const queued = event.order.flatMap((id) => {
         const message = byId.get(id)
@@ -193,6 +191,22 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       }
     case 'context':
       return { ...state, context: event.context }
+    case 'findings':
+      return { ...state, findingsVersion: (state.findingsVersion ?? 0) + 1 }
+    case 'branch_result': {
+      const id = `b${seq}`
+
+      return {
+        ...state,
+        branchResults: upsert(state.branchResults, {
+          id,
+          branch: event.branch,
+          text: event.text,
+          ts,
+        }),
+        items: withItem(state.items, { kind: 'branch_result', id }),
+      }
+    }
     default:
       return state
   }

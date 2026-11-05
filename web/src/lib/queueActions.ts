@@ -10,14 +10,17 @@ export function useQueueActions(runId: string, queued: ChatMessage[], status: Ru
 
   return {
     remove: (id: string) => {
-      apply({ type: 'unqueue', id })
+      apply({ type: 'queue_remove', id })
       void api.removeQueued(runId, id).catch(reportError)
     },
     send: (id: string) => {
       const message = queued.find((m) => m.id === id)
       if (!message) return
 
-      apply({ type: 'user', message: { ...message, ts: Date.now(), steer: busy || undefined } })
+      apply({
+        type: 'user_message',
+        message: { ...message, ts: Date.now(), steer: busy || undefined },
+      })
       if (!busy) {
         apply({ type: 'status', status: 'running' })
         patchLocally(runId, { status: 'running' })
@@ -25,13 +28,13 @@ export function useQueueActions(runId: string, queued: ChatMessage[], status: Ru
 
       void api.sendQueued(runId, id).catch((e: unknown) => {
         apply({ type: 'rewind', itemId: id })
-        apply({ type: 'queued', message })
+        apply({ type: 'queue_add', message })
         if (!busy) apply({ type: 'status', status })
         reportError(e)
       })
     },
     resume: () => {
-      apply({ type: 'queue', order: queued.map((m) => m.id), steering: [], held: false })
+      apply({ type: 'queue_order', order: queued.map((m) => m.id), steering: [], held: false })
       void api.resumeQueue(runId).catch(reportError)
     },
   }

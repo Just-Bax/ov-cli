@@ -9,7 +9,18 @@ State = dict[str, Any]
 Stored = dict[str, Any]
 
 MARK_LABEL_CHARS = 160
-WINDOWED = ("items", "chat", "tools", "changes", "grids", "questions", "logins", "edits", "compactions")
+WINDOWED = (
+    "items",
+    "chat",
+    "tools",
+    "changes",
+    "grids",
+    "questions",
+    "logins",
+    "edits",
+    "compactions",
+    "branchResults",
+)
 TOOL_DETAIL = ("input", "output")
 EDIT_DETAIL = ("before", "after")
 
@@ -28,6 +39,7 @@ def empty_state(summary: dict[str, Any], access: str) -> State:
         "chat": [],
         "instances": [summary["instance"]] if summary.get("instance") else [],
         "access": access,
+        "branchResults": [],
         "queued": [],
         "queueHeld": False,
         "steering": [],
@@ -73,9 +85,6 @@ def _on_meta(state: State, stored: Stored) -> None:
 
     if event.get("caseUrl"):
         state["caseUrl"] = event["caseUrl"]
-    for link in ("continuedFrom", "continuedIn"):
-        if event.get(link):
-            state[link] = event[link]
 
     if event.get("session"):
         _on_session(state["session"], event["session"])
@@ -123,7 +132,7 @@ def _on_reasoning(state: State, stored: Stored) -> None:
     _add_item(state, "text", message["id"])
 
 
-def _on_message(state: State, stored: Stored) -> None:
+def _on_agent_message(state: State, stored: Stored) -> None:
     event = stored["event"]
     for message in state["chat"]:
         if message["id"] == event["messageId"]:
@@ -147,7 +156,7 @@ def _on_message(state: State, stored: Stored) -> None:
     _add_item(state, "text", event["messageId"])
 
 
-def _on_user(state: State, stored: Stored) -> None:
+def _on_user_message(state: State, stored: Stored) -> None:
     message = stored["event"]["message"]
     state["queued"] = _without(state["queued"], message["id"])
     if not message.get("steer"):
@@ -180,14 +189,14 @@ def _on_edit(state: State, stored: Stored) -> None:
     _upsert(state["edits"], stored["event"]["edit"])
 
 
-def _on_queued(state: State, stored: Stored) -> None:
+def _on_queue_add(state: State, stored: Stored) -> None:
     message = stored["event"]["message"]
     if any(m["id"] == message["id"] for m in state["chat"]):
         return
     _upsert(state["queued"], message)
 
 
-def _on_queue(state: State, stored: Stored) -> None:
+def _on_queue_order(state: State, stored: Stored) -> None:
     event = stored["event"]
     by_id = {m["id"]: m for m in state["queued"]}
     state["queued"] = [by_id[i] for i in event["order"] if i in by_id]
@@ -195,7 +204,7 @@ def _on_queue(state: State, stored: Stored) -> None:
     state["steering"] = event["steering"]
 
 
-def _on_unqueue(state: State, stored: Stored) -> None:
+def _on_queue_remove(state: State, stored: Stored) -> None:
     state["queued"] = _without(state["queued"], stored["event"]["id"])
 
 
@@ -212,6 +221,12 @@ def _on_rewind(state: State, stored: Stored) -> None:
     if not (state.get("outcomeId") and f"outcome:{state['outcomeId']}" in keep):
         state.pop("outcome", None)
         state.pop("outcomeId", None)
+
+
+def _on_branch_result(state: State, stored: Stored) -> None:
+    result = {**{k: stored["event"][k] for k in ("branch", "text")}, "id": f"b{stored['seq']}", "ts": stored["ts"]}
+    state["branchResults"].append(result)
+    _add_item(state, "branch_result", result["id"])
 
 
 def _on_access(state: State, stored: Stored) -> None:
@@ -232,22 +247,23 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "tool": _on_tool,
     "text": _on_text,
     "reasoning": _on_reasoning,
-    "message": _on_message,
-    "user": _on_user,
+    "agent_message": _on_agent_message,
+    "user_message": _on_user_message,
     "change": _upserter("change", "changes"),
     "grid": _on_grid,
     "edit": _on_edit,
     "outcome": _on_outcome,
     "question": _upserter("question", "questions"),
     "login": _upserter("login", "logins"),
-    "queued": _on_queued,
-    "unqueue": _on_unqueue,
-    "queue": _on_queue,
+    "queue_add": _on_queue_add,
+    "queue_remove": _on_queue_remove,
+    "queue_order": _on_queue_order,
     "rewind": _on_rewind,
     "access": _on_access,
     "browser": _on_browser,
     "compact": _upserter("compact", "compactions"),
     "context": _on_context,
+    "branch_result": _on_branch_result,
 }
 
 
@@ -312,6 +328,7 @@ def window(state: State, end: int, turns: int) -> State:
         "questions": [q for q in state["questions"] if ("question", q["id"]) in keys],
         "logins": [x for x in state["logins"] if ("login", x["id"]) in keys],
         "compactions": [c for c in state["compactions"] if ("compact", c["id"]) in keys],
+        "branchResults": [b for b in state["branchResults"] if ("branch_result", b["id"]) in keys],
         "outline": outline(state, start),
     }
 
@@ -348,6 +365,8 @@ def _searchable(state: State) -> dict[tuple[str, str], str]:
         texts[("question", question["id"])] = question_text(question)
     for grid in state["grids"]:
         texts[("grid", grid["id"])] = grid["title"]
+    for result in state["branchResults"]:
+        texts[("branch_result", result["id"])] = f"{result['branch']['title']} {result['text']}"
 
     outcome = state.get("outcome")
     if outcome and state.get("outcomeId"):

@@ -21,6 +21,7 @@ DEFAULT_TURNS = 10
 MAX_TURNS = 100
 EXPORT_NAME_CHARS = 80
 _UNSAFE_FILE_CHARS = re.compile(r"[^\w\- ]+")
+MIN_SEARCH_CHARS = 3
 INLINE_FILES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".log", ".csv"}
 
 
@@ -36,7 +37,7 @@ def require_run(run_id: str) -> Any:
     return run
 
 
-@route("GET", "/api/runs")
+@route("GET", "/api/threads")
 def list_runs(h: Handler) -> dict[str, Any]:
     settled = min(max(int(h.query.get("settled", str(SETTLED_PAGE))), 1), db.RUN_LIST_LIMIT)
     open_runs = db.list_threads(settled=False)
@@ -49,7 +50,7 @@ def list_runs(h: Handler) -> dict[str, Any]:
     }
 
 
-@route("POST", "/api/runs")
+@route("POST", "/api/threads")
 def start_run(h: Handler) -> dict[str, str]:
     data = h.json()
     settings = db.get_preferences()
@@ -77,13 +78,13 @@ def start_run(h: Handler) -> dict[str, str]:
     return {"id": run.id}
 
 
-@route("DELETE", "/api/runs/([a-z0-9]+)")
+@route("DELETE", "/api/threads/([a-z0-9]+)")
 def delete_run(_: Handler, run_id: str) -> dict[str, bool]:
     runs.delete(run_id)
     return {"ok": True}
 
 
-@route("GET", "/api/runs/([a-z0-9]+)")
+@route("GET", "/api/threads/([a-z0-9]+)")
 def get_run(h: Handler, run_id: str) -> str:
     return require_run(run_id).snapshot(_turns(h))
 
@@ -92,12 +93,12 @@ def _turns(h: Handler) -> int:
     return max(1, min(int(h.query.get("turns", str(DEFAULT_TURNS))), MAX_TURNS))
 
 
-@route("GET", "/api/runs/([a-z0-9]+)/history")
+@route("GET", "/api/threads/([a-z0-9]+)/history")
 def run_history(h: Handler, run_id: str) -> str:
     return require_run(run_id).history(int(required(h.query, "end")), _turns(h))
 
 
-@route("GET", "/api/runs/([a-z0-9]+)/search")
+@route("GET", "/api/threads/([a-z0-9]+)/search")
 def run_search(h: Handler, run_id: str) -> dict[str, list[int]]:
     query = required(h.query, "q").strip()
     if not query:
@@ -105,26 +106,106 @@ def run_search(h: Handler, run_id: str) -> dict[str, list[int]]:
     return require_run(run_id).search(query)
 
 
-@route("GET", "/api/runs/([a-z0-9]+)/details")
+@route("GET", "/api/threads/([a-z0-9]+)/details")
 def run_details(h: Handler, run_id: str) -> str:
     tools = {x for x in h.query.get("tools", "").split(",") if x}
     edits = {x for x in h.query.get("edits", "").split(",") if x}
     return require_run(run_id).details(tools, edits)
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/compact")
+@route("POST", "/api/threads/([a-z0-9]+)/compact")
 def compact(_: Handler, run_id: str) -> dict[str, bool]:
     require_run(run_id).compact()
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/continue")
+@route("POST", "/api/threads/([a-z0-9]+)/continue")
 def continue_run(_: Handler, run_id: str) -> dict[str, str]:
     require_thread(run_id)
     return {"id": runs.continue_in_new(run_id).id}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/pin")
+@route("POST", "/api/threads/([a-z0-9]+)/branch")
+def branch(h: Handler, run_id: str) -> dict[str, str]:
+    before = h.json().get("before")
+    if before is not None and not isinstance(before, str):
+        raise HttpError(400, "before must be a message id or null.")
+    return {"id": runs.branch(run_id, before).id}
+
+
+@route("POST", "/api/threads/([a-z0-9]+)/retry-branch")
+def retry_branch(h: Handler, run_id: str) -> dict[str, str]:
+    return {"id": runs.retry_as_branch(run_id, required(h.json(), "itemId")).id}
+
+
+@route("POST", "/api/threads/([a-z0-9]+)/aside")
+def aside(h: Handler, run_id: str) -> dict[str, str]:
+    data = h.json()
+    text, files = str(data.get("text", "")), objects(data, "files")
+    if not text.strip() and not files:
+        raise HttpError(400, "Write what to ask in the aside.")
+    return {"id": runs.aside(run_id, required(data, "id"), text, files).id}
+
+
+@route("GET", "/api/threads/([a-z0-9]+)/branches")
+def branches(_: Handler, run_id: str) -> dict[str, Any]:
+    require_thread(run_id)
+    return {"branches": db.child_threads(run_id)}
+
+
+@route("POST", "/api/threads/([a-z0-9]+)/bring-back/draft")
+def bring_back_draft(_: Handler, run_id: str) -> dict[str, str]:
+    return {"text": require_run(run_id).bring_back_draft()}
+
+
+@route("POST", "/api/threads/([a-z0-9]+)/bring-back")
+def bring_back(h: Handler, run_id: str) -> dict[str, bool]:
+    runs.bring_back(run_id, str(required(h.json(), "text")))
+    return {"ok": True}
+
+
+@route("POST", "/api/threads/([a-z0-9]+)/from-findings")
+def from_findings(_: Handler, run_id: str) -> dict[str, str]:
+    return {"id": runs.from_findings(run_id).id}
+
+
+@route("GET", "/api/threads/([a-z0-9]+)/findings")
+def findings(_: Handler, run_id: str) -> dict[str, Any]:
+    require_thread(run_id)
+    return {"findings": db.list_findings(run_id)}
+
+
+@route("POST", "/api/threads/([a-z0-9]+)/findings")
+def add_finding(h: Handler, run_id: str) -> dict[str, Any]:
+    return require_run(run_id).save_finding(str(required(h.json(), "text")))
+
+
+@route("POST", "/api/threads/([a-z0-9]+)/findings/([0-9]+)")
+def edit_finding(h: Handler, run_id: str, finding_id: str) -> dict[str, bool]:
+    text = str(required(h.json(), "text")).strip()
+    if not text:
+        raise HttpError(400, "A finding needs some text.")
+    db.update_finding(run_id, int(finding_id), text)
+    require_run(run_id).push_live({"type": "findings"})
+    return {"ok": True}
+
+
+@route("DELETE", "/api/threads/([a-z0-9]+)/findings/([0-9]+)")
+def delete_finding(_: Handler, run_id: str, finding_id: str) -> dict[str, bool]:
+    db.delete_finding(run_id, int(finding_id))
+    require_run(run_id).push_live({"type": "findings"})
+    return {"ok": True}
+
+
+@route("GET", "/api/search")
+def search_threads(h: Handler) -> dict[str, Any]:
+    query = required(h.query, "q").strip()
+    if len(query) < MIN_SEARCH_CHARS:
+        raise HttpError(400, f"Search for at least {MIN_SEARCH_CHARS} characters.")
+    return {"threads": db.search_threads(query)}
+
+
+@route("POST", "/api/threads/([a-z0-9]+)/pin")
 def pin(h: Handler, run_id: str) -> dict[str, bool]:
     require_thread(run_id)
 
@@ -143,7 +224,7 @@ def _not_waiting(run_id: str, action: str) -> None:
         raise HttpError(400, f"This thread is waiting for you. Answer it before {action}.")
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/snooze")
+@route("POST", "/api/threads/([a-z0-9]+)/snooze")
 def snooze(h: Handler, run_id: str) -> dict[str, bool]:
     require_thread(run_id)
 
@@ -158,7 +239,7 @@ def snooze(h: Handler, run_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/seen")
+@route("POST", "/api/threads/([a-z0-9]+)/seen")
 def seen(_: Handler, run_id: str) -> dict[str, bool]:
     require_thread(run_id)
     db.set_seen(run_id)
@@ -166,7 +247,7 @@ def seen(_: Handler, run_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/settle")
+@route("POST", "/api/threads/([a-z0-9]+)/settle")
 def settle(h: Handler, run_id: str) -> dict[str, bool]:
     require_thread(run_id)
 
@@ -193,7 +274,7 @@ def status_events(h: Handler) -> None:
         unsubscribe()
 
 
-@route("GET", "/api/runs/([a-z0-9]+)/events")
+@route("GET", "/api/threads/([a-z0-9]+)/events")
 def run_events(h: Handler, run_id: str) -> None:
     run = require_run(run_id)
     last = int(required(h.query, "after"))
@@ -219,7 +300,7 @@ def run_events(h: Handler, run_id: str) -> None:
         unsubscribe()
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/answer")
+@route("POST", "/api/threads/([a-z0-9]+)/answer")
 def answer(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     answers = data.get("answers")
@@ -229,7 +310,7 @@ def answer(h: Handler, run_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/login")
+@route("POST", "/api/threads/([a-z0-9]+)/login")
 def run_login(h: Handler, run_id: str) -> dict[str, Any]:
     data = h.json()
     run = require_run(run_id)
@@ -238,7 +319,7 @@ def run_login(h: Handler, run_id: str) -> dict[str, Any]:
     return run.login(login_id, bool(data.get("skip")), token, screen_size(data), bool(data.get("remember")))
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/message")
+@route("POST", "/api/threads/([a-z0-9]+)/message")
 def message(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     files = objects(data, "files")
@@ -253,13 +334,13 @@ def message(h: Handler, run_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/grids/([A-Za-z0-9_]+)/rerun")
+@route("POST", "/api/threads/([a-z0-9]+)/grids/([A-Za-z0-9_]+)/rerun")
 def rerun_grid(_: Handler, run_id: str, grid_id: str) -> dict[str, bool]:
     require_run(run_id).rerun_grid(grid_id)
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/grids/([A-Za-z0-9_]+)/revert")
+@route("POST", "/api/threads/([a-z0-9]+)/grids/([A-Za-z0-9_]+)/revert")
 def revert_grid(_: Handler, run_id: str, grid_id: str) -> dict[str, bool]:
     require_run(run_id).revert_grid(grid_id)
     db.set_settled(run_id, False)
@@ -268,31 +349,31 @@ def revert_grid(_: Handler, run_id: str, grid_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/title")
+@route("POST", "/api/threads/([a-z0-9]+)/title")
 def rename(h: Handler, run_id: str) -> dict[str, bool]:
     require_run(run_id).rename(required(h.json(), "title"))
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/retry")
+@route("POST", "/api/threads/([a-z0-9]+)/retry")
 def retry(h: Handler, run_id: str) -> dict[str, bool]:
     require_run(run_id).retry(required(h.json(), "itemId"))
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/send")
+@route("POST", "/api/threads/([a-z0-9]+)/queued/([^/]+)/send")
 def send_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
     require_run(run_id).send_queued(message_id)
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/text")
+@route("POST", "/api/threads/([a-z0-9]+)/queued/([^/]+)/text")
 def edit_queued(h: Handler, run_id: str, message_id: str) -> dict[str, bool]:
     require_run(run_id).edit_queued(message_id, str(h.json().get("text", "")))
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/queued/([^/]+)/move")
+@route("POST", "/api/threads/([a-z0-9]+)/queued/([^/]+)/move")
 def move_queued(h: Handler, run_id: str, message_id: str) -> dict[str, bool]:
     before = h.json().get("before")
     if before is not None and not isinstance(before, str):
@@ -301,25 +382,25 @@ def move_queued(h: Handler, run_id: str, message_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/queue/resume")
+@route("POST", "/api/threads/([a-z0-9]+)/queue/resume")
 def resume_queue(_: Handler, run_id: str) -> dict[str, bool]:
     require_run(run_id).resume_queue()
     return {"ok": True}
 
 
-@route("DELETE", "/api/runs/([a-z0-9]+)/queued/([^/]+)")
+@route("DELETE", "/api/threads/([a-z0-9]+)/queued/([^/]+)")
 def remove_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
     require_run(run_id).remove_queued(message_id)
     return {"ok": True}
 
 
-@route("GET", "/api/runs/([a-z0-9]+)/cost")
+@route("GET", "/api/threads/([a-z0-9]+)/cost")
 def run_cost(_: Handler, run_id: str) -> dict[str, Any]:
     require_thread(run_id)
     return db.thread_cost(run_id)
 
 
-@route("GET", "/api/runs/([a-z0-9]+)/export")
+@route("GET", "/api/threads/([a-z0-9]+)/export")
 def export_run(h: Handler, run_id: str) -> None:
     run = require_run(run_id)
     name = _UNSAFE_FILE_CHARS.sub("", run.state["summary"]["title"]).strip()[:EXPORT_NAME_CHARS] or run_id
@@ -332,7 +413,7 @@ def export_run(h: Handler, run_id: str) -> None:
     )
 
 
-@route("GET", "/api/runs/([a-z0-9]+)/files/([^/]+)")
+@route("GET", "/api/threads/([a-z0-9]+)/files/([^/]+)")
 def run_file(h: Handler, run_id: str, name: str) -> None:
     require_thread(run_id)
     path = within(attachments_dir(run_id), Path(name).name)
@@ -361,25 +442,25 @@ def _access(data: dict[str, Any]) -> Access:
     return access
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/access")
+@route("POST", "/api/threads/([a-z0-9]+)/access")
 def access(h: Handler, run_id: str) -> dict[str, bool]:
     require_run(run_id).set_access(_access(h.json()))
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/cancel")
+@route("POST", "/api/threads/([a-z0-9]+)/cancel")
 def cancel(_: Handler, run_id: str) -> dict[str, bool]:
     require_run(run_id).stop()
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/tools/([A-Za-z0-9_\\-]+)/background")
+@route("POST", "/api/threads/([a-z0-9]+)/tools/([A-Za-z0-9_\\-]+)/background")
 def background_tool(_: Handler, run_id: str, tool_id: str) -> dict[str, bool]:
     require_run(run_id).move_to_background(tool_id)
     return {"ok": True}
 
 
-@route("POST", "/api/runs/([a-z0-9]+)/tools/([A-Za-z0-9_\\-]+)/stop")
+@route("POST", "/api/threads/([a-z0-9]+)/tools/([A-Za-z0-9_\\-]+)/stop")
 def stop_tool(_: Handler, run_id: str, tool_id: str) -> dict[str, bool]:
     require_run(run_id).stop_tool(tool_id)
     return {"ok": True}

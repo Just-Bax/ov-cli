@@ -12,6 +12,10 @@ def thread_fk() -> ForeignKey:
     return ForeignKey("thread.id", ondelete="CASCADE")
 
 
+def parent_fk() -> ForeignKey:
+    return ForeignKey("thread.id", ondelete="SET NULL")
+
+
 class ThreadStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -25,22 +29,29 @@ class EventType(StrEnum):
     STATUS = "status"
     META = "meta"
     TOOL = "tool"
-    MESSAGE = "message"
-    USER = "user"
+    AGENT_MESSAGE = "agent_message"
+    USER_MESSAGE = "user_message"
     CHANGE = "change"
     GRID = "grid"
     EDIT = "edit"
     OUTCOME = "outcome"
     QUESTION = "question"
     LOGIN = "login"
-    QUEUED = "queued"
-    UNQUEUE = "unqueue"
-    QUEUE = "queue"
+    QUEUE_ADD = "queue_add"
+    QUEUE_REMOVE = "queue_remove"
+    QUEUE_ORDER = "queue_order"
     REWIND = "rewind"
     ACCESS = "access"
     BROWSER = "browser"
     COMPACT = "compact"
     CONTEXT = "context"
+    BRANCH_RESULT = "branch_result"
+
+
+class Origin(StrEnum):
+    BRANCH = "branch"
+    SUMMARY = "summary"
+    FINDINGS = "findings"
 
 
 class FollowUp(StrEnum):
@@ -64,10 +75,11 @@ class MessageRole(StrEnum):
 
 class UsageKind(StrEnum):
     TURN = "turn"
-    STEP = "step"
-    NAMING = "naming"
+    AGENT = "agent"
+    BROWSER = "browser"
+    TITLE = "title"
     GUARD = "guard"
-    COMPACT = "compact"
+    SUMMARY = "summary"
 
 
 class Reasoning(StrEnum):
@@ -110,9 +122,12 @@ class Thread(Base):
     __table_args__ = (
         one_of("status", ThreadStatus),
         one_of("access", Access),
-        Index("thread_by_created", "created_at"),
+        one_of("origin", Origin, nullable=True),
+        CheckConstraint("inherited_until >= 0", name="inherited_until_valid"),
+        Index("thread_by_updated", "updated_at"),
         Index("thread_by_settled", "settled_at"),
         Index("thread_by_status", "status"),
+        Index("thread_by_parent", "parent_id"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -121,26 +136,18 @@ class Thread(Base):
     status: Mapped[str] = mapped_column(Text)
     provider: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(Text)
-    prompt: Mapped[str] = mapped_column(Text)
     access: Mapped[str] = mapped_column(Text)
+    parent_id: Mapped[str | None] = mapped_column(Text, parent_fk())
+    origin: Mapped[str | None] = mapped_column(Text)
+    origin_turn_id: Mapped[str | None] = mapped_column(Text)
+    inherited_until: Mapped[int] = mapped_column(Integer)
     pinned_at: Mapped[int | None] = mapped_column(Integer)
     snoozed_until: Mapped[int | None] = mapped_column(Integer)
     settled_at: Mapped[int | None] = mapped_column(Integer)
-    status_at: Mapped[int | None] = mapped_column(Integer)
+    status_changed_at: Mapped[int | None] = mapped_column(Integer)
     seen_at: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[int] = mapped_column(Integer)
     updated_at: Mapped[int] = mapped_column(Integer)
-
-
-class Attachment(Base):
-    __tablename__ = "attachment"
-    __table_args__ = (Index("attachment_by_thread", "thread_id"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    thread_id: Mapped[str] = mapped_column(Text, thread_fk())
-    turn_id: Mapped[str] = mapped_column(Text)
-    name: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[int] = mapped_column(Integer)
 
 
 class Event(Base):
@@ -182,7 +189,7 @@ class Usage(Base):
     model: Mapped[str] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(Text)
     input_tokens: Mapped[int] = mapped_column(Integer)
-    cached_tokens: Mapped[int] = mapped_column(Integer)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer)
     cache_write_tokens: Mapped[int] = mapped_column(Integer)
     output_tokens: Mapped[int] = mapped_column(Integer)
     cost_nano: Mapped[int] = mapped_column(Integer)
@@ -234,5 +241,17 @@ class Skill(Base):
     description: Mapped[str] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Integer)
+    created_at: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[int] = mapped_column(Integer)
+
+
+class Finding(Base):
+    __tablename__ = "finding"
+    __table_args__ = (Index("finding_by_thread", "thread_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    thread_id: Mapped[str] = mapped_column(Text, thread_fk())
+    text: Mapped[str] = mapped_column(Text)
+    turn_id: Mapped[str] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(Integer)
     updated_at: Mapped[int] = mapped_column(Integer)

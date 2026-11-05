@@ -92,8 +92,9 @@ def test_a_thread_continues_in_a_new_one_from_a_summary(logged_in, monkeypatch):
     wait_done(continued)
 
     source_title = run.state["summary"]["title"]
-    assert continued.state["continuedFrom"] == {"id": run.id, "title": source_title}
-    assert run.state["continuedIn"] == {"id": continued.id, "title": continued.state["summary"]["title"]}
+    assert continued.state["parent"] == {"id": run.id, "title": source_title}
+    assert (continued.state["summary"]["parentId"], continued.state["summary"]["origin"]) == (run.id, "summary")
+    assert [t["id"] for t in db.child_threads(run.id)] == [continued.id]
     assert continued.state["summary"]["title"] == f"{source_title} (continued)"
     assert (continued.provider, continued.model, continued.instance) == ("copilot", "test-model", "acme")
     assert continued.state["chat"][-1]["text"].startswith(f"Continued from **{source_title}**")

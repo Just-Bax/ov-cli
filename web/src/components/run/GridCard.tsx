@@ -244,7 +244,15 @@ function HeaderCell({
   )
 }
 
-export function GridCard({ grid, runId }: { grid: Grid; runId: string }) {
+export function GridCard({
+  grid,
+  runId,
+  inherited = false,
+}: {
+  grid: Grid
+  runId: string
+  inherited?: boolean
+}) {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<Sort>()
   const [failedOnly, setFailedOnly] = useState(false)
@@ -328,7 +336,7 @@ export function GridCard({ grid, runId }: { grid: Grid; runId: string }) {
             ? `${rows.length} rows`
             : `${rows.length} of ${grid.rows.length}`}
         </span>
-        {change?.state === 'done' && change.updated ? (
+        {change?.state === 'done' && change.updated && !inherited ? (
           <RevertButton grid={grid} runId={runId} />
         ) : null}
       </div>

@@ -50,7 +50,7 @@ def test_stopping_closes_open_questions(logged_in, monkeypatch):
 def test_two_open_questions_keep_the_run_waiting(logged_in):
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("rwait", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rwait", "t", "copilot", "m", instance=None, access=Access.READ)
     run = runs.get("rwait")
     answers: list[str] = []
     threads = [threading.Thread(target=lambda q=q: answers.extend(run.ask_user([_item(q)]))) for q in ("one", "two")]
@@ -91,7 +91,7 @@ def test_a_batch_is_answered_all_at_once(logged_in):
     from ov.agent.engine.run_common import RunError
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("rbatch", "t", "copilot", "m", prompt="x", instance=None, access=Access.READ)
+    db.create_thread("rbatch", "t", "copilot", "m", instance=None, access=Access.READ)
     run = runs.get("rbatch")
     thread, holder = _asking(run, lambda: run.ask_user([_item("one"), _item("two")]))
     question = run.state["questions"][0]
@@ -108,7 +108,7 @@ def test_an_approval_keeps_the_rejection_note(logged_in):
     from ov.agent.engine.run_common import RunError
     from ov.agent.engine.run_manager import runs
 
-    db.create_thread("rappr", "t", "copilot", "m", prompt="x", instance=None, access=Access.ASK)
+    db.create_thread("rappr", "t", "copilot", "m", instance=None, access=Access.ASK)
     run = runs.get("rappr")
     thread, holder = _asking(run, lambda: run.ask_approval("Run it?", "rm -rf build", "deletes files"))
     question = run.state["questions"][0]
