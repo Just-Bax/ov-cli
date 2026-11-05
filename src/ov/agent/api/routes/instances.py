@@ -10,7 +10,7 @@ from ov.agent.api.handler import Handler, HttpError, required, route
 from ov.agent.api.screen import Screen, find_screen, screen_key
 from ov.agent.api.streams import push_input, stream_screen
 from ov.agent.instances import access, explorer, graph
-from ov.agent.instances.ovproc import find_instance, instances, login, run_ov, url_for
+from ov.agent.instances.ovproc import find_instance, instances, login, remember, run_ov, url_for
 from ov.onevizion.auth import LOGIN_PATH
 
 LOGOUT_TIMEOUT_SECONDS = 60
@@ -67,6 +67,15 @@ def login_instance(h: Handler) -> dict[str, Any]:
 
     result = login(url, tenant, token, screen_size(data), bool(data.get("remember")))
     return {"ok": result.code == 0, "message": result.message[-LOGIN_MESSAGE_CHARS:]}
+
+
+@route("POST", "/api/instances/remember")
+def remember_instance(h: Handler) -> list[dict[str, Any]]:
+    alias = instance_alias(h, required(h.json(), "alias"))
+    result = remember(alias)
+    if result.code != 0:
+        raise HttpError(400, result.message[-LOGIN_MESSAGE_CHARS:] or "Could not create the token.")
+    return _with_access()
 
 
 @route("GET", "/api/instances/check")

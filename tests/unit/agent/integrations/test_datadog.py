@@ -190,23 +190,28 @@ def test_times_accept_relative_iso_and_epoch():
 
 
 def test_health_loads_per_section(linked):
-    datadog.save_matches({"acme": "host:acme-app-*"})
+    datadog.save_matches({"acme": "host:(acme-app-01 OR acme-app-02)"})
     meta = datadog.health_meta("acme", "24h")
-    assert meta["scope"] == "host:acme-app-*"
+    assert meta["scope"] == "host:(acme-app-01 OR acme-app-02)" and meta["interval"] == 1_800_000
 
     def section(name):
         return datadog.health_section("acme", "24h", name, meta["to"])
 
-    assert [m["name"] for m in section("monitors")["monitors"]][:1] == ["Heap high on acme"]
-    assert section("logs")["topErrors"][0]["count"] == 2
+    monitors = {m["name"]: m for m in section("monitors")["monitors"]}
+    assert set(monitors) == {"Heap high on acme", "Acme disk", "[Synthetics] Latency for acme.onevizion.test"}
+    assert monitors["Heap high on acme"]["state"] == "Alert"
+    assert monitors["Heap high on acme"]["groups"] == ["host:acme-app-01"]
+
     traffic = section("traffic")
-    assert traffic["traffic"]["p95Ms"][0]["v"] == 2000.0 and traffic["slowEndpoints"]
+    assert traffic["p95Ms"][0]["v"] == 2000.0 and traffic["slowEndpoints"]
+    assert traffic["requests"] and traffic["errors"]
+    assert any("trace.servlet.request.hits" in r.url.params.get("query", "") for r in linked.requests)
+
     server = section("servers")["servers"][0]
     assert (server["host"], server["role"], server["metrics"]["cpu"]["latest"]) == ("acme-app-01", "acme-app", 30.0)
-    assert section("events")["events"]
 
     before = len(linked.requests)
-    section("logs")
+    section("traffic")
     assert len(linked.requests) == before
 
 
@@ -214,6 +219,8 @@ def test_a_health_section_without_access_is_unavailable(linked):
     datadog.save_matches({})
     meta = datadog.health_meta("acme", "24h")
     with pytest.raises(datadog.Unavailable, match="no Datadog servers"):
+        datadog.health_section("acme", "24h", "traffic", meta["to"])
+    with pytest.raises(datadog.DatadogError, match="Unknown health section"):
         datadog.health_section("acme", "24h", "logs", meta["to"])
 
 
@@ -260,9 +267,13 @@ def with_databases(linked):
 
 
 def test_detected_databases_come_from_oracle_agents_and_rds_names(with_databases):
-    found = datadog.discover_databases()
+    found = datadog.discover_databases({"acme": ACME_HOSTS})
     assert found["groups"] == {"acme": ["acme-archive", "acme-vpc", "db01.shared.example"]}
     assert {"acme-vpc", "globex", "db01.shared.example"} <= {d["id"] for d in found["databases"]}
+
+
+def test_detected_databases_follow_servers_that_are_not_saved_yet(with_databases):
+    assert datadog.discover_databases({})["groups"] == {}
 
 
 def test_only_matched_databases_are_used(with_databases):

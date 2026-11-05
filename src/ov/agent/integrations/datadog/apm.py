@@ -83,18 +83,11 @@ def _error_span_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _span_series(query: str, start: int, end: int, interval: str) -> dict[str, Any]:
-    timeseries = {"type": "timeseries", "interval": interval}
+def _aggregate(query: str, start: int, end: int, compute: list[dict[str, Any]]) -> dict[str, Any] | None:
     body = {
         "data": {
             "type": "aggregate_request",
-            "attributes": {
-                "compute": [
-                    {"aggregation": "count", **timeseries},
-                    {"aggregation": "pc95", "metric": "@duration", **timeseries},
-                ],
-                "filter": {"from": str(start), "to": str(end), "query": query},
-            },
+            "attributes": {"compute": compute, "filter": {"from": str(start), "to": str(end), "query": query}},
         }
     }
 
@@ -102,16 +95,13 @@ def _span_series(query: str, start: int, end: int, interval: str) -> dict[str, A
         data = dd.call("POST", "/api/v2/spans/analytics/aggregate", "apm", json=body)
 
     buckets = field(data, "data")
-    if not buckets:
-        return {"requests": [], "p95Ms": []}
-
-    compute = _computes(field(buckets[0], "attributes"))
-    latency = [{"t": p["t"], "v": p["v"] / NS_PER_MS} for p in points_of(compute.get("c1", []))]
-    return {"requests": points_of(compute.get("c0", [])), "p95Ms": latency}
+    return _computes(field(buckets[0], "attributes")) if buckets else None
 
 
-def traffic(query: str, start: int, end: int, interval: str) -> dict[str, Any]:
-    entry_spans = _span_series(combine(query, "@span.kind:server"), start, end, interval)
-    if any(p["v"] for p in entry_spans["requests"]):
-        return entry_spans
-    return _span_series(query, start, end, interval)
+def latency_series(query: str, start: int, end: int, interval: str) -> list[dict[str, float]]:
+    compute = _aggregate(
+        query, start, end, [{"aggregation": "pc95", "metric": "@duration", "type": "timeseries", "interval": interval}]
+    )
+    if compute is None:
+        return []
+    return [{"t": p["t"], "v": p["v"] / NS_PER_MS} for p in points_of(compute.get("c0", []))]

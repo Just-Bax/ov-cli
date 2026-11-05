@@ -5,7 +5,7 @@ from typing import Any
 
 from ov.agent.engine.run_common import RunError, uid
 from ov.agent.instances.ovproc import login as ov_login
-from ov.agent.instances.ovproc import url_for
+from ov.agent.instances.ovproc import signed_in_row, url_for
 from ov.agent.tools.base import APPROVE, REJECT, Approval
 
 LOGIN_MESSAGE_CHARS = 300
@@ -105,6 +105,7 @@ class QuestionsMixin:
                     "url": url_for(host),
                     "state": "needed",
                     **({"tenant": tenant} if tenant else {}),
+                    **_previous_sign_in(host, tenant),
                 }
                 self.emit({"type": "login", "login": prompt})
 
@@ -149,6 +150,13 @@ class QuestionsMixin:
         if waiter is not None:
             waiter[1].append(ok)
             waiter[0].set()
+
+
+def _previous_sign_in(host: str, tenant: str) -> dict[str, Any]:
+    row = signed_in_row(host, tenant)
+    if row is None:
+        return {}
+    return {"previous": {key: row[key] for key in ("mode", "endedAt", "expiresAt", "lastWorkedAt")}}
 
 
 def _check_answers(question: dict[str, Any], answers: list[str]) -> None:

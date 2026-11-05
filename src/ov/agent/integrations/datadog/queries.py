@@ -30,6 +30,7 @@ ISO_CLOCK = slice(11, 16)
 EPOCH_MS_THRESHOLD = 10**11
 
 MONITOR_ORDER = {"Alert": 0, "Warn": 1, "No Data": 2}
+MONITOR_RANK = {"OK": 0, "No Data": 1, "Warn": 2, "Alert": 3}
 QUIET_STATES = ("OK", "Ignored", "Skipped")
 
 _RELATIVE = re.compile(r"^now(?:\s*-\s*(\d+)\s*([smhdw]))?$")
@@ -312,3 +313,33 @@ def _monitor_row(mon: dict[str, Any]) -> dict[str, Any]:
         "groups": _monitor_groups(mon)[:MONITOR_GROUPS],
         "message": str(mon.get("message") or "")[:DETAIL_CHARS],
     }
+
+
+def _site_pattern(site: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![\w.-]){re.escape(site.lower())}(?![\w-])")
+
+
+def _names_a_tag(query: str, tags: set[str]) -> bool:
+    text = query.lower()
+    return any(re.search(rf"(?<![\w.-]){re.escape(t)}(?![\w.-])", text) for t in tags)
+
+
+def instance_monitors(tags: list[str], site: str) -> list[dict[str, Any]]:
+    params = {"group_states": "all", "page": 0, "page_size": MONITORS_PAGE}
+    with client() as dd:
+        data = dd.call("GET", "/api/v1/monitor", "monitors", params=params)
+
+    wanted = {t.lower() for t in tags}
+    named = _site_pattern(site)
+    rows = []
+    for mon in data:
+        groups = (mon.get("state") or {}).get("groups") or {}
+        mine = {k: str(v.get("status") or "OK") for k, v in groups.items() if wanted & set(k.lower().split(","))}
+        if mine:
+            state = max(mine.values(), key=lambda s: MONITOR_RANK.get(s, 0))
+            firing = [k for k, v in mine.items() if v != "OK"]
+            rows.append({**_monitor_row(mon), "state": state, "groups": firing[:MONITOR_GROUPS]})
+        elif named.search(str(mon.get("name") or "").lower()) or _names_a_tag(str(mon.get("query") or ""), wanted):
+            rows.append(_monitor_row(mon))
+
+    return sorted(rows, key=lambda m: (MONITOR_ORDER.get(m["state"], len(MONITOR_ORDER)), m["name"]))

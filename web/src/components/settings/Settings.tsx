@@ -3,7 +3,6 @@ import {
   Check as CheckIcon,
   CopySimple as CopyIcon,
   Folder as FolderIcon,
-  Key as KeyIcon,
   MagnifyingGlass as MagnifyingGlassIcon,
   Plus as PlusIcon,
   Trash as TrashIcon,
@@ -37,6 +36,7 @@ import { AccountRow } from '@/components/integrations/parts'
 import { PROVIDER_UI } from '@/components/providers'
 import { CostSettings } from '@/components/settings/CostSettings'
 import { AccessLine, PlatformLabel } from '@/components/settings/AccessLine'
+import { SignInButton, SignInLine, SignInStatus } from '@/components/settings/InstanceSignIn'
 import { ProviderSettings } from '@/components/settings/ProviderSettings'
 import { Row } from '@/components/settings/Row'
 import {
@@ -52,6 +52,7 @@ import { useLoad } from '@/lib/hooks'
 import { useInstances } from '@/lib/instances'
 import { PROVIDER_BRANDS } from '@/lib/providerBrand'
 import { useSettings } from '@/lib/settings'
+import { KINDS_HINT } from '@/lib/signin'
 import { UnsavedGuard, useUnsavedWarning } from '@/lib/unsaved'
 
 function Section({
@@ -231,21 +232,17 @@ function Instances() {
                         {i.host}
                       </span>
                       {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
-                      {i.mode === 'token' ? <Chip tone="neutral">API token</Chip> : null}
                       <PlatformLabel instance={i} />
+                      <SignInLine
+                        instance={i}
+                        onRemembered={setInstances}
+                        onFailed={() => void reload()}
+                      />
                     </div>
                     <AccessLine instance={i} onCheck={() => checkAccess(i.alias)} />
                   </div>
-                  <Chip tone={i.valid ? 'ok' : 'neutral'}>{i.valid ? 'Signed in' : 'Expired'}</Chip>
-                  <Button
-                    size="sm"
-                    variant={i.valid ? 'ghost' : 'secondary'}
-                    busy={busy}
-                    onClick={() => setTarget(row)}
-                  >
-                    <KeyIcon className="size-3.5" />
-                    {busy ? 'Signing in' : i.valid ? 'Refresh' : 'Sign in'}
-                  </Button>
+                  <SignInStatus instance={i} />
+                  <SignInButton instance={i} busy={busy} onSignIn={() => setTarget(row)} />
                   <IconButton
                     label="Remove instance"
                     className="hover:text-danger hover:bg-danger-soft"
@@ -756,7 +753,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
         </Section>
         <Section
           title="Instances"
-          hint="OneVizion instances signed in with ov, and what your account can use on each. The agent picks its sources from that, and only reads unless you allow changes in a thread."
+          hint={`OneVizion instances signed in with ov, and what your account can use on each. The agent only reads unless you allow changes in a thread. ${KINDS_HINT}`}
         >
           <Instances />
         </Section>

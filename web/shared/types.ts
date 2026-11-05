@@ -196,6 +196,7 @@ export interface LoginPrompt {
   tenant?: string
   state: 'needed' | 'running' | 'done' | 'failed' | 'skipped'
   message?: string
+  previous?: PreviousSignIn
 }
 
 export interface MessageFile {
@@ -504,15 +505,26 @@ export interface InstanceAccess {
   mcp?: boolean
 }
 
+export type SignInMode = 'session' | 'token' | 'remembered'
+
+export interface PreviousSignIn {
+  mode: SignInMode
+  endedAt: number | null
+  expiresAt: number | null
+  lastWorkedAt: number | null
+}
+
 export interface Instance {
   alias: string
   url: string
   host: string
   tenant?: string
   current: boolean
-  expires?: string
   valid: boolean
-  mode: 'session' | 'token' | 'remembered'
+  mode: SignInMode
+  endedAt: number | null
+  lastWorkedAt: number | null
+  expiresAt: number | null
   access: InstanceAccess
 }
 
@@ -633,7 +645,7 @@ export interface DatadogDiscovery {
   groups: Record<string, string>
 }
 
-interface HealthServerMetric {
+export interface HealthServerMetric {
   latest: number
   max: number
   points: HealthPoint[]
@@ -657,7 +669,7 @@ export type HealthDatabaseMetricKey =
   | 'sessions'
   | 'tablespace'
 
-interface HealthDatabase extends DatadogDatabase {
+export interface HealthDatabase extends DatadogDatabase {
   shared: boolean
   metrics: Partial<Record<HealthDatabaseMetricKey, HealthServerMetric>>
 }
@@ -667,7 +679,7 @@ export interface HealthPoint {
   v: number
 }
 
-interface HealthMonitor {
+export interface HealthMonitor {
   id: number
   name: string
   state: string
@@ -683,37 +695,35 @@ export interface HealthMeta {
   from: number
   to: number
   appUrl: string
-  links: { logs: string; monitors: string; apm: string; events: string; metrics: string }
+  interval: number
+  links: { monitors: string; apm: string; metrics: string }
 }
 
-interface HealthEvent {
-  time: string
-  title: string
-  message: string
-  source: string
+export interface MaintenanceItem {
+  key: string
+  url: string
+  type: string
   status: string
+  subject: string
+  version: string
+  owner: string
+  start: number | null
+  end: number | null
+  downtimeMinutes: number | null
+  servers: string[]
 }
 
 export interface HealthSections {
   monitors: { monitors: HealthMonitor[] }
-  logs: {
-    errorSeries: HealthPoint[]
-    logSeries: HealthPoint[]
-    previousErrors: number
-    topErrors: { pattern: string; count: number; example: string; service: string; last: string }[]
-  }
   traffic: {
-    traffic: { requests: HealthPoint[]; p95Ms: HealthPoint[] }
+    requests: HealthPoint[]
+    errors: HealthPoint[]
+    p95Ms: HealthPoint[]
     slowEndpoints: { resource: string; p95Ms: number; count: number }[]
   }
   servers: { servers: HealthServer[] }
   database: { databases: HealthDatabase[] }
-  events: { events: HealthEvent[] }
-  onevizion: {
-    byType: { type: string; count: number; last: string }[]
-    failures: { type: string; at: string }[]
-    utcOffsetMinutes: number
-  }
+  maintenance: { items: MaintenanceItem[]; webUrl: string }
   incidents: PagerDutyHealth
 }
 

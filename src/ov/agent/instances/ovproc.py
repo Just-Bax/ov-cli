@@ -27,6 +27,8 @@ DEFAULT_TIMEOUT_SECONDS = 120
 LOGIN_TIMEOUT_SECONDS = 300
 BROWSER_LOGIN_TIMEOUT_SECONDS = 280
 REMEMBER_DAYS = 30
+REMEMBER_TIMEOUT_SECONDS = 60
+MS_PER_SECOND = 1000
 STOP_GRACE_SECONDS = 10
 TIMEOUT_GRACE_SECONDS = 15
 SIGN_IN_CANCELLED = "Sign-in cancelled."
@@ -126,7 +128,6 @@ def instances() -> list[dict[str, Any]]:
     current = session_store.current_alias()
     rows = []
     for alias, session in sorted(session_store.listed().items()):
-        left = session.seconds_left()
         rows.append(
             {
                 "alias": alias,
@@ -134,12 +135,34 @@ def instances() -> list[dict[str, Any]]:
                 "host": host_of(session.base_url),
                 "tenant": session.tenant or None,
                 "current": alias == current,
-                "expires": session.expires_text or None,
-                "valid": left > 0 if left is not None else session.is_static,
                 "mode": session.mode,
+                "valid": _works(session),
+                "endedAt": _ms(session.ended_at),
+                "lastWorkedAt": _ms(session.saved_at),
+                "expiresAt": _ms(session.expires_at) if session.is_static else None,
             }
         )
     return rows
+
+
+def _works(session: session_store.Session) -> bool:
+    if session.ended_at:
+        return False
+    left = session.seconds_left()
+    return left is None or left > 0 if session.is_static else True
+
+
+def _ms(seconds: float) -> int | None:
+    return int(seconds * MS_PER_SECOND) if seconds else None
+
+
+def remember(alias: str) -> OvResult:
+    return run_ov(["remember", alias, "--days", str(REMEMBER_DAYS)], timeout=REMEMBER_TIMEOUT_SECONDS, read_only=False)
+
+
+def signed_in_row(host: str, tenant: str) -> dict[str, Any] | None:
+    wanted = host_of(host)
+    return next((r for r in instances() if r["host"] == wanted and (r["tenant"] or "") == tenant), None)
 
 
 def url_for(host: str) -> str:
@@ -202,8 +225,7 @@ def _check_access(url: str, tenant: str, result: OvResult) -> None:
     if result.code != 0:
         return
 
-    host = host_of(url)
-    found = next((r for r in instances() if r["host"] == host and (r["tenant"] or "") == tenant), None)
+    found = signed_in_row(url, tenant)
     if found is not None:
         access.check_later(found["alias"])
 

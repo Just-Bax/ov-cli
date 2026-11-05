@@ -8,24 +8,27 @@ import { openDraft } from '@/lib/draft'
 import { onePerHost, useInstances } from '@/lib/instances'
 import { href } from '@/lib/route'
 import { hostsIn } from '@/lib/servers'
-import {
-  type Context,
-  DatabaseCard,
-  EventsCard,
-  FailedRunsCard,
-  IncidentsCard,
-  MonitorsCard,
-  ServersCard,
-  SlowEndpointsCard,
-  Summary,
-  TimelineCard,
-  TopErrorsCard,
-} from './cards'
+import { IncidentsTile, MonitorsTile, Overview, PagerDutyOff } from './alerts'
 import { RANGE_WORDS, RANGES, type Range, useHealth } from './data'
+import { DatabaseTile, ServersTile } from './infra'
 import { MatchInstance } from './MatchInstance'
+import { MaintenanceTile } from './maintenance'
+import { EndpointsTile, PerformanceTile } from './performance'
+import type { Context } from './tiles'
 
 const INSTANCE_KEY = 'ov-agent.health-instance'
-const STAT_TILES = 6
+const CHECK_CELLS = 6
+const THIRD = 'col-span-12 xl:col-span-4'
+const MAIN = 'col-span-12 xl:col-span-8'
+const SIDE = 'col-span-12 xl:col-span-4'
+const ALERTS_ROW = 'h-[420px]'
+const TRAFFIC_ROW = 'h-[500px]'
+const INFRA_ROW = 'h-[440px]'
+const SKELETON_ROWS = [
+  [THIRD, THIRD, THIRD].map((span) => `${span} ${ALERTS_ROW}`),
+  [`${MAIN} ${TRAFFIC_ROW}`, `${SIDE} ${TRAFFIC_ROW}`],
+  [`${MAIN} ${INFRA_ROW}`, `${SIDE} ${INFRA_ROW}`],
+].flat()
 const HEALTH_ACTION_WIDTHS = ['w-[260px]', 'w-[112px]', 'w-9', 'w-36']
 
 function serverCount(scope: string): ReactNode {
@@ -36,8 +39,8 @@ function serverCount(scope: string): ReactNode {
 
 function PageSkeleton() {
   return (
-    <div className="space-y-4 p-6">
-      <Card className="space-y-4 p-5">
+    <div className="grid grid-cols-12 gap-4 p-6">
+      <Card className="col-span-12 space-y-4 p-5">
         <div className="flex gap-4">
           <Skeleton className="size-12 rounded-full" />
           <div className="flex-1 space-y-2">
@@ -45,15 +48,18 @@ function PageSkeleton() {
             <Skeleton className="h-3 w-64" />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          {Array.from({ length: STAT_TILES }, (_, i) => (
-            <Skeleton key={i} className="h-[74px] rounded-2xl" />
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+          {Array.from({ length: CHECK_CELLS }, (_, i) => (
+            <Skeleton key={i} className="h-[58px] rounded-2xl" />
           ))}
         </div>
       </Card>
-      <Card className="p-5">
-        <Skeleton className="h-[260px] w-full rounded-2xl" />
-      </Card>
+      {SKELETON_ROWS.map((className, i) => (
+        <Card key={i} className={cn('p-5', className)}>
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="mt-2 h-4 w-40" />
+        </Card>
+      ))}
     </div>
   )
 }
@@ -85,7 +91,7 @@ export function HealthPage() {
   const askAll = () =>
     openDraft({
       instance: alias,
-      prompt: `Check the health of ${label} over the last ${RANGE_WORDS[range]}. Use PagerDuty incidents, Datadog monitors, events such as deploys and restarts, error logs grouped by pattern, traffic and latency, database metrics, and server metrics. Line them up with failed OneVizion processes in the same window. Tell me what changed or is failing, the likely cause, and what to do.`,
+      prompt: `Check the health of ${label} over the last ${RANGE_WORDS[range]}. Start from what is alerting: PagerDuty incidents and Datadog monitors. Then check requests, p95 latency and error rate from APM, server and database metrics against their limits, and OneTeam maintenance such as deployments and restarts in the same window. Tell me what changed or is failing, the likely cause, and what to do.`,
     })
 
   const askWithoutDatadog = () =>
@@ -147,7 +153,7 @@ export function HealthPage() {
         </a>
       </>
     ) : (
-      'Incidents, errors, latency and server metrics per instance.'
+      'Alerts from PagerDuty and Datadog, then requests, servers and database per instance.'
     )
 
   let body: ReactNode
@@ -169,9 +175,9 @@ export function HealthPage() {
             </div>
           }
         >
-          See each instance's incidents, error logs, slow endpoints and server metrics next to its
-          failed OneVizion processes. Read-only, with your own keys. Without Datadog, the agent can
-          still check failed imports, reports, rules and module runs on the instance itself.
+          See each instance's Datadog monitors, requests, latency, servers and database next to its
+          PagerDuty incidents. Read-only, with your own keys. Without Datadog, the agent can still
+          check failed imports, reports, rules and module runs on the instance itself.
         </EmptyState>
       </div>
     )
@@ -186,27 +192,38 @@ export function HealthPage() {
   else {
     const ctx: Context = { meta, label, alias, range, slots }
     const matched = Boolean(meta.scope)
+    const incidents =
+      slots.incidents.state === 'unavailable' ? (
+        <PagerDutyOff className={`${THIRD} ${ALERTS_ROW}`} />
+      ) : (
+        <IncidentsTile ctx={ctx} className={`${THIRD} ${ALERTS_ROW}`} />
+      )
 
     body = (
-      <div className="space-y-4 p-6">
-        {matched ? null : (
-          <MatchInstance host={label} alias={alias} status={status} onSaved={setStatus} />
-        )}
-        <Summary ctx={ctx} busy={busy} />
-        <TimelineCard ctx={ctx} />
-        <IncidentsCard ctx={ctx} />
-        {matched ? <DatabaseCard ctx={ctx} status={status} onSaved={setStatus} /> : null}
-        {matched ? <ServersCard ctx={ctx} /> : null}
-        <div className="grid gap-4 xl:grid-cols-2">
-          {matched ? <TopErrorsCard ctx={ctx} /> : null}
-          <FailedRunsCard ctx={ctx} />
+      <div className="grid grid-cols-12 gap-4 p-6">
+        <div className="col-span-12">
+          <Overview ctx={ctx} matched={matched} />
         </div>
+        {matched ? null : (
+          <MatchInstance
+            key={alias}
+            host={label}
+            alias={alias}
+            status={status}
+            onSaved={setStatus}
+            className="col-span-12"
+          />
+        )}
+        {incidents}
+        {matched ? <MonitorsTile ctx={ctx} className={`${THIRD} ${ALERTS_ROW}`} /> : null}
+        <MaintenanceTile ctx={ctx} className={`${THIRD} ${ALERTS_ROW}`} />
         {matched ? (
-          <div className="grid gap-4 xl:grid-cols-3">
-            <SlowEndpointsCard ctx={ctx} />
-            <MonitorsCard ctx={ctx} />
-            <EventsCard ctx={ctx} />
-          </div>
+          <>
+            <PerformanceTile ctx={ctx} className={`${MAIN} ${TRAFFIC_ROW}`} />
+            <EndpointsTile ctx={ctx} className={`${SIDE} ${TRAFFIC_ROW}`} />
+            <ServersTile ctx={ctx} className={`${MAIN} ${INFRA_ROW}`} />
+            <DatabaseTile ctx={ctx} className={`${SIDE} ${INFRA_ROW}`} />
+          </>
         ) : null}
       </div>
     )

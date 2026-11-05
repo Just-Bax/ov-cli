@@ -2,7 +2,6 @@ import {
   ArrowsClockwise as ArrowPathIcon,
   Check as CheckIcon,
   Globe as GlobeAltIcon,
-  Info as InfoIcon,
   Key as KeyIcon,
   Lock as LockClosedIcon,
   X as XMarkIcon,
@@ -10,12 +9,13 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { reportError } from '@/components/common/Toasts'
-import { Button, Input, SWITCH_TRACK, SwitchKnob } from '@/components/common/ui'
+import { Button, Input } from '@/components/common/ui'
 import { LiveScreen, SCREEN_BAR_PX, screenSize } from '@/components/screen/LiveScreen'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useEnterTransition } from '@/lib/hooks'
 import { useLayer } from '@/lib/layers'
+import { REMEMBER_DAYS, rememberedUntil } from '@/lib/signin'
 import { MINUTE_MS, SECOND_MS } from '@/lib/time'
 import { hostOf } from '@/lib/url'
 
@@ -38,40 +38,42 @@ export const signInKey = (t: SignInTarget) => `${t.host}|${(t.tenant ?? '').toLo
 type Phase = 'intro' | 'waiting' | 'done' | 'error'
 
 const LIMIT_MINUTES = 5
-const REMEMBER_DAYS = 30
-const REMEMBER_KEY = 'ov-agent.signin-remember'
 const CLOSE_AFTER_SUCCESS_MS = 1400
 const SECONDS_PER_MINUTE = MINUTE_MS / SECOND_MS
 
-const REMEMBER_INFO = `After you sign in, ov creates an API token in your name that lasts ${REMEMBER_DAYS} days and keeps it instead of the short web session, so you are not asked again until it expires. You can see it in Admin > Auth Tokens. Turn this off to keep only the web session.`
-
-function RememberInfo() {
-  const [open, setOpen] = useState(false)
-
+function KeepOption({
+  on,
+  title,
+  detail,
+  onPick,
+}: {
+  on: boolean
+  title: string
+  detail: string
+  onPick: () => void
+}) {
   return (
-    <span
-      className="relative flex"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      onClick={onPick}
+      className={cn(
+        'flex w-full gap-2.5 rounded-2xl border px-3.5 py-2.5 text-left transition-colors',
+        on ? 'border-brand bg-brand-soft' : 'border-line hover:border-line-strong',
+      )}
     >
-      <button
-        type="button"
-        aria-label="How staying signed in works"
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        className="text-faint hover:text-muted flex size-5 items-center justify-center rounded-full"
-      >
-        <InfoIcon className="size-3.5" />
-      </button>
-      {open ? (
-        <span
-          role="tooltip"
-          className="animate-tip border-line-strong/70 text-text absolute bottom-full left-1/2 z-10 mb-1.5 -ml-28 w-56 rounded-xl border bg-white px-3 py-2 text-[11.5px] leading-relaxed shadow-[0_6px_20px_rgba(38,50,56,0.14)]"
-        >
-          {REMEMBER_INFO}
-        </span>
-      ) : null}
-    </span>
+      <span
+        className={cn(
+          'mt-0.5 size-3.5 shrink-0 rounded-full',
+          on ? 'border-brand border-[4px]' : 'border-line-strong border-2',
+        )}
+      />
+      <span className="min-w-0">
+        <span className="text-fg block text-[12.5px] font-medium">{title}</span>
+        <span className="text-muted block text-[12px] leading-relaxed">{detail}</span>
+      </span>
+    </button>
   )
 }
 
@@ -113,8 +115,7 @@ const FIXES: {
   },
   {
     pattern: /may not create api tokens/,
-    tip: () =>
-      `Turn off "Stay signed in for ${REMEMBER_DAYS} days" to sign in with a session token instead.`,
+    tip: () => 'Choose "Only while the web session lasts" to sign in without creating a token.',
   },
   {
     pattern: /widget module/,
@@ -163,7 +164,7 @@ export function SignInModal({
   const [separate, setSeparate] = useState(false)
   const [accessKey, setAccessKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
-  const [remember, setRemember] = useState(() => localStorage.getItem(REMEMBER_KEY) !== 'false')
+  const [remember, setRemember] = useState(true)
   const startedAt = useRef(0)
   const current = useRef(target)
   current.current = target
@@ -180,6 +181,7 @@ export function SignInModal({
     setMessage('')
     setMethod(target.tenant ? 'browser' : (target.mode ?? 'browser'))
     setSeparate(false)
+    setRemember(true)
     setAccessKey('')
     setSecretKey('')
   }, [targetKey])
@@ -418,23 +420,22 @@ export function SignInModal({
               </span>
             </div>
             {phase === 'intro' ? (
-              <div className="mx-5 mt-3 flex items-center gap-1.5 px-3.5 text-[12.5px]">
-                <span className="text-text">Stay signed in for {REMEMBER_DAYS} days</span>
-                <RememberInfo />
-                <span className="flex-1" />
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={remember}
-                  aria-label={`Stay signed in for ${REMEMBER_DAYS} days`}
-                  onClick={() => {
-                    localStorage.setItem(REMEMBER_KEY, String(!remember))
-                    setRemember(!remember)
-                  }}
-                  className={cn(SWITCH_TRACK, remember ? 'bg-brand' : 'bg-line-strong')}
-                >
-                  <SwitchKnob on={remember} />
-                </button>
+              <div role="radiogroup" aria-label="Stay signed in" className="mx-5 mt-4 space-y-2">
+                <div className="text-text text-[12.5px] font-medium">
+                  After you sign in, how long should ov keep you signed in?
+                </div>
+                <KeepOption
+                  on={remember}
+                  onPick={() => setRemember(true)}
+                  title={`For ${REMEMBER_DAYS} days`}
+                  detail={`ov creates an API token in your name, named "ov-cli <date>" in Admin > Auth Tokens. You won't be asked again until ${rememberedUntil()}.`}
+                />
+                <KeepOption
+                  on={!remember}
+                  onPick={() => setRemember(false)}
+                  title="Only while the web session lasts"
+                  detail="Nothing is created on the instance. You are asked again when the session ends."
+                />
               </div>
             ) : null}
           </>

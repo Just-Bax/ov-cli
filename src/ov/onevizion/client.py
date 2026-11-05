@@ -209,9 +209,14 @@ class Client:
 
     def refresh_token(self) -> None:
         if self.session.is_static:
+            session_store.mark_ended(self.session)
             raise SessionExpired("the stored API token was rejected")
         self._require_web_session()
-        mint_web_session_token(self._http, self.session)
+        try:
+            mint_web_session_token(self._http, self.session)
+        except SessionExpired:
+            session_store.mark_ended(self.session)
+            raise
         session_store.save(self.session)
 
     def _require_web_session(self) -> None:
@@ -225,6 +230,8 @@ class Client:
         detail = _detail(response)
         url = str(response.url)
         if response.status_code == 401:
+            if self.session.is_static:
+                session_store.mark_ended(self.session)
             raise SessionExpired(detail or "the server rejected the token")
         if response.status_code == 403:
             raise Forbidden(detail or "Forbidden. The account lacks a privilege this call needs.")

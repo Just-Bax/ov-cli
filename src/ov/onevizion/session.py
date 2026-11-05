@@ -32,6 +32,7 @@ class Session:
     expires_at: float = 0.0
     expires_text: str = ""
     saved_at: float = field(default_factory=time.time)
+    ended_at: float = 0.0
 
     def __post_init__(self) -> None:
         self.base_url = self.base_url.rstrip("/")
@@ -77,6 +78,7 @@ class Session:
             "expires_at": self.expires_at,
             "expires_text": self.expires_text,
             "saved_at": self.saved_at,
+            "ended_at": self.ended_at,
         }
 
     def secrets(self) -> dict[str, Any]:
@@ -92,6 +94,7 @@ class Session:
             "access_key": self.access_key,
             "expires": self.expires_text or None,
             "seconds_left": round(left) if left is not None else None,
+            "ended": bool(self.ended_at),
         }
 
 
@@ -129,6 +132,7 @@ def _from_dict(data: dict[str, Any], alias: str) -> Session:
             expires_at=data["expires_at"],
             expires_text=data["expires_text"],
             saved_at=data["saved_at"],
+            ended_at=data.get("ended_at", 0.0),
         )
     except KeyError as exc:
         raise OvError(f"Instance {alias!r} in {config_file()} is missing {exc}.") from exc
@@ -287,6 +291,20 @@ def save(session: Session, make_current: bool = True) -> Session:
         store.mutate(change)
 
     return session
+
+
+def mark_ended(session: Session) -> None:
+    with store.lock():
+        stored = _read_all().get(session.alias)
+        if stored is None or stored.saved_at != session.saved_at:
+            return
+
+        session.ended_at = time.time()
+
+        def change(data: dict[str, Any]) -> None:
+            data[store.SESSIONS_KEY][session.alias]["ended_at"] = session.ended_at
+
+        store.mutate(change)
 
 
 def find(ref: str | None = None) -> Session:

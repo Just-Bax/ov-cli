@@ -25,7 +25,7 @@ export function PlatformLabel({ instance }: { instance: Instance }) {
   if (!platform || access.checking || access.error) return null
 
   return (
-    <span title={platform} className="text-muted min-w-0 flex-1 truncate text-[11.5px]">
+    <span title={platform} className="text-muted min-w-0 shrink truncate text-[11.5px]">
       {platform}
     </span>
   )

@@ -35,8 +35,8 @@ def test_the_api_never_returns_keys(linked):
         assert meta["scope"] == "host:a*"
         params = {"instance": "acme", "to": meta["to"]}
 
-        logs = httpx.get(f"{base}/api/instance-health/logs", params=params).json()
-        assert logs["topErrors"]
+        maintenance = httpx.get(f"{base}/api/instance-health/maintenance", params=params).json()
+        assert maintenance == {"unavailable": "Sign in to trackor.onevizion.com to see maintenance from OneTeam."}
         missing = httpx.get(f"{base}/api/instance-health/incidents", params=params).json()
         assert missing == {"unavailable": "PagerDuty is not connected."}
 

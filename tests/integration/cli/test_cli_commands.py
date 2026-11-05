@@ -249,6 +249,51 @@ def test_login_remember_explains_an_account_that_may_not_create_tokens(capsys, o
     assert "without --remember" in data["error"]
 
 
+def test_remember_turns_a_web_session_into_a_long_api_token_without_a_new_sign_in(capsys, ov_home, server, monkeypatch):
+    from ov.onevizion import session as session_store
+
+    _browser_session(monkeypatch)
+    assert payload(capsys, "login", BASE_URL, "--no-spec", "--json")[1]["mode"] == "session"
+
+    created = {"access_key": "LONG", "secret_key": "LIVED", "expiration_ts": "2100-02-01T00:00:00"}
+    server.route("POST", "/api/v3/auth_token", 201, created)
+    code, data = payload(capsys, "remember", "--days", "30", "--json")
+    assert code == 0
+    assert data["mode"] == "remembered" and data["expires"] == "2100-02-01T00:00:00"
+
+    stored = session_store.load()
+    assert stored.mode == "remembered" and stored.bearer_token == "LONG:LIVED"
+
+    code, data = payload(capsys, "remember", "--json")
+    assert code == 1 and "already signs in with an API token" in data["error"]
+
+
+def test_a_rejected_api_token_is_marked_as_ended(capsys, ov_home, server):
+    from ov.onevizion import session as session_store
+
+    assert payload(capsys, "login", BASE_URL, "--token", "K:S", "--no-spec", "--json")[0] == 0
+    assert not session_store.find().ended_at
+
+    server.route("GET", "/api/v3/users", 401, {"message": "Token expired"})
+    assert run(capsys, "request", "GET", "/v3/users")[0] == 3
+    assert session_store.find().ended_at
+
+
+def test_a_web_session_the_instance_ended_is_marked_as_ended(capsys, ov_home, server, monkeypatch):
+    from ov.agent.instances.ovproc import instances
+    from ov.onevizion import session as session_store
+
+    _browser_session(monkeypatch)
+    assert payload(capsys, "login", BASE_URL, "--no-spec", "--json")[0] == 0
+    assert instances()[0]["valid"] and instances()[0]["endedAt"] is None
+
+    server.route("GET", "/api/v3/users", 401, {"message": "Token expired"})
+    server.route("GET", "/CsrfToken.do", 401, {})
+    assert run(capsys, "request", "GET", "/v3/users")[0] == 3
+    assert session_store.find().ended_at
+    assert not instances()[0]["valid"] and instances()[0]["endedAt"]
+
+
 def test_login_remember_needs_a_browser_sign_in(capsys, ov_home, server):
     code, data = payload(capsys, "login", BASE_URL, "--token", "K:S", "--remember", "30", "--json")
     assert code == 1

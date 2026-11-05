@@ -4,6 +4,7 @@ import type { LoginPrompt, Outcome, Verdict } from '@shared/types.ts'
 import { Button, Chip, CopyButton, Markdown, Shimmer, type Tone } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { signInReason } from '@/lib/signin'
 import { reportError } from '@/components/common/Toasts'
 import { SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 
@@ -128,7 +129,12 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
 
 export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt }) {
   const [open, setOpen] = useState(false)
-  const target: SignInTarget = { url: login.url, host: login.instance, tenant: login.tenant }
+  const target: SignInTarget = {
+    url: login.url,
+    host: login.instance,
+    tenant: login.tenant,
+    mode: login.previous?.mode === 'token' ? 'token' : 'browser',
+  }
 
   if (login.state === 'done' || login.state === 'skipped') {
     return (
@@ -164,9 +170,9 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
           ) : failed ? (
             (login.message ?? 'Sign-in failed.')
           ) : login.tenant ? (
-            `The agent needs it to continue. ov switches to ${login.tenant} after you sign in.`
+            `${signInReason(login.previous)} ov switches to ${login.tenant} after you sign in.`
           ) : (
-            'The agent needs it to continue.'
+            signInReason(login.previous)
           )}
         </div>
       </div>

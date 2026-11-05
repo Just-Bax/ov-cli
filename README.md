@@ -170,6 +170,23 @@ revoke it, so `ov logout` only forgets it locally. Deactivate it in Admin > Auth
 (named `ov-cli <date>`) if you need it gone sooner. If your account may not create API
 tokens, sign-in stops with that message: sign in without `--remember` instead.
 
+Already signed in with a web session? `ov remember` turns it into the same 30-day token
+without opening the browser again, as long as the web session still works. Settings in the
+agent has the same "Stay signed in 30 days" button on each web-session instance.
+
+### The three ways to be signed in
+
+|                          | Web session                                  | Remembered API token (30 days)                     | Your API token                           |
+| ------------------------ | -------------------------------------------- | -------------------------------------------------- | ---------------------------------------- |
+| How you get it           | `ov login` in the browser                    | `ov login --remember 30`, or `ov remember`         | `ov login --token`                       |
+| When you are asked again | When the instance ends the web session       | On its expiry date, never sooner                   | When it expires or is deactivated        |
+| Creates anything         | No                                           | One token per sign-in, in Admin > Auth Tokens      | No, you created it                       |
+| `ov logout`              | Revokes the session token                    | Forgets it here only                               | Forgets it here only                     |
+
+ov cannot keep a web session alive past the instance's own timeout. When a session ends or a
+token is rejected, ov records it, so `ov instances` and Settings say "ended" instead of
+guessing.
+
 ### More than one system
 
 Sign in to as many instances as you like. Each is stored separately, named after the
@@ -640,29 +657,47 @@ from Personal Settings > Application Keys, ideally limited to the read-only scop
 connect dialog lists (`logs_read_data`, `logs_read_index_data`, `metrics_read`,
 `timeseries_query`, `monitors_read`, `events_read`, `apm_read`, `hosts_read`). The dialog
 checks both keys, shows what the application key can read, and stores them in the OS
-vault; nothing is written to the code or shared. Then pick the servers each instance runs
-on, such as its web and app servers and replicas. **Detect servers** reads Datadog's host
-list and groups hosts under the instance whose name appears in their host name after the
-machine's own name (`web01.acme.example` and `app01.acme-vpc.example` belong to `acme`;
-the longest instance name wins, so `acme` never takes `dev-acme`'s servers). Each server's
-role is its machine name without the number (`web`, `app`). Adjust the chips, or write any
-Datadog filter instead; a tenant shares its host's servers unless you give it its own.
+vault; nothing is written to the code or shared. Then, under **Servers and database per
+instance**, pick what each instance runs on: its web and app servers and replicas, and its
+database. **Detect** reads Datadog's host list and groups hosts under the instance whose
+name appears in their host name after the machine's own name (`web01.acme.example` and
+`app01.acme-vpc.example` belong to `acme`; the longest instance name wins, so `acme` never
+takes `dev-acme`'s servers), then suggests the database those servers' Oracle agent watches.
+It fills only empty picks and shows a suggestion next to a saved pick it disagrees with.
+Each server's role is its machine name without the number (`web`, `app`). Adjust the chips,
+or write any Datadog filter instead; a tenant shares its host's servers unless you give it
+its own. Nothing is used until you save.
 
 Once connected, threads get read-only Datadog tools (`dd_logs` with message grouping,
 `dd_metrics`, `dd_monitors`, `dd_events`, `dd_apm`), offered only for
 what the key can read, with a `role` option to look at one kind of server.
 
-The **Instance health** page shows one instance at a time, each card loading on its own: a verdict
-with open incidents, alerting monitors, error logs against the previous window, peak p95,
-failed OneVizion processes and the busiest server; a timeline of requests, p95 and error
-logs with incidents, Datadog events (deploys, restarts) and failed runs marked under it, so
-you see what lined up; incidents you can expand for the alert and its timeline; every
-server with a trend line per metric; top error groups; failed runs by type; slowest
-endpoints; monitors and events. Every card has Ask, which opens New thread with a prompt
-about that card. A card your account or key cannot read says so instead of failing, for
-example failed runs on an instance where you lack the Test SQL privilege. Nothing on the
-page writes to Datadog, PagerDuty or the instance. Without Datadog, the page offers to ask the
-agent for a health check from the instance alone: failed runs, the error log and queues.
+The **Instance health** page shows one instance at a time. Every tile has a fixed size,
+loads on its own, and is labeled with where its data comes from:
+
+- The overview gives a verdict taken only from alerts and limits: PagerDuty incidents,
+  Datadog monitors, APM p95 latency and error rate, server and database metrics against
+  their limits, and maintenance in progress in OneTeam.
+- **PagerDuty incidents**: open and recent incidents (expand one for the alert and its
+  timeline) and who is on call.
+- **Datadog monitors**: every monitor that watches the instance, matched by the state of its
+  own groups (its servers' `host` and its database's `dbinstanceidentifier` or `server`), or
+  by its site name for synthetics. A multi-alert monitor is shown in the state of this
+  instance's groups, not of the whole monitor.
+- **OneTeam maintenance**: deployments, restarts and database work from the Maintenance
+  trackor on `trackor.onevizion.com`, matched by the instance's website or its servers, in
+  progress, planned, and from the last 30 days. Window times are read as US Eastern.
+- **Requests and latency**: request and error counts from APM trace metrics (not sampled),
+  p95 from traced web requests, with maintenance windows and incidents on the same time
+  axis. When APM data stops before the end of the window, the tile says since when and
+  names the maintenance that started around then.
+- Slowest endpoints, and each server and the database as meters for now with the worst
+  point of the window marked.
+
+Every tile has Ask, which opens New thread with a prompt about that tile. A tile your key or
+sign-in cannot read says so instead of failing. Nothing on the page writes to Datadog,
+PagerDuty, OneTeam or the instance. Without Datadog, the page offers to ask the agent for a
+health check from the instance alone: failed runs, the error log and queues.
 
 Your Datadog admins can see application keys and may audit their use, and logs the
 agent reads in a thread go to the agent's provider like any other tool result.
@@ -676,7 +711,7 @@ alert names - OV monitoring's `website` field, the database on database alerts (
 website alerts that carry both), or the host or `[Instance]` tag in a Datadog alert. Threads get `pd_incidents`,
 `pd_incident` (timeline, alerts and notes) and `pd_oncall`, and Instance health shows
 open and recent incidents and who is on call for the policies that paged, and counts
-triggered incidents in its verdict, even before the instance is matched in Datadog.
+open incidents in its verdict, even before the instance is matched in Datadog.
 
 With a thread's access mode above Read-only, the agent can also change incidents: add
 notes, acknowledge, resolve, snooze, escalate to a level, and reassign to another escalation

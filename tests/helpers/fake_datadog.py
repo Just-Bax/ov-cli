@@ -30,10 +30,12 @@ MONITORS = [
         "name": "Heap high on acme",
         "overall_state": "Alert",
         "query": "avg:jvm.heap_memory{host:acme-app-01}",
-        "state": {"groups": {"host:acme-app-01": {}}},
+        "state": {"groups": {"host:acme-app-01": {"status": "Alert"}, "host:globex-app-01": {"status": "OK"}}},
     },
     {"id": 2, "name": "Other org thing", "overall_state": "Alert", "query": "x{host:zz}"},
     {"id": 3, "name": "Acme disk", "overall_state": "OK", "query": "y{host:acme-app-02}"},
+    {"id": 6, "name": "[Synthetics] Latency for acme.onevizion.test", "overall_state": "Warn", "query": ""},
+    {"id": 7, "name": "[Synthetics] Latency for dev-acme.onevizion.test", "overall_state": "Alert", "query": ""},
 ]
 
 
@@ -103,7 +105,7 @@ class FakeDatadog:
 
     @staticmethod
     def _spans(body: str) -> dict[str, Any]:
-        if "@span.kind:server" in body:
+        if "timeseries" in body:
             points = [{"time": "2026-10-04T10:00:00Z", "value": 2_000_000_000}]
             return {"data": [{"attributes": {"compute": {"c0": points, "c1": points}}}]}
         bucket = {"by": {"resource_name": "GET /trackor"}, "compute": {"c0": 2_500_000_000, "c1": 40}}

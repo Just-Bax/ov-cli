@@ -5,7 +5,8 @@ from functools import partial
 from typing import Any
 from urllib.parse import quote
 
-from ov.agent.integrations.datadog.apm import slow_endpoints, traffic
+from ov.agent.instances.ovproc import find_instance
+from ov.agent.integrations.datadog.apm import latency_series, slow_endpoints
 from ov.agent.integrations.datadog.connection import (
     DatadogError,
     app_url,
@@ -18,33 +19,27 @@ from ov.agent.integrations.datadog.databases import (
     ORACLE_TAG,
     RDS_ENDPOINT_SUFFIX,
     RDS_TAG,
-    database_needles,
     databases_for,
 )
 from ov.agent.integrations.datadog.hosts import filter_for, hosts_in, role_of
 from ov.agent.integrations.datadog.queries import (
     combine,
-    events_for,
-    log_timeseries,
-    logs_link,
+    instance_monitors,
     metric_scope,
-    monitors_for,
     parallel,
     query_metric,
-    search_logs,
     tag_filter,
     tag_of,
-    top_patterns,
 )
 from ov.agent.storage.db import now_ms
 
-HEALTH_LOG_SAMPLE = 300
-HEALTH_EVENTS = 15
 HEALTH_ENDPOINTS = 8
+APM_OPERATION = "servlet.request"
 CHART_POINTS = 60
 SERVER_POINTS = 30
 
 RANGES = {"1h": (3600, "1m"), "24h": (86400, "30m"), "7d": (604800, "6h")}
+INTERVAL_SECONDS = {"1m": 60, "30m": 1800, "6h": 21600}
 METRICS = [
     ("cpu", "avg:system.cpu.user{%s} by {host}"),
     ("memory", "avg:system.mem.pct_usable{%s} by {host}*100"),
@@ -72,11 +67,9 @@ DATABASE_METRICS = [
 ]
 SECTION_AREAS = {
     "monitors": "monitors",
-    "logs": "logs",
     "traffic": "apm",
     "servers": "metrics",
     "database": "metrics",
-    "events": "events",
 }
 AREA_WORDS = {"monitors": "monitors", "logs": "logs", "apm": "APM traces", "metrics": "metrics", "events": "events"}
 
@@ -106,11 +99,10 @@ def health_meta(alias: str, range_key: str) -> dict[str, Any]:
         "from": start,
         "to": end,
         "appUrl": base,
+        "interval": INTERVAL_SECONDS[RANGES[range_key][1]] * 1000,
         "links": {
-            "logs": logs_link(site, combine(scope, "status:error"), start, end),
             "monitors": f"{base}/monitors/manage",
-            "apm": f"{base}/apm/traces?query={quote(scope)}",
-            "events": f"{base}/event/explorer?query={quote(scope)}",
+            "apm": f"{base}/apm/traces?query={quote(combine(scope, f'operation_name:{APM_OPERATION}'))}",
             "metrics": f"{base}/infrastructure?filter={quote(scope)}",
         },
     }
@@ -140,34 +132,47 @@ def health_section(alias: str, range_key: str, section: str, end: int) -> dict[s
 
 
 def _monitors_section(alias: str, scope: str, _start: int, _end: int, _interval: str) -> dict[str, Any]:
-    return {"monitors": monitors_for(scope, include_ok=True, database_needles=database_needles(alias))}
+    hosts = hosts_in(scope) or []
+    tags = [f"host:{h}" for h in hosts]
+    for db in databases_for(alias):
+        tags.append(f"{RDS_TAG}:{db['id']}")
+        if db["endpoint"]:
+            tags.append(f"{ORACLE_TAG}:{db['endpoint']}")
+
+    return {"monitors": instance_monitors(tags, instance_site(alias))}
 
 
-def _logs_section(_alias: str, scope: str, start: int, end: int, interval: str) -> dict[str, Any]:
-    errors_query = combine(scope, "status:error")
-    previous_start = start - (end - start)
-
-    return parallel(
-        {
-            "errorSeries": partial(log_timeseries, errors_query, start, end, interval),
-            "logSeries": partial(log_timeseries, scope, start, end, interval),
-            "previousErrors": partial(_error_count, errors_query, previous_start, start, interval),
-            "topErrors": lambda: top_patterns(search_logs(errors_query, start, end, HEALTH_LOG_SAMPLE)),
-        }
-    )
+def instance_site(alias: str) -> str:
+    found = find_instance(alias)
+    if found is None:
+        raise DatadogError(f"No signed-in instance matches {alias}.")
+    return found["host"].split(":")[0]
 
 
 def _traffic_section(_alias: str, scope: str, start: int, end: int, interval: str) -> dict[str, Any]:
-    return parallel(
+    tags = metric_scope(scope)
+    seconds = INTERVAL_SECONDS[interval]
+    count = f".as_count().rollup(sum, {seconds})"
+    spans = combine(scope, f"operation_name:{APM_OPERATION}")
+    found = parallel(
         {
-            "traffic": partial(traffic, scope, start, end, interval),
-            "slowEndpoints": partial(slow_endpoints, scope, start, end, HEALTH_ENDPOINTS),
+            "requests": partial(query_metric, f"sum:trace.{APM_OPERATION}.hits{{{tags}}}{count}", start, end),
+            "errors": partial(query_metric, f"sum:trace.{APM_OPERATION}.errors{{{tags}}}{count}", start, end),
+            "p95Ms": partial(latency_series, spans, start, end, interval),
+            "slowEndpoints": partial(slow_endpoints, spans, start, end, HEALTH_ENDPOINTS),
         }
     )
 
+    return {
+        "requests": _points(found["requests"]),
+        "errors": _points(found["errors"]),
+        "p95Ms": found["p95Ms"],
+        "slowEndpoints": found["slowEndpoints"],
+    }
 
-def _events_section(_alias: str, scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
-    return {"events": events_for(scope, start, end, HEALTH_EVENTS)}
+
+def _points(series: list[dict[str, Any]]) -> list[dict[str, float]]:
+    return series[0]["points"] if series else []
 
 
 def _servers_section(_alias: str, scope: str, start: int, end: int, _interval: str) -> dict[str, Any]:
@@ -223,17 +228,11 @@ def _database_section(alias: str, _scope: str, start: int, end: int, _interval: 
     return {"databases": rows}
 
 
-def _error_count(query: str, start: int, end: int, interval: str) -> float:
-    return sum(p["v"] for p in log_timeseries(query, start, end, interval))
-
-
 SECTION_READERS: dict[str, Callable[[str, str, int, int, str], dict[str, Any]]] = {
     "monitors": _monitors_section,
-    "logs": _logs_section,
     "traffic": _traffic_section,
     "servers": _servers_section,
     "database": _database_section,
-    "events": _events_section,
 }
 
 

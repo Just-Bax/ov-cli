@@ -132,7 +132,8 @@ export const api = {
   datadogMatches: (matches: Record<string, string>) =>
     put<DatadogStatus>('/datadog/matches', { matches }),
   datadogDatabases: () => request<{ databases: DatadogDatabase[] }>('/datadog/databases'),
-  datadogDiscoverDatabases: () => request<DatadogDatabaseDiscovery>('/datadog/databases/discover'),
+  datadogDiscoverDatabases: (matches: Record<string, string>) =>
+    post<DatadogDatabaseDiscovery>('/datadog/databases/discover', { matches }),
   datadogPickDatabases: (databases: Record<string, string[]>) =>
     put<DatadogStatus>('/datadog/databases', { databases }),
   pagerduty: () => request<PagerDutyStatus>('/pagerduty'),
@@ -158,6 +159,7 @@ export const api = {
       `/instances/check?instance=${seg(instance)}`,
     ),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),
+  rememberInstance: (alias: string) => post<Instance[]>('/instances/remember', { alias }),
   checkAccess: (alias: string) => post<Instance[]>('/instances/access', { alias }),
   saveSettings: (patch: Partial<Settings>) => put<Settings>('/settings', patch),
   skills: () => request<SkillInfo[]>('/skills'),

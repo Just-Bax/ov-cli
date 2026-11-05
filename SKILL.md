@@ -174,6 +174,8 @@ privilege failures, with the reason in the message ("You don't have R priv...").
   `~/.ov/credentials.json`. `ov config show --json` omits them deliberately.
 - Run a write operation without showing the user a `--dry-run` first.
 - Run `ov login --tenant` yourself: it opens a browser like any other sign-in.
+- Run `ov remember`. It creates an API token in the user's name on the instance; only the
+  user decides that.
 - Assume two tenants on one host hold the same data. `acme` and
   `acme/north` are different systems; check which one the user means.
 - Run `ov logout`, `ov use`, `ov config set` or `ov setup` unasked. All four change state

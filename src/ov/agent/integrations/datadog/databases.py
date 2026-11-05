@@ -84,8 +84,7 @@ def _catalog_of(probes: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]
     return catalog
 
 
-def _detected(alias: str, probes: dict[str, list[dict[str, Any]]]) -> list[str]:
-    scope = filter_for(alias)
+def _detected(alias: str, scope: str, probes: dict[str, list[dict[str, Any]]]) -> list[str]:
     agents = {h.lower() for h in hosts_in(scope) or []}
     if not agents:
         return []
@@ -94,9 +93,9 @@ def _detected(alias: str, probes: dict[str, list[dict[str, Any]]]) -> list[str]:
     return sorted(_merge_databases(oracle, probes["rds"], _database_owner(alias, scope)))
 
 
-def discover_databases() -> dict[str, Any]:
+def discover_databases(matches: dict[str, str]) -> dict[str, Any]:
     probes = _probes({"rds": RDS_PROBE, "oracle": ORACLE_PROBE})
-    groups = {i["alias"]: _detected(i["alias"], probes) for i in main_instances()}
+    groups = {i["alias"]: _detected(i["alias"], matches.get(i["alias"], ""), probes) for i in main_instances()}
     return {"databases": _catalog_of(probes), "groups": {alias: ids for alias, ids in groups.items() if ids}}
 
 

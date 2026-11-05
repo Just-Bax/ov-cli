@@ -13,13 +13,11 @@ export const RANGE_WORDS: Record<Range, string> = {
 
 const SECTIONS: HealthSection[] = [
   'incidents',
-  'database',
+  'maintenance',
   'monitors',
-  'logs',
   'traffic',
   'servers',
-  'events',
-  'onevizion',
+  'database',
 ]
 
 export type Slot<K extends HealthSection> =

@@ -28,6 +28,9 @@ AUTH_TOKEN_TYPE = "API"
 AUTH_TOKEN_NAME = "ov-cli"
 AUTH_TOKEN_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 MAX_REMEMBER_DAYS = 365
+DEFAULT_REMEMBER_DAYS = 30
+MODE_LABELS = {"session": "web session", "remembered": "remembered API token", "token": "your API token"}
+SESSION_LASTS = "until the web session ends"
 
 
 def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
@@ -37,6 +40,20 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
     logout.add_argument("instance_ref", nargs="?", metavar="INSTANCE", help="defaults to current")
     logout.add_argument("--all", action="store_true", help="sign out of every instance")
     logout.set_defaults(func=cmd_logout)
+
+    remember = subparsers.add_parser(
+        "remember",
+        parents=[common],
+        help="turn a signed-in web session into an API token in your name, without signing in again",
+    )
+    remember.add_argument("instance_ref", nargs="?", metavar="INSTANCE", help="defaults to current")
+    remember.add_argument(
+        "--days",
+        type=int,
+        default=DEFAULT_REMEMBER_DAYS,
+        help=f"how long the token lasts (default {DEFAULT_REMEMBER_DAYS})",
+    )
+    remember.set_defaults(func=cmd_remember)
 
     whoami = subparsers.add_parser(
         "whoami", parents=[common], help="show the current instance and whether its token works"
@@ -167,6 +184,30 @@ def _signed_in_session(ctx: Context) -> Session:
     return session
 
 
+def cmd_remember(ctx: Context) -> int:
+    session = session_store.load(ctx.args.instance_ref or ctx.instance)
+    if session.is_static:
+        raise OvError(f"{session.alias} already signs in with an API token ({session.mode}).")
+
+    remembered = _remember(ctx, session, ctx.args.days)
+    note(ctx, "Checking the credentials...")
+    _check_credentials(ctx, remembered)
+    session_store.save(remembered, make_current=False)
+    reset_cache()
+
+    emit(
+        ctx,
+        {
+            "status": "remembered",
+            "alias": remembered.alias,
+            "mode": remembered.mode,
+            "expires": remembered.expires_text,
+        },
+        text=f"[green]Stays signed in[/green] to {remembered.alias} until {remembered.expires_text}.",
+    )
+    return 0
+
+
 def _remember(ctx: Context, session: Session, days: int) -> Session:
     if session.is_static:
         raise OvError("--remember needs a browser sign-in. An API token already has its own expiry.")
@@ -234,9 +275,13 @@ def _login_text(session: Session, fetched: int, current: bool) -> str:
     if session.tenant:
         where += f" tenant [cyan]{session.tenant}[/cyan]"
 
-    lines = [f"[green]Logged in[/green] to {where} as [cyan]{session.alias}[/cyan] ({session.mode} credential)."]
-    if session.expires_text:
-        lines.append(f"Token expires {session.expires_text}.")
+    lines = [f"[green]Logged in[/green] to {where} as [cyan]{session.alias}[/cyan] ({MODE_LABELS[session.mode]})."]
+    lines.append(
+        f"Signed in until {session.expires_text}."
+        if session.is_static
+        else "Signed in until the web session ends. "
+        f"Run 'ov remember' to stay signed in for {DEFAULT_REMEMBER_DAYS} days."
+    )
 
     if fetched:
         lines.append(f"{fetched} API operations available. Try 'ov api tags'.")
@@ -456,19 +501,25 @@ def _instances_table(rows: list[dict[str, Any]], check: bool) -> Any:
         {"header": "Alias", "style": "cyan"},
         {"header": "URL", "overflow": "fold"},
         {"header": "Mode"},
-        {"header": "Expires"},
+        {"header": "Signed in until"},
     ]
     if check:
         columns.append({"header": "OK"})
 
     body = []
     for row in rows:
-        cells = ["*" if row["current"] else "", row["alias"], row["base_url"], row["mode"], row["expires"] or "-"]
+        cells = ["*" if row["current"] else "", row["alias"], row["base_url"], MODE_LABELS[row["mode"]], _until(row)]
         if check:
             cells.append("yes" if row["authorized"] else "no")
         body.append(cells)
 
     return build_table(None, columns, body)
+
+
+def _until(row: dict[str, Any]) -> str:
+    if row["ended"]:
+        return "ended, sign in again"
+    return row["expires"] or "-" if row["mode"] != "session" else SESSION_LASTS
 
 
 def _authorized(ctx: Context, session: Session) -> bool:
