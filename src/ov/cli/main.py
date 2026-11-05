@@ -105,6 +105,7 @@ def _first_positional(argv: list[str]) -> str | None:
             return token
 
         skip = token in _INSTANCE_FLAGS
+
     return None
 
 
@@ -118,6 +119,7 @@ def _instance_in(argv: list[str]) -> str | None:
 
         if token.startswith("-i") and len(token) > 2 and not token.startswith("--"):
             return token[2:]
+
     return os.environ.get(INSTANCE_ENV) or None
 
 

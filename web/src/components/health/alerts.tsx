@@ -8,7 +8,7 @@ import type { HealthMonitor, PagerDutyIncident, PagerDutyIncidentDetail } from '
 import { Card, Skeleton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { RANGE_WORDS, ready, span, utcMs } from './data'
+import { RANGE_WORDS, ready, span, utcMs, whenOf } from './data'
 import { maintenanceCheck } from './maintenance'
 import {
   type Check,
@@ -147,15 +147,6 @@ export function Overview({ ctx, matched }: { ctx: Context; matched: boolean }) {
   )
 }
 
-function shortTime(value: string): string {
-  return new Date(utcMs(value)).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 function IncidentDetail({ incident, ctx }: { incident: PagerDutyIncident; ctx: Context }) {
   const [detail, setDetail] = useState<PagerDutyIncidentDetail>()
   const [error, setError] = useState<string>()
@@ -182,7 +173,7 @@ function IncidentDetail({ incident, ctx }: { incident: PagerDutyIncident; ctx: C
           {detail.timeline.slice(-DETAIL_TIMELINE_ROWS).map((e, i) => (
             <div key={i} className="text-muted flex gap-3">
               <span className="text-faint w-32 shrink-0 whitespace-nowrap">
-                {shortTime(e.time)}
+                {whenOf(utcMs(e.time))}
               </span>
               <span className="min-w-0 truncate">{e.summary}</span>
             </div>
@@ -336,7 +327,7 @@ export function IncidentsTile({ ctx, className }: { ctx: Context; className?: st
 }
 
 const TEMPLATE = /\{\{\s*([\w-]+)(?:\.[\w-]+)*\s*\}\}/g
-const TRAILING_WORDS = /(?:\s+(?:on|for|host|device|in|of)|\s*[-/:—])+\s*$/i
+const TRAILING_WORDS = /(?:\s+(?:on|for|host|device|in|of)|\s*[-/:\u2014])+\s*$/i
 const WATCHING_WORDS: Record<string, [string, string]> = {
   host: ['server', 'servers'],
   dbinstanceidentifier: ['database', 'databases'],
@@ -346,27 +337,26 @@ const WATCHING_WORDS: Record<string, [string, string]> = {
 
 function monitorName(m: HealthMonitor): string {
   const group = m.groups[0]
-  if (group) {
-    const values = new Map(
-      group.split(',').map((part) => {
-        const [tag, ...rest] = part.split(':')
-        return [tag, rest.join(':').split('.')[0]] as const
-      }),
-    )
-    return m.name.replace(TEMPLATE, (_, tag: string) => values.get(tag) || tag)
-  }
+  if (!group)
+    return m.name
+      .replace(TEMPLATE, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(TRAILING_WORDS, '')
 
-  return m.name
-    .replace(TEMPLATE, '')
-    .replace(/\s{2,}/g, ' ')
-    .replace(TRAILING_WORDS, '')
+  const values = new Map(
+    group.split(',').map((part) => {
+      const [tag, ...rest] = part.split(':')
+      return [tag, rest.join(':').split('.')[0]] as const
+    }),
+  )
+
+  return m.name.replace(TEMPLATE, (_, tag: string) => values.get(tag) || tag)
 }
 
 function watchingLabel(m: HealthMonitor): string {
   if (m.groups.length)
     return m.groups.map((g) => g.split(',')[0].split(':').pop()?.split('.')[0]).join(', ')
   if (!m.watching) return ''
-
   const [n, tag] = m.watching
   const words = WATCHING_WORDS[tag]
   return words ? `${n} ${n === 1 ? words[0] : words[1]}` : ''

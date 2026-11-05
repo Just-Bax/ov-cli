@@ -58,7 +58,7 @@
   }
 
   ::selection {
-    background: #bbdefb;
+    background: var(--color-brand-chip);
   }
 
   * {
@@ -80,7 +80,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid #42a5f5;
+    outline: 2px solid var(--color-brand);
     outline-offset: 1px;
   }
 }
@@ -619,7 +619,7 @@
 
 ::highlight(ov-find-current) {
   background-color: #ffb74d;
-  color: #263238;
+  color: var(--color-fg);
 }
 
 @utility fade-top {

@@ -119,12 +119,6 @@ def compact(_: Handler, run_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/threads/([a-z0-9]+)/continue")
-def continue_run(_: Handler, run_id: str) -> dict[str, str]:
-    require_thread(run_id)
-    return {"id": runs.continue_in_new(run_id).id}
-
-
 @route("POST", "/api/threads/([a-z0-9]+)/branch")
 def branch(h: Handler, run_id: str) -> dict[str, str]:
     before = h.json().get("before")
@@ -138,63 +132,10 @@ def retry_branch(h: Handler, run_id: str) -> dict[str, str]:
     return {"id": runs.retry_as_branch(run_id, required(h.json(), "itemId")).id}
 
 
-@route("POST", "/api/threads/([a-z0-9]+)/aside")
-def aside(h: Handler, run_id: str) -> dict[str, str]:
-    data = h.json()
-    text, files = str(data.get("text", "")), objects(data, "files")
-    if not text.strip() and not files:
-        raise HttpError(400, "Write what to ask in the aside.")
-    return {"id": runs.aside(run_id, required(data, "id"), text, files).id}
-
-
 @route("GET", "/api/threads/([a-z0-9]+)/branches")
 def branches(_: Handler, run_id: str) -> dict[str, Any]:
     require_thread(run_id)
     return {"branches": db.child_threads(run_id)}
-
-
-@route("POST", "/api/threads/([a-z0-9]+)/bring-back/draft")
-def bring_back_draft(_: Handler, run_id: str) -> dict[str, str]:
-    return {"text": require_run(run_id).bring_back_draft()}
-
-
-@route("POST", "/api/threads/([a-z0-9]+)/bring-back")
-def bring_back(h: Handler, run_id: str) -> dict[str, bool]:
-    runs.bring_back(run_id, str(required(h.json(), "text")))
-    return {"ok": True}
-
-
-@route("POST", "/api/threads/([a-z0-9]+)/from-findings")
-def from_findings(_: Handler, run_id: str) -> dict[str, str]:
-    return {"id": runs.from_findings(run_id).id}
-
-
-@route("GET", "/api/threads/([a-z0-9]+)/findings")
-def findings(_: Handler, run_id: str) -> dict[str, Any]:
-    require_thread(run_id)
-    return {"findings": db.list_findings(run_id)}
-
-
-@route("POST", "/api/threads/([a-z0-9]+)/findings")
-def add_finding(h: Handler, run_id: str) -> dict[str, Any]:
-    return require_run(run_id).save_finding(str(required(h.json(), "text")))
-
-
-@route("POST", "/api/threads/([a-z0-9]+)/findings/([0-9]+)")
-def edit_finding(h: Handler, run_id: str, finding_id: str) -> dict[str, bool]:
-    text = str(required(h.json(), "text")).strip()
-    if not text:
-        raise HttpError(400, "A finding needs some text.")
-    db.update_finding(run_id, int(finding_id), text)
-    require_run(run_id).push_live({"type": "findings"})
-    return {"ok": True}
-
-
-@route("DELETE", "/api/threads/([a-z0-9]+)/findings/([0-9]+)")
-def delete_finding(_: Handler, run_id: str, finding_id: str) -> dict[str, bool]:
-    db.delete_finding(run_id, int(finding_id))
-    require_run(run_id).push_live({"type": "findings"})
-    return {"ok": True}
 
 
 @route("GET", "/api/search")
@@ -268,7 +209,7 @@ def status_events(h: Handler) -> None:
     try:
         open_stream(h)
         pump(h, channel, lambda change: write_stream(h, f"data: {json.dumps(change)}\n\n"))
-    except OSError:
+    except ConnectionError:
         pass
     finally:
         unsubscribe()
@@ -294,7 +235,7 @@ def run_events(h: Handler, run_id: str) -> None:
         for stored in backlog:
             emit(stored)
         pump(h, channel, emit_unseen)
-    except OSError:
+    except ConnectionError:
         pass
     finally:
         unsubscribe()

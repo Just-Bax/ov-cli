@@ -202,5 +202,6 @@ def forget(alias: str) -> None:
 
     for table in tables:
         table.pop(alias, None)
+
     save_state(state)
     clear_caches()

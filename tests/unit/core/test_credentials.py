@@ -75,7 +75,7 @@ def test_a_lost_key_is_an_error(ov_home, keyring):
 def test_delete_removes_the_secret(ov_home, keyring):
     seed_session(BASE_URL)
     session_store.remove("acme")
-    assert credentials.keys() == []
+    assert credentials.get(f"{BASE_URL}|") is None
 
 
 def test_no_keyring_is_an_error(ov_home, monkeypatch):

@@ -54,5 +54,4 @@ def test_mentions_link_to_the_instance_the_agent_worked_on_not_the_thread_instan
 
 def test_mentions_stay_plain_without_a_known_instance():
     tools = [{"id": "t1", "name": "ws_read", "input": '{"path": "a.txt"}', "output": "rule 100024483"}]
-
     assert links_for("Rule 100024483.", seen_ids(_state(tools), ""), URLS)["mentions"] == []

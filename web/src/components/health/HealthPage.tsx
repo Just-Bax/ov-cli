@@ -16,6 +16,7 @@ import { MatchInstance } from './MatchInstance'
 import { MaintenanceTile } from './maintenance'
 import { EndpointsTile, PerformanceTile } from './performance'
 import { type Context, Notice, tileId } from './tiles'
+import { plural } from '@/lib/text'
 
 const INSTANCE_KEY = 'ov-agent.health-instance'
 const CHECK_CELLS = 6
@@ -41,7 +42,7 @@ const HEALTH_ACTION_WIDTHS = ['w-[260px]', 'w-[112px]', 'w-9', 'w-36']
 function serverCount(scope: string): ReactNode {
   const hosts = hostsIn(scope)
   if (!hosts) return <span className="font-mono">{scope}</span>
-  return `${hosts.length} server${hosts.length === 1 ? '' : 's'}`
+  return plural(hosts.length, 'server')
 }
 
 function PageSkeleton() {

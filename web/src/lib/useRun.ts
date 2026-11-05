@@ -29,7 +29,6 @@ function withOlder(state: RunState, older: RunWindow): RunState {
     questions: [...older.questions, ...state.questions],
     logins: [...older.logins, ...state.logins],
     compactions: [...older.compactions, ...state.compactions],
-    branchResults: [...older.branchResults, ...state.branchResults],
     outline: state.outline.filter((m) => m.start < older.start),
   }
 }
@@ -128,7 +127,6 @@ export function useRun(id: string): {
   const apply = useCallback((event: RunEvent) => {
     const now = current.current
     if (!now) return
-
     current.current = reduce(now, { seq: -1, ts: Date.now(), live: true, event })
     setState(current.current)
   }, [])

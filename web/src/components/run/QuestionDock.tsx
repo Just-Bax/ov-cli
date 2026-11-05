@@ -23,8 +23,8 @@ import { cn } from '@/lib/cn'
 import { isEditableTarget } from '@/lib/dom'
 import { useWindowEvent } from '@/lib/hooks'
 
-const APPROVE = 'Approve'
-const REJECT = 'Reject'
+export const APPROVE = 'Approve'
+export const REJECT = 'Reject'
 const MAX_KEYED_OPTIONS = 9
 const ANSWER_JOINER = ', '
 const DOCK_CLASS =

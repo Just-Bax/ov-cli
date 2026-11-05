@@ -131,6 +131,15 @@ export function utcMs(text: string): number {
   return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(text) ? text : `${text.replace(' ', 'T')}Z`).getTime()
 }
 
+export function whenOf(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export function clock(ms: number, range: Range): string {
   const d = new Date(ms)
   return range === '7d'

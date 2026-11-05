@@ -93,6 +93,7 @@ export function usePresence<T>(value: T | undefined, exitMs: number) {
       setKept(value)
       return
     }
+
     const timer = setTimeout(() => setKept(undefined), exitMs)
     return () => clearTimeout(timer)
   }, [value, exitMs])

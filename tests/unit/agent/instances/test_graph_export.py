@@ -75,9 +75,7 @@ def test_exports_link_like_the_sql_map():
 def test_rules_are_read_from_a_streamed_export(tmp_path):
     path = tmp_path / "rule.xml"
     path.write_text(RULE_XML, encoding="utf-8")
-
     (rule,) = [graph_export.READERS["RULE"](item) for item in components.streamed_items(path)]
-
     assert (rule["id"], rule["name"], rule["trackorType"], rule["enabled"]) == ("500", "Set status", "Project", True)
     assert rule["bindings"] == [("CONFIG_FIELD_IDNUMS", "Project", "P_STATUS")]
     assert rule["code"] == "begin pkg_sync.run(:pk); end;"

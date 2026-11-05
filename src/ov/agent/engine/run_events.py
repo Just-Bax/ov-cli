@@ -95,7 +95,6 @@ class EventsMixin:
         if usage is None:
             return
         cost = db.add_usage(self.id, self.provider, model, kind, tokens=usage.tokens, nano=usage.nano)
-
         with self._lock:
             self.state["summary"]["cost"] = cost
         self.push_live({"type": "cost", "cost": cost})

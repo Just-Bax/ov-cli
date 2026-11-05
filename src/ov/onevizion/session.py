@@ -86,6 +86,7 @@ class Session:
 
     def redacted(self) -> dict[str, Any]:
         left = self.seconds_left()
+
         return {
             "alias": self.alias,
             "base_url": self.base_url,

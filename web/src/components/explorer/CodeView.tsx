@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import type { CodeHint, GraphNode, GraphNodeType } from '@shared/types.ts'
 import { TypeDot, TYPES } from '@/components/map/meta'
 import { ObjectActions } from '@/components/map/ObjectActions'
@@ -82,6 +82,7 @@ export function CodeView({
   const pointerOnCard = useRef(false)
 
   const keep = () => clearTimeout(hideTimer.current)
+
   const hideSoon = () => {
     clearTimeout(switchTimer.current)
     clearTimeout(hideTimer.current)
@@ -89,11 +90,13 @@ export function CodeView({
       if (!pointerOnCard.current) setHover(undefined)
     }, HIDE_DELAY_MS)
   }
+
   const enterCard = () => {
     pointerOnCard.current = true
     clearTimeout(switchTimer.current)
     keep()
   }
+
   const leaveCard = () => {
     pointerOnCard.current = false
     hideSoon()
@@ -308,7 +311,7 @@ function RefCard({
 }: {
   hover: Hover
   facts: string[]
-  style: React.CSSProperties
+  style: CSSProperties
   onEnter: () => void
   onLeave: () => void
   onOpen: () => void

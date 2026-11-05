@@ -95,6 +95,7 @@ def request_args(component_type: str, ids: list[int] | None) -> list[str]:
         component["export_all"] = True
     else:
         component["component_ids"] = ids
+
     body = json.dumps({"filename": "ov-agent", "components": [component]})
     return ["request", "POST", EXPORT_PATH, "-d", body]
 
@@ -178,6 +179,7 @@ def _selection(entry: dict[str, Any]) -> dict[str, Any]:
         if mode not in IMPORT_MODES:
             raise ExportError(f"Unknown import mode {mode}. Use one of: {', '.join(IMPORT_MODES)}.")
         picked["mode"] = mode
+
     if entry.get("ids"):
         picked["components"] = [{"id": int(i)} for i in entry["ids"]]
     return picked
@@ -207,4 +209,5 @@ def import_summary(response: str) -> str:
             f"  {m.get('status')}: {(m.get('message') or m.get('full_message') or '')[:IMPORT_MESSAGE_CHARS]}"
             for m in result.get("messages") or []
         ]
+
     return "\n".join(lines) or "Nothing was imported."

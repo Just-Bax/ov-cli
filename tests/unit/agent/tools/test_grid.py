@@ -72,6 +72,5 @@ def test_grid_updates_merge_into_the_thread():
     state = empty_state({"id": "r1", "status": "running"}, "read")
     reduce(state, {"seq": 1, "ts": 1, "event": {"type": "grid", "grid": {"id": "g1", "title": "Sites", "rows": []}}})
     reduce(state, {"seq": 2, "ts": 2, "event": {"type": "grid", "grid": {"id": "g1", "loading": True}}})
-
     assert state["grids"] == [{"id": "g1", "title": "Sites", "rows": [], "loading": True}]
     assert state["items"] == [{"kind": "grid", "id": "g1"}]

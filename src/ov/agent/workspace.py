@@ -14,6 +14,7 @@ from typing import Any
 from ov.agent.engine.cancel import Cancel
 from ov.agent.storage import db
 from ov.core.procs import kill_tree, spawn_options, wait_or_stop
+from ov.onevizion.client import READ_ONLY_ENV
 
 SKIPPED_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", ".idea", ".gradle"}
 MAX_LIST_ENTRIES = 400
@@ -96,6 +97,7 @@ def entries(rel: str) -> list[dict[str, Any]]:
         if child.is_dir() and _skipped(child.name):
             continue
         rows.append({"name": child.name, "path": relative(child), "dir": child.is_dir()})
+
     return sorted(rows, key=lambda r: (not r["dir"], r["name"].lower()))
 
 
@@ -186,6 +188,7 @@ def _repo_of(folder: Path) -> Path | None:
             return candidate
         if candidate == base:
             return None
+
     return None
 
 
@@ -374,7 +377,7 @@ def run(command: str, rel: str, timeout: int, cancel: Cancel) -> str:
             stdin=subprocess.DEVNULL,
             stdout=out,
             stderr=subprocess.STDOUT,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1", "OV_READONLY": "1"},
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1", READ_ONLY_ENV: "1"},
             **spawn_options(),
         )
 

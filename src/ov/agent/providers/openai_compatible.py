@@ -32,7 +32,6 @@ class OpenAICompatibleProvider(ChatProvider):
     def default_models(self) -> tuple[str | None, str | None]:
         if not self.signed_in():
             return None, None
-
         first = openai_compatible.list_models()[0]["id"]
         return first, first
 

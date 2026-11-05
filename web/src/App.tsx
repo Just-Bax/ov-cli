@@ -7,7 +7,7 @@ import { RunView } from '@/components/run/RunView'
 import { Setup } from '@/components/settings/Setup'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { sidebarAccount } from '@/components/providers'
-import { Toasts } from '@/components/common/Toasts'
+import { reportError, Toasts } from '@/components/common/Toasts'
 import { HomeSkeleton } from '@/components/common/skeletons'
 import { api } from '@/lib/api'
 import { configureAttention } from '@/lib/attention'
@@ -46,7 +46,10 @@ export function App() {
         setStatus(s)
         setError(undefined)
       })
-      .catch((e: Error) => setError(e.message))
+      .catch((e: Error) => {
+        setError(e.message)
+        reportError(e)
+      })
   }, [])
 
   useEffect(refresh, [refresh])

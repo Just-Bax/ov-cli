@@ -287,7 +287,11 @@ function ToolRow({ runId, tool }: { runId: string; tool: ToolActivity }) {
 
     let stale = false
     take(DETAIL_SLOT, key, () => api.runDetails(runId, [tool.id], []))
-      .then((d) => !stale && setDetail(d.tools[tool.id] ?? {}))
+      .then((d) => {
+        const found = d.tools[tool.id]
+        if (!found) throw new Error(`The server sent no details for the tool call ${tool.id}.`)
+        if (!stale) setDetail(found)
+      })
       .catch(reportError)
 
     return () => {

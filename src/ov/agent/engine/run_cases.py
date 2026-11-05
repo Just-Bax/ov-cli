@@ -21,6 +21,7 @@ class CasesMixin:
         except Exception as exc:
             self._tool_done(tool, "error", started, str(exc)[:TOOL_ERROR_CHARS])
             raise
+
         self._tool_done(tool, "ok", started, text[:TOOL_OUTPUT_CHARS])
         return f"Troubleshoot this case.\n\n{clip(text, self, 'case')}"
 
@@ -37,14 +38,22 @@ class CasesMixin:
                     raise RunError(f"Not signed in to {exc.host}.") from None
 
         text = cases.render(bundle, self.work_dir)
-        if self.state["summary"].get("caseKey"):
+        with self._lock:
+            known = {case["key"] for case in self.state["cases"]}
+        if bundle["key"] in known:
             return text
 
-        meta = {"type": "meta", "caseKey": bundle["key"], "caseUrl": bundle["url"], "instance": bundle["website"]}
+        meta = {"type": "meta", "caseKey": bundle["key"], "caseUrl": bundle["url"]}
+        if known:
+            self.emit(meta)
+            return text
+
+        meta["instance"] = bundle["website"]
         if names_thread:
             title = " ".join(bundle["title"].split()) or f"Case {bundle['key']}"
             meta["title"] = short_title(f"{bundle['key']}: {title}", TITLE_CHARS)
         self.emit(meta)
+
         if bundle["website"]:
             text += f"\n\nThe run's default instance is now {bundle['website']}."
         return text

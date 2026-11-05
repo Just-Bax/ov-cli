@@ -33,7 +33,6 @@ import type {
   SkillInfo,
   Status,
   Upload,
-  Finding,
   RunSummary,
   SearchHit,
 } from '@shared/types.ts'
@@ -88,22 +87,11 @@ export const api = {
   cost: (range: CostRange, provider: Provider) =>
     request<CostReport>(`/cost?range=${range}&provider=${provider}`),
   compactRun: (id: string) => post(`/threads/${id}/compact`),
-  continueRun: (id: string) => post<{ id: string }>(`/threads/${id}/continue`),
   branch: (id: string, before?: string) =>
     post<{ id: string }>(`/threads/${id}/branch`, { before: before ?? null }),
   retryAsBranch: (id: string, itemId: string) =>
     post<{ id: string }>(`/threads/${id}/retry-branch`, { itemId }),
-  aside: (id: string, messageId: string, text: string, files: Upload[]) =>
-    post<{ id: string }>(`/threads/${id}/aside`, { id: messageId, text, files }),
   branches: (id: string) => request<{ branches: RunSummary[] }>(`/threads/${id}/branches`),
-  bringBackDraft: (id: string) => post<{ text: string }>(`/threads/${id}/bring-back/draft`),
-  bringBack: (id: string, text: string) => post(`/threads/${id}/bring-back`, { text }),
-  fromFindings: (id: string) => post<{ id: string }>(`/threads/${id}/from-findings`),
-  findings: (id: string) => request<{ findings: Finding[] }>(`/threads/${id}/findings`),
-  addFinding: (id: string, text: string) => post<Finding>(`/threads/${id}/findings`, { text }),
-  editFinding: (id: string, findingId: number, text: string) =>
-    post(`/threads/${id}/findings/${findingId}`, { text }),
-  deleteFinding: (id: string, findingId: number) => del(`/threads/${id}/findings/${findingId}`),
   searchThreads: (q: string, signal?: AbortSignal) =>
     request<{ threads: SearchHit[] }>(`/search?q=${seg(q)}`, { signal }),
   pinRun: (id: string, pinned: boolean) => post(`/threads/${id}/pin`, { pinned }),
@@ -174,10 +162,6 @@ export const api = {
     ),
   pagerdutyIncident: (id: string) =>
     request<PagerDutyIncidentDetail>(`/pagerduty/incidents/${seg(id)}`),
-  checkInstance: (instance: string) =>
-    request<{ url: string; ms: number; version: string | null }>(
-      `/instances/check?instance=${seg(instance)}`,
-    ),
   removeInstance: (alias: string) => post<Instance[]>('/instances/logout', { alias }),
   rememberInstance: (alias: string) => post<Instance[]>('/instances/remember', { alias }),
   checkAccess: (alias: string) => post<Instance[]>('/instances/access', { alias }),

@@ -23,14 +23,11 @@ import { cn } from '@/lib/cn'
 import { onePerHost, useInstances } from '@/lib/instances'
 import { hostsIn, shortHost } from '@/lib/servers'
 import { useUnsavedWarning } from '@/lib/unsaved'
+import { plural } from '@/lib/text'
 
 const GRID = 'grid grid-cols-[minmax(150px,1fr)_minmax(0,1.4fr)_minmax(0,1fr)_20px] gap-4'
 
 type Row = { alias: string; host: string }
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`
-}
 
 function Suggestion({ text, onUse }: { text: string; onUse: () => void }) {
   return (
@@ -163,6 +160,7 @@ export function DatadogInstanceMatches({
         next = await api.datadogMatches({ ...status.matches, ...matches })
       if (rows.some((r) => databaseChanged(r.alias)))
         next = await api.datadogPickDatabases({ ...status.databases, ...databases })
+
       setOpen(undefined)
       setNote(undefined)
       onSaved(next)

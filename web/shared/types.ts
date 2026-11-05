@@ -140,7 +140,7 @@ interface IssueFinding {
   evidence?: string[]
 }
 
-interface ExistingMatch {
+export interface ExistingMatch {
   key: string
   title: string
   covers: 'yes' | 'partly' | 'no'
@@ -238,6 +238,11 @@ export interface ContextUsage {
   compactAt?: number
 }
 
+export interface CaseLink {
+  key: string
+  url: string
+}
+
 export type RunEvent =
   | { type: 'status'; status: RunStatus; error?: string }
   | {
@@ -274,8 +279,6 @@ export type RunEvent =
   | { type: 'cost'; cost: CostTotal }
   | { type: 'compact'; compact: Compaction }
   | { type: 'context'; context: ContextUsage }
-  | { type: 'branch_result'; branch: ThreadLink; text: string }
-  | { type: 'findings' }
 
 export type Provider = 'copilot' | 'claude' | 'openai'
 
@@ -370,7 +373,6 @@ export interface RunWindow {
   questions: Question[]
   logins: LoginPrompt[]
   compactions: Compaction[]
-  branchResults: BranchResult[]
   outline: OutlineMark[]
 }
 
@@ -389,7 +391,6 @@ export type ThreadItem =
   | { kind: 'login'; id: string }
   | { kind: 'outcome'; id: string }
   | { kind: 'compact'; id: string }
-  | { kind: 'branch_result'; id: string }
 
 export interface Upload {
   id: string
@@ -407,7 +408,7 @@ export interface RunInput {
 
 export type Attention = 'done' | 'failed' | 'woke'
 
-export type Origin = 'branch' | 'summary' | 'findings'
+export type Origin = 'branch'
 
 export interface RunSummary {
   id: string
@@ -428,21 +429,6 @@ export interface RunSummary {
   origin?: Origin
   originTurnId?: string
   inheritedUntil?: number
-}
-
-export interface Finding {
-  id: number
-  text: string
-  turnId: string
-  createdAt: number
-  updatedAt: number
-}
-
-export interface BranchResult {
-  id: string
-  branch: ThreadLink
-  text: string
-  ts: number
 }
 
 export type SearchHit = RunSummary & { snippet: string }
@@ -466,11 +452,11 @@ export interface RunState extends RunWindow {
   queued: ChatMessage[]
   queueHeld: boolean
   instances: string[]
+  cases: CaseLink[]
   browser?: BrowserState
   context?: ContextUsage
   parent?: ThreadLink | null
   inheritedItems?: number
-  findingsVersion?: number
 }
 
 export type RunSnapshot = RunState & { seq: number }
@@ -487,6 +473,7 @@ export interface Settings {
   reasoning: ReasoningLevel | ''
   notify: boolean
   tabBadge: boolean
+  compactBranches: boolean
 }
 
 export interface SkillInfo {

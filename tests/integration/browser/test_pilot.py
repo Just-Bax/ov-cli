@@ -124,7 +124,6 @@ def test_going_to_another_site_directly_is_refused(sites, pilot):
 def test_a_sign_in_redirect_through_another_site_gets_back(sites, pilot):
     instance, other = sites
     pilot.goto(f"{instance.url}/sso")
-
     assert pilot.where()[1] == f"{instance.url}/?signed=1"
     assert other.hits == ["/sso"] and pilot.take_blocked() == []
 

@@ -34,6 +34,7 @@ def _transcript(home: Path, cwd: Path, turns: int) -> tuple[str, list[str]]:
             }
         )
         previous = message_id
+
     (folder / f"{session}.jsonl").write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
     return session, ids
 
@@ -65,7 +66,6 @@ def test_claude_fork_refuses_a_point_or_transcript_it_cannot_find(tmp_path, monk
 
 def test_a_branch_point_uses_the_anchor_of_the_message_it_starts_before():
     thread = SimpleNamespace(state={"session": {"id": "s2", "turns": {"u_two": {"id": "s1", "before": "m3"}}}})
-
     assert claude_session.branch_anchor(thread, "u_two") == ("s1", "m3")
     with pytest.raises(ClaudeError, match="no saved point"):
         claude_session.branch_anchor(thread, "u_three")

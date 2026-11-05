@@ -6,9 +6,10 @@ const SKELETON_DELAY_MS = 300
 const SKELETON_MIN_MS = 500
 const CODE_WIDTHS = ['w-1/3', 'w-2/3', 'w-1/2', 'w-5/6', 'w-3/5', 'w-1/4', 'w-3/4', 'w-2/5']
 const TREE_WIDTHS = ['w-32', 'w-40', 'w-28', 'w-44', 'w-36', 'w-24']
-const TREE_BASE_PADDING_PX = 10
+const TREE_PADDING_PX = 10
 const CODE_INDENT_PX = 14
 const CODE_INDENT_LEVELS = 4
+const CODE_LINES = 18
 
 export function useSkeleton(loading: boolean): boolean {
   const started = useRef<number | undefined>(undefined)
@@ -34,14 +35,14 @@ export function useSkeleton(loading: boolean): boolean {
   return loading || holding
 }
 
-export function TreeRowsSkeleton({ rows = 10, indent = 0 }: { rows?: number; indent?: number }) {
+function TreeRowsSkeleton({ rows }: { rows: number }) {
   return (
     <div className="space-y-1 py-1">
       {Array.from({ length: rows }, (_, i) => (
         <div
           key={i}
           className="flex h-7 items-center gap-2"
-          style={{ paddingLeft: indent + TREE_BASE_PADDING_PX }}
+          style={{ paddingLeft: TREE_PADDING_PX }}
         >
           <Skeleton className="size-3.5 shrink-0 rounded" />
           <Skeleton className={cn('h-2.5', TREE_WIDTHS[i % TREE_WIDTHS.length])} />
@@ -51,10 +52,10 @@ export function TreeRowsSkeleton({ rows = 10, indent = 0 }: { rows?: number; ind
   )
 }
 
-export function CodeSkeleton({ lines = 18 }: { lines?: number }) {
+export function CodeSkeleton() {
   return (
     <div className="space-y-2.5 p-5">
-      {Array.from({ length: lines }, (_, i) => (
+      {Array.from({ length: CODE_LINES }, (_, i) => (
         <div key={i} className="flex items-center gap-4">
           <Skeleton className="h-2.5 w-5 shrink-0" />
           <Skeleton

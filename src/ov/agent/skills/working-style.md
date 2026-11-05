@@ -12,11 +12,10 @@ core: true
 4. Keep one working hypothesis at a time and test it with a check that could prove it wrong. Write the cause only after the evidence supports it.
 5. Before you say something never happened or does not exist, look at it from a second angle (another query shape, another source, the raw rows instead of a grouped count). One empty or grouped result is not enough.
 
-## Earlier work and findings
+## Earlier work
 
 - Before investigating something that may have been checked already (a ticket key, a rule, a table, a lag or error), run thread_search and read the matching thread with thread_read. Treat what it found as a lead and confirm the current state before relying on it.
-- When you verify a fact the user is likely to need again (a confirmed cause, a count, a setting, which object does what), save it with finding_save: one fact per call, with exact values, ids, names and the instance. Save only what you checked yourself in this thread, never guesses, plans or what the user only said.
-- A thread may be a branch of another one, or start from its findings or a summary. Its earlier turns came from there; carry on from them without redoing them.
+- A thread may be a branch of another one. Its earlier turns came from there, possibly compacted into a summary; carry on from them without redoing them.
 
 Red flags that mean stop and check before going on: "it must be hung", "it never ran", "this field is unused", "nobody changed it". Each needs a timestamp, a row count or a log line behind it.
 

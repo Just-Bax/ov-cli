@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { HealthPoint } from '@shared/types.ts'
-import { clock, type Range } from './data'
+import { clock, type Range, whenOf } from './data'
 
 const WIDTH = 1000
 const TOP_PAD = 4
@@ -16,8 +16,19 @@ const LABEL_WIDTH = 96
 const EVENT_LANE_HEIGHT = 12
 const MIN_SPAN_PERCENT = 0.6
 const AXIS_TICKS = [0, 0.5, 1]
+const FULL_PERCENT = 100
+const TYPICAL_PLOT_PX = 800
+const BAR_OPACITY = 0.4
+const HOVERED_BAR_OPACITY = 0.75
+const LANE_LIMIT_OPACITY = 0.6
+const METRIC_LIMIT_OPACITY = 0.7
+const LIMIT_DASH = '4 4'
+const CURSOR_DASH = '3 3'
+const EVENT_DOT_PX = 8
+const METRIC_HEIGHT = 44
+const METRIC_FILL_OPACITY = 0.14
 
-export type Lane = {
+type Lane = {
   label: string
   color: string
   kind: 'bars' | 'line'
@@ -113,8 +124,8 @@ function LanePlot({
           y1={y(lane.limit, max, height)}
           y2={y(lane.limit, max, height)}
           stroke={LIMIT_COLOR}
-          strokeDasharray="4 4"
-          opacity={0.6}
+          strokeDasharray={LIMIT_DASH}
+          opacity={LANE_LIMIT_OPACITY}
           vectorEffect="non-scaling-stroke"
         />
       ) : null}
@@ -129,7 +140,7 @@ function LanePlot({
                 height={height - y(v, max, height)}
                 rx={BAR_RADIUS}
                 fill={lane.color}
-                opacity={at === -1 || at === i ? 0.75 : 0.4}
+                opacity={at === -1 || at === i ? HOVERED_BAR_OPACITY : BAR_OPACITY}
               />
             ) : null,
           )
@@ -153,7 +164,7 @@ function LanePlot({
               key={i}
               cx={p.x}
               cy={p.y}
-              rx={(DOT_RADIUS * WIDTH) / 800}
+              rx={(DOT_RADIUS * WIDTH) / TYPICAL_PLOT_PX}
               ry={DOT_RADIUS}
               fill={lane.color}
             />
@@ -166,7 +177,7 @@ function LanePlot({
           y1={0}
           y2={height}
           stroke={CURSOR_COLOR}
-          strokeDasharray="3 3"
+          strokeDasharray={CURSOR_DASH}
           vectorEffect="non-scaling-stroke"
         />
       ) : null}
@@ -175,7 +186,7 @@ function LanePlot({
 }
 
 function percentOf(t: number, from: number, to: number): number {
-  return Math.min(100, Math.max(0, ((t - from) / (to - from)) * 100))
+  return Math.min(FULL_PERCENT, Math.max(0, ((t - from) / (to - from)) * FULL_PERCENT))
 }
 
 function EventRow({ lane, from, to }: { lane: EventLane; from: number; to: number }) {
@@ -195,9 +206,9 @@ function EventRow({ lane, from, to }: { lane: EventLane; from: number; to: numbe
             className="absolute top-1/2 -translate-y-1/2 rounded-full ring-2 ring-white"
             style={{
               left: `${left}%`,
-              width: width ? `${width}%` : 8,
-              height: width ? 8 : 8,
-              marginLeft: width ? 0 : -4,
+              width: width ? `${width}%` : EVENT_DOT_PX,
+              height: EVENT_DOT_PX,
+              marginLeft: width ? 0 : -EVENT_DOT_PX / 2,
               background: item.color,
             }}
           />
@@ -319,9 +330,6 @@ export function Lanes({
   )
 }
 
-const METRIC_HEIGHT = 44
-const METRIC_FILL_OPACITY = 0.14
-
 export function MetricChart({
   points,
   color,
@@ -383,8 +391,8 @@ export function MetricChart({
             y1={y(limit, max, METRIC_HEIGHT)}
             y2={y(limit, max, METRIC_HEIGHT)}
             stroke={LIMIT_COLOR}
-            strokeDasharray="4 4"
-            opacity={0.7}
+            strokeDasharray={LIMIT_DASH}
+            opacity={METRIC_LIMIT_OPACITY}
             vectorEffect="non-scaling-stroke"
           />
         ) : null}
@@ -395,7 +403,7 @@ export function MetricChart({
             y1={0}
             y2={METRIC_HEIGHT}
             stroke={CURSOR_COLOR}
-            strokeDasharray="3 3"
+            strokeDasharray={CURSOR_DASH}
             vectorEffect="non-scaling-stroke"
           />
         ) : null}
@@ -404,19 +412,12 @@ export function MetricChart({
         <div
           className="border-line pointer-events-none absolute -top-7 z-10 rounded-full border bg-white px-2 py-0.5 text-[11px] whitespace-nowrap shadow-sm"
           style={{
-            left: `${((hovered.t - first) / span) * 100}%`,
+            left: `${((hovered.t - first) / span) * FULL_PERCENT}%`,
             transform: `translateX(${(hovered.t - first) / span > TOOLTIP_FLIP ? '-100%' : '0'})`,
           }}
         >
           <span className="text-fg font-medium tabular-nums">{format(hovered.v)}</span>
-          <span className="text-faint ml-1.5">
-            {new Date(hovered.t).toLocaleString(undefined, {
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </span>
+          <span className="text-faint ml-1.5">{whenOf(hovered.t)}</span>
         </div>
       ) : null}
     </div>

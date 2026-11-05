@@ -127,6 +127,7 @@ def _fill_path(operation: Operation, supplied: dict[str, Any]) -> str:
                 f"Pass --{name.replace('_', '-')} or -p {name}=VALUE."
             )
         path = path.replace("{" + name + "}", quote(str(supplied[name]), safe=""))
+
     return path
 
 
@@ -145,6 +146,7 @@ def _pairs(raw: list[str] | None, flag: str, separator: str = "=") -> dict[str, 
         if not found:
             raise OvError(f"{flag} expects NAME{separator}VALUE, got {entry!r}")
         result[name.strip()] = value.strip()
+
     return result
 
 
@@ -216,6 +218,7 @@ def _uploads(files: list[str] | None) -> dict[str, Any]:
         if not found:
             raise OvError(f"--file expects FIELD=@path, got {entry!r}")
         uploads[name.strip()] = _upload(Path(raw.strip().lstrip("@")).expanduser())
+
     return uploads
 
 
@@ -264,6 +267,7 @@ def _build_fields(fields: list[str] | None) -> dict[str, Any]:
 
         key, value = _field_value(raw_key.strip(), raw_value)
         _assign(payload, key.split("."), value)
+
     return payload
 
 

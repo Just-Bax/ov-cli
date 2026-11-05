@@ -66,16 +66,13 @@ def test_wait_follows_the_run_until_it_finishes(capsys, run_spec, server):
 
 def test_a_failed_run_exits_with_an_error(capsys, run_spec, server):
     _replies(server, ["RUNNING", "EXECUTED_WITH_ERRORS"])
-
     code, data = payload(capsys, "imports", "run-import", "12", "--wait", "--json")
-
     assert code == 1
     assert data["status"] == "EXECUTED_WITH_ERRORS"
 
 
 def test_wait_refuses_a_run_without_a_status_endpoint_before_sending_it(capsys, run_spec, server):
     code, data = payload(capsys, "components", "run-components-export", "--wait", "--json")
-
     assert code == 1
     assert "GET /v3/components/exports/runs/{process_id}" in data["error"]
     assert server.requests == []
@@ -83,7 +80,6 @@ def test_wait_refuses_a_run_without_a_status_endpoint_before_sending_it(capsys, 
 
 def test_wait_refuses_an_operation_that_starts_no_run(capsys, run_spec, server):
     code, data = payload(capsys, "users", "get-user-by-id", "5", "--wait", "--json")
-
     assert code == 1
     assert "starts a run" in data["error"]
     assert server.requests == []
@@ -92,5 +88,4 @@ def test_wait_refuses_an_operation_that_starts_no_run(capsys, run_spec, server):
 def test_raw_requests_do_not_offer_wait(capsys, run_spec, server):
     with pytest.raises(SystemExit) as exited:
         run(capsys, "request", "POST", "/v3/imports/12/run", "--wait")
-
     assert exited.value.code == 2

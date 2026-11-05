@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { formatAmount, formatCost, formatTokens, orderedTokens, tokenLabel } from '@/lib/cost'
 import { modelName, useModels } from '@/lib/models'
 import { providerStatus, useSettings } from '@/lib/settings'
+import { plural } from '@/lib/text'
 
 function Counting({ text }: { text: string }) {
   return (
@@ -72,7 +73,7 @@ export function CostPill({
             <span className="tabular-nums">{formatCost(cost, unit)}</span>
           </div>
           <div className="text-muted mt-0.5">
-            {cost.requests} request{cost.requests === 1 ? '' : 's'}
+            {plural(cost.requests, 'request')}
             {unit === 'tokens' && cost.requests
               ? `, about ${formatTokens(cost.amount / cost.requests)} tokens each`
               : ''}

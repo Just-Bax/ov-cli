@@ -47,11 +47,6 @@ def delete(key: str) -> None:
             _write(vault)
 
 
-def keys() -> list[str]:
-    with store.lock():
-        return sorted(_read())
-
-
 def vault_file() -> Path:
     return home() / "vault"
 

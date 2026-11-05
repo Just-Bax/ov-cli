@@ -8,6 +8,8 @@ import { cn } from '@/lib/cn'
 import { formatTokens } from '@/lib/cost'
 import { useClickOutside } from '@/lib/hooks'
 import { MINUTE_MS, shortSpan } from '@/lib/time'
+import { BranchIcon } from './Branches'
+import { plural } from '@/lib/text'
 
 const RING_RADIUS = 6
 const RING_SIZE = 16
@@ -17,6 +19,20 @@ const WARN_SHARE = 0.75
 const PERCENT = 100
 const STALE_CACHE_MIN_TOKENS = 20_000
 const STALE_CHECK_MS = MINUTE_MS
+
+function useCompact(runId: string, onDone?: () => void) {
+  const [asking, setAsking] = useState(false)
+
+  const compact = () => {
+    setAsking(true)
+    api
+      .compactRun(runId)
+      .then(onDone, reportError)
+      .finally(() => setAsking(false))
+  }
+
+  return { asking, compact }
+}
 
 function share(context: ContextUsage): number {
   return Math.min(1, context.tokens / (context.compactAt ?? context.limit))
@@ -63,7 +79,7 @@ export function ContextMeter({
   busy: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const [asking, setAsking] = useState(false)
+  const { asking, compact } = useCompact(runId, () => setOpen(false))
   const trigger = useRef<HTMLButtonElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   useClickOutside([trigger, panel], () => setOpen(false), open)
@@ -71,14 +87,6 @@ export function ContextMeter({
   const used = share(context)
   const warn = used >= WARN_SHARE
   const percent = Math.round(used * PERCENT)
-
-  const compact = () => {
-    setAsking(true)
-    api
-      .compactRun(runId)
-      .then(() => setOpen(false), reportError)
-      .finally(() => setAsking(false))
-  }
 
   return (
     <div className="relative shrink-0">
@@ -137,12 +145,10 @@ export function ContextMeter({
 
 function useNow(everyMs: number): number {
   const [now, setNow] = useState(Date.now)
-
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), everyMs)
     return () => clearInterval(timer)
   }, [everyMs])
-
   return now
 }
 
@@ -158,17 +164,9 @@ export function StaleCacheNotice({
   cacheTtlMs: number
 }) {
   const now = useNow(STALE_CHECK_MS)
-  const [asking, setAsking] = useState(false)
+  const { asking, compact } = useCompact(runId)
   const idle = now - idleSince
   if (idle < cacheTtlMs || context.tokens < STALE_CACHE_MIN_TOKENS) return null
-
-  const compact = () => {
-    setAsking(true)
-    api
-      .compactRun(runId)
-      .catch(reportError)
-      .finally(() => setAsking(false))
-  }
 
   return (
     <div className="text-muted mb-1.5 flex items-center gap-2 px-3 text-[12px]">
@@ -190,6 +188,42 @@ export function StaleCacheNotice({
       >
         <CompactIcon className="size-3.5" />
         Compact first
+      </Button>
+    </div>
+  )
+}
+
+export function FreshBranchNotice({
+  runId,
+  turns,
+  context,
+}: {
+  runId: string
+  turns: number
+  context?: ContextUsage
+}) {
+  const { asking, compact } = useCompact(runId)
+
+  return (
+    <div className="border-brand/30 bg-brand-soft mb-2 flex items-center gap-2.5 rounded-2xl border py-2 pr-2 pl-3.5 text-[12.5px]">
+      <BranchIcon className="text-brand-strong size-4 shrink-0" />
+      <span className="text-text min-w-0 flex-1 leading-snug">
+        This branch carries {plural(turns, 'turn')} from its parent
+        {context ? (
+          <span className="tabular-nums"> ({formatTokens(context.tokens)} tokens)</span>
+        ) : null}
+        . Compact them into a summary to start lighter, or just ask.
+      </span>
+      <Button
+        variant="primary"
+        size="sm"
+        className="shrink-0 gap-1.5"
+        busy={asking}
+        disabled={asking}
+        onClick={compact}
+      >
+        <CompactIcon className="size-3.5" />
+        Compact
       </Button>
     </div>
   )

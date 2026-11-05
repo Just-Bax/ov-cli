@@ -1,23 +1,17 @@
 from __future__ import annotations
 
-import re
 import time
 from typing import Any
-
-import httpx
 
 from ov.agent.api.handler import Handler, HttpError, required, route
 from ov.agent.api.screen import Screen, find_screen, screen_key
 from ov.agent.api.streams import push_input, stream_screen
 from ov.agent.instances import access, explorer, graph
-from ov.agent.instances.ovproc import find_instance, instances, login, remember, run_ov, url_for
-from ov.onevizion.auth import LOGIN_PATH
+from ov.agent.instances.ovproc import instances, login, remember, run_ov
 
 LOGOUT_TIMEOUT_SECONDS = 60
 LOGOUT_MESSAGE_CHARS = 300
 LOGIN_MESSAGE_CHARS = 400
-INSTANCE_CHECK_TIMEOUT_SECONDS = 20
-_PLATFORM_VERSION = re.compile(r'Version\s*=\s*"([^"]+)"')
 SCREEN_APPEAR_SECONDS = 10
 SCREEN_APPEAR_POLL_SECONDS = 0.2
 
@@ -76,25 +70,6 @@ def remember_instance(h: Handler) -> list[dict[str, Any]]:
     if result.code != 0:
         raise HttpError(400, result.message[-LOGIN_MESSAGE_CHARS:] or "Could not create the token.")
     return _with_access()
-
-
-@route("GET", "/api/instances/check")
-def check_instance(h: Handler) -> dict[str, Any]:
-    ref = required(h.query, "instance")
-    found = find_instance(ref)
-    url = found["url"] if found else url_for(ref)
-    started = time.monotonic()
-    try:
-        page = httpx.get(f"{url}{LOGIN_PATH}", timeout=INSTANCE_CHECK_TIMEOUT_SECONDS, follow_redirects=True)
-    except httpx.HTTPError as exc:
-        raise HttpError(502, f"{url} did not answer: {exc}") from None
-
-    took = int((time.monotonic() - started) * 1000)
-    if page.status_code >= 400:
-        raise HttpError(502, f"{url} answered {page.status_code}.")
-
-    found = _PLATFORM_VERSION.search(page.text)
-    return {"url": url, "ms": took, "version": found.group(1) if found else None}
 
 
 @route("POST", "/api/instances/logout")

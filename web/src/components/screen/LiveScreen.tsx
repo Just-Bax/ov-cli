@@ -155,6 +155,7 @@ export function LiveScreen({
 
   useEffect(() => {
     const source = new EventSource(streamUrl)
+
     source.onmessage = (e) => {
       const { data, ...next } = JSON.parse(e.data as string) as Streamed
       unpainted.current = data
@@ -166,14 +167,17 @@ export function LiveScreen({
       setPhase('live')
       if (!paintRequest.current) paintRequest.current = requestAnimationFrame(paint)
     }
+
     source.addEventListener('end', (e) => {
       setFailure((JSON.parse((e as MessageEvent<string>).data) as { error: string | null }).error)
       source.close()
       setPhase('gone')
     })
+
     source.onerror = () => {
       if (source.readyState === EventSource.CLOSED) setPhase('gone')
     }
+
     return () => {
       source.close()
       cancelAnimationFrame(paintRequest.current)
@@ -220,6 +224,7 @@ export function LiveScreen({
       const at = point(e)
       if (at) send({ type: 'wheel', ...at, dx: e.deltaX, dy: e.deltaY })
     }
+
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   })
@@ -263,6 +268,7 @@ export function LiveScreen({
 
     const typed = e.key.length === 1 && !command && !e.altKey
     const text = typed ? e.key : e.key === 'Enter' ? '\r' : undefined
+
     send({
       type: 'key',
       event: event === 'up' ? 'keyUp' : text ? 'keyDown' : 'rawKeyDown',

@@ -31,7 +31,6 @@ export function ProviderSelect({
 
 export function ProviderSetup({ status, onRefresh }: { status: Status; onRefresh: () => void }) {
   if (providerReady(status)) return null
-
   const current = currentProvider(status)
   const { SignIn } = PROVIDER_UI[current.id]
   return <SignIn account={current.account} onRefresh={onRefresh} />

@@ -11,6 +11,7 @@ import type {
   Access,
   ChatMessage,
   ApprovalQuestion,
+  CaseLink,
   ContextUsage,
   FollowUp,
   Provider,
@@ -43,23 +44,13 @@ import { forgetDraft, loadText } from '@/lib/drafts'
 import { inCodeEditor } from '@/lib/dom'
 import { usePresence, useWindowEvent } from '@/lib/hooks'
 import { layerOpen } from '@/lib/layers'
-import { href } from '@/lib/route'
 import { allRuns, patchLocally, useRuns, WORKING } from '@/lib/runs'
 import { useProvider } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
-import {
-  BranchIcon,
-  BranchList,
-  BringBackDialog,
-  BringBackIcon,
-  FindingsButton,
-  InheritedToggle,
-  LineageNote,
-  startedAside,
-} from './Branches'
+import { BranchedIntoNotes, InheritedToggle, LineageNote, useBranches } from './Branches'
 import { ChangeCard } from './ChangeCard'
 import { GridCard } from './GridCard'
-import { CompactionNote, ContextMeter, StaleCacheNotice } from './Context'
+import { CompactionNote, ContextMeter, FreshBranchNotice, StaleCacheNotice } from './Context'
 import { CostPill } from './CostPill'
 import { FilesChanged } from './FilesChanged'
 import { FIND_LABEL, FindBar } from './FindBar'
@@ -68,7 +59,6 @@ import {
   BrowserBackdrop,
   BrowserPane,
   CARD_CLASS,
-  HEADER_PILL,
   CHAT_CARD_STYLE,
   isBrowserTool,
   OpenBrowserButton,
@@ -130,6 +120,13 @@ function inheritedTurnCount(state: RunState, turns: Turn[]): number {
   const inherited = state.inheritedItems ?? 0
   const older = state.outline.filter((m) => m.kind === 'user' && m.start < inherited).length
   return older + turns.filter((t) => t.user && t.start < inherited).length
+}
+
+function freshBranchTurns(state: RunState, inheritedTurns: number): number {
+  const inherited = state.inheritedItems ?? 0
+  if (!inherited || state.summary.origin !== 'branch') return 0
+  const own = state.items.slice(Math.max(0, inherited - state.start))
+  return own.some((item) => item.kind === 'user' || item.kind === 'compact') ? 0 : inheritedTurns
 }
 
 function nextTurnId(turns: Turn[], index: number): string | undefined {
@@ -273,7 +270,6 @@ function turnTime(turn: Turn, state: RunState): number | undefined {
     const b = turn.blocks[i]
     if (b.kind === 'item' && b.item.kind === 'text') return chatById(state).get(b.item.id)?.ts
   }
-
   return undefined
 }
 
@@ -297,7 +293,6 @@ function browserQuestion(state: RunState): ApprovalQuestion | undefined {
 
 function dockedQuestion(state: RunState): Question | undefined {
   if (!LIVE_QUESTION.has(state.summary.status)) return undefined
-
   const inBrowser = browserQuestion(state)?.id
   return state.questions.find((q) => isOpen(q) && q.id !== inBrowser)
 }
@@ -310,11 +305,11 @@ function browserShown(state: RunState | undefined, hiddenSession: number | undef
 function ThreadBlock({
   block,
   state,
-  inherited = false,
+  inherited,
 }: {
   block: Block
   state: RunState
-  inherited?: boolean
+  inherited: boolean
 }) {
   if (block.kind === 'tools') return <ToolGroup runId={state.summary.id} tools={block.tools} />
 
@@ -374,29 +369,27 @@ function ThreadBlock({
       const compaction = state.compactions.find((c) => c.id === item.id)
       return compaction ? <CompactionNote compaction={compaction} /> : null
     }
-    case 'branch_result': {
-      const result = state.branchResults.find((r) => r.id === item.id)
-      if (!result) return null
-
-      return (
-        <div className="border-line rounded-2xl border px-4 py-3">
-          <div className="text-muted mb-1.5 flex items-center gap-1.5 text-[12px]">
-            <BringBackIcon className="size-3.5" />
-            Brought back from
-            <a
-              href={href({ page: 'thread', id: result.branch.id })}
-              className="text-brand-strong font-medium hover:underline"
-            >
-              {result.branch.title}
-            </a>
-          </div>
-          <Markdown text={result.text} />
-        </div>
-      )
-    }
-    default:
-      return null
   }
+}
+
+function CaseLinks({ cases }: { cases: CaseLink[] }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5">
+      <span className="text-muted">{cases.length === 1 ? 'Case' : 'Cases'}</span>
+      {cases.map((c) => (
+        <a
+          key={c.key}
+          href={c.url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-brand-strong inline-flex items-center gap-0.5 whitespace-nowrap hover:underline"
+        >
+          {c.key}
+          <ArrowTopRightOnSquareIcon className="size-3" />
+        </a>
+      ))}
+    </span>
+  )
 }
 
 type QueuedEdit = ReturnType<typeof useQueuedEdit>
@@ -450,6 +443,7 @@ function Footer({
   tool,
   queued,
   queueHeld,
+  freshBranchTurns,
   edit,
   onStop,
   onSend,
@@ -468,6 +462,7 @@ function Footer({
   tool?: ToolActivity
   queued: ChatMessage[]
   queueHeld: boolean
+  freshBranchTurns: number
   edit: QueuedEdit
   onStop: () => void
   onSend: () => void
@@ -479,8 +474,6 @@ function Footer({
   const { editing, setEditing, draft, startEdit, endEdit, editKey } = edit
   const modeFor = (alternate: boolean): FollowUp => (alternate ? 'steer' : 'queue')
   const parked = settled || Boolean(run.snoozedUntil)
-  const [aside, setAside] = useState(false)
-  const asking = aside && !editing
 
   const send = async (text: string, files: File[], alternate: boolean) => {
     setError(undefined)
@@ -494,11 +487,6 @@ function Footer({
           apply({ type: 'queue_add', message: original })
           throw e
         })
-        return
-      }
-
-      if (asking) {
-        await sendAside(text, files)
         return
       }
 
@@ -542,13 +530,6 @@ function Footer({
     }
   }
 
-  const sendAside = async (text: string, files: File[]) => {
-    const uploaded = files.length ? await api.upload(files) : []
-    const { id } = await api.aside(runId, newMessageId(), text, uploaded)
-    setAside(false)
-    startedAside(id)
-  }
-
   const shortcut = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (editing && e.key === 'Escape') {
       endEdit()
@@ -569,7 +550,6 @@ function Footer({
     return true
   }
 
-  const stop = onStop
   const pickAccess = (next: Access) => {
     apply({ type: 'access', access: next })
     api.setAccess(runId, next).catch((e: unknown) => {
@@ -581,23 +561,6 @@ function Footer({
   const extras = (
     <>
       <AccessPicker value={access} onChange={pickAccess} />
-      {editing ? null : (
-        <button
-          type="button"
-          aria-pressed={aside}
-          title="Aside: ask in a new branch that has this thread's context. This thread stays as it is."
-          onClick={() => setAside((on) => !on)}
-          className={cn(
-            'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium whitespace-nowrap transition-colors outline-none',
-            aside
-              ? 'border-brand/50 bg-brand-soft text-brand-strong'
-              : 'border-line-strong text-text hover:bg-raised bg-white',
-          )}
-        >
-          <BranchIcon className="size-3.5" />
-          Aside
-        </button>
-      )}
       {context ? <ContextMeter runId={runId} context={context} busy={busy} /> : null}
     </>
   )
@@ -607,7 +570,10 @@ function Footer({
       <div className="mx-auto max-w-[860px]">
         {error ? <div className="text-danger mb-1.5 text-[12px]">{error}</div> : null}
         {!busy && !question ? <ParkedNotice run={run} settled={settled} /> : null}
-        {context && cacheTtlMs && !busy && !question && !parked ? (
+        {freshBranchTurns && !busy && !question && !parked ? (
+          <FreshBranchNotice runId={runId} turns={freshBranchTurns} context={context} />
+        ) : null}
+        {context && cacheTtlMs && !busy && !question && !parked && !freshBranchTurns ? (
           <StaleCacheNotice
             runId={runId}
             context={context}
@@ -622,7 +588,7 @@ function Footer({
             tool={tool}
             busy={busy}
             extras={extras}
-            onStop={stop}
+            onStop={onStop}
           />
         ) : (
           <div className="relative">
@@ -633,18 +599,11 @@ function Footer({
               placeholder={
                 editing
                   ? 'Edit the queued message. Enter saves, Escape cancels'
-                  : asking
-                    ? 'Ask aside: a new branch gets this context, and this thread stays as it is'
-                    : busy
-                      ? `${FOLLOW_UP_HINT.queue}. Ctrl+Enter to steer`
-                      : 'Ask a follow-up or give direction'
+                  : busy
+                    ? `${FOLLOW_UP_HINT.queue}. Ctrl+Enter to steer`
+                    : 'Ask a follow-up or give direction'
               }
               busyAction={(alternate) => {
-                if (asking)
-                  return {
-                    label: 'Aside: sent to a new branch',
-                    icon: <BranchIcon weight="bold" className="size-4" />,
-                  }
                 const mode = modeFor(alternate)
                 return {
                   label: FOLLOW_UP_HINT[mode],
@@ -669,7 +628,7 @@ function Footer({
               onSend={send}
               draft={draft}
               draftKey={editKey}
-              onStop={stop}
+              onStop={onStop}
               extras={extras}
             />
           </div>
@@ -745,8 +704,7 @@ export function RunView({ id }: { id: string }) {
   const restoreHeight = useRef<number | undefined>(undefined)
   const [finding, setFinding] = useState(false)
   const [showInherited, setShowInherited] = useState(false)
-  const [bringingBack, setBringingBack] = useState(false)
-  const [findingsOpen, setFindingsOpen] = useState(false)
+  const branches = useBranches(id)
   const arrivedLive = useArrivedLive(state)
   const edit = useQueuedEdit(id, state?.queued ?? NO_MESSAGES)
 
@@ -764,8 +722,6 @@ export function RunView({ id }: { id: string }) {
 
   useEffect(() => {
     setShowInherited(false)
-    setBringingBack(false)
-    setFindingsOpen(false)
   }, [id])
 
   useEffect(markSeen, [markSeen])
@@ -898,17 +854,10 @@ export function RunView({ id }: { id: string }) {
           {status.text}
         </span>
       )}
-      {summary.caseKey && state.caseUrl && !browsing ? (
+      {state.cases.length && !browsing ? (
         <>
           <Dot />
-          <a
-            href={state.caseUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-brand-strong inline-flex items-center gap-1 hover:underline"
-          >
-            Case {summary.caseKey} <ArrowTopRightOnSquareIcon className="size-3" />
-          </a>
+          <CaseLinks cases={state.cases} />
         </>
       ) : null}
       {state.instances.length > 0 && !browsing ? (
@@ -934,32 +883,14 @@ export function RunView({ id }: { id: string }) {
         />
       ) : null}
       {lastInstance && !browser ? <OpenBrowserButton runId={id} instance={lastInstance} /> : null}
-      {summary.origin === 'branch' && state.parent ? (
-        <button
-          type="button"
-          className={HEADER_PILL}
-          title="Bring what this branch found back to the thread it came from"
-          disabled={busy}
-          onClick={() => setBringingBack(true)}
-        >
-          <BringBackIcon className="text-brand-strong size-3.5" />
-          Bring back
-        </button>
-      ) : null}
-      <FindingsButton
-        runId={id}
-        version={state.findingsVersion ?? 0}
-        open={findingsOpen}
-        onOpenChange={setFindingsOpen}
-      />
       <CostPill
         runId={id}
         provider={summary.provider}
-        cost={summary.cost ?? (busy ? NOTHING_SPENT : undefined)}
+        cost={summary.cost ?? (busy || summary.origin === 'branch' ? NOTHING_SPENT : undefined)}
         context={state.context}
         counting={summary.status === 'running'}
       />
-      <RunMenu run={listed ?? summary} settled={settled} onFindings={() => setFindingsOpen(true)} />
+      <RunMenu run={listed ?? summary} settled={settled} />
     </>
   )
 
@@ -998,6 +929,7 @@ export function RunView({ id }: { id: string }) {
             tool={state.tools.find((t) => t.id === docked?.toolId)}
             queued={state.queued}
             queueHeld={state.queueHeld}
+            freshBranchTurns={freshBranchTurns(state, inheritedCount)}
             edit={edit}
             onStop={stop}
             onSend={() => {
@@ -1038,8 +970,8 @@ export function RunView({ id }: { id: string }) {
             browsing ? 'px-4' : 'px-6 @max-[940px]:pr-11',
           )}
         >
-          {summary.origin && summary.origin !== 'branch' && state.start === 0 ? (
-            <LineageNote origin={summary.origin} parent={state.parent} />
+          {state.start === 0 ? (
+            <BranchedIntoNotes branches={branches.filter((b) => !b.originTurnId)} />
           ) : null}
           {inheritedCount && !showInherited ? (
             <>
@@ -1048,7 +980,7 @@ export function RunView({ id }: { id: string }) {
                 open={false}
                 onToggle={() => setShowInherited(true)}
               />
-              <LineageNote origin="branch" parent={state.parent} />
+              <LineageNote label="Branched from" thread={state.parent} />
             </>
           ) : null}
           {state.start > 0 && (showInherited || state.start >= (state.inheritedItems ?? 0)) ? (
@@ -1143,8 +1075,11 @@ export function RunView({ id }: { id: string }) {
                       open
                       onToggle={() => setShowInherited(false)}
                     />
-                    <LineageNote origin="branch" parent={state.parent} />
+                    <LineageNote label="Branched from" thread={state.parent} />
                   </div>
+                ) : null}
+                {turnId ? (
+                  <BranchedIntoNotes branches={branches.filter((b) => b.originTurnId === turnId)} />
                 ) : null}
               </Fragment>
             )
@@ -1164,21 +1099,13 @@ export function RunView({ id }: { id: string }) {
             onEdit={edit.startEdit}
             onCancelEdit={edit.endEdit}
           />
-          {busy ? null : <BranchList runId={id} />}
           {state.error && summary.status === 'error' ? (
-            <div
-              className={cn(
-                'border-danger/40 bg-danger-soft/50 text-danger rounded-2xl border px-4 py-3 text-[13px]',
-              )}
-            >
+            <div className="border-danger/40 bg-danger-soft/50 text-danger rounded-2xl border px-4 py-3 text-[13px]">
               {state.error}
             </div>
           ) : null}
         </div>
       </Page>
-      {bringingBack && state.parent ? (
-        <BringBackDialog runId={id} parent={state.parent} onClose={() => setBringingBack(false)} />
-      ) : null}
     </ApplyContext.Provider>
   )
 

@@ -246,9 +246,6 @@
   .inset-y-0 {
     inset-block: 0px;
   }
-  .-top-1 {
-    top: calc(var(--spacing) * -1);
-  }
   .-top-1\.5 {
     top: calc(var(--spacing) * -1.5);
   }
@@ -341,9 +338,6 @@
   }
   .left-5 {
     left: calc(var(--spacing) * 5);
-  }
-  .left-\[15px\] {
-    left: 15px;
   }
   .left-\[19px\] {
     left: 19px;
@@ -467,6 +461,9 @@
   }
   .mt-10 {
     margin-top: calc(var(--spacing) * 10);
+  }
+  .mt-\[5px\] {
+    margin-top: 5px;
   }
   .mt-\[7px\] {
     margin-top: 7px;
@@ -781,9 +778,6 @@
   .h-\[560px\] {
     height: 560px;
   }
-  .h-\[calc\(50\%\+4px\)\] {
-    height: calc(50% + 4px);
-  }
   .h-\[min\(560px\,72vh\)\] {
     height: min(560px, 72vh);
   }
@@ -810,9 +804,6 @@
   }
   .max-h-64 {
     max-height: calc(var(--spacing) * 64);
-  }
-  .max-h-72 {
-    max-height: calc(var(--spacing) * 72);
   }
   .max-h-\[40vh\] {
     max-height: 40vh;
@@ -849,9 +840,6 @@
   }
   .min-h-24 {
     min-height: calc(var(--spacing) * 24);
-  }
-  .min-h-48 {
-    min-height: calc(var(--spacing) * 48);
   }
   .min-h-\[60px\] {
     min-height: 60px;
@@ -976,9 +964,6 @@
   .w-\[5px\] {
     width: 5px;
   }
-  .w-\[6px\] {
-    width: 6px;
-  }
   .w-\[64px\] {
     width: 64px;
   }
@@ -996,9 +981,6 @@
   }
   .w-\[264px\] {
     width: 264px;
-  }
-  .w-\[280px\] {
-    width: 280px;
   }
   .w-\[300px\] {
     width: 300px;
@@ -1110,6 +1092,9 @@
   }
   .max-w-\[1240px\] {
     max-width: 1240px;
+  }
+  .max-w-\[calc\(100vw-32px\)\] {
+    max-width: calc(100vw - 32px);
   }
   .max-w-full {
     max-width: 100%;
@@ -1564,9 +1549,6 @@
     border-top-left-radius: 26px;
     border-top-right-radius: 26px;
   }
-  .rounded-bl-\[6px\] {
-    border-bottom-left-radius: 6px;
-  }
   .\!border-0 {
     border-style: var(--tw-border-style) !important;
     border-width: 0px !important;
@@ -1614,11 +1596,11 @@
   .border-brand {
     border-color: #42a5f5;
   }
+  .border-brand\/30 {
+    border-color: color-mix(in oklab, #42a5f5 30%, transparent);
+  }
   .border-brand\/40 {
     border-color: color-mix(in oklab, #42a5f5 40%, transparent);
-  }
-  .border-brand\/50 {
-    border-color: color-mix(in oklab, #42a5f5 50%, transparent);
   }
   .border-danger\/25 {
     border-color: color-mix(in oklab, #ce2605 25%, transparent);
@@ -1760,9 +1742,6 @@
   }
   .bg-line-strong {
     background-color: #cfd8dc;
-  }
-  .bg-line-strong\/45 {
-    background-color: color-mix(in oklab, #cfd8dc 45%, transparent);
   }
   .bg-line-strong\/60 {
     background-color: color-mix(in oklab, #cfd8dc 60%, transparent);
@@ -2108,9 +2087,6 @@
   }
   .pl-\[11px\] {
     padding-left: 11px;
-  }
-  .pl-\[25px\] {
-    padding-left: 25px;
   }
   .text-center {
     text-align: center;
@@ -2551,17 +2527,17 @@
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
   }
+  .duration-\(--duration-medium\) {
+    --tw-duration: var(--duration-medium);
+    transition-duration: var(--duration-medium);
+  }
+  .duration-\(--duration-small\) {
+    --tw-duration: var(--duration-small);
+    transition-duration: var(--duration-small);
+  }
   .duration-\(--duration-travel\) {
     --tw-duration: var(--duration-travel);
     transition-duration: var(--duration-travel);
-  }
-  .duration-150 {
-    --tw-duration: 150ms;
-    transition-duration: 150ms;
-  }
-  .duration-200 {
-    --tw-duration: 200ms;
-    transition-duration: 200ms;
   }
   .ease-out {
     --tw-ease: var(--ease-out);
@@ -2593,9 +2569,6 @@
   }
   @media (hover: hover) {
     .group-hover\:opacity-100:is(:where(.group):hover *) {
-      opacity: 100%;
-    }
-    .group-hover\/finding\:opacity-100:is(:where(.group\/finding):hover *) {
       opacity: 100%;
     }
     .group-hover\/logo\:opacity-0:is(:where(.group\/logo):hover *) {
@@ -2907,7 +2880,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
   ::selection {
-    background: #bbdefb;
+    background: var(--color-brand-chip);
   }
   * {
     scrollbar-width: thin;
@@ -2923,7 +2896,7 @@
     cursor: default;
   }
   :focus-visible {
-    outline: 2px solid #42a5f5;
+    outline: 2px solid var(--color-brand);
     outline-offset: 1px;
   }
 }
@@ -3317,7 +3290,7 @@
 }
 ::highlight(ov-find-current) {
   background-color: #ffb74d;
-  color: #263238;
+  color: var(--color-fg);
 }
 @property --tw-translate-x {
   syntax: "*";

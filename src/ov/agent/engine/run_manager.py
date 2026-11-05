@@ -10,31 +10,17 @@ from ov.agent import providers
 from ov.agent.engine.export import stored_state
 from ov.agent.engine.feed import status_feed
 from ov.agent.engine.files import run_dir
-from ov.agent.engine.prompt import system_prompt
 from ov.agent.engine.run import Run
 from ov.agent.engine.run_branch import NOTHING_FINISHED
 from ov.agent.engine.run_common import RunError
-from ov.agent.engine.run_titles import TITLE_CHARS, short_title
+from ov.agent.engine.run_titles import short_title
 from ov.agent.engine.state import empty_state
 from ov.agent.storage import db
 from ov.agent.storage.db import Lineage
 from ov.agent.storage.models import Access, Origin
 from ov.agent.tools.data_change import RECORD_SUFFIX
 
-CONTINUE_WHILE_BUSY = "Wait for the agent to finish, or stop it, before continuing in a new thread."
-NOTHING_TO_CONTINUE = "This thread has nothing to carry over yet."
-CONTINUED_TITLE = "{title} (continued)"
-BRANCH_TITLE = "{title} (branch)"
-FINDINGS_TITLE = "{title} (from findings)"
-NO_FINDINGS = "This thread has no findings yet. Save some first."
 NOT_YOUR_TURN = "Pick one of your own messages to retry as a branch."
-PARENT_GONE = "The thread this one came from is gone, so there is nowhere to bring the result back to."
-FINDINGS_CONTEXT = (
-    '[This thread starts from the findings of the earlier thread "{title}" ({id}). They were verified there; '
-    "treat them as known and check again only what the user asks about. The user's next message says what to do "
-    "now.]\n\n{findings}"
-)
-FINDINGS_MESSAGE = "Started from the findings of **{title}**:\n\n{findings}"
 PROMPT_TITLE_CHARS = 60
 RUN_ID_SUFFIX_CHARS = 4
 BASE36_DIGITS = string.digits + string.ascii_lowercase
@@ -63,22 +49,13 @@ class RunManager:
         run.begin(data)
         return run
 
-    def continue_in_new(self, run_id: str) -> Run:
-        source = self.get(run_id)
-        if source is None:
-            raise RunError("No such thread.")
-        if source.working():
-            raise RunError(CONTINUE_WHILE_BUSY)
-
-        history = source.history_text()
-        if not history:
-            raise RunError(NOTHING_TO_CONTINUE)
-
-        run = self._new_from(source, CONTINUED_TITLE, Lineage(source.id, Origin.SUMMARY, None, 0))
-        run.carry_over(source.state["summary"]["title"], history)
-        return run
-
     def branch(self, run_id: str, before: str | None = None) -> Run:
+        child = self._branch(run_id, before)
+        if db.get_preferences()["compactBranches"]:
+            child.compact()
+        return child
+
+    def _branch(self, run_id: str, before: str | None) -> Run:
         source = self._require(run_id)
         point = source.branch_point(before)
         if point.last_turn is None and before is None:
@@ -87,7 +64,7 @@ class RunManager:
         child_id = _new_id()
         db.create_thread(
             child_id,
-            short_title(BRANCH_TITLE.format(title=source.state["summary"]["title"]), TITLE_CHARS),
+            source.state["summary"]["title"],
             source.provider,
             source.model,
             instance=source.instance or None,
@@ -115,63 +92,14 @@ class RunManager:
             raise RunError(NOT_YOUR_TURN)
         content = source.messages[source.turns[item_id]]["content"]
 
-        child = self.branch(run_id, item_id)
+        child = self._branch(run_id, item_id)
         child.resend(message, content)
         return child
-
-    def aside(self, run_id: str, message_id: str, text: str, files: list[dict[str, str]]) -> Run:
-        child = self.branch(run_id)
-        child.follow_up(message_id, text, files, False)
-        return child
-
-    def bring_back(self, run_id: str, text: str) -> None:
-        branch = self._require(run_id)
-        parent_id = branch.state["summary"].get("parentId")
-        parent = self.get(parent_id) if parent_id else None
-        if parent is None:
-            raise RunError(PARENT_GONE)
-
-        parent.receive_branch_result({"id": branch.id, "title": branch.state["summary"]["title"]}, text)
-        db.set_settled(parent.id, False)
-        status_feed.publish({"kind": "list"})
-
-    def from_findings(self, run_id: str) -> Run:
-        source = self._require(run_id)
-        findings = db.list_findings(source.id)
-        if not findings:
-            raise RunError(NO_FINDINGS)
-
-        run = self._new_from(source, FINDINGS_TITLE, Lineage(source.id, Origin.FINDINGS, None, 0))
-        db.copy_all_findings(source.id, run.id)
-        title, listed = source.state["summary"]["title"], "\n".join(f"- {f['text']}" for f in findings)
-        context = FINDINGS_CONTEXT.format(title=title, id=source.id, findings=listed)
-        run.messages = [
-            {"role": "system", "content": system_prompt(run.access, run.instance)},
-            {"role": "user", "content": context},
-        ]
-        run.persist()
-
-        shown = FINDINGS_MESSAGE.format(title=title, findings=listed)
-        run.emit({"type": "agent_message", "messageId": run.new_message_id(), "text": shown, "ts": db.now_ms()})
-        run.settle_inherited()
-        return run
 
     def _require(self, run_id: str) -> Run:
         run = self.get(run_id)
         if run is None:
             raise RunError("No such thread.")
-        return run
-
-    def _new_from(self, source: Run, title: str, lineage: Lineage) -> Run:
-        run = self._new(
-            short_title(title.format(title=source.state["summary"]["title"]), TITLE_CHARS),
-            provider=source.provider,
-            model=source.model,
-            instance=source.instance or None,
-            access=source.access,
-            lineage=lineage,
-        )
-        run.state["parent"] = {"id": source.id, "title": source.state["summary"]["title"]}
         return run
 
     def _new(
@@ -235,6 +163,7 @@ class RunManager:
         with self._lock:
             live = self._runs.pop(run_id, None)
             self._deleting.add(run_id)
+
         try:
             if live is not None:
                 live.shut_down()

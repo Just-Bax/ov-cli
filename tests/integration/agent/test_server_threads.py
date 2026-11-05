@@ -270,21 +270,8 @@ def test_branch_routes_make_a_branch_and_list_it_under_its_parent(agent_server, 
     assert wrong.status_code == 400 and "does not start a turn" in wrong.json()["error"]
 
 
-def test_finding_routes_add_edit_and_remove(agent_server, monkeypatch):
-    thread = _finished_thread(agent_server, monkeypatch, "Tags A and B.")
-    base = f"{agent_server}/api/threads/{thread}/findings"
-
-    added = httpx.post(base, json={"text": "acme has tags A and B"}).json()
-    assert httpx.post(f"{base}/{added['id']}", json={"text": "acme has tags A, B"}).status_code == 200
-    assert [f["text"] for f in httpx.get(base).json()["findings"]] == ["acme has tags A, B"]
-    assert httpx.delete(f"{base}/{added['id']}").status_code == 200
-    assert httpx.get(base).json()["findings"] == []
-    assert httpx.delete(f"{base}/{added['id']}").status_code == 400
-
-
 def test_search_route_finds_threads_by_message_text(agent_server, monkeypatch):
     thread = _finished_thread(agent_server, monkeypatch, "The kafka consumer lags.")
-
     found = httpx.get(f"{agent_server}/api/search", params={"q": "consumer lags"}).json()["threads"]
     assert [t["id"] for t in found] == [thread]
     assert httpx.get(f"{agent_server}/api/search", params={"q": "ab"}).status_code == 400

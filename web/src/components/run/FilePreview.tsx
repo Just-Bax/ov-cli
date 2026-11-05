@@ -171,6 +171,7 @@ function Body({ runId, file }: { runId: string; file: MessageFile }) {
       />
     )
   }
+
   if (file.kind === 'pdf') {
     return (
       <iframe
@@ -180,12 +181,14 @@ function Body({ runId, file }: { runId: string; file: MessageFile }) {
       />
     )
   }
+
   if (text.state === 'loading')
     return (
       <Shimmer tone="light" className="text-[14px] font-medium">
         Loading preview
       </Shimmer>
     )
+
   if (text.state === 'ready') return <TextBody text={text} />
   return <NoPreview runId={runId} file={file} />
 }
@@ -263,7 +266,7 @@ export function FilePreview({
       aria-modal="true"
       aria-label={file.name}
       className={cn(
-        'fixed inset-0 z-[100] flex flex-col bg-[#11181c]/88 backdrop-blur-sm transition-opacity duration-200',
+        'fixed inset-0 z-[100] flex flex-col bg-[#11181c]/88 backdrop-blur-sm transition-opacity duration-(--duration-medium)',
         shown ? 'opacity-100' : 'opacity-0',
       )}
     >

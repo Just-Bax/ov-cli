@@ -103,7 +103,7 @@ export function ServersTile({ ctx, className }: { ctx: Context; className?: stri
       }
       className={className}
     >
-      <Body slot={ctx.slots.servers} skeleton={<RowsSkeleton rows={4} />}>
+      <Body slot={ctx.slots.servers} skeleton={<RowsSkeleton />}>
         {(v) => {
           if (!v.servers.length) return <Quiet muted>No server metrics in this window.</Quiet>
 
@@ -175,7 +175,7 @@ export function DatabaseTile({ ctx, className }: { ctx: Context; className?: str
       }
       className={className}
     >
-      <Body slot={ctx.slots.database} skeleton={<RowsSkeleton rows={4} />}>
+      <Body slot={ctx.slots.database} skeleton={<RowsSkeleton />}>
         {(v) => {
           if (!v.databases.length) return <Quiet muted>No database metrics in this window.</Quiet>
 

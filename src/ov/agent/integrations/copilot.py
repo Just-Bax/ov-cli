@@ -75,7 +75,7 @@ def start_device_flow() -> dict[str, Any]:
         json={"client_id": CLIENT_ID, "scope": "read:user"},
         timeout=HTTP_TIMEOUT_SECONDS,
     )
-    if response.status_code >= 400:
+    if response.status_code >= httpx.codes.BAD_REQUEST:
         raise CopilotError(f"GitHub device code request failed: {response.status_code}")
 
     body = response.json()
@@ -127,7 +127,7 @@ def _github_login(token: str) -> str:
         headers={"Authorization": f"token {token}", "User-Agent": "ov-agent"},
         timeout=HTTP_TIMEOUT_SECONDS,
     )
-    if response.status_code >= 400:
+    if response.status_code >= httpx.codes.BAD_REQUEST:
         raise CopilotError(f"Reading the GitHub user failed: {response.status_code}")
     return response.json()["login"]
 
@@ -147,11 +147,11 @@ def _copilot_token() -> dict[str, Any]:
         headers={"Authorization": f"token {auth['github_token']}", **EDITOR_HEADERS},
         timeout=HTTP_TIMEOUT_SECONDS,
     )
-    if response.status_code == 401:
+    if response.status_code == httpx.codes.UNAUTHORIZED:
         sign_out()
         raise CopilotError("GitHub sign-in expired. Open Setup to sign in again.")
 
-    if response.status_code >= 400:
+    if response.status_code >= httpx.codes.BAD_REQUEST:
         raise CopilotError(
             f"Copilot token exchange failed ({response.status_code}). Does this GitHub account have Copilot?"
         )
@@ -220,7 +220,7 @@ def list_models() -> list[dict[str, Any]]:
 
     api, headers = _headers()
     response = httpx.get(f"{api}/models", headers=headers, timeout=HTTP_TIMEOUT_SECONDS)
-    if response.status_code >= 400:
+    if response.status_code >= httpx.codes.BAD_REQUEST:
         raise CopilotError(f"Copilot /models failed: {response.status_code}")
 
     models: dict[str, dict[str, Any]] = {}
@@ -332,7 +332,7 @@ def account() -> dict[str, Any]:
         headers={"Authorization": f"token {auth['github_token']}", **EDITOR_HEADERS},
         timeout=HTTP_TIMEOUT_SECONDS,
     )
-    if response.status_code >= 400:
+    if response.status_code >= httpx.codes.BAD_REQUEST:
         raise CopilotError(f"GitHub did not return Copilot usage ({response.status_code}).")
 
     body = response.json()

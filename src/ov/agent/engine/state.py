@@ -19,7 +19,6 @@ WINDOWED = (
     "logins",
     "edits",
     "compactions",
-    "branchResults",
 )
 TOOL_DETAIL = ("input", "output")
 EDIT_DETAIL = ("before", "after")
@@ -38,8 +37,8 @@ def empty_state(summary: dict[str, Any], access: str) -> State:
         "compactions": [],
         "chat": [],
         "instances": [summary["instance"]] if summary.get("instance") else [],
+        "cases": [],
         "access": access,
-        "branchResults": [],
         "queued": [],
         "queueHeld": False,
         "steering": [],
@@ -75,16 +74,24 @@ def _touch_instance(state: State, instance: str) -> None:
     state["instances"] = [*(i for i in state["instances"] if i != instance), instance]
 
 
+def _add_case(state: State, key: str, url: str) -> None:
+    if any(case["key"] == key for case in state["cases"]):
+        return
+    state["cases"].append({"key": key, "url": url})
+    state["summary"].setdefault("caseKey", key)
+    state.setdefault("caseUrl", url)
+
+
 def _on_meta(state: State, stored: Stored) -> None:
     event = stored["event"]
-    for key in ("title", "instance", "caseKey"):
+    for key in ("title", "instance"):
         if event.get(key) is not None:
             state["summary"][key] = event[key]
     if event.get("instance"):
         _touch_instance(state, event["instance"])
 
-    if event.get("caseUrl"):
-        state["caseUrl"] = event["caseUrl"]
+    if event.get("caseKey"):
+        _add_case(state, event["caseKey"], event["caseUrl"])
 
     if event.get("session"):
         _on_session(state["session"], event["session"])
@@ -223,12 +230,6 @@ def _on_rewind(state: State, stored: Stored) -> None:
         state.pop("outcomeId", None)
 
 
-def _on_branch_result(state: State, stored: Stored) -> None:
-    result = {**{k: stored["event"][k] for k in ("branch", "text")}, "id": f"b{stored['seq']}", "ts": stored["ts"]}
-    state["branchResults"].append(result)
-    _add_item(state, "branch_result", result["id"])
-
-
 def _on_access(state: State, stored: Stored) -> None:
     state["access"] = stored["event"]["access"]
 
@@ -263,7 +264,6 @@ _REDUCERS: dict[str, Callable[[State, Stored], None]] = {
     "browser": _on_browser,
     "compact": _upserter("compact", "compactions"),
     "context": _on_context,
-    "branch_result": _on_branch_result,
 }
 
 
@@ -328,7 +328,6 @@ def window(state: State, end: int, turns: int) -> State:
         "questions": [q for q in state["questions"] if ("question", q["id"]) in keys],
         "logins": [x for x in state["logins"] if ("login", x["id"]) in keys],
         "compactions": [c for c in state["compactions"] if ("compact", c["id"]) in keys],
-        "branchResults": [b for b in state["branchResults"] if ("branch_result", b["id"]) in keys],
         "outline": outline(state, start),
     }
 
@@ -365,8 +364,6 @@ def _searchable(state: State) -> dict[tuple[str, str], str]:
         texts[("question", question["id"])] = question_text(question)
     for grid in state["grids"]:
         texts[("grid", grid["id"])] = grid["title"]
-    for result in state["branchResults"]:
-        texts[("branch_result", result["id"])] = f"{result['branch']['title']} {result['text']}"
 
     outcome = state.get("outcome")
     if outcome and state.get("outcomeId"):

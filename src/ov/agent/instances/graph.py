@@ -253,6 +253,7 @@ def _read_all(sql: SqlReader, report: Callable[[str], None]) -> tuple[dict[str, 
     with ThreadPoolExecutor(max_workers=QUERY_WORKERS) as pool:
         for future in [pool.submit(fetch, name) for name in [*EXPORTS, *QUERIES]]:
             future.result()
+
     return results, warnings
 
 
@@ -357,6 +358,7 @@ def neighbors(graph: dict[str, Any], node_id: str) -> list[tuple[str, str, dict[
             out.append(("out", edge["kind"], nodes[edge["target"]]))
         elif edge["target"] == node_id and edge["source"] in nodes:
             out.append(("in", edge["kind"], nodes[edge["source"]]))
+
     return out
 
 
@@ -398,6 +400,7 @@ def describe(graph: dict[str, Any], node: dict[str, Any], limit: int = DESCRIBE_
         shown = sorted(items)[:limit]
         more = f" ... and {len(items) - limit} more" if len(items) > limit else ""
         lines.append(f"- {label} ({len(items)}): " + "; ".join(shown) + more)
+
     if len(lines) == 1:
         lines.append("No links found.")
     return "\n".join(lines)
@@ -443,6 +446,7 @@ def start_build(alias: str) -> dict[str, Any]:
             outcome: dict[str, Any] = {"state": "ready"}
         except Exception as exc:
             outcome = {"state": "error", "error": str(exc) or type(exc).__name__}
+
         with _jobs_lock:
             _jobs[alias] = outcome
 

@@ -38,10 +38,6 @@ const START_POINT_ROWS = 6
 const SEARCH_MIN_CHARS = 2
 const SEARCH_RESULTS = 12
 const TYPE_DOTS = 5
-
-function missingPart(warning: string): string {
-  return warning.split(':')[0].replace(/_/g, ' ')
-}
 const FIT_DELAY_MS = 30
 const FIT_DURATION_MS = 350
 const NODE_W = 230
@@ -56,6 +52,10 @@ const GRID_COLOR = '#cfd8dc'
 const EDGE_WIDTH = 1.2
 const LIT_EDGE_WIDTH = 1.8
 const DIM_OPACITY = 0.35
+
+function missingPart(warning: string): string {
+  return warning.split(':')[0].replace(/_/g, ' ')
+}
 
 function layout(nodes: GraphNode[], edges: GraphEdge[]): Map<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph()

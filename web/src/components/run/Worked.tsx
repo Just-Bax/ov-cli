@@ -1,15 +1,14 @@
 import { CaretRight as ChevronRightIcon } from '@phosphor-icons/react'
 import { useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { SECOND_MS } from '@/lib/time'
 
-const SECOND_MS = 1000
 const MINUTE_S = 60
 const HOUR_S = 3600
 
 function formatDuration(ms: number): string {
   const total = Math.max(1, Math.round(ms / SECOND_MS))
   if (total < MINUTE_S) return `${total}s`
-
   const hours = Math.floor(total / HOUR_S)
   const minutes = Math.floor((total % HOUR_S) / MINUTE_S)
   if (hours) return `${hours}h ${minutes}m`

@@ -15,20 +15,25 @@ type Row = Line | { type: 'gap'; rows: Line[] }
 const CONTEXT = 3
 const MIN_HIDDEN_LINES = 3
 const REWRITTEN_RATIO = 0.6
+const TAB_AS_SPACES = '    '
+
+function untab(line: string): string {
+  return line.replace(/\t/g, TAB_AS_SPACES)
+}
+
+function leadingSpaces(line: string): number {
+  return /^ */.exec(line)![0].length
+}
 
 function dedent(before: string, after: string): [string, string] {
   const lines = `${before}\n${after}`.split('\n').filter((l) => l.trim())
-  const indent = Math.min(...lines.map((l) => /^[ \t]*/.exec(l)![0].replace(/\t/g, '    ').length))
+  const indent = Math.min(...lines.map((l) => leadingSpaces(untab(l))))
   if (!Number.isFinite(indent) || indent === 0) return [before, after]
 
   const strip = (s: string) =>
     s
       .split('\n')
-      .map((l) =>
-        l
-          .replace(/\t/g, '    ')
-          .slice(Math.min(indent, /^ */.exec(l.replace(/\t/g, '    '))![0].length)),
-      )
+      .map((l) => untab(l).slice(Math.min(indent, leadingSpaces(untab(l)))))
       .join('\n')
 
   return [strip(before), strip(after)]

@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from ov.agent.engine.cancel import Cancel
-from ov.agent.engine.files import describe, html_to_text, unique_path
+from ov.agent.engine.files import ATTACHMENTS, describe, html_to_text, unique_path
 from ov.agent.instances.ovproc import find_instance, run_ov
 
 TRACKOR_HOST = "trackor.onevizion.com"
 FORM_PATH = "/form/ConfigAppForm.do?id="
+BLOB_PATH = "/../efiles/EFileGetBlobFromDb.do?id="
+CASE_FILE = "case.md"
 CASE_TYPE = "Cases"
 TITLE_FIELD = "C_TITLE"
 WEBSITE_FIELD = "C_WEBSITE"
@@ -46,6 +48,8 @@ EMPTY_VALUES = (None, "", "0")
 
 CASE_ONLY = re.compile(r"^\s*(?:case\s*)?#?(\d{5,8})\s*$", re.IGNORECASE)
 TRACKOR_LINK = re.compile(r"^\s*https?://trackor\.onevizion\.com/\S*[?&]id=(\d{9,})\S*\s*$")
+TRACKOR_ID_PARAM = re.compile(r"[?&]id=(\d{9,})")
+CASE_KEY = re.compile(r"\b(\d{4,8})\b")
 
 _schema: list[dict[str, Any]] | None = None
 _schema_lock = threading.Lock()
@@ -74,10 +78,10 @@ def form_url(trackor_id: int | str, host: str = TRACKOR_HOST) -> str:
 
 def _parse_ref(ref: str) -> tuple[str | None, str | None]:
     text = ref.strip()
-    found = re.search(r"[?&]id=(\d{9,})", text)
+    found = TRACKOR_ID_PARAM.search(text)
     if found:
         return None, found.group(1)
-    key = re.search(r"\b(\d{4,8})\b", text)
+    key = CASE_KEY.search(text)
     return (key.group(1), None) if key else (None, None)
 
 
@@ -114,7 +118,7 @@ class _Trackor:
                 self.alias,
                 "request",
                 "GET",
-                f"/../efiles/EFileGetBlobFromDb.do?id={blob_id}",
+                f"{BLOB_PATH}{blob_id}",
                 "--out",
                 str(target),
             ],
@@ -156,6 +160,7 @@ def _fetch(
     row: dict[str, Any] = {}
     for part in parts:
         row.update(part)
+
     return row, files, chats
 
 
@@ -208,7 +213,7 @@ def load_case(ref: str, work_dir: Path, cancel: Cancel) -> dict[str, Any]:
     labels = {f["name"]: f.get("label") or f["name"] for f in schema}
     row, files, chats = _fetch(trackor, tid, text_fields, file_fields)
 
-    attach_dir = work_dir / "attachments"
+    attach_dir = work_dir / ATTACHMENTS
     attach_dir.mkdir(parents=True, exist_ok=True)
     attachments = _file_attachments(files, file_fields, labels, attach_dir)
     chat, downloads = _read_chats(trackor, chats, attach_dir)
@@ -291,18 +296,20 @@ def render(bundle: dict[str, Any], work_dir: Path) -> str:
     ]
     for name, value in bundle["fields"].items():
         lines.append(f"### {name}\n{value}" if "\n" in value else f"- {name}: {value}")
+
     if bundle["chat"]:
         lines += ["", "## Chat (oldest first)"]
         for message in bundle["chat"]:
             files = f" [files: {', '.join(message['files'])}]" if message["files"] else ""
             lines.append(f"- {message['ts']} {message['user']}: {message['text']}{files}")
+
     lines += ["", "## Attachments (open each with run_read)"]
     lines += [f"- {a['name']} ({a['kind']}, {a['size']} bytes, from {a['source']})" for a in bundle["attachments"]] or [
         "none"
     ]
 
     text = "\n".join(lines)
-    (work_dir / "case.md").write_text(text, encoding="utf-8")
+    (work_dir / CASE_FILE).write_text(text, encoding="utf-8")
     if len(text) > MAX_CASE_CHARS:
-        return text[:MAX_CASE_CHARS] + "\n\n[case text truncated; full copy in case.md, use run_read]"
+        return text[:MAX_CASE_CHARS] + f"\n\n[case text truncated; full copy in {CASE_FILE}, use run_read]"
     return text

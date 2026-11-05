@@ -73,7 +73,6 @@ def database_catalog() -> list[dict[str, Any]]:
     cached = database_cache.get(CATALOG_KEY)
     if cached is not None:
         return cached
-
     return _catalog_of(_probes({"rds": RDS_PROBE, "oracle": ORACLE_PROBE}))
 
 
@@ -88,7 +87,6 @@ def _detected(alias: str, scope: str, probes: dict[str, list[dict[str, Any]]]) -
     agents = {h.lower() for h in hosts_in(scope) or []}
     if not agents:
         return []
-
     oracle = [s for s in probes["oracle"] if (tag_of(s, ORACLE_HOST_TAG) or "").lower() in agents]
     return sorted(_merge_databases(oracle, probes["rds"], _database_owner(alias, scope)))
 

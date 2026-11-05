@@ -34,6 +34,5 @@ export function stopEvents(state: RunState): RunEvent[] {
   const stopped: RunEvent[] = state.tools
     .filter((t) => t.status === 'running' && t.stoppedAt === undefined)
     .map((t) => ({ type: 'tool', tool: { id: t.id, stoppedAt: now } }))
-
   return [{ type: 'status', status: 'cancelled' }, ...stopped]
 }

@@ -7,6 +7,8 @@ from typing import Any
 from sqlalchemy import CheckConstraint, Dialect, ForeignKey, Index, Integer, Text, TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+MAX_STEPS_LIMIT = 500
+
 
 def thread_fk() -> ForeignKey:
     return ForeignKey("thread.id", ondelete="CASCADE")
@@ -45,13 +47,10 @@ class EventType(StrEnum):
     BROWSER = "browser"
     COMPACT = "compact"
     CONTEXT = "context"
-    BRANCH_RESULT = "branch_result"
 
 
 class Origin(StrEnum):
     BRANCH = "branch"
-    SUMMARY = "summary"
-    FINDINGS = "findings"
 
 
 class FollowUp(StrEnum):
@@ -201,9 +200,10 @@ class Preference(Base):
     __table_args__ = (
         CheckConstraint("id = 1", name="single_row"),
         one_of("reasoning", Reasoning, nullable=True),
-        CheckConstraint("max_steps BETWEEN 1 AND 500", name="max_steps_valid"),
+        CheckConstraint(f"max_steps BETWEEN 1 AND {MAX_STEPS_LIMIT}", name="max_steps_valid"),
         CheckConstraint("notify IN (0, 1)", name="notify_valid"),
         CheckConstraint("tab_badge IN (0, 1)", name="tab_badge_valid"),
+        CheckConstraint("compact_branches IN (0, 1)", name="compact_branches_valid"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
@@ -216,6 +216,7 @@ class Preference(Base):
     instructions: Mapped[str | None] = mapped_column(Text)
     notify: Mapped[bool] = mapped_column(Integer)
     tab_badge: Mapped[bool] = mapped_column(Integer)
+    compact_branches: Mapped[bool] = mapped_column(Integer)
     updated_at: Mapped[int] = mapped_column(Integer)
 
 
@@ -241,17 +242,5 @@ class Skill(Base):
     description: Mapped[str] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Integer)
-    created_at: Mapped[int] = mapped_column(Integer)
-    updated_at: Mapped[int] = mapped_column(Integer)
-
-
-class Finding(Base):
-    __tablename__ = "finding"
-    __table_args__ = (Index("finding_by_thread", "thread_id"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    thread_id: Mapped[str] = mapped_column(Text, thread_fk())
-    text: Mapped[str] = mapped_column(Text)
-    turn_id: Mapped[str] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(Integer)
     updated_at: Mapped[int] = mapped_column(Integer)

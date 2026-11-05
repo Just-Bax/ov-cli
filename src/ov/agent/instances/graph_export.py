@@ -64,6 +64,7 @@ def _bindings(item: ET.Element) -> list[tuple[str, str, str]]:
             continue
         for entry in group:
             found.append((group.tag, text_of(entry, "XITOR_TYPE"), text_of(entry, "OBJECT_NAME")))
+
     return found
 
 
@@ -84,6 +85,7 @@ def _automation(item: ET.Element) -> Row:
     triggers = [
         (text_of(cf, "TRACKOR_TYPE"), text_of(cf, "CONFIG_FIELD_NAME")) for cf in item.iter("T_BPL_AUTOM_TRIGGER_CF")
     ]
+
     return {
         "id": text_of(item, "AUTOM_ID"),
         "name": text_of(item, "AUTOM_NAME"),

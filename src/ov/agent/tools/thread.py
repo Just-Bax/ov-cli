@@ -58,6 +58,10 @@ ENTITY_TYPES = (
 )
 
 
+VERDICTS = ("fix", "fixed", "user_action", "expected", "info", "unknown")
+COVERAGE = ("yes", "partly", "no")
+
+
 def attachment_names(ctx: ToolContext) -> list[str]:
     directory = ctx.work_dir / "attachments"
     if not directory.is_dir():
@@ -230,8 +234,10 @@ def _ask_user(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 def _existing(entries: list[Any]) -> list[dict[str, str]]:
-    if any(not isinstance(e, dict) or not e.get("key") for e in entries):
-        raise ToolError("Every existing entry needs a key.")
+    if any(not isinstance(e, dict) or not e.get("key") or not e.get("title") for e in entries):
+        raise ToolError("Every existing entry needs a key and a title.")
+    if any(e.get("covers") not in COVERAGE for e in entries):
+        raise ToolError(f"Every existing entry needs covers set to one of: {', '.join(COVERAGE)}.")
     return [{k: str(e[k]) for k in ("key", "title", "covers", "note", "link") if e.get(k)} for e in entries]
 
 
@@ -241,6 +247,8 @@ def _finish(args: dict[str, Any], ctx: ToolContext) -> str:
         raise ToolError(
             "Not finished: every finding needs evidence you verified yourself. Check, then call run_report again."
         )
+    if any(f.get("verdict") not in VERDICTS for f in findings):
+        raise ToolError(f"Every finding needs a verdict, one of: {', '.join(VERDICTS)}.")
 
     unread = [] if ctx.has_outcome() else [n for n in attachment_names(ctx) if n not in ctx.opened]
     if unread:
@@ -317,11 +325,6 @@ def _search_threads(args: dict[str, Any], ctx: ToolContext) -> str:
     return clip("\n".join(lines), ctx, "threads")
 
 
-def _save_finding(args: dict[str, Any], ctx: ToolContext) -> str:
-    finding = ctx.save_finding(str(args["text"]))
-    return f"Saved finding {finding['id']}."
-
-
 def _wait_label(args: dict[str, Any]) -> str:
     what = " for a SQL result to change" if args.get("sql") else ""
     return f"Wait up to {args.get('seconds')}s{what}"
@@ -369,17 +372,6 @@ TOOLS = [
         ["query"],
         lambda a: f"search threads for {a.get('query')}",
         _search_threads,
-    ),
-    Tool(
-        "finding_save",
-        "Save a finding on this thread: a fact you verified yourself in this thread, with the exact values, ids, "
-        "names and instance, that later work can rely on without checking again. For example a cause you confirmed, "
-        "a count you queried, or a setting you read. Never save guesses, plans, or something the user only said. "
-        "The user sees findings, branches carry them over, and a new thread can start from them.",
-        {"text": string_param("One verified fact, in a sentence or two")},
-        ["text"],
-        lambda a: f"save finding: {brief(str(a.get('text') or ''))}",
-        _save_finding,
     ),
     Tool(
         "run_wait",
@@ -505,7 +497,7 @@ TOOLS = [
                         "title": string_param("The finding in a few words"),
                         "verdict": {
                             "type": "string",
-                            "enum": ["fix", "fixed", "user_action", "expected", "info", "unknown"],
+                            "enum": list(VERDICTS),
                             "description": "fix = a change is still needed; fixed = already "
                             "resolved and verified; user_action = someone must act; expected = "
                             "works as designed; info = an answer or fact",
@@ -529,7 +521,7 @@ TOOLS = [
                     "properties": {
                         "key": string_param("Issue or task key"),
                         "title": string_param("Summary"),
-                        "covers": {"type": "string", "enum": ["yes", "partly", "no"]},
+                        "covers": {"type": "string", "enum": list(COVERAGE)},
                         "note": string_param("One short sentence"),
                         "link": string_param("URL"),
                     },

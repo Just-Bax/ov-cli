@@ -14,6 +14,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { WORKING } from '@/lib/runs'
 import { formatTime } from './Messages'
+import { plural } from '@/lib/text'
 
 const VISIBLE_QUEUED = 3
 const ACTION =
@@ -69,7 +70,7 @@ export function QueuedMessages({
 
   return (
     <section
-      aria-label={`${queued.length} queued message${queued.length === 1 ? '' : 's'}`}
+      aria-label={plural(queued.length, 'queued message')}
       className="flex flex-col items-end gap-3"
     >
       {held ? (

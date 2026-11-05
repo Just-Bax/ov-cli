@@ -42,7 +42,7 @@ export function orderedTokens(tokens: Record<string, number>): [string, number][
     })
 }
 
-export function formatUsd(usd: number): string {
+function formatUsd(usd: number): string {
   return `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 

@@ -6,22 +6,15 @@ import pytest
 from helpers.agent import TEST_TITLE_REPLY, is_title_prompt, new_message_id, wait_done, wait_for
 
 from ov.agent.engine.files import run_dir
-from ov.agent.engine.run_branch import BRING_BACK_PROMPT
 from ov.agent.engine.run_common import RunError
 from ov.agent.integrations.copilot import StreamResult
 from ov.agent.storage import db
 
-NOTE = "- The tags are A and B on acme."
+COPILOT_LIMITS = (264_000, 200_000, 64_000)
 
 
-class FakeModel(list):
-    def __init__(self) -> None:
-        super().__init__()
-        self.notes: list[str] = []
-
-
-def _chat(monkeypatch, *texts: str) -> FakeModel:
-    sent = FakeModel()
+def _chat(monkeypatch, *texts: str) -> list[list[dict]]:
+    sent: list[list[dict]] = []
     replies = iter(texts)
 
     def stream(model, messages, *a, cancel, on_text, **_):
@@ -33,9 +26,6 @@ def _chat(monkeypatch, *texts: str) -> FakeModel:
     def complete(model, system, text, *a):
         if is_title_prompt(system):
             return '{"title": "Tag check"}', None
-        if system == BRING_BACK_PROMPT:
-            sent.notes.append(text)
-            return NOTE, None
         return TEST_TITLE_REPLY, None
 
     monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", stream)
@@ -67,7 +57,7 @@ def test_a_branch_starts_with_the_exact_context_and_leaves_the_parent_alone(logg
     parent_items = len(parent.state["items"])
 
     branch = runs.branch(parent.id)
-    assert branch.state["summary"]["title"] == f"{parent.state['summary']['title']} (branch)"
+    assert branch.state["summary"]["title"] == parent.state["summary"]["title"]
     assert (branch.state["summary"]["parentId"], branch.state["summary"]["origin"]) == (parent.id, "branch")
     assert branch.state["parent"] == {"id": parent.id, "title": parent.state["summary"]["title"]}
     assert branch.state["inheritedItems"] == parent_items
@@ -87,20 +77,6 @@ def test_a_branch_starts_with_the_exact_context_and_leaves_the_parent_alone(logg
     assert branch.state["summary"]["title"] == "Tag check"
     assert len(parent.state["items"]) == parent_items
     assert [t["id"] for t in db.child_threads(parent.id)] == [branch.id]
-
-
-def test_an_aside_is_a_branch_with_its_first_message(logged_in, monkeypatch):
-    from ov.agent.engine.run_manager import runs
-
-    sent = _chat(monkeypatch, "A and B.", "B came from the import.")
-    parent = _thread("which tags?")
-
-    aside = runs.aside(parent.id, new_message_id(), "where did B come from?", [])
-    wait_done(aside)
-
-    assert _texts(sent[-1])[-1].endswith("where did B come from?")
-    assert aside.state["chat"][-1]["text"] == "B came from the import."
-    assert all(m["text"] != "where did B come from?" for m in parent.state["chat"])
 
 
 def test_retry_as_branch_keeps_the_original_and_reruns_the_message_in_the_branch(logged_in, monkeypatch):
@@ -156,75 +132,22 @@ def test_a_busy_thread_branches_from_its_last_finished_turn(logged_in, monkeypat
     assert all(m["id"] != "u_live" for m in branch.state["chat"])
 
 
-def test_a_branch_brings_back_only_its_own_work_to_the_parent(logged_in, monkeypatch):
+def test_new_branches_are_compacted_when_the_preference_is_on(logged_in, monkeypatch):
     from ov.agent.engine.run_manager import runs
 
-    sent = _chat(monkeypatch, "A and B.", "Only A is used.", "Noted.")
-    parent = _thread("which tags?")
-    branch = runs.aside(parent.id, new_message_id(), "which one is used?", [])
-    wait_done(branch)
+    _chat(monkeypatch, "A and B.", "Only A.")
+    monkeypatch.setattr("ov.agent.integrations.copilot.token_limits", lambda _: COPILOT_LIMITS)
+    parent = _thread("which tags?", "which one is used?")
+    assert not runs.branch(parent.id).state["compactions"]
 
-    draft = branch.bring_back_draft()
-    assert draft == NOTE
-    assert "which one is used?" in sent.notes[-1] and "which tags?" not in sent.notes[-1]
-
-    runs.bring_back(branch.id, draft)
-    (result,) = parent.state["branchResults"]
-    assert result["branch"] == {"id": branch.id, "title": branch.state["summary"]["title"]}
-    assert {"kind": "branch_result", "id": result["id"]} in parent.state["items"]
-
-    parent.follow_up(new_message_id(), "so what now?", [], False)
-    wait_done(parent)
-    assert NOTE in _texts(sent[-1])[-2] and _texts(sent[-1])[-1].endswith("so what now?")
-
-
-def test_bringing_back_waits_for_a_busy_parent(logged_in, monkeypatch):
-    from ov.agent.engine.run_manager import runs
-
-    _chat(monkeypatch, "A and B.")
-    parent = _thread("which tags?")
+    db.save_preferences({"compactBranches": True})
     branch = runs.branch(parent.id)
+    wait_for(lambda: branch.state["compactions"] and not branch._busy)
 
-    parent._busy = True
-    try:
-        with pytest.raises(RunError, match="Wait for the parent thread"):
-            runs.bring_back(branch.id, NOTE)
-    finally:
-        parent._busy = False
-
-
-def test_findings_follow_branches_and_start_new_threads(logged_in, monkeypatch):
-    from ov.agent.engine.run_manager import runs
-
-    _chat(monkeypatch, "A and B.", "Checked.")
-    parent = _thread("which tags?")
-    parent.save_finding("acme has tags A and B")
-    branch = runs.branch(parent.id)
-    parent.follow_up(new_message_id(), "check the import", [], False)
-    wait_done(parent)
-    parent.save_finding("the import adds tag B")
-
-    assert [f["text"] for f in db.list_findings(branch.id)] == ["acme has tags A and B"]
-
-    fresh = runs.from_findings(parent.id)
-    wait_done(fresh)
-    assert fresh.state["summary"]["origin"] == "findings"
-    assert [f["text"] for f in db.list_findings(fresh.id)] == ["acme has tags A and B", "the import adds tag B"]
-    assert "- the import adds tag B" in fresh.messages[1]["content"]
-    assert fresh.state["chat"][-1]["text"].startswith("Started from the findings of")
-
-    with pytest.raises(RunError, match="needs some text"):
-        parent.save_finding("  ")
-
-
-def test_a_thread_without_findings_cannot_start_one_from_them(logged_in, monkeypatch):
-    from ov.agent.engine.run_manager import runs
-
-    _chat(monkeypatch, "A and B.")
-    parent = _thread("which tags?")
-
-    with pytest.raises(RunError, match="no findings yet"):
-        runs.from_findings(parent.id)
+    [compacted] = branch.state["compactions"]
+    assert compacted["trigger"] == "manual" and compacted["status"] == "done"
+    assert branch.state["summary"]["status"] == "done"
+    assert not parent.state["compactions"]
 
 
 def test_deleting_the_parent_keeps_its_branches(logged_in, monkeypatch):

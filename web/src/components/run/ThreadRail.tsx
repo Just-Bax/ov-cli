@@ -198,7 +198,7 @@ export function ThreadRail({
             <span
               key={m.start}
               className={cn(
-                'absolute right-1.5 h-[2px] -translate-y-1/2 rounded-full transition-all duration-150',
+                'absolute right-1.5 h-[2px] -translate-y-1/2 rounded-full transition-all duration-(--duration-small)',
                 hover !== undefined ? (FISHEYE[distance] ?? RESTING) : RESTING,
                 i === hover ? 'bg-brand' : inView(m, view) ? 'bg-brand-strong' : 'bg-line-strong',
               )}

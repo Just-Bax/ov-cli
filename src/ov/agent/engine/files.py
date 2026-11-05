@@ -26,6 +26,7 @@ TEXT_EXTS = {
     ".yml",
 }
 MAX_NAME_CHARS = 120
+ATTACHMENTS = "attachments"
 
 _UNSAFE_NAME = re.compile(r"[^\w.\- ]+")
 _RUN_ID = re.compile(r"^[a-z0-9]+$")
@@ -39,7 +40,7 @@ def run_dir(run_id: str) -> Path:
 
 
 def attachments_dir(run_id: str) -> Path:
-    return agent_dir("runs", run_id, "attachments")
+    return agent_dir("runs", run_id, ATTACHMENTS)
 
 
 def uploads_dir() -> Path:

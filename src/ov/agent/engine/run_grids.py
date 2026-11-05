@@ -46,8 +46,10 @@ class GridsMixin:
     def revert_grid(self, grid_id: str) -> None:
         if self.inherited_item(grid_id):
             raise RunError(INHERITED_REVERT)
+
         grid = self._grid(grid_id)
         change = grid.get("change")
         if not change or change["state"] != DONE or not change["updated"]:
             raise RunError("Only a finished data change that updated rows can be reverted.")
+
         self.follow_up(uid("u"), REVERT_REQUEST.format(title=grid["title"], id=grid_id), [], False)

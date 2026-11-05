@@ -96,6 +96,7 @@ class BrowserSlot:
         screen.follow = lambda: pilot.active_target
         with self._lock:
             self._open = _Open(alias, pilot, screen)
+
         opened = {
             "open": True,
             "instance": alias,

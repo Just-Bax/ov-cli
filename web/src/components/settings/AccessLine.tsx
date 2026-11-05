@@ -33,17 +33,6 @@ export function PlatformLabel({ instance }: { instance: Instance }) {
 
 export function AccessLine({ instance, onCheck }: { instance: Instance; onCheck: () => void }) {
   const { access } = instance
-  const recheck = instance.valid ? (
-    <button
-      type="button"
-      title={RECHECK}
-      aria-label={RECHECK}
-      onClick={onCheck}
-      className="text-faint hover:text-brand-strong grid size-5 place-items-center rounded-full"
-    >
-      <RecheckIcon className="size-3" />
-    </button>
-  ) : null
 
   if (access.checking) {
     return (
@@ -76,6 +65,18 @@ export function AccessLine({ instance, onCheck }: { instance: Instance; onCheck:
       </div>
     )
   }
+
+  const recheck = instance.valid ? (
+    <button
+      type="button"
+      title={RECHECK}
+      aria-label={RECHECK}
+      onClick={onCheck}
+      className="text-faint hover:text-brand-strong grid size-5 place-items-center rounded-full"
+    >
+      <RecheckIcon className="size-3" />
+    </button>
+  ) : null
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11.5px]">

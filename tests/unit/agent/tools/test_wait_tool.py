@@ -30,9 +30,7 @@ def test_waiting_on_a_query_returns_as_soon_as_its_result_changes(logged_in, tmp
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", _counts("1", "1", "2"))
     ctx = FakeContext(tmp_path)
     waited = _waits(ctx, monkeypatch)
-
     out = tool_named("run_wait").handler({"seconds": 300, "sql": "select n from t", "every": 60}, ctx)
-
     assert out.startswith("The result changed after 120s:") and "\n2" in out
     assert waited == [60, 60]
 
@@ -41,9 +39,7 @@ def test_a_query_that_never_changes_reports_its_last_result(logged_in, tmp_path,
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", _counts("1", "1", "1", "1"))
     ctx = FakeContext(tmp_path)
     waited = _waits(ctx, monkeypatch)
-
     out = tool_named("run_wait").handler({"seconds": 25, "sql": "select n from t", "every": 10}, ctx)
-
     assert out.startswith("No change in 25s. Last result:")
     assert waited == [10, 10, 5]
 
@@ -52,9 +48,7 @@ def test_polls_are_never_closer_than_the_minimum(logged_in, tmp_path, monkeypatc
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", _counts("1", "2"))
     ctx = FakeContext(tmp_path)
     waited = _waits(ctx, monkeypatch)
-
     tool_named("run_wait").handler({"seconds": 60, "sql": "select n from t", "every": 1}, ctx)
-
     assert waited == [10]
 
 

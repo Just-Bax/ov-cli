@@ -34,11 +34,10 @@ def _schema(path: Path) -> dict[tuple[str, str], str]:
 
 def test_a_new_database_is_created_from_the_models_at_head(ov_home, monkeypatch):
     monkeypatch.setenv("OV_HOME", str(ov_home / "fresh"))
-
     assert db.migrate() is True
     assert db.migrate() is False
     with sqlite3.connect(ov_home / "fresh" / "agent" / "agent.db") as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0021",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0022",)]
     conn.close()
 
 
@@ -68,20 +67,20 @@ def test_migrating_renames_events_and_usage_and_links_continued_threads(ov_home,
     assert [e["event"] for e in db.load_events("r2")] == [{"type": "meta", "title": "Source (continued)"}]
 
     (child,) = [t for t in db.list_threads() if t["id"] == "r2"]
-    assert (child["parentId"], child["origin"]) == ("r1", "summary")
+    assert (child["parentId"], child["origin"]) == ("r1", "branch")
     assert db.thread_cost("r1")["tokens"] == {"input": 4, "cache_read": 4, "output": 2}
     assert db.get_preferences()["maxSteps"] == 40
+    assert db.get_preferences()["compactBranches"] is False
 
     with db._begin() as conn:
         kinds = sorted(conn.exec_driver_sql("SELECT kind FROM usage").scalars().all())
         tables = set(conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type = 'table'").scalars().all())
     assert kinds == ["agent", "title"]
-    assert "attachment" not in tables and "finding" in tables
+    assert "attachment" not in tables and "finding" not in tables
 
 
 def test_a_database_older_than_the_oldest_supported_one_is_refused(ov_home, monkeypatch):
     _database(ov_home / "older", monkeypatch, ("CREATE TABLE runs (id TEXT PRIMARY KEY)",))
-
     with pytest.raises(db.DatabaseTooOld, match="before migrations"):
         db.migrate()
 

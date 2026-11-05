@@ -395,6 +395,7 @@ def _name_hint(query: str, instance: str, ctx: ToolContext) -> str:
     for table in (t for t in tables if t not in columns):
         similar = _similar_tables(table, instance, ctx)
         hint += MISSING_TABLE_HINT.format(table=table, similar=", ".join(similar) or "none")
+
     return hint
 
 

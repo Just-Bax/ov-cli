@@ -34,11 +34,11 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session, aliased
 
 from ov.agent.storage.models import (
+    MAX_STEPS_LIMIT,
     Access,
     Base,
     Event,
     EventType,
-    Finding,
     Message,
     Origin,
     Preference,
@@ -54,7 +54,6 @@ from ov.core.errors import EXIT_IN_USE, OvError
 from ov.core.paths import agent_dir
 
 DB_FILE = "agent.db"
-OLDEST_SUPPORTED = "0020"
 LAST_COMMIT_FOR_OLDER = "e4ab0e9"
 FULL_NAME_REQUIRED = "Your full name is required."
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -62,7 +61,6 @@ BUSY_TIMEOUT_MS = 10_000
 
 PREFERENCE_ROW = 1
 DEFAULT_MAX_STEPS = 80
-MAX_STEPS_LIMIT = 500
 PREFERENCE_COLUMNS = {
     "provider": "provider",
     "reasoning": "reasoning",
@@ -73,8 +71,9 @@ PREFERENCE_COLUMNS = {
     "instructions": "instructions",
     "notify": "notify",
     "tabBadge": "tab_badge",
+    "compactBranches": "compact_branches",
 }
-BOOLEAN_PREFERENCES = ("notify", "tabBadge")
+BOOLEAN_PREFERENCES = ("notify", "tabBadge", "compactBranches")
 TEXT_PREFERENCES = ("workspace", "workspaceNotes", "fullName", "instructions")
 MODEL_PREFERENCES = {"defaultModel": "default_model", "fastModel": "fast_model"}
 REASONING_LEVELS = tuple(level.value for level in Reasoning)
@@ -166,8 +165,8 @@ def _alembic_config() -> Config:
     return config
 
 
-def _backup(path: Path, revision: str | None) -> None:
-    target = path.with_name(f"agent.{revision or 'legacy'}.bak.db")
+def _backup(path: Path, revision: str) -> None:
+    target = path.with_name(f"agent.{revision}.bak.db")
     with sqlite3.connect(path) as source, sqlite3.connect(target) as copy:
         source.backup(copy)
 
@@ -338,6 +337,7 @@ def _ensure_preferences(conn: Connection) -> None:
         "max_steps": DEFAULT_MAX_STEPS,
         "notify": False,
         "tab_badge": True,
+        "compact_branches": False,
     }
 
     statement = insert(Preference).values(id=PREFERENCE_ROW, updated_at=now_ms(), **values)
@@ -431,6 +431,7 @@ def save_preferences(patch: dict[str, Any]) -> dict[str, Any]:
         if models:
             provider = conn.execute(select(Preference.provider).where(Preference.id == PREFERENCE_ROW)).scalar_one()
             _save_models(conn, provider, models)
+
     return get_preferences()
 
 
@@ -586,14 +587,6 @@ def child_threads(thread_id: str) -> list[dict[str, Any]]:
     return _rows(_thread_query().where(Thread.parent_id == thread_id).order_by(Thread.created_at))
 
 
-def _turn_ids(conn: Connection, thread_id: str, until: int) -> list[str]:
-    turn_id = func.json_extract(Event.data, "$.message.id")
-    query = select(turn_id).where(
-        Event.thread_id == thread_id, Event.position < until, Event.type == EventType.USER_MESSAGE
-    )
-    return [str(found) for found in conn.scalars(query).all() if found]
-
-
 def turn_event_position(thread_id: str, turn_id: str) -> int | None:
     query = select(func.max(Event.position)).where(
         Event.thread_id == thread_id,
@@ -604,7 +597,7 @@ def turn_event_position(thread_id: str, turn_id: str) -> int | None:
         return conn.scalar(query)
 
 
-def copy_inherited(parent_id: str, child_id: str, *, until: int, messages: int, findings: bool = True) -> None:
+def copy_inherited(parent_id: str, child_id: str, *, until: int, messages: int) -> None:
     events = select(literal(child_id), Event.position, Event.type, Event.data, Event.created_at).where(
         Event.thread_id == parent_id, Event.position < until, Event.type.not_in(NOT_INHERITED)
     )
@@ -633,69 +626,6 @@ def copy_inherited(parent_id: str, child_id: str, *, until: int, messages: int, 
             "created_at",
         ]
         conn.execute(insert(Message).from_select(message_columns, history))
-
-        if findings:
-            _copy_findings(conn, parent_id, child_id, _turn_ids(conn, parent_id, until))
-
-
-def _copy_findings(conn: Connection, source_id: str, target_id: str, turn_ids: list[str] | None) -> None:
-    query = select(literal(target_id), Finding.text, Finding.turn_id, Finding.created_at, Finding.updated_at).where(
-        Finding.thread_id == source_id
-    )
-    if turn_ids is not None:
-        query = query.where(Finding.turn_id.in_(turn_ids))
-    columns = ["thread_id", "text", "turn_id", "created_at", "updated_at"]
-    conn.execute(insert(Finding).from_select(columns, query.order_by(Finding.id)))
-
-
-def copy_all_findings(source_id: str, target_id: str) -> None:
-    with _begin() as conn:
-        _copy_findings(conn, source_id, target_id, None)
-
-
-def _finding_dict(row: Finding) -> dict[str, Any]:
-    return {
-        "id": row.id,
-        "text": row.text,
-        "turnId": row.turn_id,
-        "createdAt": row.created_at,
-        "updatedAt": row.updated_at,
-    }
-
-
-def list_findings(thread_id: str) -> list[dict[str, Any]]:
-    query = select(Finding).where(Finding.thread_id == thread_id).order_by(Finding.id)
-    with _begin() as conn, Session(bind=conn) as session:
-        return [_finding_dict(row) for row in session.scalars(query).all()]
-
-
-def add_finding(thread_id: str, text: str, turn_id: str) -> dict[str, Any]:
-    now = now_ms()
-    with _begin() as conn:
-        found = conn.execute(
-            insert(Finding)
-            .values(thread_id=thread_id, text=text, turn_id=turn_id, created_at=now, updated_at=now)
-            .returning(Finding.id)
-        ).scalar_one()
-    return {"id": found, "text": text, "turnId": turn_id, "createdAt": now, "updatedAt": now}
-
-
-def update_finding(thread_id: str, finding_id: int, text: str) -> None:
-    with _begin() as conn:
-        changed = conn.execute(
-            update(Finding)
-            .where(Finding.thread_id == thread_id, Finding.id == finding_id)
-            .values(text=text, updated_at=now_ms())
-        ).rowcount
-    if not changed:
-        raise ValueError(f"No finding {finding_id} in this thread.")
-
-
-def delete_finding(thread_id: str, finding_id: int) -> None:
-    with _begin() as conn:
-        removed = conn.execute(delete(Finding).where(Finding.thread_id == thread_id, Finding.id == finding_id)).rowcount
-    if not removed:
-        raise ValueError(f"No finding {finding_id} in this thread.")
 
 
 def _like(query: str) -> str:

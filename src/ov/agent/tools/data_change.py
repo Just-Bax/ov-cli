@@ -69,6 +69,7 @@ def _planned(args: dict[str, Any], ctx: ToolContext) -> list[dict[str, Any]]:
         if not isinstance(row, dict) or not str(row.get("trackor_id") or "").isdigit() or not row.get("fields"):
             raise ToolError("Every row needs trackor_id (a number) and fields (an object of new values).")
         planned.append({"id": int(row["trackor_id"]), "after": dict(row["fields"])})
+
     return planned
 
 
@@ -116,6 +117,7 @@ def _rows(planned: list[dict[str, Any]], current: dict[int, dict[str, Any]], fie
                 "_status": "" if changed else UNCHANGED,
             }
         )
+
     return rows
 
 
@@ -154,6 +156,7 @@ def _apply_one(client: Client, row: dict[str, Any], fields: list[str], ctx: Tool
         row["_status"] = UPDATED
     except OvError as exc:
         row["_status"], row["_error"] = FAILED, str(exc)[:ERROR_CHARS]
+
     progress.count(row["_status"])
 
 

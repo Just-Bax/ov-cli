@@ -125,6 +125,7 @@ class QuestionsMixin:
         prompt = next((item for item in self.state["logins"] if item["id"] == login_id), None)
         if prompt is None:
             raise RunError("No such login prompt.")
+
         if skip:
             self.emit({"type": "login", "login": {**prompt, "state": "skipped"}})
             self._resolve_login(login_id, False)

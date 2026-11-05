@@ -132,7 +132,6 @@ export function ProviderSettings({ onChange }: { onChange: () => void }) {
 
   const pickProvider = (provider: Provider) => {
     if (provider === shown) return
-
     setPending(provider)
     update({ provider })
       .then(onChange, reportError)

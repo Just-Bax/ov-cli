@@ -170,7 +170,7 @@ export function Skeleton({ className, style }: { className?: string; style?: CSS
   )
 }
 
-export function SkeletonText({ lines = 3 }: { lines?: number }) {
+export function SkeletonText({ lines }: { lines: number }) {
   return (
     <div className="space-y-2">
       {Array.from({ length: lines }, (_, i) => (
@@ -211,13 +211,11 @@ export function Segmented<T extends string | number>({
   options,
   onChange,
   label,
-  className,
 }: {
   value: T
   options: SegmentOption<T>[]
   onChange: (value: T) => void
   label: string
-  className?: string
 }) {
   const group = useRef<HTMLDivElement>(null)
   const indicator = useSlidingIndicator(group, String(value))
@@ -227,7 +225,7 @@ export function Segmented<T extends string | number>({
       ref={group}
       role="radiogroup"
       aria-label={label}
-      className={cn('bg-raised relative flex rounded-full p-1', className)}
+      className="bg-raised relative flex rounded-full p-1"
     >
       <SlideIndicator indicator={indicator} className="rounded-full bg-white shadow-sm" />
       {options.map((o) => (
@@ -469,7 +467,7 @@ export function SwitchKnob({ on }: { on: boolean }) {
   return (
     <span
       className={cn(
-        'absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-[left,width] duration-150 ease-out group-active/switch:w-[15px]',
+        'absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-[left,width] duration-(--duration-small) ease-out group-active/switch:w-[15px]',
         on ? 'left-3.5 group-active/switch:left-[11px]' : 'left-0.5',
       )}
     />
@@ -566,14 +564,12 @@ export function IconBadge({
   tone = 'brand',
   size = 'md',
   color,
-  className,
   children,
 }: {
   icon?: Icon
   tone?: BadgeTone
   size?: keyof typeof BADGE_SIZES
   color?: string
-  className?: string
   children?: ReactNode
 }) {
   const [box, glyph] = BADGE_SIZES[size]
@@ -584,7 +580,6 @@ export function IconBadge({
         'flex shrink-0 items-center justify-center rounded-full',
         box,
         !color && BADGE_TONES[tone],
-        className,
       )}
       style={color ? { background: `${color}14`, color } : undefined}
     >

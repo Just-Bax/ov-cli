@@ -1,6 +1,5 @@
 import {
   ArrowCounterClockwise,
-  ArrowRight,
   ArrowsInLineVertical,
   BellZ,
   CaretRight,
@@ -10,7 +9,6 @@ import {
   DownloadSimple,
   PushPin,
   PushPinSlash,
-  SealCheck,
   SunHorizon,
   Trash,
 } from '@phosphor-icons/react'
@@ -18,7 +16,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 're
 import { createPortal } from 'react-dom'
 import type { RunSummary } from '@shared/types.ts'
 import { dialog } from '@/components/common/Dialog'
-import { notify, reportError, withProgress } from '@/components/common/Toasts'
+import { notify, reportError } from '@/components/common/Toasts'
 import { Button } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { useClickOutside } from '@/lib/hooks'
@@ -228,12 +226,10 @@ export function RunMenu({
   run,
   settled,
   inRow,
-  onFindings,
 }: {
   run: RunSummary
   settled: boolean
   inRow?: boolean
-  onFindings?: () => void
 }) {
   const [pos, setPos] = useState<{ left: number; top: number }>()
   const [snoozing, setSnoozing] = useState(false)
@@ -360,38 +356,12 @@ export function RunMenu({
                   }
                 />
               )}
-              {onFindings ? (
-                <Item
-                  icon={<SealCheck className="size-4" />}
-                  label="Findings"
-                  onHover={() => setSnoozing(false)}
-                  onClick={() => act(onFindings)}
-                />
-              ) : null}
               <Item
                 icon={<BranchIcon className="size-4" />}
                 label="Branch"
                 onHover={() => setSnoozing(false)}
                 onClick={() => act(() => openThread(api.branch(run.id)))}
               />
-              {inRow ? null : (
-                <Item
-                  icon={<ArrowRight className="size-4" />}
-                  label="Continue in a new thread"
-                  disabled={WORKING.has(run.status)}
-                  hint={WORKING.has(run.status) ? 'Working' : undefined}
-                  onHover={() => setSnoozing(false)}
-                  onClick={() =>
-                    act(() =>
-                      withProgress('Summarizing this thread for the new one', async () => {
-                        const { id } = await api.continueRun(run.id)
-                        await refreshRuns()
-                        go({ page: 'thread', id })
-                      }),
-                    )
-                  }
-                />
-              )}
               <div className="bg-line mx-2 my-1 h-px" />
               <Item
                 icon={<CopySimple className="size-4" />}
@@ -405,14 +375,12 @@ export function RunMenu({
                 }
               />
               {inRow ? null : (
-                <>
-                  <Item
-                    icon={<DownloadSimple className="size-4" />}
-                    label="Export as Markdown"
-                    onHover={() => setSnoozing(false)}
-                    onClick={() => act(() => window.location.assign(api.exportUrl(run.id)))}
-                  />
-                </>
+                <Item
+                  icon={<DownloadSimple className="size-4" />}
+                  label="Export as Markdown"
+                  onHover={() => setSnoozing(false)}
+                  onClick={() => act(() => window.location.assign(api.exportUrl(run.id)))}
+                />
               )}
               <div className="bg-line mx-2 my-1 h-px" />
               <Item

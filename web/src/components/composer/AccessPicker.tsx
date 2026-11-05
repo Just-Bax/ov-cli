@@ -65,12 +65,12 @@ export function accessMode(value: Access): Mode {
   return found
 }
 
-function AccessMeter({ value, className }: { value: Access; className?: string }) {
+function AccessMeter({ value }: { value: Access }) {
   const mode = accessMode(value)
   const level = ACCESS_MODES.indexOf(mode) + 1
 
   return (
-    <span className={cn('inline-flex shrink-0 items-center gap-[3px]', className)} aria-hidden>
+    <span className="inline-flex shrink-0 items-center gap-[3px]" aria-hidden>
       {Array.from({ length: METER_STEPS }, (_, i) => (
         <i
           key={i}

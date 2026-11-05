@@ -94,10 +94,8 @@ def test_an_approved_change_reports_failures_and_can_be_reverted(instance, tmp_p
 def test_a_rejected_change_writes_nothing(instance, tmp_path):
     _, puts = instance
     ctx = FakeContext(tmp_path, write=True, approve="Reject")
-
     with pytest.raises(ToolError, match="rejected"):
         _update(ctx, trackor_type="Site", rows=ROWS)
-
     assert ctx.events[-1]["grid"]["change"]["state"] == "rejected" and puts == []
 
 

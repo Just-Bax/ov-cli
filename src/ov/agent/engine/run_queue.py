@@ -26,10 +26,8 @@ class QueueMixin:
     def _restore_queue(self) -> None:
         for message in self.state["queued"]:
             self._queue.append((message, self._attached(message)))
-
         self._queue_held = bool(self._queue)
         self.state["queueHeld"] = self._queue_held
-
         undelivered = set(self.state["steering"])
         self._steers = [(m, self._attached(m)) for m in self.state["chat"] if m["id"] in undelivered]
 
@@ -201,6 +199,7 @@ class QueueMixin:
         for message, uploaded in ready:
             self.emit({"type": "user_message", "message": {**message, "ts": db.now_ms()}})
             self._push_turn(message["id"], self._user_content(message["text"], uploaded))
+
         self._settle_queue()
 
     def call_tool_with_steering(self, name: str, args: dict[str, Any]) -> tuple[str, list[tuple[str, str]]]:
@@ -215,6 +214,7 @@ class QueueMixin:
             parts = content if isinstance(content, list) else [{"type": "text", "text": content}]
             texts += [p["text"] for p in parts if p["type"] == "text"]
             images += [(message["id"], p["image_url"]["url"]) for p in parts if p["type"] == "image_url"]
+
         return f"{output}\n\n{STEERED.format(text=chr(10).join(texts))}", images
 
     def _message(self, message_id: str, text: str, uploaded: list[dict[str, Any]]) -> dict:
@@ -271,4 +271,5 @@ class QueueMixin:
                     "image_url": {"url": f"data:{image_mime(path)};base64,{data}"},
                 }
             )
+
         return parts

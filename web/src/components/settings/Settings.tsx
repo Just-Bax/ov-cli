@@ -7,7 +7,7 @@ import {
   Plus as PlusIcon,
   Trash as TrashIcon,
 } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import type { SkillInfo, Status } from '@shared/types.ts'
 import { dialog } from '@/components/common/Dialog'
 import { reportError } from '@/components/common/Toasts'
@@ -55,15 +55,15 @@ import { useSettings } from '@/lib/settings'
 import { KINDS_HINT } from '@/lib/signin'
 import { UnsavedGuard, useUnsavedWarning } from '@/lib/unsaved'
 
-function Section({
-  title,
-  hint,
-  children,
-}: {
-  title: string
-  hint?: string
-  children: React.ReactNode
-}) {
+const STEP_LIMITS = [40, 80, 150, 300]
+const NOTIFY_HINT =
+  'A desktop notification when a thread needs your answer, finishes or fails while you are looking elsewhere.'
+const BLOCKED_HINT =
+  'Notifications are blocked for this site. Allow them in the browser site settings, then switch this on.'
+const NEW = '__new__'
+const EMPTY_DRAFT = { title: '', description: '', content: '' }
+
+function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <section className="grid gap-6 py-6 xl:grid-cols-[200px_minmax(0,1fr)]">
       <div>
@@ -74,14 +74,6 @@ function Section({
     </section>
   )
 }
-
-const STEP_LIMITS = [40, 80, 150, 300]
-const NOTIFY_HINT =
-  'A desktop notification when a thread needs your answer, finishes or fails while you are looking elsewhere.'
-const BLOCKED_HINT =
-  'Notifications are blocked for this site. Allow them in the browser site settings, then switch this on.'
-const NEW = '__new__'
-const EMPTY_DRAFT = { title: '', description: '', content: '' }
 
 function Preferences() {
   const { settings, update } = useSettings()
@@ -112,6 +104,16 @@ function Preferences() {
           on={settings.tabBadge}
           onChange={() => void update({ tabBadge: !settings.tabBadge })}
           label="Tab badge"
+        />
+      </Row>
+      <Row
+        title="Compact new branches"
+        hint="Summarize the turns a branch carries over as soon as it is made, so it starts with a smaller context. Off: the branch keeps the full history and offers to compact it."
+      >
+        <Switch
+          on={settings.compactBranches}
+          onChange={() => void update({ compactBranches: !settings.compactBranches })}
+          label="Compact new branches"
         />
       </Row>
       <div>
@@ -409,6 +411,7 @@ function Skills() {
         <div className="min-h-0 flex-1 scrollbar-thin space-y-0.5 overflow-y-auto p-2">
           {skills.map((s) => {
             const on = s.name === selected
+
             return (
               <button
                 key={s.name}
@@ -691,6 +694,7 @@ function ProviderAccounts({ status, onChange }: { status?: Status; onChange: () 
   return providers.map((provider) => {
     const ui = PROVIDER_UI[provider.id]
     const { AccountAction } = ui
+
     return (
       <AccountRow
         key={provider.id}

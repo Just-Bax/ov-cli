@@ -61,7 +61,6 @@ export function noteRuns(list: RunList): void {
 export function noteStatus(change: StatusChange): void {
   const message = MESSAGES[change.status]
   if (!message || viewing(change.id)) return
-
   if (change.status !== 'waiting') unseen.add(change.id)
   refresh()
   if (notify && notificationsSupported() && Notification.permission === 'granted')

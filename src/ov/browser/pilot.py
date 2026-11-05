@@ -290,7 +290,6 @@ class Driver:
         browser = self._context.browser
         if browser is None:
             raise BrowserError("The browser has no control session to keep pages on the instance.")
-
         session = browser.new_browser_cdp_session()
         session.on("Fetch.requestPaused", lambda event: self._paused(session, event))
         session.send("Fetch.enable", {"patterns": PAGE_REQUESTS})

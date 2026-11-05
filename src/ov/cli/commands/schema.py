@@ -41,6 +41,7 @@ def cmd_show(ctx: Context) -> int:
     def table():
         rows = [[k, str(v)] for k, v in data.items() if k != "tags"]
         rows.append(["tags", ", ".join(spec.tags)])
+
         return build_table(
             None,
             [{"header": "Field", "style": "cyan"}, {"header": "Value", "overflow": "fold"}],

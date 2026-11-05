@@ -86,6 +86,7 @@ def openai_connect(h: Handler) -> dict[str, Any]:
     if preferences["provider"] == OpenAICompatibleProvider.id and not preferences["defaultModel"]:
         main, fast = providers.get(OpenAICompatibleProvider.id).default_models()
         db.save_preferences({"defaultModel": main, "fastModel": fast})
+
     return connected
 
 
@@ -136,6 +137,7 @@ def put_settings(h: Handler) -> dict[str, Any]:
         chosen = providers.get(patch["provider"])
         if "defaultModel" not in patch and not db.has_provider_models(chosen.id):
             patch["defaultModel"], patch["fastModel"] = chosen.default_models()
+
     return db.save_preferences(patch)
 
 

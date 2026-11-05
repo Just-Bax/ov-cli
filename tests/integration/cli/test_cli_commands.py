@@ -243,7 +243,6 @@ def test_login_remember_swaps_the_session_token_for_a_long_api_token(capsys, ov_
 def test_login_remember_explains_an_account_that_may_not_create_tokens(capsys, ov_home, server, monkeypatch):
     _browser_session(monkeypatch)
     server.route("POST", "/api/v3/auth_token", 403, {"message": "Forbidden"})
-
     code, data = payload(capsys, "login", BASE_URL, "--remember", "30", "--no-spec", "--json")
     assert code == 3
     assert "without --remember" in data["error"]
@@ -273,7 +272,6 @@ def test_a_rejected_api_token_is_marked_as_ended(capsys, ov_home, server):
 
     assert payload(capsys, "login", BASE_URL, "--token", "K:S", "--no-spec", "--json")[0] == 0
     assert not session_store.find().ended_at
-
     server.route("GET", "/api/v3/users", 401, {"message": "Token expired"})
     assert run(capsys, "request", "GET", "/v3/users")[0] == 3
     assert session_store.find().ended_at

@@ -56,6 +56,5 @@ export function onePerHost(instances: Instance[]): Instance[] {
     (a, b) => Number(Boolean(a.tenant)) - Number(Boolean(b.tenant)),
   )
   for (const i of mainSignInsFirst) if (!byHost.has(i.host)) byHost.set(i.host, i)
-
   return [...byHost.values()].sort((a, b) => a.host.localeCompare(b.host))
 }

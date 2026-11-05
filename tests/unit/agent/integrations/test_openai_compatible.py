@@ -60,7 +60,6 @@ def test_a_wrong_base_url_is_explained(ov_home, server):
 
 def test_models_without_a_usable_context_window_are_refused(ov_home, server):
     openai_compatible.connect(BASE_URL, "")
-
     with pytest.raises(OpenAICompatibleError, match="Set its context window"):
         openai_compatible.token_limits("bare")
     with pytest.raises(OpenAICompatibleError, match="needs at least"):
@@ -85,7 +84,6 @@ def test_per_model_settings_survive_reconnecting_to_the_same_server(ov_home, ser
 
 def test_usage_is_counted_in_tokens():
     body = {"usage": {"prompt_tokens": 1200, "completion_tokens": 80, "prompt_tokens_details": {"cached_tokens": 1000}}}
-
     assert openai_compatible.usage_of({"choices": []}) is None
     assert openai_compatible.usage_of(body) == Usage(
         tokens={"input": 200, "cache_read": 1000, "output": 80}, nano=1280 * NANO_PER_UNIT

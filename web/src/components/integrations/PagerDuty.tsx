@@ -78,7 +78,7 @@ function PagerDutyConnectModal({
       ready={Boolean(apiKey.trim())}
       onClose={onClose}
       onSubmit={() => void submit()}
-      privacy="The token stays in this computer's credential store and is only sent to PagerDuty. Your PagerDuty admins can see and revoke user tokens. Incidents the agent reads in a thread are sent to GitHub Copilot like any other tool result."
+      privacy="The token stays in this computer's credential store and is only sent to PagerDuty. Your PagerDuty admins can see and revoke user tokens. Incidents the agent reads in a thread are sent to the provider that runs the agent, like any other tool result."
     >
       <div>
         <div className="text-fg text-[13px] font-medium">Account</div>

@@ -248,4 +248,5 @@ def _line_changes(before: str, after: str) -> tuple[int, int]:
         if tag != "equal":
             removed += i2 - i1
             added += j2 - j1
+
     return added, removed

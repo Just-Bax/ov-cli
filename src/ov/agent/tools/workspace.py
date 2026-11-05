@@ -76,6 +76,7 @@ def _ws_edit(args: dict[str, Any], ctx: ToolContext) -> str:
         before = project.text_of(path)
         result = project.edit(path, old, new, bool(args.get("replace_all")))
         after = project.text_of(path)
+
     ctx.record_edit(path, before, after, created=False)
     return result
 
@@ -88,6 +89,7 @@ def _ws_write(args: dict[str, Any], ctx: ToolContext) -> str:
         existed = project.resolve(path).is_file()
         before = project.text_of(path) if existed else ""
         result = project.write(path, content)
+
     ctx.record_edit(path, before, content, created=not existed)
     return result
 

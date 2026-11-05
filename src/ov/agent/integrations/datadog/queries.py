@@ -161,19 +161,6 @@ def top_patterns(rows: list[dict[str, Any]], limit: int = TOP_PATTERNS) -> list[
     ]
 
 
-def log_timeseries(query: str, start: int, end: int, interval: str) -> list[dict[str, Any]]:
-    body = {
-        "compute": [{"aggregation": "count", "type": "timeseries", "interval": interval}],
-        "filter": {"from": str(start), "to": str(end), "query": query},
-    }
-
-    with client() as dd:
-        data = dd.call("POST", "/api/v2/logs/analytics/aggregate", "logs", json=body)
-
-    buckets = field(field(data, "data"), "buckets")
-    return points_of(field(buckets[0], "computes").get("c0", [])) if buckets else []
-
-
 def events_for(query: str, start: int, end: int, limit: int) -> list[dict[str, Any]]:
     params = {
         "filter[query]": query,

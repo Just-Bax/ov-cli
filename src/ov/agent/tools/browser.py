@@ -424,7 +424,6 @@ def _tab(args: dict[str, Any], ctx: ToolContext) -> str:
     if args["action"] == "close":
         ctx.browser.close_tab(index)
         return f"Closed tab {index}."
-
     ctx.browser.switch_tab(index)
     return f"Switched to tab {index}."
 

@@ -229,16 +229,20 @@ class Run(
             logins, self._logins = self._logins, {}
             self._finished_tasks = []
             self._queue_held = bool(self._queue)
+
         self._stop_tasks()
         if self._queue_held:
             self._emit_queue()
+
         for question_id, (event, answer) in questions.items():
             self._close_question(question_id)
             answer.append(([], ""))
             event.set()
+
         for event, ok in logins.values():
             ok.append(False)
             event.set()
+
         if self.state["summary"]["status"] in STOPPABLE:
             self._set_status("cancelled")
 
@@ -249,7 +253,6 @@ class Run(
     def read_thread(self, thread_id: str) -> str:
         if thread_id == self.id:
             raise RunError(SAME_THREAD)
-
         stored = stored_state(thread_id)
         if stored is None:
             raise RunError(NO_THREAD.format(id=thread_id))
@@ -285,10 +288,12 @@ class Run(
     def retry(self, item_id: str) -> None:
         if self.inherited_item(item_id):
             raise RunError(INHERITED_RETRY)
+
         index = self.turns.get(item_id) if self.messages else None
         message = next((m for m in self.state["chat"] if m["id"] == item_id and m["role"] == "user"), None)
         if index is None or message is None:
             raise RunError("This message cannot be retried.")
+
         anchor = self.agent.retry_anchor(self, item_id)
         if not self._claim():
             raise RunError("Wait for the agent to finish, or stop it, before retrying.")
@@ -297,7 +302,6 @@ class Run(
         with self._lock:
             self._finished_tasks = []
         self._take_steers()
-
         self._fork = anchor
 
         content = self.messages[index]["content"]

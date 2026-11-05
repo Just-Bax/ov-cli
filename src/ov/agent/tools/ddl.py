@@ -41,6 +41,7 @@ def _archive(alias: str, group: str) -> Path:
 
     with open_client(alias) as client:
         content = client.api("GET", SCHEMA_PATH.format(group=group), accept="application/octet-stream").content
+
     partial = path.with_suffix(".part")
     partial.write_bytes(content)
     partial.replace(path)

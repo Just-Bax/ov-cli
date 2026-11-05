@@ -123,6 +123,7 @@ class Operation:
             data["parameters"] = [p.to_dict() for p in self.params]
             data["body"] = self.body.to_dict() if self.body else None
             data["produces"] = self.produces
+
         return data
 
 
@@ -330,6 +331,7 @@ def _body(raw: Any, document: dict[str, Any]) -> Body | None:
         return None
 
     chosen = next((c for c in content if "json" in c), next(iter(content)))
+
     return Body(
         content_type=chosen,
         required=bool(raw.get("required")),
@@ -379,6 +381,7 @@ def _target(ref: str, document: dict[str, Any]) -> Any:
         if not isinstance(target, dict) or part not in target:
             raise SpecUnavailable(f"The schema's $ref {ref!r} points at nothing.")
         target = target[part]
+
     return target
 
 

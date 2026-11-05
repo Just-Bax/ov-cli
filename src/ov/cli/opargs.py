@@ -23,6 +23,7 @@ def add_invocation_flags(parser: argparse.ArgumentParser, with_path: bool = True
             action="store_true",
             help="for an operation that starts a run, follow the run until it finishes and print the final status",
         )
+
     parser.add_argument("-q", "--query", action="append", metavar="NAME=VALUE", help="query parameter")
     parser.add_argument("-H", "--header", action="append", metavar="NAME:VALUE", help="request header")
     parser.add_argument(
@@ -69,6 +70,7 @@ def _flag_options(param: Param) -> dict[str, Any]:
         options["choices"] = param.enum
     else:
         options["metavar"] = param.type.upper().split("[")[0]
+
     return options
 
 
@@ -122,7 +124,6 @@ def run_operation(ctx: Context, operation: Operation) -> int:
 def _run_and_wait(ctx: Context, operation: Operation, plan: RequestPlan, destination: Path | None) -> int:
     if destination is not None:
         raise OvError("--wait prints the finished run; it cannot be combined with --out.")
-
     status_op = status_operation(ctx, operation)
     run, code = wait_for_run(ctx, status_op, payload_of(ctx.service.run(plan)))
     emit_payload(ctx, run)

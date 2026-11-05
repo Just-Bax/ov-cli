@@ -13,6 +13,7 @@ import { useLayer } from '@/lib/layers'
 import { PROVIDER_BRANDS } from '@/lib/providerBrand'
 import { useRuns, WORKING } from '@/lib/runs'
 import { useSettings } from '@/lib/settings'
+import { plural } from '@/lib/text'
 
 const MENU_WIDTH = 296
 const MENU_GAP = 8
@@ -44,15 +45,10 @@ function useToday(provider: Provider): number | undefined {
   return value ? (value.days.at(-1)?.amount ?? 0) : undefined
 }
 
-export function UserAvatar({ name, className }: { name?: string; className?: string }) {
+function UserAvatar({ name }: { name: string }) {
   return (
-    <span
-      className={cn(
-        'from-brand to-brand-strong flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[12px] font-semibold text-white',
-        className,
-      )}
-    >
-      {name ? initials(name) : null}
+    <span className="from-brand to-brand-strong flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[12px] font-semibold text-white">
+      {initials(name)}
     </span>
   )
 }
@@ -188,8 +184,7 @@ export function AccountButton({
           <span className="min-w-0">
             <span className="text-fg block truncate text-[13px] font-medium">{account.name}</span>
             <span className="text-faint block truncate text-[11.5px]">
-              {today ?? '...'} today, {account.instances.valid} instance
-              {account.instances.valid === 1 ? '' : 's'}
+              {today ?? '...'} today, {plural(account.instances.valid, 'instance')}
             </span>
           </span>
         )}

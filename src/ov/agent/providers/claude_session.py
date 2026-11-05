@@ -178,6 +178,7 @@ def _options(run: Run) -> tuple[Any, str, dict[str, Any] | None]:
         options.resume, options.fork_session, options.session_id = fork["id"], True, session
         options.resume_session_at, options.resume_drops_turn = fork["before"], fork["prompt"]
         return options, session, fork
+
     if current is None or fork is not None:
         session = str(uuid.uuid4())
         options.session_id = session
@@ -224,6 +225,7 @@ class Stream:
     def on_prompt(self, message: UserMessage) -> None:
         if self.prompt_seen or message.parent_tool_use_id is not None or not message.uuid:
             return
+
         self.prompt_seen = True
         anchor = {
             "id": self.session,

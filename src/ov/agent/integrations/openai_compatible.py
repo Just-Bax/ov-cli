@@ -80,7 +80,7 @@ def _served(base_url: str, api_key: str) -> list[dict[str, Any]]:
     if response.status_code == httpx.codes.NOT_FOUND:
         raise OpenAICompatibleError(f"{base_url}/models was not found. The base URL usually ends with /v1.")
 
-    if response.status_code >= 400:
+    if response.status_code >= httpx.codes.BAD_REQUEST:
         detail = response.text[:ERROR_DETAIL_CHARS]
         raise OpenAICompatibleError(f"{base_url}/models failed ({response.status_code}): {detail}")
 

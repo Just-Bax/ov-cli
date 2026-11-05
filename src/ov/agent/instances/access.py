@@ -11,10 +11,10 @@ from ov.agent.instances.http import open_client
 from ov.core.errors import OvError, SessionExpired
 from ov.core.paths import agent_dir, slugify, write_atomic
 from ov.onevizion.client import Client
+from ov.onevizion.tenants import DEFAULT_PATH
 
 PRIVS_PATH = "/v3/privs"
 SERVER_INFO_PATH = "/v3/server_info"
-MAIN_PAGE_PATH = "/Default.do"
 NO_PRIVILEGE = "NONE"
 _EDITION = re.compile(r"platformEditionKey\s*=\s*'([A-Z_]+)'")
 
@@ -65,10 +65,9 @@ def _has(granted: dict[str, str], group: str, letters: str) -> bool:
 
 def _edition(client: Client) -> str | None:
     try:
-        page = client.web_get(MAIN_PAGE_PATH, accept="text/html").text
+        page = client.web_get(DEFAULT_PATH, accept="text/html").text
     except SessionExpired:
         return None
-
     found = _EDITION.search(page)
     return found.group(1) if found else None
 
@@ -80,6 +79,7 @@ def _read(alias: str) -> dict[str, Any]:
         edition = _edition(client)
 
     previous = load(alias) or {}
+
     return {
         "checkedAt": int(time.time() * 1000),
         "version": version,
@@ -92,6 +92,7 @@ def check(alias: str) -> dict[str, Any]:
     with _lock:
         _checking.add(alias)
         _errors.pop(alias, None)
+
     try:
         found = _read(alias)
     except OvError as exc:

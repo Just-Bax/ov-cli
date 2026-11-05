@@ -107,6 +107,7 @@ def _missing(requirements: list[str]) -> list[str]:
             metadata.distribution(name)
         except metadata.PackageNotFoundError:
             missing.append(name)
+
     return missing
 
 

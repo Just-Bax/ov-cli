@@ -85,7 +85,6 @@ def test_mcp_writes_wait_for_approval(calls, tmp_path, monkeypatch):
     _allow(monkeypatch, mcp=True)
     with pytest.raises(ToolError, match="Read-only"):
         mcp.TOOLS[0].handler({"tool": "trackor_update"}, FakeContext(tmp_path))
-
     ctx = FakeContext(tmp_path, write=True)
     assert mcp.TOOLS[0].handler({"tool": "trackor_update", "arguments": {"id": 1}}, ctx) == "2 found"
     assert '"id": 1' in ctx.asked[0]
@@ -113,6 +112,5 @@ def test_the_platform_source_is_read_by_name_and_searched(calls, tmp_path, monke
 def test_ai_enabled_tools_are_offered_only_where_allowed(logged_in, monkeypatch):
     names = lambda: {spec["function"]["name"] for spec in tool_specs()}  # noqa: E731
     assert "ov_mcp" not in names() and "ov_ddl" not in names()
-
     _allow(monkeypatch, mcp=True, dbSource=True)
     assert {"ov_mcp", "ov_ddl"} <= names()

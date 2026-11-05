@@ -67,6 +67,5 @@ def test_chat_does_not_retry_after_reasoning_streamed(monkeypatch):
         raise httpx.ReadError("connection reset")
 
     monkeypatch.setattr(chat_completions, "_stream_once", dropped)
-
     with pytest.raises(StreamError, match="Lost the connection to Test"):
         chat_completions.stream(_endpoint(), {}, cancel=Cancel(), on_text=ignore)

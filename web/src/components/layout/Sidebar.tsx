@@ -24,7 +24,6 @@ import { EditableTitle } from '@/components/common/EditableTitle'
 import { AccountButton, type SidebarAccount } from '@/components/layout/AccountMenu'
 import { type Icon, PulseDot, Skeleton, SlideIndicator } from '@/components/common/ui'
 import { OPEN_PALETTE, TOGGLE_SIDEBAR } from '@/components/layout/CommandPalette'
-import { BranchIcon } from '@/components/run/Branches'
 import { RunMenu } from '@/components/run/RunMenu'
 import { RUN_STATUS, StatusIcon } from '@/components/run/RunStatus'
 import { api } from '@/lib/api'
@@ -60,7 +59,6 @@ const SHELF_STEP = 10
 const SCROLL_EDGE_PX = 2
 const CONTENT_INSET = 'px-[11px]'
 const ROW_INSET = 'pr-[11px] pl-[11px]'
-const BRANCH_ROW_INSET = 'pr-[11px] pl-[25px]'
 const GROUP_GAP = 'mt-4'
 const FOOTER_INSET = 'pr-[9px] pl-3'
 const ACCOUNT_INSET = 'pr-3 pl-2'
@@ -115,24 +113,6 @@ function group(runs: RunSummary[]): [string, RunSummary[]][] {
   return pinned.length ? [['Pinned', pinned], ...rest] : rest
 }
 
-function nested(runs: RunSummary[]): { run: RunSummary; nestedUnder: boolean }[] {
-  const shown = new Set(runs.map((r) => r.id))
-  const under = (r: RunSummary) => Boolean(r.parentId && shown.has(r.parentId))
-  const children = new Map<string, RunSummary[]>()
-  for (const r of runs) {
-    const parent = r.parentId
-    if (parent && shown.has(parent)) children.set(parent, [...(children.get(parent) ?? []), r])
-  }
-
-  const rows: { run: RunSummary; nestedUnder: boolean }[] = []
-  const visit = (r: RunSummary) => {
-    rows.push({ run: r, nestedUnder: under(r) })
-    for (const child of children.get(r.id) ?? []) visit(child)
-  }
-  for (const r of runs.filter((x) => !under(x))) visit(r)
-  return rows
-}
-
 function runSignal(run: RunSummary, open: boolean): Signal | undefined {
   if (BUSY.has(run.status)) return WORKING_SIGNAL
   if (run.status === 'waiting') return NEEDS_YOU
@@ -171,13 +151,11 @@ function RunItem({
   active,
   settled,
   reveal,
-  nestedUnder = false,
 }: {
   run: RunSummary
   active: boolean
   settled?: boolean
   reveal?: Reveal
-  nestedUnder?: boolean
 }) {
   const hover = useHoverPrefetch(run.id, active)
 
@@ -194,7 +172,7 @@ function RunItem({
       className={cn(
         reveal?.className,
         'group/run relative flex h-9 cursor-pointer items-center gap-1.5 rounded-full text-[12.5px] font-medium transition-colors outline-none',
-        nestedUnder ? BRANCH_ROW_INSET : ROW_INSET,
+        ROW_INSET,
         active
           ? 'bg-brand-soft text-brand-strong'
           : settled
@@ -202,14 +180,6 @@ function RunItem({
             : 'text-text hover:bg-canvas hover:text-brand-strong focus-visible:bg-canvas',
       )}
     >
-      {nestedUnder ? (
-        <span
-          aria-hidden
-          className="border-line-strong absolute -top-1 left-[15px] h-[calc(50%+4px)] w-[6px] rounded-bl-[6px] border-b border-l"
-        />
-      ) : run.origin === 'branch' ? (
-        <BranchIcon aria-label="Branch" className="text-faint size-3.5 shrink-0" />
-      ) : null}
       <EditableTitle
         value={run.title}
         onSave={async (title) => {
@@ -517,7 +487,10 @@ function Shelf({
         </span>
         <span className={cn('h-px flex-1', open ? 'bg-brand/30' : 'bg-line-strong/60')} />
         <ChevronUpIcon
-          className={cn('size-3 shrink-0 transition-transform duration-200', !open && 'rotate-180')}
+          className={cn(
+            'size-3 shrink-0 transition-transform duration-(--duration-small)',
+            !open && 'rotate-180',
+          )}
         />
       </button>
       {open ? (
@@ -630,7 +603,7 @@ export function Sidebar({ route, account }: { route: Route; account?: SidebarAcc
       ) : null}
       <aside
         className={cn(
-          'border-line-strong/60 z-20 flex shrink-0 flex-col border-r bg-white transition-[width] duration-200 ease-out',
+          'border-line-strong/60 z-20 flex shrink-0 flex-col border-r bg-white transition-[width] duration-(--duration-medium) ease-out',
           overlay
             ? cn(
                 'animate-slide-in fixed inset-y-0 left-0 z-50 shadow-[0_12px_40px_rgba(38,50,56,0.22)]',
@@ -775,19 +748,18 @@ export function Sidebar({ route, account }: { route: Route; account?: SidebarAcc
                   ))}
                 </div>
               ) : null}
-              {group(shown).map(([label, list], index) => (
+              {group(shown).map(([label, members], index) => (
                 <div key={label} className={index ? GROUP_GAP : undefined}>
                   <div className={cn('text-faint mb-1 text-[12px] font-medium', CONTENT_INSET)}>
                     {label}
                   </div>
                   <div className="space-y-0.5">
-                    {nested(list).map(({ run: r, nestedUnder }) => (
+                    {members.map((r) => (
                       <RunItem
                         key={r.id}
                         run={r}
                         active={isOpen(r.id)}
                         reveal={reveal(shown.indexOf(r))}
-                        nestedUnder={nestedUnder}
                       />
                     ))}
                   </div>

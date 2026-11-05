@@ -21,7 +21,6 @@ def test_every_provider_is_registered_by_its_id():
 
 def test_provider_errors_are_shown_to_the_user():
     errors = providers.errors()
-
     assert {ModelUnavailable, claude.ClaudeError, copilot.CopilotError} <= set(errors)
 
 
@@ -46,7 +45,6 @@ def test_only_the_claude_cache_expires(monkeypatch):
 
 def test_an_unknown_model_names_the_provider(monkeypatch):
     monkeypatch.setattr("ov.agent.integrations.claude.list_models", lambda: [{"id": "opus", "vision": True}])
-
     assert providers.get("claude").supports_vision("opus")
     with pytest.raises(ModelUnavailable, match="Model sonnet is not available on Claude"):
         providers.get("claude").supports_vision("sonnet")
@@ -68,9 +66,7 @@ def test_copilot_hides_models_it_cannot_call_through_chat_completions():
 def test_copilot_needs_every_token_limit_to_compact(monkeypatch):
     listed = {"id": "m", "contextWindow": 200_000, "windowTokens": 264_000, "outputTokens": None}
     monkeypatch.setattr("ov.agent.integrations.copilot.list_models", lambda: [listed])
-
     with pytest.raises(copilot.CopilotError, match="does not say how much context m takes"):
         copilot.token_limits("m")
-
     listed["outputTokens"] = 64_000
     assert copilot.token_limits("m") == (264_000, 200_000, 64_000)

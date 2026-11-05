@@ -25,6 +25,21 @@ def test_finish_keeps_existing_matches_and_the_reply(tmp_path):
     assert outcomes[0]["reply"] == "Yes, fixed."
 
 
+def test_a_report_takes_only_known_verdicts_and_coverage(tmp_path):
+    from ov.agent.tools import TOOLS_BY_NAME
+    from ov.agent.tools.base import ToolError
+
+    report = TOOLS_BY_NAME["run_report"].handler
+    finding = {"title": "t", "verdict": "fix", "summary": "s", "evidence": ["e"]}
+    with pytest.raises(ToolError, match="verdict, one of"):
+        report({"findings": [{**finding, "verdict": "maybe"}]}, FakeContext(tmp_path))
+    with pytest.raises(ToolError, match="covers set to one of"):
+        report(
+            {"findings": [finding], "existing": [{"key": "IT-1", "title": "x", "covers": "kind of"}]},
+            FakeContext(tmp_path),
+        )
+
+
 def test_a_change_card_takes_only_known_object_types(tmp_path):
     from ov.agent.tools import tool_named
     from ov.agent.tools.base import ToolError

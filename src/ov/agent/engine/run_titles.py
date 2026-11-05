@@ -105,7 +105,6 @@ class TitlesMixin:
         with self._lock:
             chat = list(self.state["chat"])
             previous = self.state["summary"]["title"]
-
         body = json.dumps({"previousTitle": previous, "messages": retitle_messages(chat)})
         title, _ = self._ask_title(RETITLE_PROMPT, body)
         self.rename(title)
@@ -127,6 +126,7 @@ def retitle_messages(chat: list[dict]) -> list[dict[str, str]]:
 
     while len(messages) > 2 and len(json.dumps(messages)) > RETITLE_INPUT_CHARS:
         del messages[1]
+
     return messages
 
 

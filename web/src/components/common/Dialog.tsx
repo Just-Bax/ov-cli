@@ -88,7 +88,7 @@ export function DialogHost() {
   return createPortal(
     <div
       className={cn(
-        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 backdrop-blur-[2px] transition-opacity duration-200',
+        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 backdrop-blur-[2px] transition-opacity duration-(--duration-medium)',
         shown ? 'opacity-100' : 'opacity-0',
       )}
       onMouseDown={(e) =>

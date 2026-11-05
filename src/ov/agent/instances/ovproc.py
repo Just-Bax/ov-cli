@@ -20,6 +20,7 @@ from ov.core.errors import EXIT_AUTH
 from ov.core.paths import agent_dir
 from ov.core.procs import kill_tree, spawn_options, wait_or_stop
 from ov.onevizion import session as session_store
+from ov.onevizion.client import READ_ONLY_ENV
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -69,7 +70,7 @@ def run_ov(
     env = {
         **os.environ,
         **(extra_env or {}),
-        "OV_READONLY": "1" if read_only else "",
+        READ_ONLY_ENV: "1" if read_only else "",
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUTF8": "1",
         "NO_COLOR": "1",
@@ -93,6 +94,7 @@ def run_ov(
         timed_out = _wait(process, timeout + TIMEOUT_GRACE_SECONDS, cancel, hold_stdin)
         out.seek(0)
         err.seek(0)
+
         return OvResult(
             code=process.returncode,
             stdout=out.read().decode("utf-8", "replace"),
@@ -116,6 +118,7 @@ def _stop(process: subprocess.Popen[Any], held: bool) -> None:
         except subprocess.TimeoutExpired:
             kill_tree(process)
         return
+
     kill_tree(process)
 
 
@@ -142,6 +145,7 @@ def instances() -> list[dict[str, Any]]:
                 "expiresAt": _ms(session.expires_at) if session.is_static else None,
             }
         )
+
     return rows
 
 
@@ -218,13 +222,13 @@ def login(
         with _logins_lock:
             _logins.pop(key, None)
         done.set()
+
     return holder[0]
 
 
 def _check_access(url: str, tenant: str, result: OvResult) -> None:
     if result.code != 0:
         return
-
     found = signed_in_row(url, tenant)
     if found is not None:
         access.check_later(found["alias"])

@@ -19,6 +19,8 @@ import { useEnterTransition } from '@/lib/hooks'
 import { useLayer } from '@/lib/layers'
 import { timeAgo } from '@/lib/time'
 
+const OPEN_KEY_PREFIX = 'ov-agent.integration-'
+
 type IntegrationStatus = {
   connected: boolean
   error?: string | null
@@ -36,7 +38,7 @@ export type ConnectProps<S> = {
 type RenderConnect<S> = (props: ConnectProps<S>) => ReactNode
 
 function useOpen(name: string): [boolean, () => void] {
-  const key = `ov-agent.integration-${name}`
+  const key = `${OPEN_KEY_PREFIX}${name}`
   const [open, setOpen] = useState(() => localStorage.getItem(key) === '1')
   const toggle = () =>
     setOpen((v) => {
@@ -156,7 +158,7 @@ export function ConnectModal({
   return createPortal(
     <div
       className={cn(
-        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 backdrop-blur-[2px] transition-opacity duration-200',
+        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 backdrop-blur-[2px] transition-opacity duration-(--duration-medium)',
         shown ? 'opacity-100' : 'opacity-0',
       )}
       onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}

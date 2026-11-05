@@ -22,12 +22,13 @@ import { Button, Shimmer } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useLayer } from '@/lib/layers'
-import { useAnswer } from './QuestionDock'
+import { APPROVE, REJECT, useAnswer } from './QuestionDock'
 
 const BROWSER_TOOL_PREFIX = 'browser_'
 const CARD_GAP_PX = 16
 const CHAT_CARD_WIDTH_PX = 440
 const CARD_SHADOW = 'shadow-[0_20px_60px_rgba(38,50,56,0.3)]'
+const PERCENT = 100
 
 export const CARD_CLASS = `fixed overflow-hidden rounded-2xl bg-white ${CARD_SHADOW}`
 export const CHAT_CARD_STYLE = {
@@ -57,8 +58,8 @@ function Pointer({ pointer, size }: { pointer: BrowserPointer; size: FrameSize }
     <div
       className="animate-fade-in pointer-events-none absolute z-10 transition-[left,top] duration-(--duration-travel) ease-out"
       style={{
-        left: `${(pointer.x / size.width) * 100}%`,
-        top: `${(pointer.y / size.height) * 100}%`,
+        left: `${(pointer.x / size.width) * PERCENT}%`,
+        top: `${(pointer.y / size.height) * PERCENT}%`,
       }}
     >
       {pointer.press ? (
@@ -190,6 +191,7 @@ function PageDialog({
 }) {
   const [text, setText] = useState(dialog.default)
   const [sending, setSending] = useState(false)
+
   const answer = (accept: boolean) => {
     setSending(true)
     api
@@ -262,14 +264,14 @@ function Approval({ runId, question }: { runId: string; question: ApprovalQuesti
           {question.detail}
         </pre>
         <div className="flex justify-end gap-1.5 px-5 py-4">
-          <Button variant="ghost" disabled={sending} onClick={() => send(['Reject'])}>
+          <Button variant="ghost" disabled={sending} onClick={() => send([REJECT])}>
             Reject
           </Button>
           <Button
             variant="primary"
             busy={sending}
             disabled={sending}
-            onClick={() => send(['Approve'])}
+            onClick={() => send([APPROVE])}
           >
             Approve
           </Button>
@@ -366,7 +368,7 @@ export function BrowserPane({
   )
 }
 
-export const HEADER_PILL =
+const HEADER_PILL =
   'bg-raised text-text hover:bg-line-strong/45 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium whitespace-nowrap transition-colors disabled:opacity-60'
 
 export function OpenBrowserButton({ runId, instance }: { runId: string; instance: string }) {

@@ -18,6 +18,7 @@ import { Button, Card, Input, Label, Select, Skeleton } from '@/components/commo
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { loadModels } from '@/lib/models'
+import { plural } from '@/lib/text'
 
 const STEPS = [1, 2, 3, 4]
 
@@ -193,7 +194,6 @@ export function Setup({
 
   const pickProvider = (provider: Provider) => {
     if (provider === status.provider) return
-
     setPending(provider)
     api
       .saveSettings({ provider })
@@ -244,7 +244,7 @@ export function Setup({
               <span
                 key={n}
                 className={cn(
-                  'h-1.5 rounded-full transition-colors duration-200',
+                  'h-1.5 rounded-full transition-colors duration-(--duration-medium)',
                   n < current ? 'bg-ok' : n === current ? 'bg-brand' : 'bg-raised',
                 )}
               />
@@ -299,7 +299,7 @@ export function Setup({
               title="Add a OneVizion instance"
               subtitle={
                 instancesOk
-                  ? `${status.instances.total} instance${status.instances.total === 1 ? '' : 's'} signed in.`
+                  ? `${plural(status.instances.total, 'instance')} signed in.`
                   : 'Where the agent reads data, with your own account and permissions.'
               }
               action={

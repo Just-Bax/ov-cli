@@ -81,6 +81,7 @@ def _enclosing_call(text: str) -> str | None:
                 call = _TRAILING_NAME.search(text[:i])
                 return call.group(1) if call else None
             depth -= 1
+
     return None
 
 
@@ -170,6 +171,7 @@ def _objrefs(nodes: dict[str, dict[str, Any]], edges: set[tuple[str, str, str, b
             objrefs[f"id.{trackor_type}.cf.{name}"] = node["id"]
         elif node["type"] in prefixes:
             objrefs[f"id.{prefixes[node['type']]}.{name}"] = node["id"]
+
     return objrefs
 
 

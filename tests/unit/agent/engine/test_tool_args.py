@@ -15,6 +15,5 @@ def test_arguments_outside_the_schema_are_named():
 
 def test_a_question_with_one_option_says_which_and_what_to_do():
     item = {"question": "Which instance?", "options": [{"label": "acme"}]}
-
     with pytest.raises(ToolError, match=r'"Which instance\?" has 1 option.*go with that choice'):
         _question_item(item)

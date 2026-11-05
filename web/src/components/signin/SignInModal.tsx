@@ -135,7 +135,6 @@ const FIXES: {
 function likelyFixes(message: string, method: SignInMethod, tenant?: string): string[] {
   const text = message.toLowerCase()
   if (ANOTHER_SIGN_IN.test(text)) return []
-
   const tips = FIXES.filter((f) => (f.method ?? method) === method && f.pattern.test(text))
     .map((f) => f.tip(tenant))
     .filter((tip): tip is string => Boolean(tip))
@@ -253,7 +252,7 @@ export function SignInModal({
     return createPortal(
       <div
         className={cn(
-          'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 backdrop-blur-[2px] transition-opacity duration-200',
+          'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 backdrop-blur-[2px] transition-opacity duration-(--duration-medium)',
           shown ? 'opacity-100' : 'opacity-0',
         )}
       >
@@ -288,7 +287,7 @@ export function SignInModal({
   return createPortal(
     <div
       className={cn(
-        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 backdrop-blur-[2px] transition-opacity duration-200',
+        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 backdrop-blur-[2px] transition-opacity duration-(--duration-medium)',
         shown ? 'opacity-100' : 'opacity-0',
       )}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}

@@ -17,6 +17,11 @@ function withItem(items: ThreadItem[], item: ThreadItem): ThreadItem[] {
   return items.some((x) => x.kind === item.kind && x.id === item.id) ? items : [...items, item]
 }
 
+function withCase(state: RunState, key?: string, url?: string): RunState {
+  if (!key || !url || state.cases.some((c) => c.key === key)) return state
+  return { ...state, cases: [...state.cases, { key, url }], caseUrl: state.caseUrl ?? url }
+}
+
 export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunState {
   switch (event.type) {
     case 'cost':
@@ -29,12 +34,11 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       }
     case 'meta':
       return {
-        ...state,
-        caseUrl: event.caseUrl ?? state.caseUrl,
+        ...withCase(state, event.caseKey, event.caseUrl),
         summary: {
           ...state.summary,
           title: event.title ?? state.summary.title,
-          caseKey: event.caseKey ?? state.summary.caseKey,
+          caseKey: state.summary.caseKey ?? event.caseKey,
           instance: event.instance ?? state.summary.instance,
         },
         instances: touched(state.instances, event.instance),
@@ -191,22 +195,6 @@ export function reduce(state: RunState, { event, ts, seq }: StoredEvent): RunSta
       }
     case 'context':
       return { ...state, context: event.context }
-    case 'findings':
-      return { ...state, findingsVersion: (state.findingsVersion ?? 0) + 1 }
-    case 'branch_result': {
-      const id = `b${seq}`
-
-      return {
-        ...state,
-        branchResults: upsert(state.branchResults, {
-          id,
-          branch: event.branch,
-          text: event.text,
-          ts,
-        }),
-        items: withItem(state.items, { kind: 'branch_result', id }),
-      }
-    }
     default:
       return state
   }

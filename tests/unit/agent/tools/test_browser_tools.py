@@ -257,7 +257,6 @@ def test_ov_changes_wait_for_the_ui_while_the_browser_is_open(tmp_path):
 
 def test_sign_in_pages_are_recognised():
     host = "acme.onevizion.com"
-
     assert browser._signed_out("https://acme.onevizion.com/Login.do?x=1", host)
     assert browser._signed_out("https://login.microsoftonline.com/common/oauth2/authorize", host)
     assert not browser._signed_out("https://acme.onevizion.com/Dashboard.do", host)

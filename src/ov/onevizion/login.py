@@ -208,6 +208,7 @@ def _try_signed_in_tabs(
         minted, error = _mint(context, page, base_url, verify=verify)
         if minted is not None:
             return minted, "", True
+
     return None, error, True
 
 
@@ -404,6 +405,7 @@ def _watch_parent() -> None:
 
 def _screen_options(size: str) -> dict[str, Any]:
     width, height = (int(n) for n in size.split("x"))
+
     return {
         "headless": True,
         "channel": SCREEN_CHANNEL,

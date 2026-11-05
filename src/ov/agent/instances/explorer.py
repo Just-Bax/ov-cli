@@ -328,6 +328,7 @@ def _loop_hints(lines: list[str]) -> list[dict[str, Any]]:
             found["nested"] = _hint(number, *_NESTED_LOOPS)
         if depth and not starts and _LOOKUP.search(line) and "lookup" not in found:
             found["lookup"] = _hint(number, *_QUERY_IN_LOOP)
+
     return list(found.values())
 
 
@@ -352,6 +353,7 @@ def _line_hints(lines: list[str], known: set[int]) -> list[dict[str, Any]]:
                     "id.<type>.cf.<field> survives renumbering and copies between instances.",
                 )
             )
+
     return found
 
 
@@ -391,6 +393,7 @@ def _rule_hints(node: dict[str, Any], line_count: int) -> list[dict[str, Any]]:
                 "trigger avoids running it when it cannot matter.",
             )
         )
+
     if not node.get("async") and line_count > LONG_SYNC_LINES:
         found.append(
             _hint(
@@ -401,6 +404,7 @@ def _rule_hints(node: dict[str, Any], line_count: int) -> list[dict[str, Any]]:
                 "async keeps saves fast.",
             )
         )
+
     return found
 
 

@@ -51,7 +51,7 @@ def stream_screen(h: Handler, screen: Screen) -> None:
                 write_stream(h, f"data: {json.dumps(screen.frame)}\n\n")
 
         write_stream(h, f"event: end\ndata: {json.dumps({'error': screen.failure})}\n\n")
-    except OSError:
+    except ConnectionError:
         pass
 
 

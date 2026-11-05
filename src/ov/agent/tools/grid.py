@@ -56,10 +56,12 @@ def _column(raw: Any) -> dict[str, Any]:
         if not raw.get("href"):
             raise ToolError(f"Link column {raw['key']} needs href, e.g. /admin/rules/Form.do?id={{RULE_ID}}.")
         column["href"] = str(raw["href"])
+
     if kind == "trackor":
         if not raw.get("id_key"):
             raise ToolError(f"Trackor column {raw['key']} needs id_key: the column that holds the TRACKOR_ID.")
         column["idKey"] = str(raw["id_key"])
+
     return column
 
 
@@ -114,6 +116,7 @@ def _fetched(target: str, source: dict[str, Any], ctx: ToolContext) -> tuple[str
         except datasets.SignInNeeded:
             if attempt == SIGN_IN_ATTEMPTS - 1 or not ctx.require_login(host, tenant):
                 raise
+
     raise ToolError(f"Still not signed in to {target}.")
 
 
@@ -140,6 +143,7 @@ def _grid(args: dict[str, Any], ctx: ToolContext) -> str:
             alias, rows, total = _fetched(target, source, ctx)
     except datasets.DatasetError as exc:
         raise ToolError(str(exc)) from None
+
     _check_keys(columns, rows)
 
     found = find_instance(alias or str(args.get("instance") or ctx.instance))

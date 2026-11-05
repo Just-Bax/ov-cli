@@ -11,6 +11,7 @@ from urllib.parse import parse_qsl, unquote
 import httpx
 
 from ov import API_PREFIX
+from ov.core.config import TRUE_WORDS
 from ov.core.errors import ApiError, Forbidden, NotFound, ReadOnlyBlocked, SessionExpired, Unreachable
 from ov.onevizion import session as session_store
 from ov.onevizion.auth import (
@@ -25,7 +26,6 @@ from ov.onevizion.session import Session
 
 USER_AGENT = "ov-cli"
 READ_ONLY_ENV = "OV_READONLY"
-TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
 DEFAULT_TIMEOUT_SECONDS = 60.0
 ERROR_BODY_LIMIT = 2000
 
@@ -211,12 +211,14 @@ class Client:
         if self.session.is_static:
             session_store.mark_ended(self.session)
             raise SessionExpired("the stored API token was rejected")
+
         self._require_web_session()
         try:
             mint_web_session_token(self._http, self.session)
         except SessionExpired:
             session_store.mark_ended(self.session)
             raise
+
         session_store.save(self.session)
 
     def _require_web_session(self) -> None:

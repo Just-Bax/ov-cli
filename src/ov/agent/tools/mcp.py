@@ -42,6 +42,7 @@ def _rpc(alias: str, method: str, params: dict[str, Any]) -> Any:
     message = {"jsonrpc": JSON_RPC, "id": serial(), "method": method, "params": params}
     with open_client(alias) as client:
         body = client.post_json(MCP_PATH, message).json()
+
     if body.get("error"):
         refused = f"The MCP server refused {method}: {body['error'].get('message') or body['error']}"
         raise ToolError(f"{refused} {CHECK_NAME}" if method == "tools/call" else refused)

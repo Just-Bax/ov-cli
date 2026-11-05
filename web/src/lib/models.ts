@@ -10,7 +10,6 @@ const listeners = new Set<() => void>()
 export function loadModels(provider: Provider): Promise<ModelInfo[]> {
   const known = cache.get(provider)
   if (known) return known
-
   const loading = api.models(provider)
   cache.set(provider, loading)
   loading.catch(() => cache.delete(provider))
@@ -37,17 +36,14 @@ export function useModels(provider: Provider): ModelInfo[] | undefined {
   }, [])
 
   useEffect(() => {
-    let stale = false
     if (!signedIn) {
       setModels([])
       return
     }
 
+    let stale = false
     setModels(undefined)
-    loadModels(provider).then(
-      (found) => !stale && setModels(found),
-      (e: unknown) => reportError(e),
-    )
+    loadModels(provider).then((found) => !stale && setModels(found), reportError)
 
     return () => {
       stale = true

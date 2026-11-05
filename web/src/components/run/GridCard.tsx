@@ -21,6 +21,9 @@ const ERROR_KEY = '_error'
 const FAILED = 'failed'
 const UNCHANGED = 'unchanged'
 const SETTLED_CHANGE = new Set<DataChange['state']>(['done', 'stopped'])
+const TRACKOR_FORM_PATH = '/form/ConfigAppForm.do?id='
+const EMPTY_VALUE = '(empty)'
+const PERCENT = 100
 
 const STATUS_TONES: [RegExp, Tone][] = [
   [/without (errors|warnings)/i, 'ok'],
@@ -87,13 +90,13 @@ function Link({ href, children }: { href: string; children: React.ReactNode }) {
 function ChangeCell({ value }: { value: CellChange }) {
   const before = textOf(value.before)
   const after = textOf(value.after)
-  if (before === after) return <span className="text-faint">{after || '(empty)'}</span>
+  if (before === after) return <span className="text-faint">{after || EMPTY_VALUE}</span>
 
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="text-faint line-through">{before || '(empty)'}</span>
+      <span className="text-faint line-through">{before || EMPTY_VALUE}</span>
       <span className="bg-ok-soft text-ok rounded-md px-1.5 py-px font-medium">
-        {after || '(empty)'}
+        {after || EMPTY_VALUE}
       </span>
     </span>
   )
@@ -112,9 +115,7 @@ function Cell({ column, row, baseUrl }: { column: GridColumn; row: GridRow; base
       return text ? <Chip tone={statusTone(text)}>{text}</Chip> : null
     case 'trackor':
       return baseUrl && column.idKey && row[column.idKey] ? (
-        <Link href={`${baseUrl}/form/ConfigAppForm.do?id=${textOf(row[column.idKey])}`}>
-          {text}
-        </Link>
+        <Link href={`${baseUrl}${TRACKOR_FORM_PATH}${textOf(row[column.idKey])}`}>{text}</Link>
       ) : (
         <>{text}</>
       )
@@ -303,7 +304,7 @@ export function GridCard({
         <div className="bg-line h-1">
           <div
             className="bg-brand h-full"
-            style={{ width: `${(100 * change.done) / Math.max(change.total, 1)}%` }}
+            style={{ width: `${(PERCENT * change.done) / Math.max(change.total, 1)}%` }}
           />
         </div>
       ) : null}

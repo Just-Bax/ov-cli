@@ -105,7 +105,8 @@ function Disconnect({ account, onChange }: { account: ProviderAccount; onChange:
 }
 
 function ModelRow({ model }: { model: ModelInfo }) {
-  const [typed, setTyped] = useState(String(model.contextWindow ?? ''))
+  const savedWindow = String(model.contextWindow ?? '')
+  const [typed, setTyped] = useState(savedWindow)
   const [busy, setBusy] = useState(false)
 
   const save = async (vision: boolean, contextWindow: string) => {
@@ -115,7 +116,7 @@ function ModelRow({ model }: { model: ModelInfo }) {
       forgetModels(PROVIDER)
     } catch (e) {
       reportError(e)
-      setTyped(String(model.contextWindow ?? ''))
+      setTyped(savedWindow)
     } finally {
       setBusy(false)
     }
@@ -143,7 +144,7 @@ function ModelRow({ model }: { model: ModelInfo }) {
               placeholder="tokens"
               onChange={(e) => setTyped(e.target.value.replace(/\D/g, ''))}
               onBlur={() => {
-                if (typed !== String(model.contextWindow ?? '')) void save(model.vision, typed)
+                if (typed !== savedWindow) void save(model.vision, typed)
               }}
             />
           </span>

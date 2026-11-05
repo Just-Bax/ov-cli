@@ -22,6 +22,7 @@ const RANGES: { id: CostRange; label: string }[] = [
 const CHART_HEIGHT_PX = 96
 const STAT_TILES = 4
 const MIN_BAR_PX = 2
+const FULL_PERCENT = 100
 
 const AMOUNT_LABELS: Record<CostUnit, string> = {
   credits: 'Credits',
@@ -151,7 +152,7 @@ function Breakdown({
             <div className="bg-raised mt-1 h-1.5 overflow-hidden rounded-full">
               <div
                 className="bg-brand h-full rounded-full"
-                style={{ width: `${top ? (row.amount / top) * 100 : 0}%` }}
+                style={{ width: `${top ? (row.amount / top) * FULL_PERCENT : 0}%` }}
               />
             </div>
           </div>

@@ -116,6 +116,7 @@ class Screen:
                 return p.chromium.connect_over_cdp(f"http://{LOOPBACK_HOST}:{self.port}")
             except PlaywrightError:
                 time.sleep(CONNECT_RETRY_SECONDS)
+
         return None
 
     def _mirror(self, context: Any) -> None:
@@ -227,6 +228,7 @@ def _checked(event: dict[str, Any]) -> dict[str, Any]:
             "clickCount": _number(event, "clickCount", int),
             "modifiers": _number(event, "modifiers", int),
         }
+
     if kind == "wheel":
         return {
             "type": kind,
@@ -235,12 +237,14 @@ def _checked(event: dict[str, Any]) -> dict[str, Any]:
             "dx": _number(event, "dx"),
             "dy": _number(event, "dy"),
         }
+
     if kind == "back":
         return {"type": kind}
     if kind == "key" and event.get("event") in KEY_EVENTS:
         commands = event.get("commands") or []
         if not isinstance(commands, list):
             raise ScreenError("Input commands must be a list.")
+
         return {
             "type": kind,
             "event": event["event"],
@@ -251,6 +255,7 @@ def _checked(event: dict[str, Any]) -> dict[str, Any]:
             "text": str(event["text"]) if event.get("text") else None,
             "commands": [c for c in commands if c in COMMANDS],
         }
+
     if kind == "text" and isinstance(event.get("text"), str):
         return {"type": kind, "text": event["text"][:MAX_TEXT_CHARS]}
     raise ScreenError(f"Unknown input: {kind}")

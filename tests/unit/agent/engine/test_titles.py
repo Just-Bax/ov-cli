@@ -89,7 +89,10 @@ def test_only_the_preloaded_case_names_the_thread(logged_in, monkeypatch):
 
     run.read_case("C1", run.cancel)
     run.read_case("C2", run.cancel)
+    run.read_case("C1", run.cancel)
     assert run.state["summary"]["title"] == "Kafka sync" and run.state["summary"]["caseKey"] == "C1"
+    assert run.state["cases"] == [{"key": "C1", "url": "https://t/C1"}, {"key": "C2", "url": "https://t/C2"}]
+    assert run.state["caseUrl"] == "https://t/C1"
 
 
 def test_a_title_reply_must_be_json_with_a_title():

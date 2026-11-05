@@ -8,7 +8,8 @@ import type {
   PagerDutyIncident,
 } from '@shared/types.ts'
 import { shortHost } from '@/lib/servers'
-import { count, duration, fmt, type Slot, type Slots, total } from './data'
+import { count, duration, fmt, type Slot, type Slots, total, whenOf } from './data'
+import { plural } from '@/lib/text'
 
 export type Level = 'danger' | 'warn' | 'ok'
 export type CheckState = Level | 'off' | 'loading'
@@ -21,16 +22,12 @@ const MIN_REQUESTS_FOR_RATE = 100
 const PERCENT = 100
 const STALE_INTERVALS = 3
 
-function shortWhen(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 type Limits = { warn: number; danger: number }
+
+const CPU_LIMITS: Limits = { warn: 65, danger: 85 }
+const FILL_LIMITS: Limits = { warn: 80, danger: 90 }
+const SESSION_LIMITS: Limits = { warn: 70, danger: 90 }
+const LOAD_LIMITS: Limits = { warn: 1, danger: 1.5 }
 
 export type Gauge = {
   title: string
@@ -72,22 +69,18 @@ function gauge(
 }
 
 export const SERVER_GAUGES: Record<keyof HealthServer['metrics'], Gauge> = {
-  cpu: gauge('CPU', percent, { limits: { warn: 65, danger: 85 }, percent: true }),
-  memory: gauge('Memory used', percent, {
-    limits: { warn: 80, danger: 90 },
-    percent: true,
-    used: true,
-  }),
-  disk: gauge('Disk used', percent, { limits: { warn: 80, danger: 90 }, percent: true }),
-  load: gauge('Load per core', plain, { limits: { warn: 1, danger: 1.5 } }),
+  cpu: gauge('CPU', percent, { limits: CPU_LIMITS, percent: true }),
+  memory: gauge('Memory used', percent, { limits: FILL_LIMITS, percent: true, used: true }),
+  disk: gauge('Disk used', percent, { limits: FILL_LIMITS, percent: true }),
+  load: gauge('Load per core', plain, { limits: LOAD_LIMITS }),
   heap: gauge('JVM heap', bytes),
 }
 
 export const DATABASE_GAUGES: Record<HealthDatabaseMetricKey, Gauge> = {
-  cpu: gauge('CPU', percent, { limits: { warn: 65, danger: 85 }, percent: true }),
-  storage: gauge('Storage used', percent, { limits: { warn: 80, danger: 90 }, percent: true }),
-  sessions: gauge('Session limit', percent, { limits: { warn: 70, danger: 90 }, percent: true }),
-  tablespace: gauge('Tablespace', percent, { limits: { warn: 80, danger: 90 }, percent: true }),
+  cpu: gauge('CPU', percent, { limits: CPU_LIMITS, percent: true }),
+  storage: gauge('Storage used', percent, { limits: FILL_LIMITS, percent: true }),
+  sessions: gauge('Session limit', percent, { limits: SESSION_LIMITS, percent: true }),
+  tablespace: gauge('Tablespace', percent, { limits: FILL_LIMITS, percent: true }),
   responseTime: gauge('Response time', duration),
   readLatency: gauge('Read latency', duration),
   writeLatency: gauge('Write latency', duration),
@@ -175,10 +168,6 @@ function fromSlot<K extends keyof HealthSections>(
   return { key, title, ...read(slot.value) }
 }
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`
-}
-
 function joined(parts: (string | false)[]): string {
   return parts.filter(Boolean).join(', ')
 }
@@ -188,9 +177,10 @@ function incidentsCheck(slots: Slots): Check {
     if (Object.keys(v.errors).length) return { state: 'off', text: Object.values(v.errors)[0] }
 
     const open = v.open ?? []
+    if (!open.length) return { state: 'ok', text: 'No open incidents' }
+
     const triggered = open.filter((i) => i.status === 'triggered').length
     const acknowledged = open.length - triggered
-    if (!open.length) return { state: 'ok', text: 'No open incidents' }
 
     return {
       state: triggered ? 'danger' : 'warn',
@@ -204,10 +194,11 @@ function incidentsCheck(slots: Slots): Check {
 
 function monitorsCheck(slots: Slots): Check {
   return fromSlot('monitors', 'Monitors', slots.monitors, (v) => {
+    if (!v.monitors.length) return { state: 'off', text: 'No monitors watch it' }
+
     const alerting = v.monitors.filter((m) => m.state === 'Alert').length
     const warning = v.monitors.filter((m) => m.state === 'Warn').length
     const noData = v.monitors.filter((m) => m.state === 'No Data').length
-    if (!v.monitors.length) return { state: 'off', text: 'No monitors watch it' }
     if (!alerting && !warning)
       return {
         state: 'ok',
@@ -229,7 +220,7 @@ function apmCheck(slots: Slots, meta: HealthMeta): Check {
     if (!total(v.requests) || p95 === null) return { state: 'off', text: 'No APM data' }
 
     const stoppedAt = apmStoppedAt(v.requests, meta.to, meta.interval)
-    if (stoppedAt !== null) return { state: 'warn', text: `No data since ${shortWhen(stoppedAt)}` }
+    if (stoppedAt !== null) return { state: 'warn', text: `No data since ${whenOf(stoppedAt)}` }
 
     const rate = errorRate(v)
     const level = worse(latencyLevel(p95), rate === null ? 'ok' : errorRateLevel(rate))
@@ -251,6 +242,7 @@ function serversCheck(slots: Slots): Check {
 
     const level = found.reduce<Level>((l, b) => worse(l, b.level), 'ok')
     const shown = found.filter((b) => b.level === level)
+
     return {
       state: level,
       text: shown.length > 1 ? `${shown[0].text} and ${shown.length - 1} more` : shown[0].text,
@@ -261,10 +253,8 @@ function serversCheck(slots: Slots): Check {
 function databaseCheck(slots: Slots): Check {
   return fromSlot('database', 'Database', slots.database, (v) => {
     if (!v.databases.length) return { state: 'off', text: 'No metrics' }
-
     const found = v.databases.flatMap((d) => breaches(d.id, d.metrics, DATABASE_GAUGES))
     if (!found.length) return { state: 'ok', text: 'Within limits' }
-
     const level = found.reduce<Level>((l, b) => worse(l, b.level), 'ok')
     return { state: level, text: found.filter((b) => b.level === level)[0].text }
   })

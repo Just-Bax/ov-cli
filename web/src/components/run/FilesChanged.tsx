@@ -12,6 +12,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { prefetch, take } from '@/lib/prefetch'
 import { Diff } from './Diff'
+import { plural } from '@/lib/text'
 
 type FileSummary = {
   path: string
@@ -166,7 +167,7 @@ export const FilesChanged = memo(function FilesChanged({
           className={cn('text-faint size-3 shrink-0 transition-transform', open && 'rotate-90')}
         />
         <span className="text-fg flex-1 text-[12.5px] font-semibold">
-          {files.length} file{files.length === 1 ? '' : 's'} changed
+          {plural(files.length, 'file')} changed
         </span>
         <LineCounts added={added} removed={removed} />
       </button>

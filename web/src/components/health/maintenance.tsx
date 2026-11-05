@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn'
 import { ready, type Slots } from './data'
 import type { Check } from './signals'
 import { ask, Body, type Context, Quiet, ShowAll, Tile, tileId } from './tiles'
+import { plural } from '@/lib/text'
 
 const CANCELLED = 'Cancelled'
 const DONE = ['Completed', CANCELLED]
@@ -27,15 +28,6 @@ const STATUS_TONE: Record<string, Tone> = {
   'Pending Approval': 'brand',
 }
 
-export function whenOf(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 function dayOf(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
@@ -49,7 +41,7 @@ export function maintenanceLabel(m: MaintenanceItem): string {
   return m.version ? `${what} ${m.version}` : what
 }
 
-export function phaseOf(m: MaintenanceItem, now: number): Phase {
+function phaseOf(m: MaintenanceItem, now: number): Phase {
   if (m.status === IN_PROGRESS) return 'now'
   if (
     m.status !== CANCELLED &&
@@ -96,7 +88,7 @@ function Row({ m }: { m: MaintenanceItem }) {
   const details = [
     m.owner,
     m.downtimeMinutes ? `${m.downtimeMinutes} min downtime` : '',
-    m.servers.length ? `${m.servers.length} server${m.servers.length === 1 ? '' : 's'}` : '',
+    m.servers.length ? plural(m.servers.length, 'server') : '',
   ].filter(Boolean)
 
   return (

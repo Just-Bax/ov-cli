@@ -57,10 +57,8 @@ def test_privileges_are_read_with_their_letters(logged_in, monkeypatch):
 def test_an_expired_web_session_keeps_the_edition_read_before(logged_in, monkeypatch):
     _serve(monkeypatch, MAIN_PAGE)
     access.check("acme")
-
     _serve(monkeypatch, None, [{"security_group": "TEST_SQL", "priv": "NONE"}])
     found = access.check("acme")
-
     assert found["edition"] == "ENTERPRISE" and found["testSql"] is False
     assert access.status("acme")["checking"] is False
 

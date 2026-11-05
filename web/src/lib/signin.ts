@@ -7,7 +7,7 @@ const RENEW_WITHIN_MS = 3 * DAY_MS
 const SESSION_RECENT_MS = HOUR_MS
 const DATE: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' }
 
-export const KIND_LABEL: Record<SignInMode, string> = {
+const KIND_LABEL: Record<SignInMode, string> = {
   session: 'Web session',
   remembered: `${REMEMBER_DAYS}-day token`,
   token: 'Your API token',

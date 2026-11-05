@@ -59,7 +59,10 @@ def _post(http: httpx.Client, endpoint: Endpoint, payload: dict[str, Any], cance
 
 
 def _retryable(response: httpx.Response) -> bool:
-    return response.status_code == httpx.codes.TOO_MANY_REQUESTS or response.status_code >= 500
+    return (
+        response.status_code == httpx.codes.TOO_MANY_REQUESTS
+        or response.status_code >= httpx.codes.INTERNAL_SERVER_ERROR
+    )
 
 
 def _backoff_seconds(attempt: int) -> float:
@@ -130,7 +133,7 @@ def _stream_once(
     with httpx.Client(timeout=httpx.Timeout(HTTP_TIMEOUT_SECONDS, read=CHAT_READ_TIMEOUT_SECONDS)) as http:
         response = _send_with_retries(http, endpoint, payload, cancel)
         with cancel.hook(response.close):
-            if response.status_code >= 400:
+            if response.status_code >= httpx.codes.BAD_REQUEST:
                 detail = response.read().decode("utf-8", "replace")[:ERROR_DETAIL_CHARS]
                 raise endpoint.error(f"{endpoint.name} chat failed ({response.status_code}): {detail}")
 
@@ -146,7 +149,7 @@ def complete(endpoint: Endpoint, payload: dict[str, Any], read_timeout: float) -
     with httpx.Client(timeout=httpx.Timeout(HTTP_TIMEOUT_SECONDS, read=read_timeout)) as http:
         response = http.post(endpoint.url + CHAT_PATH, json=payload, headers=endpoint.headers)
 
-    if response.status_code >= 400:
+    if response.status_code >= httpx.codes.BAD_REQUEST:
         raise endpoint.error(
             f"{endpoint.name} chat failed ({response.status_code}): {response.text[:ERROR_DETAIL_CHARS]}"
         )

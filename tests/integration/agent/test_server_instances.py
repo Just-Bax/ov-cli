@@ -60,17 +60,3 @@ def test_an_instance_can_be_removed(agent_server, monkeypatch):
 
     missing = httpx.post(f"{agent_server}/api/instances/logout", json={"alias": "acme"})
     assert missing.status_code == 404
-
-
-def test_an_instance_check_reads_the_platform_version(agent_server, monkeypatch):
-    real_get = httpx.get
-
-    def fake_get(url, *args, **kwargs):
-        if url.endswith("/Login.do"):
-            return httpx.Response(200, text='<script>var Version = "26.14.2-RC1";</script>')
-        return real_get(url, *args, **kwargs)
-
-    monkeypatch.setattr("ov.agent.api.routes.instances.httpx.get", fake_get)
-    res = httpx.get(f"{agent_server}/api/instances/check?instance=acme.onevizion.com").json()
-    assert res["version"] == "26.14.2-RC1"
-    assert res["url"] == "https://acme.onevizion.com"

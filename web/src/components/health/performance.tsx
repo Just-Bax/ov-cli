@@ -1,17 +1,18 @@
 import { Warning as ExclamationTriangleIcon } from '@phosphor-icons/react'
-import type { HealthPoint, MaintenanceItem } from '@shared/types.ts'
+import type { MaintenanceItem } from '@shared/types.ts'
 import { useSkeleton } from '@/components/common/skeletons'
 import { Skeleton } from '@/components/common/ui'
 import { DATADOG_PURPLE } from '@/components/integrations/Datadog'
 import { HOUR_MS } from '@/lib/time'
 import { type EventLane, Lanes } from './charts'
-import { count, duration, fmt, ready, total, utcMs } from './data'
-import { maintenanceLabel, whenOf } from './maintenance'
+import { count, duration, fmt, ready, total, utcMs, whenOf } from './data'
+import { maintenanceLabel } from './maintenance'
 import {
   apmStoppedAt,
   errorRate,
   errorRateLevel,
   latencyLevel,
+  latest,
   SLOW_P95_MS,
   SLUGGISH_P95_MS,
 } from './signals'
@@ -26,10 +27,6 @@ const CAUSE_WINDOW_MS = 2 * HOUR_MS
 const REQUESTS_HEIGHT = 64
 const LATENCY_HEIGHT = 64
 const ERRORS_HEIGHT = 36
-
-function lastPoint(points: HealthPoint[]): HealthPoint | undefined {
-  return points.filter((p) => p.v > 0).at(-1)
-}
 
 function likelyCause(items: MaintenanceItem[], stoppedAt: number): MaintenanceItem | undefined {
   return items.find(
@@ -132,7 +129,7 @@ export function PerformanceTile({ ctx, className }: { ctx: Context; className?: 
               )
 
             const stoppedAt = apmStoppedAt(v.requests, meta.to, meta.interval)
-            const now = stoppedAt === null ? lastPoint(v.p95Ms)?.v : undefined
+            const now = stoppedAt === null ? latest(v.p95Ms) : null
             const worst = Math.max(0, ...v.p95Ms.map((p) => p.v))
             const rate = errorRate(v)
 

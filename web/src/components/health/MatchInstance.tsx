@@ -56,6 +56,7 @@ export function MatchInstance({
       const found = await detect({ ...status.matches, [alias]: scope })
       const servers = scope.trim() ? scope : (found.matches[alias] ?? '')
       const databases = ids.length ? ids : (found.databases[alias] ?? [])
+
       setChoices(found)
       setScope(servers)
       setIds(databases)

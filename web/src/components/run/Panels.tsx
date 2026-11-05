@@ -1,12 +1,13 @@
 import { Key as KeyIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
-import type { LoginPrompt, Outcome, Verdict } from '@shared/types.ts'
+import type { ExistingMatch, LoginPrompt, Outcome, Verdict } from '@shared/types.ts'
 import { Button, Chip, CopyButton, Markdown, Shimmer, type Tone } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { signInReason } from '@/lib/signin'
 import { reportError } from '@/components/common/Toasts'
 import { SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
+import { plural } from '@/lib/text'
 
 const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   fix: { label: 'Fix needed', tone: 'warn' },
@@ -17,7 +18,7 @@ const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   unknown: { label: 'Unclear', tone: 'neutral' },
 }
 
-const COVERS: Record<string, { label: string; tone: Tone }> = {
+const COVERS: Record<ExistingMatch['covers'], { label: string; tone: Tone }> = {
   yes: { label: 'Covers it', tone: 'ok' },
   partly: { label: 'Partly', tone: 'warn' },
   no: { label: 'Not covered', tone: 'neutral' },
@@ -30,9 +31,7 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
         {outcome.issues.map((issue, i) => (
           <div key={i} className="px-4 py-3">
             <div className="flex flex-wrap items-center gap-1.5">
-              <Chip tone={VERDICT[issue.verdict]?.tone ?? 'neutral'}>
-                {VERDICT[issue.verdict]?.label ?? issue.verdict}
-              </Chip>
+              <Chip tone={VERDICT[issue.verdict].tone}>{VERDICT[issue.verdict].label}</Chip>
               {issue.stillHappening !== undefined ? (
                 <Chip tone={issue.stillHappening ? 'danger' : 'neutral'}>
                   {issue.stillHappening ? 'Still happening' : 'Not happening now'}
@@ -62,9 +61,7 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
             <div className="text-faint mb-1.5 text-[11.5px] font-medium">Existing issues</div>
             {outcome.existing.map((e, i) => (
               <div key={i} className="flex items-center gap-2 py-0.5 text-[12.5px]">
-                <Chip tone={COVERS[e.covers]?.tone ?? 'neutral'}>
-                  {COVERS[e.covers]?.label ?? e.covers}
-                </Chip>
+                <Chip tone={COVERS[e.covers].tone}>{COVERS[e.covers].label}</Chip>
                 {e.link ? (
                   <a
                     href={e.link}
@@ -85,8 +82,7 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
         {outcome.unrelated.length ? (
           <details className="px-4 py-2.5">
             <summary className="text-muted cursor-pointer text-[12px]">
-              {outcome.unrelated.length} unrelated finding
-              {outcome.unrelated.length === 1 ? '' : 's'}
+              {plural(outcome.unrelated.length, 'unrelated finding')}
             </summary>
             <ul className="text-text mt-1.5 list-disc space-y-0.5 pl-5 text-[12.5px]">
               {outcome.unrelated.map((u, i) => (
