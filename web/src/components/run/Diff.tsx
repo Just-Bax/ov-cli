@@ -145,6 +145,8 @@ export function Diff({ before, after }: { before: string; after: string }) {
   const lines = initial.flatMap((r) => (r.type === 'gap' ? [] : [r]))
   const added = lines.filter((r) => r.type === 'add').length
   const removed = lines.filter((r) => r.type === 'del').length
+  const lastNo = Math.max(0, ...lines.map((r) => Math.max(r.oldNo ?? 0, r.newNo ?? 0)))
+  const numberWidth = { width: `${String(lastNo).length}ch` }
 
   return (
     <div>
@@ -180,8 +182,12 @@ export function Diff({ before, after }: { before: string; after: string }) {
                       GUTTER_BG[row.type],
                     )}
                   >
-                    <span className="inline-block w-7">{row.type === 'add' ? '' : row.oldNo}</span>
-                    <span className="inline-block w-7">{row.type === 'del' ? '' : row.newNo}</span>
+                    <span className="inline-block" style={numberWidth}>
+                      {row.type === 'add' ? '' : row.oldNo}
+                    </span>
+                    <span className="ml-3 inline-block" style={numberWidth}>
+                      {row.type === 'del' ? '' : row.newNo}
+                    </span>
                   </td>
                   <td
                     className={cn(
