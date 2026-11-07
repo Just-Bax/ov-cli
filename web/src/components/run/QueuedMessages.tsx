@@ -131,10 +131,10 @@ export function QueuedMessages({
               >
                 {files.length ? (
                   <span className="flex flex-wrap items-center gap-1">
-                    {files.map((f) =>
+                    {files.map((f, i) =>
                       f.kind === 'image' ? (
                         <img
-                          key={f.name}
+                          key={i}
                           src={api.imageUrl(runId, f)}
                           alt={f.name}
                           title={f.name}
@@ -142,7 +142,7 @@ export function QueuedMessages({
                         />
                       ) : (
                         <span
-                          key={f.name}
+                          key={i}
                           title={f.name}
                           className="border-line inline-flex h-8 max-w-[200px] items-center gap-1.5 rounded-md border px-2 text-[12px]"
                         >

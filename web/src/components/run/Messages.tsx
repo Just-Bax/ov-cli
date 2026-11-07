@@ -13,7 +13,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { timeWithDay } from '@/lib/time'
 import { BranchIcon, openThread } from './Branches'
-import { FilePreview } from './FilePreview'
+import { FilePreview, sentFile } from './FilePreview'
 
 const LONG_MESSAGE_CHARS = 1200
 const LONG_MESSAGE_LINES = 14
@@ -118,7 +118,7 @@ function FileChips({ runId, files }: { runId: string; files: MessageFile[] }) {
         <div className="flex flex-wrap justify-end gap-1.5">
           {documents.map(({ file, index }) => (
             <button
-              key={file.name}
+              key={index}
               type="button"
               title={file.name}
               aria-label={`Preview ${file.name}`}
@@ -135,7 +135,7 @@ function FileChips({ runId, files }: { runId: string; files: MessageFile[] }) {
         <div className="flex flex-wrap justify-end gap-1.5">
           {images.map(({ file, index }) => (
             <button
-              key={file.name}
+              key={index}
               type="button"
               title={file.name}
               aria-label={`Preview ${file.name}`}
@@ -155,7 +155,11 @@ function FileChips({ runId, files }: { runId: string; files: MessageFile[] }) {
         </div>
       ) : null}
       {open !== undefined ? (
-        <FilePreview runId={runId} files={files} start={open} onClose={() => setOpen(undefined)} />
+        <FilePreview
+          files={files.map((file) => sentFile(runId, file))}
+          start={open}
+          onClose={() => setOpen(undefined)}
+        />
       ) : null}
     </div>
   )

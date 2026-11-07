@@ -103,6 +103,13 @@ def objects(data: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return items
 
 
+def strings(data: dict[str, Any], key: str) -> list[str]:
+    items = data.get(key) or []
+    if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
+        raise HttpError(400, f"{key} must be a list of strings.")
+    return items
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = APP_ID
     _unread = 0

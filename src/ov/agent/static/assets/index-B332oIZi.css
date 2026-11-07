@@ -276,9 +276,6 @@
   .top-full {
     top: 100%;
   }
-  .-right-1\.5 {
-    right: calc(var(--spacing) * -1.5);
-  }
   .right-0 {
     right: 0px;
   }
@@ -660,10 +657,6 @@
     width: calc(var(--spacing) * 14);
     height: calc(var(--spacing) * 14);
   }
-  .size-16 {
-    width: calc(var(--spacing) * 16);
-    height: calc(var(--spacing) * 16);
-  }
   .size-24 {
     width: calc(var(--spacing) * 24);
     height: calc(var(--spacing) * 24);
@@ -1030,9 +1023,6 @@
   .max-w-\[80\%\] {
     max-width: 80%;
   }
-  .max-w-\[180px\] {
-    max-width: 180px;
-  }
   .max-w-\[200px\] {
     max-width: 200px;
   }
@@ -1044,6 +1034,9 @@
   }
   .max-w-\[260px\] {
     max-width: 260px;
+  }
+  .max-w-\[280px\] {
+    max-width: 280px;
   }
   .max-w-\[300px\] {
     max-width: 300px;
@@ -2574,6 +2567,9 @@
     .group-hover\:opacity-100:is(:where(.group):hover *) {
       opacity: 100%;
     }
+    .group-hover\/chip\:underline:is(:where(.group\/chip):hover *) {
+      text-decoration-line: underline;
+    }
     .group-hover\/logo\:opacity-0:is(:where(.group\/logo):hover *) {
       opacity: 0%;
     }
@@ -2593,9 +2589,6 @@
       opacity: 100%;
     }
     .group-hover\/tab\:opacity-100:is(:where(.group\/tab):hover *) {
-      opacity: 100%;
-    }
-    .group-hover\/thumb\:opacity-100:is(:where(.group\/thumb):hover *) {
       opacity: 100%;
     }
   }

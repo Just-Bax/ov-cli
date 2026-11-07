@@ -2,19 +2,18 @@ import {
   ArrowUp as ArrowUpIcon,
   Paperclip as PaperClipIcon,
   Stop as StopIcon,
-  X as XMarkIcon,
 } from '@phosphor-icons/react'
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
-import { reportError } from '@/components/common/Toasts'
+import { notify, reportError } from '@/components/common/Toasts'
+import { localFile, type PreviewFile } from '@/components/run/FilePreview'
 import { cn } from '@/lib/cn'
-import { useWindowEvent } from '@/lib/hooks'
+import { useObjectUrls, useWindowEvent } from '@/lib/hooks'
 import { isEditableTarget } from '@/lib/dom'
 import { forgetDraft, loadFiles, loadText, saveFiles, saveText } from '@/lib/drafts'
+import { type Attached, Attachments, attachmentKey } from './Attachments'
 
 const DRAFT_SAVE_MS = 300
-const ISO_TIME_CHARS = [11, 19] as const
-
-let pasteCounter = 0
+const UNNAMED_PASTE = 'image.png'
 
 export function Composer({
   placeholder,
@@ -22,6 +21,8 @@ export function Composer({
   onStop,
   busy,
   allowFiles,
+  sentFiles = [],
+  onRemoveSentFile,
   extras,
   autoFocus,
   size = 'md',
@@ -42,6 +43,8 @@ export function Composer({
   onStop?: () => void
   busy?: boolean
   allowFiles?: boolean
+  sentFiles?: PreviewFile[]
+  onRemoveSentFile?: (name: string) => void
   extras?: ReactNode
   autoFocus?: boolean
   size?: 'md' | 'lg'
@@ -53,15 +56,16 @@ export function Composer({
 }) {
   const [text, setText] = useState(() => loadText(draftKey))
   const [files, setFiles] = useState<File[]>([])
-  const [previews, setPreviews] = useState<(string | undefined)[]>([])
   const [alternate, setAlternate] = useState(false)
   const filesLoaded = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
+  const urls = useObjectUrls(files)
+  const attachedCount = files.length + sentFiles.length
   const canSend =
     (!busy || Boolean(queueWhileBusy)) &&
-    (Boolean(allowEmpty) || text.trim().length > 0 || files.length > 0)
-  const hasContent = text.trim().length > 0 || files.length > 0
+    (Boolean(allowEmpty) || text.trim().length > 0 || attachedCount > 0)
+  const hasContent = text.trim().length > 0 || attachedCount > 0
   const showStop = busy && onStop && (submitLabel || !hasContent)
   const action = busy && hasContent ? busyAction?.(alternate) : undefined
 
@@ -130,57 +134,60 @@ export function Composer({
   }, [draft?.at])
 
   const addFiles = (list: FileList | File[] | null) => {
-    if (allowFiles && list?.length) setFiles((f) => [...f, ...Array.from(list)])
+    if (!allowFiles || !list?.length) return
+
+    const taken = new Set([...files, ...sentFiles].map((f) => attachmentKey(f.name, f.size)))
+    const fresh: File[] = []
+    const repeated: string[] = []
+    for (const file of Array.from(list)) {
+      const key = attachmentKey(file.name, file.size)
+      if (taken.has(key)) repeated.push(file.name)
+      else fresh.push(file)
+      taken.add(key)
+    }
+
+    if (repeated.length) notify(`Already attached: ${repeated.join(', ')}`)
+    if (fresh.length) setFiles((current) => [...current, ...fresh])
   }
 
   const takeClipboardFiles = (data: DataTransfer | null): boolean => {
     if (!allowFiles || !data) return false
 
-    const found: File[] = []
-    for (const item of Array.from(data.items)) {
-      const file = item.kind === 'file' ? item.getAsFile() : null
-      if (!file) continue
-
-      const unnamedScreenshot = /^image\.\w+$/i.test(file.name) || !file.name
-      const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
-      const stamp = new Date()
-        .toISOString()
-        .slice(...ISO_TIME_CHARS)
-        .replace(/:/g, '')
-
-      found.push(
-        unnamedScreenshot
-          ? new File([file], `pasted-${stamp}-${++pasteCounter}.${ext}`, { type: file.type })
-          : file,
-      )
-    }
-
+    const found = Array.from(data.items)
+      .map((item) => (item.kind === 'file' ? item.getAsFile() : null))
+      .filter((file): file is File => file !== null)
+      .map((file) => (file.name ? file : new File([file], UNNAMED_PASTE, { type: file.type })))
     if (!found.length) return false
 
     addFiles(found)
     return true
   }
 
-  useEffect(() => {
-    if (!allowFiles) return
+  useWindowEvent('paste', (e) => {
+    if (isEditableTarget(e.target) || !takeClipboardFiles(e.clipboardData)) return
+    e.preventDefault()
+    textRef.current?.focus()
+  })
 
-    const onPagePaste = (e: ClipboardEvent) => {
-      if (isEditableTarget(e.target) || !takeClipboardFiles(e.clipboardData)) return
-      e.preventDefault()
-      textRef.current?.focus()
-    }
+  const attachments: Attached[] = [
+    ...sentFiles.map((file) => ({
+      key: `sent:${file.name}`,
+      file,
+      onRemove: () => onRemoveSentFile?.(file.name),
+    })),
+    ...files.flatMap((file) => {
+      const url = urls.get(file)
+      if (!url) return []
 
-    document.addEventListener('paste', onPagePaste)
-    return () => document.removeEventListener('paste', onPagePaste)
-  }, [allowFiles])
-
-  useEffect(() => {
-    const urls = files.map((f) =>
-      f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
-    )
-    setPreviews(urls)
-    return () => urls.forEach((u) => u && URL.revokeObjectURL(u))
-  }, [files])
+      return [
+        {
+          key: url,
+          file: localFile(file, url),
+          onRemove: () => setFiles((current) => current.filter((f) => f !== file)),
+        },
+      ]
+    }),
+  ]
 
   return (
     <div
@@ -192,45 +199,7 @@ export function Composer({
       }}
       className="border-line-strong focus-within:border-brand rounded-[26px] border bg-white shadow-[0_2px_12px_rgba(38,50,56,0.06)] transition-colors"
     >
-      {files.length ? (
-        <div className="flex flex-wrap items-end gap-2 px-3 pt-3">
-          {files.map((f, i) =>
-            previews[i] ? (
-              <div key={i} className="group/thumb relative">
-                <img
-                  src={previews[i]}
-                  alt={f.name}
-                  title={f.name}
-                  className="border-line bg-raised size-16 rounded-2xl border object-cover"
-                />
-                <button
-                  type="button"
-                  title="Remove"
-                  onClick={() => setFiles(files.filter((_, j) => j !== i))}
-                  className="bg-fg absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full text-white opacity-0 shadow transition-opacity group-hover/thumb:opacity-100"
-                >
-                  <XMarkIcon className="size-3" />
-                </button>
-              </div>
-            ) : (
-              <span
-                key={i}
-                className="bg-canvas text-text inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px]"
-              >
-                <PaperClipIcon className="size-3" />
-                <span className="max-w-[180px] truncate">{f.name}</span>
-                <button
-                  type="button"
-                  onClick={() => setFiles(files.filter((_, j) => j !== i))}
-                  className="text-faint hover:text-fg"
-                >
-                  <XMarkIcon className="size-3" />
-                </button>
-              </span>
-            ),
-          )}
-        </div>
-      ) : null}
+      <Attachments items={attachments} />
       <textarea
         ref={textRef}
         autoFocus={autoFocus}
@@ -274,7 +243,10 @@ export function Composer({
               type="file"
               multiple
               hidden
-              onChange={(e) => addFiles(e.target.files)}
+              onChange={(e) => {
+                addFiles(Array.from(e.target.files ?? []))
+                e.target.value = ''
+              }}
             />
           </>
         ) : null}

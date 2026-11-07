@@ -17,11 +17,12 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useEnterTransition, useWindowEvent } from '@/lib/hooks'
 import { useLayer } from '@/lib/layers'
+import { kindOf } from '@/lib/optimistic'
 
 const MAX_TEXT_CHARS = 400_000
 const EMAIL_TEXT_SUFFIX = '.txt'
 
-const KIND_ICON: Record<MessageFile['kind'], Icon> = {
+export const KIND_ICON: Record<MessageFile['kind'], Icon> = {
   image: PhotoIcon,
   email: EnvelopeIcon,
   text: DocumentTextIcon,
@@ -31,6 +32,37 @@ const KIND_ICON: Record<MessageFile['kind'], Icon> = {
 
 type Text =
   { state: 'loading' } | { state: 'none' } | { state: 'ready'; text: string; cut: boolean }
+
+export interface PreviewFile {
+  name: string
+  kind: MessageFile['kind']
+  url: string
+  textUrl?: string
+  size?: number
+}
+
+export function sentFile(runId: string, file: MessageFile): PreviewFile {
+  const url = api.fileUrl(runId, file.name)
+  const textUrl =
+    file.kind === 'text'
+      ? url
+      : file.kind === 'email'
+        ? api.fileUrl(runId, file.name + EMAIL_TEXT_SUFFIX)
+        : undefined
+
+  return {
+    name: file.name,
+    kind: file.kind,
+    url: file.kind === 'image' ? api.imageUrl(runId, file) : url,
+    textUrl,
+    size: file.size,
+  }
+}
+
+export function localFile(file: File, url: string): PreviewFile {
+  const kind = kindOf(file)
+  return { name: file.name, kind, url, textUrl: kind === 'text' ? url : undefined, size: file.size }
+}
 
 function extension(name: string): string {
   const dot = name.lastIndexOf('.')
@@ -46,24 +78,22 @@ function readable(name: string, raw: string): string {
   }
 }
 
-function useText(runId: string, file: MessageFile): Text {
+function useText({ name, textUrl }: PreviewFile): Text {
   const [text, setText] = useState<Text>({ state: 'loading' })
-  const source =
-    file.kind === 'text' ? file.name : file.kind === 'email' ? file.name + EMAIL_TEXT_SUFFIX : ''
 
   useEffect(() => {
-    if (!source) return setText({ state: 'none' })
+    if (!textUrl) return setText({ state: 'none' })
 
     const abort = new AbortController()
     setText({ state: 'loading' })
-    fetch(api.fileUrl(runId, source), { signal: abort.signal })
+    fetch(textUrl, { signal: abort.signal })
       .then(async (res) => {
-        if (!res.ok) throw new Error(`Cannot preview ${source}: ${res.status} ${res.statusText}`)
+        if (!res.ok) throw new Error(`Cannot preview ${name}: ${res.status} ${res.statusText}`)
 
         const raw = await res.text()
         setText({
           state: 'ready',
-          text: readable(source, raw.slice(0, MAX_TEXT_CHARS)),
+          text: readable(name, raw.slice(0, MAX_TEXT_CHARS)),
           cut: raw.length > MAX_TEXT_CHARS,
         })
       })
@@ -74,7 +104,7 @@ function useText(runId: string, file: MessageFile): Text {
       })
 
     return () => abort.abort()
-  }, [runId, source])
+  }, [name, textUrl])
 
   return text
 }
@@ -83,12 +113,14 @@ function RoundButton({
   label,
   onClick,
   href,
+  download,
   className,
   children,
 }: {
   label: string
   onClick?: () => void
   href?: string
+  download?: string
   className?: string
   children: ReactNode
 }) {
@@ -98,7 +130,7 @@ function RoundButton({
   )
 
   return href ? (
-    <a href={href} download aria-label={label} title={label} className={style}>
+    <a href={href} download={download} aria-label={label} title={label} className={style}>
       {children}
     </a>
   ) : (
@@ -136,7 +168,7 @@ function TextBody({ text }: { text: Extract<Text, { state: 'ready' }> }) {
   )
 }
 
-function NoPreview({ runId, file }: { runId: string; file: MessageFile }) {
+function NoPreview({ file }: { file: PreviewFile }) {
   const Icon = KIND_ICON[file.kind]
 
   return (
@@ -147,8 +179,8 @@ function NoPreview({ runId, file }: { runId: string; file: MessageFile }) {
       <div className="text-fg mt-4 w-full truncate text-[14px] font-medium">{file.name}</div>
       <div className="text-muted mt-1 text-[12.5px]">No preview for this file type.</div>
       <a
-        href={api.fileUrl(runId, file.name)}
-        download
+        href={file.url}
+        download={file.name}
         className="bg-brand text-on-brand hover:bg-brand-strong mt-5 inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[12.5px] font-medium transition-colors"
       >
         <ArrowDownTrayIcon className="size-4" />
@@ -158,14 +190,13 @@ function NoPreview({ runId, file }: { runId: string; file: MessageFile }) {
   )
 }
 
-function Body({ runId, file }: { runId: string; file: MessageFile }) {
-  const text = useText(runId, file)
-  const url = api.fileUrl(runId, file.name)
+function Body({ file }: { file: PreviewFile }) {
+  const text = useText(file)
 
   if (file.kind === 'image') {
     return (
       <img
-        src={api.imageUrl(runId, file)}
+        src={file.url}
         alt={file.name}
         className="max-h-full max-w-full rounded-lg object-contain shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
       />
@@ -175,7 +206,7 @@ function Body({ runId, file }: { runId: string; file: MessageFile }) {
   if (file.kind === 'pdf') {
     return (
       <iframe
-        src={url}
+        src={file.url}
         title={file.name}
         className="h-full w-full max-w-[1000px] rounded-2xl bg-white shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
       />
@@ -190,17 +221,15 @@ function Body({ runId, file }: { runId: string; file: MessageFile }) {
     )
 
   if (text.state === 'ready') return <TextBody text={text} />
-  return <NoPreview runId={runId} file={file} />
+  return <NoPreview file={file} />
 }
 
 function Thumb({
-  runId,
   file,
   active,
   onClick,
 }: {
-  runId: string
-  file: MessageFile
+  file: PreviewFile
   active: boolean
   onClick: () => void
 }) {
@@ -218,11 +247,7 @@ function Thumb({
       )}
     >
       {file.kind === 'image' ? (
-        <img
-          src={api.imageUrl(runId, file)}
-          alt=""
-          className="size-full bg-white/10 object-cover"
-        />
+        <img src={file.url} alt="" className="size-full bg-white/10 object-cover" />
       ) : (
         <div className="flex size-full flex-col items-center justify-center gap-0.5 bg-white/10 text-white/80">
           <Icon className="size-5" />
@@ -234,13 +259,11 @@ function Thumb({
 }
 
 export function FilePreview({
-  runId,
   files,
   start,
   onClose,
 }: {
-  runId: string
-  files: MessageFile[]
+  files: PreviewFile[]
   start: number
   onClose: () => void
 }) {
@@ -280,7 +303,7 @@ export function FilePreview({
             </span>
           ) : null}
         </div>
-        <RoundButton label="Download" href={api.fileUrl(runId, file.name)}>
+        <RoundButton label="Download" href={file.url} download={file.name}>
           <ArrowDownTrayIcon className="size-4.5" />
         </RoundButton>
         <RoundButton label="Close" onClick={onClose}>
@@ -293,11 +316,11 @@ export function FilePreview({
         onMouseDown={(e) => e.target === e.currentTarget && onClose()}
       >
         <div
-          key={file.name}
+          key={index}
           className="animate-fade-in flex h-full w-full items-center justify-center"
           onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
-          <Body runId={runId} file={file} />
+          <Body file={file} />
         </div>
         {many ? (
           <>
@@ -322,13 +345,7 @@ export function FilePreview({
       {many ? (
         <div className="flex shrink-0 scrollbar-thin justify-center gap-2 overflow-x-auto px-5 pb-5">
           {files.map((f, i) => (
-            <Thumb
-              key={f.name}
-              runId={runId}
-              file={f}
-              active={i === index}
-              onClick={() => setIndex(i)}
-            />
+            <Thumb key={i} file={f} active={i === index} onClick={() => setIndex(i)} />
           ))}
         </div>
       ) : null}

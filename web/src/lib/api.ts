@@ -38,7 +38,6 @@ import type {
 } from '@shared/types.ts'
 
 const API_ROOT = '/api'
-const UNNAMED_UPLOAD = 'pasted.png'
 
 function errorIn(text: string): string | undefined {
   if (!text.startsWith('{')) return undefined
@@ -182,7 +181,7 @@ export const api = {
           body: file,
           headers: {
             'Content-Type': 'application/octet-stream',
-            'X-File-Name': encodeURIComponent(file.name || UNNAMED_UPLOAD),
+            'X-File-Name': encodeURIComponent(file.name),
           },
         }),
       )
@@ -227,8 +226,8 @@ export const api = {
     post(`/threads/${id}/queued/${seg(mid)}/move`, { before }),
   resumeQueue: (id: string) => post(`/threads/${id}/queue/resume`),
   sendQueued: (id: string, mid: string) => post(`/threads/${id}/queued/${seg(mid)}/send`),
-  editQueued: (id: string, mid: string, text: string) =>
-    post(`/threads/${id}/queued/${seg(mid)}/text`, { text }),
+  editQueued: (id: string, mid: string, text: string, keep: string[], files: Upload[]) =>
+    post(`/threads/${id}/queued/${seg(mid)}/edit`, { text, keep, files }),
   retry: (id: string, itemId: string) => post(`/threads/${id}/retry`, { itemId }),
   renameRun: (id: string, title: string) => post(`/threads/${id}/title`, { title }),
   rerunGrid: (id: string, gridId: string) => post(`/threads/${id}/grids/${seg(gridId)}/rerun`),

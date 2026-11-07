@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from ov.agent.api.handler import CONTENT_TYPES, Handler, HttpError, objects, required, route
+from ov.agent.api.handler import CONTENT_TYPES, Handler, HttpError, objects, required, route, strings
 from ov.agent.api.routes.instances import screen_size
 from ov.agent.api.streams import open_stream, pump, write_stream
 from ov.agent.engine.export import to_markdown
@@ -308,9 +308,11 @@ def send_queued(_: Handler, run_id: str, message_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 
-@route("POST", "/api/threads/([a-z0-9]+)/queued/([^/]+)/text")
+@route("POST", "/api/threads/([a-z0-9]+)/queued/([^/]+)/edit")
 def edit_queued(h: Handler, run_id: str, message_id: str) -> dict[str, bool]:
-    require_run(run_id).edit_queued(message_id, str(h.json().get("text", "")))
+    data = h.json()
+    text = str(data.get("text", ""))
+    require_run(run_id).edit_queued(message_id, text, strings(data, "keep"), objects(data, "files"))
     return {"ok": True}
 
 

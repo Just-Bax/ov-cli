@@ -117,14 +117,19 @@ class QueueMixin:
 
         self._steer(message, uploaded)
 
-    def edit_queued(self, message_id: str, text: str) -> None:
+    def edit_queued(self, message_id: str, text: str, keep: list[str], files: list[dict[str, str]]) -> None:
         with self._lock:
             message, uploaded = self._queued(message_id)
-            if not text.strip() and not uploaded:
+            missing = set(keep) - {a["name"] for a in uploaded}
+            if missing:
+                raise RunError(f"Not attached to that message: {', '.join(sorted(missing))}")
+
+            if not text.strip() and not keep and not files:
                 raise RunError("A queued message needs text or files.")
 
-            edited = {**message, "text": text}
-            self._queue = [(edited, uploaded) if q[0]["id"] == message_id else q for q in self._queue]
+            attached = [a for a in uploaded if a["name"] in keep] + self._copy_uploads(files)
+            edited = {**message, "text": text, "files": _listed(attached)}
+            self._queue = [(edited, attached) if q[0]["id"] == message_id else q for q in self._queue]
         self.emit({"type": "queue_add", "message": edited})
 
     def move_queued(self, message_id: str, before_id: str | None) -> None:
@@ -223,7 +228,7 @@ class QueueMixin:
             "role": "user",
             "text": text,
             "ts": db.now_ms(),
-            "files": [{"name": a["name"], "kind": a["kind"]} for a in uploaded],
+            "files": _listed(uploaded),
         }
 
     def _push_turn(self, turn_id: str, content: Any) -> None:
@@ -273,3 +278,7 @@ class QueueMixin:
             )
 
         return parts
+
+
+def _listed(uploaded: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{"name": a["name"], "kind": a["kind"], "size": a["size"]} for a in uploaded]

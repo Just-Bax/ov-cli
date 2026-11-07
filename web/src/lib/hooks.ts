@@ -40,6 +40,18 @@ export function useWindowEvent<K extends string>(
   }, [name])
 }
 
+export function useObjectUrls(files: File[]): Map<File, string> {
+  const [urls, setUrls] = useState(() => new Map<File, string>())
+
+  useEffect(() => {
+    const next = new Map(files.map((file) => [file, URL.createObjectURL(file)]))
+    setUrls(next)
+    return () => next.forEach((url) => URL.revokeObjectURL(url))
+  }, [files])
+
+  return urls
+}
+
 export function useActiveIntoView(list: RefObject<HTMLElement | null>, active: number): void {
   useEffect(() => {
     list.current

@@ -167,13 +167,41 @@ def test_an_edited_queued_message_keeps_its_place(logged_in):
     run.follow_up(new_message_id(), "second", [], steer=False)
     first = run.state["queued"][0]["id"]
 
-    run.edit_queued(first, "first, edited")
+    run.edit_queued(first, "first, edited", [], [])
     with pytest.raises(RunError, match="needs text or files"):
-        run.edit_queued(first, "  ")
+        run.edit_queued(first, "  ", [], [])
     run._busy = False
 
     assert [m["text"] for m in run.state["queued"]] == ["first, edited", "second"]
     assert run._queue[0][0]["text"] == "first, edited"
+
+
+def _upload(name: str, data: bytes) -> dict[str, str]:
+    from ov.agent.engine.files import uploads_dir
+
+    upload_id = new_message_id()
+    (uploads_dir() / upload_id).write_bytes(data)
+    return {"id": upload_id, "name": name}
+
+
+def test_editing_a_queued_message_keeps_drops_and_adds_files(logged_in):
+    from ov.agent.engine.run_common import RunError
+    from ov.agent.engine.run_manager import runs
+
+    db.create_thread("rfiles", "t", "claude", "m", instance=None, access=Access.READ)
+    run = runs.get("rfiles")
+    run._busy = True
+    run.follow_up(new_message_id(), "look", [_upload("a.txt", b"aa"), _upload("b.txt", b"bbb")], steer=False)
+    queued = run.state["queued"][0]["id"]
+
+    with pytest.raises(RunError, match="Not attached to that message"):
+        run.edit_queued(queued, "look", ["c.txt"], [])
+    run.edit_queued(queued, "", ["b.txt"], [_upload("a.txt", b"new")])
+    run._busy = False
+
+    files = [{"name": "b.txt", "kind": "text", "size": 3}, {"name": "a-2.txt", "kind": "text", "size": 3}]
+    assert run.state["queued"][0]["files"] == files
+    assert [a["name"] for a in run._queue[0][1]] == ["b.txt", "a-2.txt"]
 
 
 def test_queued_messages_can_be_reordered(logged_in):

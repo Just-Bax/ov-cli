@@ -14,6 +14,7 @@ import type {
   CaseLink,
   ContextUsage,
   FollowUp,
+  MessageFile,
   Provider,
   Question,
   RunState,
@@ -52,6 +53,7 @@ import { ChangeCard } from './ChangeCard'
 import { GridCard } from './GridCard'
 import { CompactionNote, ContextMeter, FreshBranchNotice, StaleCacheNotice } from './Context'
 import { CostPill } from './CostPill'
+import { sentFile } from './FilePreview'
 import { FilesChanged } from './FilesChanged'
 import { FIND_LABEL, FindBar } from './FindBar'
 import { InstanceChips } from './InstanceChip'
@@ -398,12 +400,14 @@ const NO_MESSAGES: ChatMessage[] = []
 
 function useQueuedEdit(runId: string, queued: ChatMessage[]) {
   const [editing, setEditing] = useState<ChatMessage>()
+  const [kept, setKept] = useState<MessageFile[]>([])
   const [draft, setDraft] = useState<{ text: string; at: number }>()
   const runKey = `run-${runId}`
   const editKey = editing ? `queued-${editing.id}` : runKey
 
   const startEdit = (message: ChatMessage) => {
     setEditing(message)
+    setKept(message.files ?? [])
     setDraft({ text: message.text, at: Date.now() })
   }
 
@@ -420,7 +424,7 @@ function useQueuedEdit(runId: string, queued: ChatMessage[]) {
       setDraft({ text: edited, at: Date.now() })
   }, [queued, editing])
 
-  return { editing, setEditing, draft, startEdit, endEdit, editKey }
+  return { editing, kept, setKept, draft, startEdit, endEdit, editKey }
 }
 
 const FOLLOW_UP_HINT: Record<FollowUp, string> = {
@@ -471,7 +475,7 @@ function Footer({
   const queue = useQueueActions(runId, queued, status)
   const { cacheTtlMs } = useProvider(provider)
   const [error, setError] = useState<string>()
-  const { editing, setEditing, draft, startEdit, endEdit, editKey } = edit
+  const { editing, kept, setKept, draft, startEdit, endEdit, editKey } = edit
   const modeFor = (alternate: boolean): FollowUp => (alternate ? 'steer' : 'queue')
   const parked = settled || Boolean(run.snoozedUntil)
 
@@ -480,13 +484,7 @@ function Footer({
 
     try {
       if (editing) {
-        const original = editing
-        apply({ type: 'queue_add', message: { ...original, text } })
-        setEditing(undefined)
-        await api.editQueued(runId, original.id, text).catch((e: unknown) => {
-          apply({ type: 'queue_add', message: original })
-          throw e
-        })
+        await saveEdit(editing, text, files)
         return
       }
 
@@ -496,6 +494,27 @@ function Footer({
       setError((e as Error).message)
       throw e
     }
+  }
+
+  const saveEdit = async (original: ChatMessage, text: string, files: File[]) => {
+    const edited = { ...original, text, files: [...kept, ...files.map(fileOf)] }
+    apply({ type: 'queue_add', message: edited })
+
+    try {
+      const uploaded = files.length ? await api.upload(files) : []
+      await api.editQueued(
+        runId,
+        original.id,
+        text,
+        kept.map((f) => f.name),
+        uploaded,
+      )
+    } catch (e) {
+      apply({ type: 'queue_add', message: original })
+      throw e
+    }
+
+    endEdit()
   }
 
   const sendFollowUp = async (text: string, files: File[], mode: FollowUp) => {
@@ -595,7 +614,9 @@ function Footer({
             <Composer
               busy={busy}
               queueWhileBusy
-              allowFiles={!editing}
+              allowFiles
+              sentFiles={editing ? kept.map((file) => sentFile(runId, file)) : undefined}
+              onRemoveSentFile={(name) => setKept((files) => files.filter((f) => f.name !== name))}
               placeholder={
                 editing
                   ? 'Edit the queued message. Enter saves, Escape cancels'
