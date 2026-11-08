@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any
 
-from ov.agent.instances import access
+from ov.agent.instances import access, graph
 from ov.agent.instances.http import open_client
 from ov.agent.instances.ovproc import instances
 from ov.agent.tools.base import (
@@ -24,6 +24,7 @@ MCP_PATH = "/ai/mcp"
 JSON_RPC = "2.0"
 DESCRIPTION_CHARS = 400
 WRITE_TOOL = re.compile(r"(create|update|delete|set_as_current)", re.IGNORECASE)
+READ_TOOL = re.compile(r"(?:^|_)(read|find|search|list|get)(?:_|$)", re.IGNORECASE)
 NO_MCP = (
     "Your account on {instance} cannot use the platform's MCP server: it needs an AI Enabled instance and the "
     "MCP_SERVER privilege. Use ov, ov_search and ov_export instead."
@@ -65,9 +66,9 @@ def _called(result: dict[str, Any]) -> str:
     return text or "(no content)"
 
 
-def _check_write(name: str, arguments: dict[str, Any], alias: str, ctx: ToolContext) -> None:
-    if not WRITE_TOOL.search(name):
-        return
+def _check_write(name: str, arguments: dict[str, Any], alias: str, ctx: ToolContext) -> bool:
+    if READ_TOOL.search(name) and not WRITE_TOOL.search(name):
+        return False
 
     if not ctx.can_write():
         raise ToolError(BLOCKED)
@@ -75,6 +76,7 @@ def _check_write(name: str, arguments: dict[str, Any], alias: str, ctx: ToolCont
         raise ToolError(UI_ONLY)
     if not approved(ctx, f"Run the MCP tool {name} on {alias}?", json.dumps(arguments, indent=2)):
         raise ToolError("The user rejected this change. Do not retry it.")
+    return True
 
 
 def _mcp(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -88,9 +90,14 @@ def _mcp(args: dict[str, Any], ctx: ToolContext) -> str:
         return clip(_listing(with_sign_in(signed_in, ctx, lambda a: _rpc(a, "tools/list", {}))), ctx, "tool list")
 
     arguments = args.get("arguments") or {}
-    _check_write(name, arguments, alias, ctx)
+    writes = _check_write(name, arguments, alias, ctx)
     params = {"name": name, "arguments": arguments}
-    return clip(_called(with_sign_in(signed_in, ctx, lambda a: _rpc(a, "tools/call", params))), ctx, "MCP result")
+    try:
+        result = with_sign_in(signed_in, ctx, lambda a: _rpc(a, "tools/call", params))
+    finally:
+        if writes:
+            graph.note_write(alias)
+    return clip(_called(result), ctx, "MCP result")
 
 
 TOOLS = [

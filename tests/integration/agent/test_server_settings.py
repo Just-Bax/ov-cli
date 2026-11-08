@@ -19,7 +19,6 @@ def test_status_lists_every_provider_and_settings_hold_the_profile(agent_server,
     assert [(p["id"], p["costUnit"], p["account"]["signedIn"]) for p in status["providers"]] == [
         ("claude", "usd", False),
         ("copilot", "credits", True),
-        ("openai", "tokens", False),
     ]
 
     saved = httpx.put(f"{agent_server}/api/settings", json={"fullName": "Ada", "instructions": "Be brief."}).json()

@@ -14,9 +14,6 @@ import { configureAttention } from '@/lib/attention'
 import { useRoute } from '@/lib/route'
 import { SettingsContext } from '@/lib/settings'
 
-const ExplorerPage = lazy(() =>
-  import('@/components/explorer/ExplorerPage').then((m) => ({ default: m.ExplorerPage })),
-)
 const MapPage = lazy(() => import('@/components/map/MapPage').then((m) => ({ default: m.MapPage })))
 const HealthPage = lazy(() =>
   import('@/components/health/HealthPage').then((m) => ({ default: m.HealthPage })),
@@ -113,7 +110,6 @@ export function App() {
             {route.page === 'settings' && <SettingsPage onChange={refresh} />}
             {route.page === 'map' && <MapPage />}
             {route.page === 'health' && <HealthPage />}
-            {route.page === 'explorer' && <ExplorerPage />}
             {route.page === 'thread' && <RunView key={route.id} id={route.id} />}
           </Suspense>
         </main>

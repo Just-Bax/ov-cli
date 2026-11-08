@@ -3,11 +3,8 @@ from __future__ import annotations
 from ov.agent.providers.base import AgentProvider, ModelUnavailable
 from ov.agent.providers.claude import ClaudeProvider
 from ov.agent.providers.copilot import CopilotProvider
-from ov.agent.providers.openai_compatible import OpenAICompatibleProvider
 
-REGISTERED: dict[str, AgentProvider] = {
-    p.id: p for p in (ClaudeProvider(), CopilotProvider(), OpenAICompatibleProvider())
-}
+REGISTERED: dict[str, AgentProvider] = {p.id: p for p in (ClaudeProvider(), CopilotProvider())}
 
 
 class UnknownProvider(ValueError):

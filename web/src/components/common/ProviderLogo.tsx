@@ -13,9 +13,7 @@ export function ProviderLogo({ provider, className }: { provider: Provider; clas
       className={cn('size-4 shrink-0', brand.color, className)}
       fill="currentColor"
     >
-      {brand.marks.map((mark) => (
-        <path key={mark.path} d={mark.path} className={mark.color} fill="currentColor" />
-      ))}
+      <path d={brand.path} />
     </svg>
   )
 }

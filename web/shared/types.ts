@@ -283,9 +283,9 @@ export type RunEvent =
   | { type: 'compact'; compact: Compaction }
   | { type: 'context'; context: ContextUsage }
 
-export type Provider = 'copilot' | 'claude' | 'openai'
+export type Provider = 'copilot' | 'claude'
 
-export type CostUnit = 'credits' | 'usd' | 'tokens'
+export type CostUnit = 'credits' | 'usd'
 
 export interface CostTotal {
   amount: number
@@ -314,13 +314,7 @@ export interface CopilotUser {
   user?: string | null
 }
 
-export interface OpenAIAccount {
-  signedIn: boolean
-  baseUrl: string | null
-  hasKey: boolean
-}
-
-export type ProviderAccount = ClaudeAccount | CopilotUser | OpenAIAccount
+export type ProviderAccount = ClaudeAccount | CopilotUser
 
 export interface ProviderStatus {
   id: Provider
@@ -603,29 +597,11 @@ export interface GraphStatus {
   step?: string
   error?: string
   builtAt?: number
+  checkedAt?: number
   nodes?: number
   edges?: number
-  source?: GraphSource | null
-}
-
-export interface CodeHint {
-  line: number
-  severity: 'error' | 'warn' | 'info'
-  title: string
-  detail: string
-}
-
-export interface CodeSection {
-  title: string
-  code: string
-  hints: CodeHint[]
-}
-
-export interface ObjectActivity {
-  ts?: string
-  status?: string
-  runtime?: string
-  message?: string
+  source?: GraphSource
+  refreshed?: string[]
 }
 
 export type DatadogArea = 'logs' | 'metrics' | 'monitors' | 'events' | 'apm' | 'hosts'

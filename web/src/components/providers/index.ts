@@ -3,13 +3,11 @@ import type { SidebarAccount } from '@/components/layout/AccountMenu'
 import { providerStatus } from '@/lib/settings'
 import { CLAUDE_UI } from './claude'
 import { COPILOT_UI } from './copilot'
-import { OPENAI_UI } from './openai'
 import type { ProviderUi } from './parts'
 
 export const PROVIDER_UI: Record<Provider, ProviderUi> = {
   claude: CLAUDE_UI,
   copilot: COPILOT_UI,
-  openai: OPENAI_UI,
 }
 
 export function currentProvider(status: Status): ProviderStatus {

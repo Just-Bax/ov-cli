@@ -49,7 +49,6 @@ function formatUsd(usd: number): string {
 const UNIT_FORMATS: Record<CostUnit, (value: number) => string> = {
   usd: formatUsd,
   credits: (value) => `${formatCredits(value)} credits`,
-  tokens: (value) => `${formatTokens(value)} tokens`,
 }
 
 export function formatAmount(value: number, unit: CostUnit): string {

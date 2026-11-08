@@ -356,7 +356,7 @@ function Details({
         </dd>
       </ObjectFacts>
       <div className="space-y-2 px-4 pt-3 pb-4">
-        <ObjectActions node={node} host={host} alias={alias} page="map" />
+        <ObjectActions node={node} host={host} alias={alias} />
         {hidden ? (
           <Button className="w-full" variant="ghost" onClick={() => onExpand(node.id)}>
             <MapIcon className="size-3.5" /> Show {Math.min(hidden, EXPAND_LIMIT)} more linked
@@ -571,9 +571,10 @@ export function MapPage() {
   ) : status?.builtAt ? (
     <span>
       {label ? `${label} - ` : ''}
-      {status.nodes?.toLocaleString()} objects, {status.edges?.toLocaleString()} links - built{' '}
-      {timeAgo(status.builtAt)}
-      {status.source === 'export' ? ' from component exports' : ''}
+      {status.nodes?.toLocaleString()} objects, {status.edges?.toLocaleString()} links -{' '}
+      {status.source === 'export'
+        ? `built ${timeAgo(status.builtAt)} from component exports; changes by others show after a rebuild`
+        : `updated ${timeAgo(status.builtAt)}${status.refreshed?.length ? ` (${status.refreshed.join(', ')})` : ''}, checked ${timeAgo(status.checkedAt ?? status.builtAt)}`}
       {graph?.warnings.length ? (
         <span className="text-warn cursor-help" title={graph.warnings.join('\n\n')}>
           {' '}

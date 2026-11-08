@@ -53,3 +53,26 @@ def test_a_command_is_judged_with_the_script_it_runs(workspace, tmp_path, monkey
 
     assert tool_named("ws_run").handler({"command": "python push.py"}, ctx) == "hi"
     assert ctx.scripts == {"push.py": "password = '***'\nprint('hi')"}
+
+
+@pytest.mark.parametrize(("auto", "asked"), [(False, True), (True, False)])
+def test_ask_first_asks_before_every_command_that_changes_something(workspace, tmp_path, monkeypatch, auto, asked):
+    from ov.agent import workspace as project
+    from ov.agent.engine.guard import Effect
+    from ov.agent.tools import tool_named
+
+    monkeypatch.setattr(project, "run", lambda command, folder, timeout, cancel: "built")
+    ctx = FakeContext(tmp_path, write=True, auto=auto, effects={"npm run build": Effect.CHANGE})
+
+    assert tool_named("ws_run").handler({"command": "npm run build"}, ctx) == "built"
+    assert bool(ctx.asked) is asked
+
+
+def test_the_agent_cannot_write_repository_internals(workspace, tmp_path):
+    from ov.agent.tools import tool_named
+    from ov.agent.tools.base import ToolError
+
+    ctx = FakeContext(tmp_path, write=True)
+    for path in (".git/config", "module/.git/hooks/pre-commit"):
+        with pytest.raises(ToolError, match="repository internals"):
+            tool_named("ws_write").handler({"path": path, "content": "x"}, ctx)

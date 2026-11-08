@@ -1,7 +1,6 @@
 import type {
   Access,
   FollowUp,
-  CodeSection,
   MessageFile,
   ClaudeAccount,
   CopilotAccount,
@@ -20,9 +19,7 @@ import type {
   SectionResult,
   PagerDutyIncidentDetail,
   ModelInfo,
-  OpenAIAccount,
   Provider,
-  ObjectActivity,
   PagerDutyStatus,
   RunInput,
   RunDetails,
@@ -107,11 +104,6 @@ export const api = {
   statusEventsUrl: () => `${API_ROOT}/status-events`,
   models: (provider: Provider) => request<ModelInfo[]>(`/models?provider=${provider}`),
   claudeAccount: () => request<ClaudeAccount>('/claude/account'),
-  openaiConnect: (baseUrl: string, apiKey: string) =>
-    post<OpenAIAccount>('/openai/connect', { baseUrl, apiKey }),
-  openaiDisconnect: () => post<OpenAIAccount>('/openai/disconnect'),
-  openaiConfigureModel: (id: string, vision: boolean, contextWindow: number | null) =>
-    put<ModelInfo[]>('/openai/models', { id, vision, contextWindow }),
   instances: () => request<Instance[]>('/instances'),
   loginInstance: (
     url: string,
@@ -195,13 +187,8 @@ export const api = {
   graphStatus: (instance: string) =>
     request<GraphStatus>(`/graph/status?instance=${seg(instance)}`),
   buildGraph: (instance: string) => post<GraphStatus>('/graph/build', { instance }),
+  syncGraph: (instance: string) => post<GraphStatus>('/graph/sync', { instance }),
   graph: (instance: string) => request<InstanceGraph>(`/graph?instance=${seg(instance)}`),
-  source: (instance: string, id: string) =>
-    request<{ sections: CodeSection[] }>(
-      `/explorer/source?instance=${seg(instance)}&id=${seg(id)}`,
-    ),
-  activity: (instance: string, id: string) =>
-    request<ObjectActivity[]>(`/explorer/activity?instance=${seg(instance)}&id=${seg(id)}`),
   runs: (settled: number) => request<RunList>(`/threads?settled=${settled}`),
   run: (id: string, turns: number) => request<RunSnapshot>(`/threads/${id}?turns=${turns}`),
   runHistory: (id: string, end: number, turns: number) =>

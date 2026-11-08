@@ -1,7 +1,6 @@
 import {
   DownloadSimple as ArrowDownTrayIcon,
   ChatsCircle as ChatBubbleLeftRightIcon,
-  Code as CodeBracketIcon,
   ChatText as ChatTextIcon,
   GearSix as Cog6ToothIcon,
   TerminalWindow as CommandLineIcon,
@@ -238,7 +237,6 @@ export function CommandPalette({ route }: { route: Route }) {
 
     const pages: [Route, string, ReactNode][] = [
       [{ page: 'map' }, 'Instance map', <MapIcon key="m" className="size-4" />],
-      [{ page: 'explorer' }, 'Code explorer', <CodeBracketIcon key="e" className="size-4" />],
       [{ page: 'health' }, 'Instance health', <HeartIcon key="h" className="size-4" />],
       [{ page: 'settings' }, 'Settings', <Cog6ToothIcon key="s" className="size-4" />],
     ]

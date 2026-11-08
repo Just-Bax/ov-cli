@@ -109,25 +109,6 @@ export function HomeSkeleton() {
   )
 }
 
-export function ExplorerSkeleton() {
-  return (
-    <div className="flex h-full min-h-[480px]">
-      <div className="border-line-strong/60 w-[300px] shrink-0 space-y-2 border-r p-3">
-        <Skeleton className="h-9 w-full rounded-full" />
-        <TreeRowsSkeleton rows={18} />
-      </div>
-      <div className="flex min-w-0 flex-1 items-center justify-center p-6">
-        <Card className="flex w-full max-w-[480px] flex-col items-center gap-3 px-8 py-8">
-          <Skeleton className="size-10 rounded-full" />
-          <Skeleton className="h-3.5 w-32" />
-          <Skeleton className="h-2.5 w-80" />
-          <Skeleton className="h-2.5 w-64" />
-        </Card>
-      </div>
-    </div>
-  )
-}
-
 export function MapSkeleton() {
   return (
     <div className="flex h-full flex-col">

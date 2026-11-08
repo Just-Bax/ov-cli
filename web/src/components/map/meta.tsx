@@ -58,17 +58,6 @@ export const FORMS: Record<GraphNodeType, string> = {
   db_package: '/admin/dbpackage/Form.do?id=',
 }
 
-export const WITH_CODE = new Set<GraphNodeType>([
-  'rule',
-  'db_package',
-  'field',
-  'import',
-  'report',
-  'workflow',
-  'automation',
-  'notification',
-])
-
 const LABELS: Record<string, [string, string]> = {
   parent_of: ['Parent of', 'Child of'],
   field_of: ['Field of', 'Fields'],

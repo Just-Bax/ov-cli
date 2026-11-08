@@ -14,8 +14,7 @@ from ov.agent.api.handler import APP_ID, Handler, HttpError, required, route
 from ov.agent.engine.files import uploads_dir
 from ov.agent.engine.run_manager import runs
 from ov.agent.instances.ovproc import instances, version
-from ov.agent.integrations import claude, copilot, openai_compatible
-from ov.agent.providers.openai_compatible import OpenAICompatibleProvider
+from ov.agent.integrations import claude, copilot
 from ov.agent.storage import db
 
 UPLOAD_ID_SUFFIX_CHARS = 6
@@ -76,32 +75,6 @@ def copilot_logout(_: Handler) -> dict[str, Any]:
 @route("GET", "/api/copilot/account")
 def copilot_account(_: Handler) -> dict[str, Any]:
     return copilot.account()
-
-
-@route("POST", "/api/openai/connect")
-def openai_connect(h: Handler) -> dict[str, Any]:
-    data = h.json()
-    connected = openai_compatible.connect(required(data, "baseUrl"), str(data.get("apiKey") or ""))
-    preferences = db.get_preferences()
-    if preferences["provider"] == OpenAICompatibleProvider.id and not preferences["defaultModel"]:
-        main, fast = providers.get(OpenAICompatibleProvider.id).default_models()
-        db.save_preferences({"defaultModel": main, "fastModel": fast})
-
-    return connected
-
-
-@route("POST", "/api/openai/disconnect")
-def openai_disconnect(_: Handler) -> dict[str, Any]:
-    return openai_compatible.disconnect()
-
-
-@route("PUT", "/api/openai/models")
-def openai_configure_model(h: Handler) -> list[dict[str, Any]]:
-    data = h.json()
-    window = data.get("contextWindow")
-    return openai_compatible.configure_model(
-        required(data, "id"), bool(data.get("vision")), int(window) if window else None
-    )
 
 
 @route("GET", "/api/cost")

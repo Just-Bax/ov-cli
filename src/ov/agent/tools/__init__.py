@@ -91,5 +91,9 @@ def tool_specs(write: bool = False) -> list[dict[str, Any]]:
     return [t.spec for t in offered]
 
 
+def callable_names(write: bool) -> set[str]:
+    return {spec["function"]["name"] for spec in tool_specs(write)} | set(_names(browser.HANDS))
+
+
 def tool_named(name: str) -> Tool | None:
     return TOOLS_BY_NAME.get(name)

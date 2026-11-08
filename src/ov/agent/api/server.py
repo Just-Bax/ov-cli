@@ -11,6 +11,7 @@ from http.server import ThreadingHTTPServer
 import httpx
 
 from ov.agent import providers
+from ov.agent.api import session
 from ov.agent.api.handler import APP_ID, LOOPBACK_HOST, Handler
 from ov.agent.api.routes import browser, instances, integrations, settings, threads
 from ov.agent.api.terminal import AgentTerminal
@@ -29,6 +30,10 @@ ROUTE_MODULES = (settings, instances, integrations, threads, browser)
 class AgentServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = sys.platform != "win32"
+
+    def __init__(self, address: tuple[str, int], handler: type[Handler]) -> None:
+        super().__init__(address, handler)
+        self.session_token = session.token()
 
 
 def already_running(port: int) -> bool:
@@ -50,7 +55,7 @@ def serve(
     plsql: bool = False,
     color: bool = True,
 ) -> int:
-    url = _local_url(port)
+    url = session.link(_local_url(port), session.token())
     terminal = AgentTerminal(color)
     try:
         server = AgentServer((LOOPBACK_HOST, port), Handler)
@@ -59,7 +64,9 @@ def serve(
             raise OvError(f"Port {port} is in use by another program. Pass --port.") from None
         flags = " ".join(flag for flag, on in (("--full-access", full_access), ("--allow-plsql", plsql)) if on)
         if flags:
-            raise OvError(f"OV Agent is already running at {url}. Stop it, then start it with {flags}.") from None
+            raise OvError(
+                f"OV Agent is already running at {_local_url(port)}. Stop it, then start it with {flags}."
+            ) from None
         terminal.already_running(url)
         if open_browser:
             webbrowser.open(url)

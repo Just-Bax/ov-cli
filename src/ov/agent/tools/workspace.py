@@ -115,7 +115,8 @@ def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
     if verdict.effect != Effect.READ and ctx.browser.live:
         raise ToolError(UI_ONLY)
 
-    if verdict.effect == Effect.OUTSIDE or escapes:
+    asks_first = verdict.effect != Effect.READ and not ctx.auto_approves()
+    if verdict.effect == Effect.OUTSIDE or escapes or asks_first:
         reasons = "; ".join([verdict.reason, *escapes])
         where = folder or "the workspace root"
         if not approved(ctx, f"Run this command? {reasons}.", f"{where}> {command}"):

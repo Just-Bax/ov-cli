@@ -12,7 +12,7 @@ import httpx
 
 from ov import API_PREFIX
 from ov.core.config import TRUE_WORDS
-from ov.core.errors import ApiError, Forbidden, NotFound, ReadOnlyBlocked, SessionExpired, Unreachable
+from ov.core.errors import ApiError, Forbidden, NotFound, OvError, ReadOnlyBlocked, SessionExpired, Unreachable
 from ov.onevizion import session as session_store
 from ov.onevizion.auth import (
     LOGIN_PATH,
@@ -52,7 +52,8 @@ def read_only_enabled() -> bool:
 
 def _dry_run(path: str, params: list[tuple[str, str]]) -> bool:
     query = parse_qsl(api_path(path).partition("?")[2])
-    return any(name == DRY_RUN_PARAM and value.lower() in TRUE_WORDS for name, value in [*query, *params])
+    values = [value for name, value in [*query, *params] if name == DRY_RUN_PARAM]
+    return len(values) == 1 and values[0].lower() in TRUE_WORDS
 
 
 def guard_read_only(method: str, path: str, params: list[tuple[str, str]] | None = None) -> None:
@@ -259,6 +260,8 @@ def _reachable(base_url: str) -> Iterator[None]:
 
 def api_path(path: str) -> str:
     cleaned = "/" + path.strip().lstrip("/")
+    if ".." in unquote(cleaned.split("?", 1)[0]).split("/"):
+        raise OvError(f"API paths cannot step out of {API_PREFIX} with '..': {path}")
     if cleaned.startswith(f"{API_PREFIX}/"):
         return cleaned
     return f"{API_PREFIX}{cleaned}"

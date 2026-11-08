@@ -6,7 +6,7 @@ from typing import Any
 from ov.agent.api.handler import Handler, HttpError, required, route
 from ov.agent.api.screen import Screen, find_screen, screen_key
 from ov.agent.api.streams import push_input, stream_screen
-from ov.agent.instances import access, explorer, graph
+from ov.agent.instances import access, graph
 from ov.agent.instances.ovproc import find_instance, instances, login, remember, run_ov
 
 LOGOUT_TIMEOUT_SECONDS = 60
@@ -89,8 +89,12 @@ def graph_status(h: Handler) -> dict[str, Any]:
 @route("POST", "/api/graph/build")
 def graph_build(h: Handler) -> dict[str, Any]:
     alias = instance_alias(h, required(h.json(), "instance"))
-    explorer.forget(alias)
     return graph.start_build(alias)
+
+
+@route("POST", "/api/graph/sync")
+def graph_sync(h: Handler) -> dict[str, Any]:
+    return graph.start_sync(instance_alias(h, required(h.json(), "instance")))
 
 
 @route("GET", "/api/graph")
@@ -99,16 +103,6 @@ def graph_get(h: Handler) -> str:
     if not path.is_file():
         raise HttpError(404, "No map built for this instance yet.")
     return path.read_text(encoding="utf-8")
-
-
-@route("GET", "/api/explorer/source")
-def explorer_source(h: Handler) -> dict[str, Any]:
-    return explorer.source(instance_alias(h), h.query.get("id", ""))
-
-
-@route("GET", "/api/explorer/activity")
-def explorer_activity(h: Handler) -> list[dict[str, Any]]:
-    return explorer.activity(instance_alias(h), h.query.get("id", ""))
 
 
 def _screen_of(h: Handler) -> Screen:

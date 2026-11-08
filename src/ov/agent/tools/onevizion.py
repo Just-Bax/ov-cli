@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from ov.agent import workspace
 from ov.agent.engine.cases import TRACKOR_HOST, WEBSITE_FIELD
@@ -78,9 +78,24 @@ NO_TEST_SQL = (
     "way: ov_map and ov_export for configuration and code, ov_ddl for platform tables and packages, and API calls "
     "through ov for data and run logs."
 )
-MAP_SOURCES = {"sql": " from Test SQL", "export": " from component exports and the API"}
+MAP_SOURCES = {
+    "sql": " from Test SQL and kept in step with the instance's change log",
+    "export": " from component exports and the API; changes made by others since then are not detected",
+}
 
-BLOCKED_COMMANDS = {"login", "logout", "use", "config", "setup", "spec", "tenants", "agent", "ui"}
+BLOCKED_COMMANDS = {
+    "login",
+    "logout",
+    "remember",
+    "use",
+    "config",
+    "setup",
+    "spec",
+    "tenants",
+    "update",
+    "agent",
+    "ui",
+}
 CONFINED_FLAGS = ("--out", "--file", "--data")
 
 EDIT_FORMS = (
@@ -93,7 +108,8 @@ EDIT_FORMS = (
     (re.compile(r"trackor|record", re.IGNORECASE), "/form/ConfigAppForm.do?id="),
 )
 
-_SQL_ROUTE = re.compile(r"^/?(api/)?v\d+/sql/", re.IGNORECASE)
+_SQL_ROUTE = re.compile(r"(?:^|[\s/])(?:api/)?v\d+/sql/", re.IGNORECASE)
+_SQL_SKIPPED = re.compile(r"'(?:[^']|'')*'|\"[^\"]*\"|--[^\n]*|/\*.*?\*/", re.DOTALL)
 _SELECT = re.compile(r"^(select|with)\b", re.IGNORECASE)
 _PLSQL_IN_WITH = re.compile(r"\bwith\s+(function|procedure)\b", re.IGNORECASE)
 _FROM_TABLE = re.compile(r"\b(?:from|join)\s+([a-z_][\w$#]*(?:\.[a-z_][\w$#]*)?)", re.IGNORECASE)
@@ -216,7 +232,7 @@ def check_ov_args(args: list[str], allow_sql: bool) -> None:
     if any(a.startswith("--instance") or (a.startswith("-i") and a[:2] != "--") for a in args):
         raise ToolError("Pass the instance in the instance parameter, not as -i.")
 
-    if not allow_sql and (args[0] == "sql" or any(_SQL_ROUTE.search(a) for a in args)):
+    if not allow_sql and (args[0] == "sql" or any(_SQL_ROUTE.search(unquote(a)) for a in args)):
         raise ToolError("Run SQL with the ov_sql tool, not through ov.")
 
 
@@ -286,6 +302,7 @@ def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
         cancel=ctx.cancel,
         cwd=ctx.work_dir,
     )
+    graph.note_write(alias)
     if result.timed_out:
         raise ToolError(f"ov timed out after {OV_TIMEOUT_SECONDS}s")
     return _output(result)
@@ -299,8 +316,11 @@ def _payloads(args: list[str]) -> str:
         if path is None or path.suffix.lower() not in PAYLOAD_SUFFIXES or not path.is_file():
             continue
 
-        text = path.read_text(encoding="utf-8", errors="replace")[:PAYLOAD_CHARS]
-        shown.append(f"\n\n{path.name}:\n{mask_secrets(text)}")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        cut = (
+            f"\n[showing the first {PAYLOAD_CHARS:,} of {len(text):,} characters]" if len(text) > PAYLOAD_CHARS else ""
+        )
+        shown.append(f"\n\n{path.name}:\n{mask_secrets(text[:PAYLOAD_CHARS])}{cut}")
 
     return "".join(shown)
 
@@ -369,12 +389,17 @@ def _sql_request(query: str, instance: str, rows: int, ctx: ToolContext) -> dict
     return _parsed_sql(raw)
 
 
+def _code_of(query: str) -> str:
+    return _SQL_SKIPPED.sub(lambda m: "''" if m.group(0)[0] in "'\"" else " ", query).strip()
+
+
 def _checked_query(raw: str) -> str:
     query = re.sub(r";\s*$", "", raw.strip())
-    if not _SELECT.match(query) or _PLSQL_IN_WITH.search(query):
+    code = _code_of(query)
+    if not _SELECT.match(code) or _PLSQL_IN_WITH.search(code):
         raise ToolError("Only SELECT / WITH queries are allowed.")
 
-    if _SECRET_SQL.search(query):
+    if _SECRET_SQL.search(code):
         raise ToolError(
             "Refused: select * from this table can include credentials. Name the columns you need; "
             "secret-looking values are masked in results."
@@ -563,7 +588,7 @@ def _ov_search(args: dict[str, Any], ctx: ToolContext) -> str:
 def _ov_map(args: dict[str, Any], ctx: ToolContext) -> str:
     alias, _, _ = alias_for(target_instance(args.get("instance"), ctx), ctx)
     try:
-        data = graph.load(alias) or graph.build(alias, cancel=ctx.cancel)
+        data = graph.sync(alias, cancel=ctx.cancel)
     except graph.GraphError as exc:
         raise ToolError(str(exc)) from None
 
@@ -576,7 +601,7 @@ def _ov_map(args: dict[str, Any], ctx: ToolContext) -> str:
         return f"{len(matches)} matches; pass the exact name or id:\n{listed}"
 
     built = time.strftime("%Y-%m-%d %H:%M", time.localtime(data["builtAt"] / 1000))
-    source = MAP_SOURCES.get(data.get("source") or "", "")
+    source = MAP_SOURCES[data["source"]]
     warnings = "".join(f"\nNot on this map: {w}" for w in data["warnings"])
     body = "\n\n".join(graph.describe(data, m) for m in matches)
     return clip(f"Map of {alias} built {built}{source}.{warnings}\n\n{body}", ctx, "map")

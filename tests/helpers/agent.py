@@ -145,3 +145,21 @@ def workspace_folder(tmp_path: Path):
     yield folder
 
     db.save_preferences({"workspace": ""})
+
+
+def start_signed_in_server(monkeypatch):
+    import functools
+    import threading
+
+    import httpx
+
+    from ov.agent.api import session
+    from ov.agent.api.handler import Handler
+    from ov.agent.api.server import AgentServer
+
+    httpd = AgentServer(("127.0.0.1", 0), Handler)
+    cookies = {session.COOKIE: httpd.session_token}
+    for verb in ("get", "post", "put", "delete"):
+        monkeypatch.setattr(httpx, verb, functools.partial(getattr(httpx, verb), cookies=cookies))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd, f"http://127.0.0.1:{httpd.server_address[1]}"

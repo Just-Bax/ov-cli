@@ -38,6 +38,9 @@ EDITIONS = {"STANDARD": "Standard", "ENTERPRISE": "Enterprise", "PREMIUM": "Prem
 NOT_CHECKED = "access not checked yet"
 
 
+SIGNED_OUT = "{alias} is signed out, so its access cannot be checked. Sign in again to check it."
+
+
 class AccessError(Exception):
     pass
 
@@ -95,6 +98,8 @@ def check(alias: str) -> dict[str, Any]:
 
     try:
         found = _read(alias)
+    except SessionExpired:
+        raise AccessError(SIGNED_OUT.format(alias=alias)) from None
     except OvError as exc:
         with _lock:
             _errors[alias] = str(exc)

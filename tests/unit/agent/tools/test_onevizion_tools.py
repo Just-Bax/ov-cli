@@ -315,3 +315,54 @@ def test_a_long_case_is_clipped_to_a_file(logged_in, tmp_path):
     ctx.load_case = lambda ref: "x" * (MAX_OUTPUT * 2)
     out = tool_named("ov_case").handler({"case": "1"}, ctx)
     assert len(out) < MAX_OUTPUT + 200 and "Full case saved as" in out
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "with/**/function f return number is begin return 1; end; select f from dual",
+        "select '--' a from dual with/**/function f",
+        "select/**/* from users",
+        "-- note\nupdate rule set sql_text = null",
+        "begin null; end",
+    ],
+)
+def test_sql_that_is_not_a_plain_select_is_refused(query):
+    from ov.agent.tools.onevizion import _checked_query
+
+    with pytest.raises(ToolError):
+        _checked_query(query)
+
+
+def test_comments_and_literals_do_not_trip_the_select_check():
+    from ov.agent.tools.onevizion import _checked_query
+
+    for query in (
+        "/* who */ select 1 from dual",
+        "select 'with function' x from dual",
+        "with t as (select 1 n from dual) select n from t",
+    ):
+        assert _checked_query(query) == query
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["api", "call", "POST /v3/sql/test"],
+        ["request", "POST", "//v3/sql/test"],
+        ["request", "POST", "/api/v3/sql%2Ftest"],
+    ],
+)
+def test_sql_cannot_be_sent_through_plain_ov(args):
+    from ov.agent.tools.onevizion import check_ov_args
+
+    with pytest.raises(ToolError, match="ov_sql"):
+        check_ov_args(args, allow_sql=False)
+
+
+@pytest.mark.parametrize("command", ["update", "remember"])
+def test_the_agent_cannot_update_ov_or_mint_tokens(command):
+    from ov.agent.tools.onevizion import check_ov_args
+
+    with pytest.raises(ToolError, match="not allowed"):
+        check_ov_args([command], allow_sql=False)

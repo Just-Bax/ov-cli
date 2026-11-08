@@ -1,736 +1,43 @@
-import {
-  ArrowBendUpRight as SteerIcon,
-  ArrowSquareOut as ArrowTopRightOnSquareIcon,
-  ListNumbers as QueueIcon,
-  Play as PlayIcon,
-  ShieldWarning as ShieldWarningIcon,
-} from '@phosphor-icons/react'
-import {
-  Fragment,
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type {
-  Access,
-  ChatMessage,
-  ApprovalQuestion,
-  CaseLink,
-  ContextUsage,
-  FollowUp,
-  MessageFile,
-  Provider,
-  Question,
-  RunState,
-  RunStatus,
-  RunSummary,
-  ThreadItem,
-  ToolActivity,
-} from '@shared/types.ts'
+import type { ChatMessage } from '@shared/types.ts'
 import { EditableTitle } from '@/components/common/EditableTitle'
-import { ActionsSkeleton, ComposerSkeleton, useSkeleton } from '@/components/common/skeletons'
 import { reportError } from '@/components/common/Toasts'
-import {
-  Button,
-  Dot,
-  Markdown,
-  Page,
-  Shimmer,
-  Skeleton,
-  SkeletonText,
-  type Tone,
-} from '@/components/common/ui'
-import { Composer, type ComposerKeyHandler } from '@/components/composer/Composer'
-import { threadCommands, useAccessCommand } from '@/components/composer/commands'
-import { AccessPicker } from '@/components/composer/AccessPicker'
+import { Page } from '@/components/common/ui'
 import { OPEN_FIND } from '@/components/layout/CommandPalette'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { forgetDraft, loadText } from '@/lib/drafts'
 import { inCodeEditor } from '@/lib/dom'
 import { usePresence, useWindowEvent } from '@/lib/hooks'
 import { layerOpen } from '@/lib/layers'
+import { ApplyContext, stopEvents } from '@/lib/optimistic'
 import { allRuns, patchLocally, useRuns, WORKING } from '@/lib/runs'
-import { useProvider } from '@/lib/settings'
 import { useRun } from '@/lib/useRun'
-import { BranchedIntoNotes, InheritedToggle, LineageNote, useBranches } from './Branches'
-import { ChangeCard } from './ChangeCard'
-import { GridCard } from './GridCard'
-import { CompactionNote, ContextMeter, FreshBranchNotice, StaleCacheNotice } from './Context'
-import { CostPill } from './CostPill'
-import { sentFile } from './FilePreview'
-import { FilesChanged } from './FilesChanged'
+import { useBranches } from './Branches'
+import { BrowserBackdrop, BrowserPane, CARD_CLASS, CHAT_CARD_STYLE } from './BrowserPane'
 import { FIND_LABEL, FindBar } from './FindBar'
-import { InstanceChips } from './InstanceChip'
-import {
-  BrowserBackdrop,
-  BrowserPane,
-  CARD_CLASS,
-  CHAT_CARD_STYLE,
-  isBrowserTool,
-  OpenBrowserButton,
-  ShowBrowserButton,
-} from './BrowserPane'
-import { AssistantActions, UserMessage } from './Messages'
-import { Answer, LoginCard } from './Panels'
-import { Reasoning } from '@/components/run/Reasoning'
-import { useQueueActions } from '@/lib/queueActions'
-import { ApplyContext, fileOf, newMessageId, stopEvents, useApply } from '@/lib/optimistic'
-import { QueuedMessages } from './QueuedMessages'
-import { AnsweredQuestion, QuestionComposer } from './QuestionDock'
-import { ParkedNotice, RunMenu } from './RunMenu'
-import { RUN_STATUS, StatusIcon } from './RunStatus'
+import { RunFooter, useQueuedEdit } from './RunFooter'
+import { RunActions, RunLoading, RunSubtitle } from './RunHeader'
+import { Thread } from './Thread'
 import { ThreadRail } from './ThreadRail'
-import { summarize, ToolGroup } from './ToolGroup'
-import { Worked } from './Worked'
-
-const FOLLOW_BOTTOM_PX = 80
-const USER_SCROLL_MS = 600
-const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const
-const MARK_LABEL_CHARS = 160
-const BROWSER_EXIT_MS = 200
-const OLDER_MARGIN_PX = 600
-const OLDER_ARM_MS = 500
-const RUN_ACTION_WIDTHS = ['w-24', 'w-9']
-const NOTHING_SPENT = { amount: 0, requests: 0 }
-
-const MemoChangeCard = memo(ChangeCard)
-const MemoGridCard = memo(GridCard)
-const MemoAnswer = memo(Answer)
-const MemoUserMessage = memo(UserMessage)
-
-const TONE_TEXT: Record<Tone, string> = {
-  brand: 'text-brand-strong',
-  ok: 'text-ok',
-  warn: 'text-warn',
-  danger: 'text-danger',
-  neutral: 'text-muted',
-}
-
-const LIVE_QUESTION = new Set(['running', 'waiting'])
-
-type Block =
-  | { kind: 'tools'; tools: ToolActivity[]; key: string }
-  | { kind: 'item'; item: ThreadItem; key: string }
-
-interface Turn {
-  user?: ChatMessage
-  start: number
-  blocks: Block[]
-}
-
-function inheritedTurn(turn: Turn, state: RunState): boolean {
-  return turn.start < (state.inheritedItems ?? 0)
-}
-
-function inheritedTurnCount(state: RunState, turns: Turn[]): number {
-  const inherited = state.inheritedItems ?? 0
-  const older = state.outline.filter((m) => m.kind === 'user' && m.start < inherited).length
-  return older + turns.filter((t) => t.user && t.start < inherited).length
-}
-
-function freshBranchTurns(state: RunState, inheritedTurns: number): number {
-  const inherited = state.inheritedItems ?? 0
-  if (!inherited || state.summary.origin !== 'branch') return 0
-  const own = state.items.slice(Math.max(0, inherited - state.start))
-  return own.some((item) => item.kind === 'user' || item.kind === 'compact') ? 0 : inheritedTurns
-}
-
-function nextTurnId(turns: Turn[], index: number): string | undefined {
-  return turns.slice(index + 1).find((t) => t.user && !t.user.steer)?.user?.id
-}
-
-function indexed<T extends { id: string }>(cache: WeakMap<T[], Map<string, T>>, list: T[]) {
-  const found = cache.get(list)
-  if (found) return found
-  const made = new Map(list.map((x) => [x.id, x]))
-  cache.set(list, made)
-  return made
-}
-
-const chatIndex = new WeakMap<ChatMessage[], Map<string, ChatMessage>>()
-const changeIndex = new WeakMap<RunState['changes'], Map<string, RunState['changes'][number]>>()
-const turnCache = new WeakMap<ThreadItem[], { chat: unknown; tools: unknown; turns: Turn[] }>()
-
-function chatById(state: RunState) {
-  return indexed(chatIndex, state.chat)
-}
-
-function toTurns(state: RunState): Turn[] {
-  const cached = turnCache.get(state.items)
-  if (cached && cached.chat === state.chat && cached.tools === state.tools) return cached.turns
-  const turns = buildTurns(state)
-  turnCache.set(state.items, { chat: state.chat, tools: state.tools, turns })
-  return turns
-}
-
-function buildTurns(state: RunState): Turn[] {
-  const chat = chatById(state)
-  const tools = new Map(state.tools.map((t) => [t.id, t]))
-  const turns: Turn[] = [{ start: state.start, blocks: [] }]
-  for (const [index, item] of state.items.entries()) {
-    const turn = turns.at(-1)!
-    if (item.kind === 'user') {
-      const user = chat.get(item.id)
-      if (user) turns.push({ user, start: state.start + index, blocks: [] })
-      continue
-    }
-
-    if (item.kind === 'tool') {
-      const tool = tools.get(item.id)
-      if (!tool) continue
-
-      const last = turn.blocks.at(-1)
-      if (last?.kind === 'tools') last.tools.push(tool)
-      else turn.blocks.push({ kind: 'tools', tools: [tool], key: `t_${item.id}` })
-    } else {
-      turn.blocks.push({ kind: 'item', item, key: `${item.kind}_${item.id}` })
-    }
-  }
-
-  return turns.filter((t) => t.user || t.blocks.length)
-}
-
-const RESULT_ITEMS = new Set<ThreadItem['kind']>(['change', 'grid', 'outcome', 'compact'])
-
-function turnKeys(turn: Turn): string[] {
-  return [...(turn.user ? [turn.user.id] : []), ...turn.blocks.map((b) => b.key)]
-}
-
-function useArrivedLive(state: RunState | undefined): (turn: Turn, key: string) => boolean {
-  const opened = useRef<{ from: number; keys: Set<string> }>(undefined)
-  if (state && !opened.current) {
-    const last = toTurns(state).at(-1)
-    opened.current = { from: last?.start ?? state.start, keys: new Set(last ? turnKeys(last) : []) }
-  }
-
-  return (turn, key) =>
-    opened.current !== undefined &&
-    turn.start >= opened.current.from &&
-    !opened.current.keys.has(key)
-}
-
-function splitTurn(blocks: Block[]): { work: Block[]; result: Block[] } {
-  const lastTools = blocks.findLastIndex((b) => b.kind === 'tools')
-  if (lastTools < 0) return { work: [], result: blocks }
-
-  const lastText = blocks.findLastIndex((b) => b.kind === 'item' && b.item.kind === 'text')
-  const cut = lastText > lastTools || lastText < 0 ? lastTools + 1 : lastText
-  const done = blocks.slice(0, cut)
-  const kept = (b: Block) => b.kind === 'item' && RESULT_ITEMS.has(b.item.kind)
-
-  return {
-    work: done.filter((b) => !kept(b)),
-    result: [...done.filter(kept), ...blocks.slice(cut)],
-  }
-}
-
-function workSummary(work: Block[], state: RunState): string {
-  const tools = work.flatMap((b) => (b.kind === 'tools' ? b.tools : []))
-
-  const updates = work.filter(
-    (b) =>
-      b.kind === 'item' && b.item.kind === 'text' && chatById(state).get(b.item.id)?.text.trim(),
-  ).length
-
-  const said = updates ? [`${updates} ${updates === 1 ? 'update' : 'updates'}`] : []
-  return [summarize(tools), ...said].filter(Boolean).join(', ')
-}
-
-function turnSpan(turn: Turn, state: RunState): number | undefined {
-  const tools = turn.blocks.flatMap((b) => (b.kind === 'tools' ? b.tools : []))
-  const texts = turn.blocks.flatMap((b) =>
-    b.kind === 'item' && b.item.kind === 'text' ? [chatById(state).get(b.item.id)?.ts ?? 0] : [],
-  )
-
-  const starts = tools.flatMap((t) => (t.startedAt ? [t.startedAt] : []))
-  const start = turn.user?.ts ?? Math.min(...starts, ...texts.filter(Boolean))
-  const end = Math.max(...texts, ...tools.map((t) => (t.startedAt ?? 0) + (t.ms ?? 0)))
-  return Number.isFinite(start) && end > start ? end - start : undefined
-}
-
-function blocksText(blocks: Block[], state: RunState): string {
-  const parts: string[] = []
-  for (const b of blocks) {
-    if (b.kind !== 'item') continue
-
-    if (b.item.kind === 'text') {
-      const t = chatById(state).get(b.item.id)?.text.trim()
-      if (t) parts.push(t)
-    } else if (b.item.kind === 'outcome' && b.item.id === state.outcomeId && state.outcome) {
-      for (const i of state.outcome.issues) parts.push(`${i.title}: ${i.summary}`)
-      if (state.outcome.reply) parts.push(state.outcome.reply)
-    } else if (b.item.kind === 'grid') {
-      const grid = state.grids.find((g) => g.id === b.item.id)
-      if (grid) parts.push(grid.title)
-    } else if (b.item.kind === 'change') {
-      const ch = indexed(changeIndex, state.changes).get(b.item.id)
-      if (ch) parts.push(`${ch.title}\n${ch.after}`)
-    }
-  }
-
-  return parts.join('\n\n')
-}
-
-function turnTime(turn: Turn, state: RunState): number | undefined {
-  for (let i = turn.blocks.length - 1; i >= 0; i--) {
-    const b = turn.blocks[i]
-    if (b.kind === 'item' && b.item.kind === 'text') return chatById(state).get(b.item.id)?.ts
-  }
-  return undefined
-}
-
-function isOpen(question: Question): boolean {
-  return !question.answers && !question.stopped
-}
-
-function browserQuestion(state: RunState): ApprovalQuestion | undefined {
-  if (!state.browser?.open || !LIVE_QUESTION.has(state.summary.status)) return undefined
-
-  const tools = new Map(state.tools.map((t) => [t.id, t.name]))
-
-  return state.questions.find(
-    (q): q is ApprovalQuestion =>
-      q.kind === 'approval' &&
-      isOpen(q) &&
-      Boolean(q.toolId) &&
-      isBrowserTool(tools.get(q.toolId ?? '')),
-  )
-}
-
-function dockedQuestion(state: RunState): Question | undefined {
-  if (!LIVE_QUESTION.has(state.summary.status)) return undefined
-  const inBrowser = browserQuestion(state)?.id
-  return state.questions.find((q) => isOpen(q) && q.id !== inBrowser)
-}
-
-function browserShown(state: RunState | undefined, hiddenSession: number | undefined): boolean {
-  if (!state?.browser?.open) return false
-  return state.browser.session !== hiddenSession || Boolean(browserQuestion(state))
-}
-
-function ThreadBlock({
-  block,
-  state,
-  inherited,
-}: {
-  block: Block
-  state: RunState
-  inherited: boolean
-}) {
-  if (block.kind === 'tools') return <ToolGroup runId={state.summary.id} tools={block.tools} />
-
-  const { item } = block
-  const id = state.summary.id
-  switch (item.kind) {
-    case 'text': {
-      const msg = chatById(state).get(item.id)
-      const said = msg?.text.trim()
-      const thought = msg?.reasoning?.trim()
-      if (!msg || (!said && !thought)) return null
-
-      return (
-        <div className="text-fg space-y-2">
-          {thought ? <Reasoning text={thought} /> : null}
-          {said ? <Markdown text={msg.text} links={msg.links} /> : null}
-        </div>
-      )
-    }
-    case 'change': {
-      const change = indexed(changeIndex, state.changes).get(item.id)
-      return change ? <MemoChangeCard change={change} /> : null
-    }
-    case 'grid': {
-      const grid = state.grids.find((g) => g.id === item.id)
-      return grid ? <MemoGridCard grid={grid} runId={id} inherited={inherited} /> : null
-    }
-    case 'question': {
-      const q = state.questions.find((x) => x.id === item.id)
-      if (!q) return null
-
-      const live = LIVE_QUESTION.has(state.summary.status)
-      if (!isOpen(q) || !live) return <AnsweredQuestion question={q} />
-
-      return (
-        <div className="text-warn flex items-center gap-2 text-[12.5px] font-medium">
-          <ShieldWarningIcon className="size-4" />
-          {q.id === browserQuestion(state)?.id
-            ? 'Waiting for your approval in the browser'
-            : q.kind === 'approval'
-              ? 'Waiting for your approval below'
-              : 'Waiting for your answer below'}
-        </div>
-      )
-    }
-    case 'login': {
-      const l = state.logins.find((x) => x.id === item.id)
-      return l ? <LoginCard runId={id} login={l} /> : null
-    }
-    case 'outcome':
-      if (item.id !== state.outcomeId || !state.outcome) {
-        return <div className="text-faint text-[12px]">Earlier answer, updated below.</div>
-      }
-
-      return <MemoAnswer outcome={state.outcome} caseUrl={state.caseUrl} />
-    case 'compact': {
-      const compaction = state.compactions.find((c) => c.id === item.id)
-      return compaction ? <CompactionNote compaction={compaction} /> : null
-    }
-  }
-}
-
-function CaseLinks({ cases }: { cases: CaseLink[] }) {
-  return (
-    <span className="inline-flex flex-wrap items-center gap-x-1.5">
-      <span className="text-muted">{cases.length === 1 ? 'Case' : 'Cases'}</span>
-      {cases.map((c) => (
-        <a
-          key={c.key}
-          href={c.url}
-          target="_blank"
-          rel="noreferrer"
-          className="text-brand-strong inline-flex items-center gap-0.5 whitespace-nowrap hover:underline"
-        >
-          {c.key}
-          <ArrowTopRightOnSquareIcon className="size-3" />
-        </a>
-      ))}
-    </span>
-  )
-}
-
-type QueuedEdit = ReturnType<typeof useQueuedEdit>
-
-const NO_MESSAGES: ChatMessage[] = []
-
-function useQueuedEdit(runId: string, queued: ChatMessage[]) {
-  const [editing, setEditing] = useState<ChatMessage>()
-  const [kept, setKept] = useState<MessageFile[]>([])
-  const [draft, setDraft] = useState<{ text: string; at: number }>()
-  const runKey = `run-${runId}`
-  const editKey = editing ? `queued-${editing.id}` : runKey
-
-  const startEdit = (message: ChatMessage) => {
-    setEditing(message)
-    setKept(message.files ?? [])
-    setDraft({ text: message.text, at: Date.now() })
-  }
-
-  const endEdit = () => {
-    forgetDraft(editKey)
-    setEditing(undefined)
-  }
-
-  useEffect(() => {
-    if (!editing || queued.some((m) => m.id === editing.id)) return
-    const edited = loadText(editKey)
-    endEdit()
-    if (edited.trim() && edited !== editing.text && !loadText(runKey).trim())
-      setDraft({ text: edited, at: Date.now() })
-  }, [queued, editing])
-
-  return { editing, kept, setKept, draft, startEdit, endEdit, editKey }
-}
-
-const FOLLOW_UP_HINT: Record<FollowUp, string> = {
-  queue: 'Queue: sent as its own turn after this one',
-  steer: 'Steer: sent into the running turn',
-}
-
-function Footer({
-  runId,
-  provider,
-  idleSince,
-  run,
-  settled,
-  busy,
-  status,
-  access,
-  context,
-  compact,
-  question,
-  tool,
-  queued,
-  queueHeld,
+import {
+  browserQuestion,
+  browserShown,
+  dockedQuestion,
   freshBranchTurns,
-  edit,
-  history,
-  onStop,
-  onSend,
-}: {
-  runId: string
-  provider: Provider
-  idleSince: number
-  run: RunSummary
-  settled: boolean
-  busy: boolean
-  status: RunStatus
-  access: Access
-  context?: ContextUsage
-  compact: boolean
-  question?: Question
-  tool?: ToolActivity
-  queued: ChatMessage[]
-  queueHeld: boolean
-  freshBranchTurns: number
-  edit: QueuedEdit
-  history: string[]
-  onStop: () => void
-  onSend: () => void
-}) {
-  const apply = useApply()
-  const queue = useQueueActions(runId, queued, status)
-  const { cacheTtlMs } = useProvider(provider)
-  const [error, setError] = useState<string>()
-  const { editing, kept, setKept, draft, startEdit, endEdit, editKey } = edit
-  const modeFor = (alternate: boolean): FollowUp => (alternate ? 'steer' : 'queue')
-  const parked = settled || Boolean(run.snoozedUntil)
+  inheritedTurnCount,
+  toTurns,
+  useArrivedLive,
+} from './threadTurns'
+import { useThreadScroll } from './useThreadScroll'
 
-  const send = async (text: string, files: File[], alternate: boolean) => {
-    setError(undefined)
-
-    try {
-      if (editing) {
-        await saveEdit(editing, text, files)
-        return
-      }
-
-      onSend()
-      await sendFollowUp(text, files, modeFor(alternate))
-    } catch (e) {
-      setError((e as Error).message)
-      throw e
-    }
-  }
-
-  const saveEdit = async (original: ChatMessage, text: string, files: File[]) => {
-    const edited = { ...original, text, files: [...kept, ...files.map(fileOf)] }
-    apply({ type: 'queue_add', message: edited })
-
-    try {
-      const uploaded = files.length ? await api.upload(files) : []
-      await api.editQueued(
-        runId,
-        original.id,
-        text,
-        kept.map((f) => f.name),
-        uploaded,
-      )
-    } catch (e) {
-      apply({ type: 'queue_add', message: original })
-      throw e
-    }
-
-    endEdit()
-  }
-
-  const sendFollowUp = async (text: string, files: File[], mode: FollowUp) => {
-    const message: ChatMessage = {
-      id: newMessageId(),
-      role: 'user',
-      text,
-      ts: Date.now(),
-      files: files.map(fileOf),
-    }
-
-    const steering = busy && mode === 'steer'
-    if (steering) apply({ type: 'user_message', message: { ...message, steer: true } })
-    else if (busy) apply({ type: 'queue_add', message })
-    else {
-      apply({ type: 'user_message', message })
-      apply({ type: 'status', status: 'running' })
-      patchLocally(runId, { status: 'running' })
-    }
-
-    try {
-      const uploaded = files.length ? await api.upload(files) : []
-      await api.message(runId, message.id, text, uploaded, mode)
-    } catch (e) {
-      if (steering) apply({ type: 'rewind', itemId: message.id })
-      else if (busy) apply({ type: 'queue_remove', id: message.id })
-      else {
-        apply({ type: 'rewind', itemId: message.id })
-        apply({ type: 'status', status })
-      }
-      throw e
-    }
-  }
-
-  const shortcut: ComposerKeyHandler = (e, at) => {
-    if (editing && e.key === 'Escape') {
-      endEdit()
-      return true
-    }
-
-    const oldest = queued[0]
-    if (e.key === 'Enter' && e.shiftKey && (e.ctrlKey || e.metaKey) && busy && oldest) {
-      queue.send(oldest.id)
-      return true
-    }
-
-    const latest = queued.at(-1)
-    if (e.key !== 'ArrowUp' || !e.altKey || !at.start || editing || !latest) return false
-
-    startEdit(latest)
-    return true
-  }
-
-  const pickAccess = (next: Access) => {
-    apply({ type: 'access', access: next })
-    api.setAccess(runId, next).catch((e: unknown) => {
-      apply({ type: 'access', access })
-      reportError(e)
-    })
-  }
-
-  const commands = [...threadCommands(run, settled, busy, onStop), useAccessCommand(pickAccess)]
-
-  const extras = (
-    <>
-      <AccessPicker value={access} onChange={pickAccess} />
-      {context ? <ContextMeter runId={runId} context={context} busy={busy} /> : null}
-    </>
-  )
-
-  return (
-    <div className={cn('pt-1 pb-4', compact ? 'px-4' : 'px-6')}>
-      <div className="mx-auto max-w-[860px]">
-        {error ? <div className="text-danger mb-1.5 text-[12px]">{error}</div> : null}
-        {!busy && !question ? <ParkedNotice run={run} settled={settled} /> : null}
-        {freshBranchTurns && !busy && !question && !parked ? (
-          <FreshBranchNotice runId={runId} turns={freshBranchTurns} context={context} />
-        ) : null}
-        {context && cacheTtlMs && !busy && !question && !parked && !freshBranchTurns ? (
-          <StaleCacheNotice
-            runId={runId}
-            context={context}
-            idleSince={idleSince}
-            cacheTtlMs={cacheTtlMs}
-          />
-        ) : null}
-        {question ? (
-          <QuestionComposer
-            runId={runId}
-            question={question}
-            tool={tool}
-            busy={busy}
-            extras={extras}
-            onStop={onStop}
-          />
-        ) : (
-          <div className="relative">
-            <Composer
-              busy={busy}
-              queueWhileBusy
-              allowFiles
-              sentFiles={editing ? kept.map((file) => sentFile(runId, file)) : undefined}
-              onRemoveSentFile={(name) => setKept((files) => files.filter((f) => f.name !== name))}
-              placeholder={
-                editing
-                  ? 'Edit the queued message. Enter saves, Escape cancels'
-                  : busy
-                    ? `${FOLLOW_UP_HINT.queue}. Ctrl+Enter to steer`
-                    : 'Ask a follow-up or give direction'
-              }
-              busyAction={(alternate) => {
-                const mode = modeFor(alternate)
-                return {
-                  label: FOLLOW_UP_HINT[mode],
-                  icon:
-                    mode === 'steer' ? (
-                      <SteerIcon weight="bold" className="size-4" />
-                    ) : (
-                      <QueueIcon weight="bold" className="size-4" />
-                    ),
-                }
-              }}
-              idleAction={
-                queueHeld && queued.length ? (
-                  <Button variant="primary" onClick={queue.resume}>
-                    <PlayIcon weight="fill" className="size-3" />
-                    Resume
-                  </Button>
-                ) : undefined
-              }
-              submitLabel={editing ? () => 'Save' : undefined}
-              onKeyDown={shortcut}
-              commands={commands}
-              instance={run.instance}
-              runId={runId}
-              history={history}
-              onSend={send}
-              draft={draft}
-              draftKey={editKey}
-              onStop={onStop}
-              extras={extras}
-            />
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function OlderTurns({
-  scrollRef,
-  start,
-  loading,
-  onVisible,
-}: {
-  scrollRef: React.RefObject<HTMLDivElement | null>
-  start: number
-  loading: boolean
-  onVisible: () => Promise<void>
-}) {
-  const sentinel = useRef<HTMLDivElement>(null)
-  const showSkeleton = useSkeleton(loading)
-
-  useEffect(() => {
-    const el = sentinel.current
-    const root = scrollRef.current?.parentElement
-    if (!el || !root) return
-
-    let observer: IntersectionObserver | undefined
-    const arm = setTimeout(() => {
-      observer = new IntersectionObserver(
-        ([entry]) => {
-          if (entry.isIntersecting) void onVisible()
-        },
-        { root, rootMargin: `${OLDER_MARGIN_PX}px 0px 0px 0px` },
-      )
-      observer.observe(el)
-    }, OLDER_ARM_MS)
-
-    return () => {
-      clearTimeout(arm)
-      observer?.disconnect()
-    }
-  }, [scrollRef, start, onVisible])
-
-  return (
-    <div ref={sentinel} className="space-y-4">
-      {showSkeleton ? (
-        <>
-          <div className="flex justify-end">
-            <Skeleton className="h-9 w-56 rounded-2xl" />
-          </div>
-          <SkeletonText lines={3} />
-        </>
-      ) : null}
-    </div>
-  )
-}
+const BROWSER_EXIT_MS = 200
+const NO_MESSAGES: ChatMessage[] = []
 
 export function RunView({ id }: { id: string }) {
   const { state, error, loadOlder, loadingOlder, apply } = useRun(id)
   const list = useRuns()
   const scrollRef = useRef<HTMLDivElement>(null)
-  const followBottom = useRef(true)
   const ready = Boolean(state)
   const [hiddenSession, setHiddenSession] = useState<number>()
   const modal = usePresence(
@@ -739,7 +46,6 @@ export function RunView({ id }: { id: string }) {
   )
   const browsing = Boolean(modal.shown)
   const wasOpen = useRef(false)
-  const restoreHeight = useRef<number | undefined>(undefined)
   const [finding, setFinding] = useState(false)
   const [showInherited, setShowInherited] = useState(false)
   const branches = useBranches(id)
@@ -787,54 +93,13 @@ export function RunView({ id }: { id: string }) {
     setFinding(true)
   })
 
-  const older = useCallback(
-    (until?: number) => {
-      restoreHeight.current = scrollRef.current?.parentElement?.scrollHeight
-      return loadOlder(until)
-    },
-    [loadOlder],
+  const { followBottom, older } = useThreadScroll(
+    scrollRef,
+    loadOlder,
+    state?.start,
+    ready,
+    browsing,
   )
-
-  useLayoutEffect(() => {
-    const scroller = scrollRef.current?.parentElement
-    if (restoreHeight.current === undefined || !scroller) return
-    scroller.scrollTop += scroller.scrollHeight - restoreHeight.current
-    restoreHeight.current = undefined
-  }, [state?.start])
-
-  useEffect(() => {
-    const content = scrollRef.current
-    const scroller = content?.parentElement
-    if (!content || !scroller) return
-
-    let userScrolledAt = 0
-    const pinToBottom = () => {
-      if (followBottom.current) scroller.scrollTop = scroller.scrollHeight
-    }
-    const markUser = () => {
-      userScrolledAt = Date.now()
-    }
-    const onScroll = () => {
-      const fromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
-      if (fromBottom < FOLLOW_BOTTOM_PX) followBottom.current = true
-      else if (Date.now() - userScrolledAt < USER_SCROLL_MS) followBottom.current = false
-    }
-
-    followBottom.current = true
-    const contentGrowth = new ResizeObserver(pinToBottom)
-    contentGrowth.observe(content)
-    scroller.addEventListener('scroll', onScroll, { passive: true })
-    for (const name of USER_SCROLL_EVENTS)
-      scroller.addEventListener(name, markUser, { passive: true })
-
-    pinToBottom()
-
-    return () => {
-      contentGrowth.disconnect()
-      scroller.removeEventListener('scroll', onScroll)
-      for (const name of USER_SCROLL_EVENTS) scroller.removeEventListener(name, markUser)
-    }
-  }, [ready, browsing])
 
   if (error)
     return (
@@ -843,99 +108,15 @@ export function RunView({ id }: { id: string }) {
       </Page>
     )
 
-  if (!state) {
-    return (
-      <Page
-        title={<Skeleton className="h-4 w-80" />}
-        actions={<ActionsSkeleton widths={RUN_ACTION_WIDTHS} />}
-        footer={<ComposerSkeleton />}
-        subtitle={
-          <>
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-3 w-40" />
-            <Skeleton className="h-3 w-24" />
-          </>
-        }
-      >
-        <div className="mx-auto max-w-[860px] space-y-5 px-6 py-6">
-          <div className="flex justify-end">
-            <Skeleton className="h-9 w-56 rounded-2xl" />
-          </div>
-          <Skeleton className="h-9 w-full rounded-full" />
-          <SkeletonText lines={2} />
-          <Skeleton className="h-9 w-full rounded-full" />
-          <SkeletonText lines={4} />
-        </div>
-      </Page>
-    )
-  }
+  if (!state) return <RunLoading />
 
   const { summary } = state
   const busy = WORKING.has(summary.status)
   const docked = dockedQuestion(state)
-  const status = RUN_STATUS[summary.status]
   const turns = toTurns(state)
   const inheritedCount = inheritedTurnCount(state, turns)
-  const lastBlock = turns.at(-1)?.blocks.at(-1)
-  const showThinking =
-    summary.status === 'running' &&
-    !(lastBlock?.kind === 'tools' && lastBlock.tools.some((t) => t.status === 'running')) &&
-    !(lastBlock?.kind === 'item' && lastBlock.item.kind === 'text') &&
-    !state.compactions.some((c) => c.status === 'running')
-
-  const subtitle = (
-    <>
-      {summary.status === 'running' || summary.status === 'queued' ? (
-        <Shimmer tone="brand" className="font-medium">
-          {status.text}
-        </Shimmer>
-      ) : (
-        <span
-          className={cn('inline-flex items-center gap-1.5 font-medium', TONE_TEXT[status.tone])}
-        >
-          <StatusIcon status={summary.status} className="size-3" detailed />
-          {status.text}
-        </span>
-      )}
-      {state.cases.length && !browsing ? (
-        <>
-          <Dot />
-          <CaseLinks cases={state.cases} />
-        </>
-      ) : null}
-      {state.instances.length > 0 && !browsing ? (
-        <>
-          <Dot />
-          <InstanceChips instances={state.instances} />
-        </>
-      ) : null}
-    </>
-  )
-
   const listed = allRuns(list).find((r) => r.id === id)
   const settled = list?.settled.some((r) => r.id === id) ?? Boolean(summary.settled)
-  const browser = state.browser?.open ? state.browser : undefined
-  const lastInstance = state.instances.at(-1)
-  const actions = (
-    <>
-      {browser && !browsing ? (
-        <ShowBrowserButton
-          instance={browser.instance ?? ''}
-          driving={isBrowserTool(state.tools.findLast((t) => t.status === 'running')?.name)}
-          onShow={() => setHiddenSession(undefined)}
-        />
-      ) : null}
-      {lastInstance && !browser ? <OpenBrowserButton runId={id} instance={lastInstance} /> : null}
-      <CostPill
-        runId={id}
-        provider={summary.provider}
-        cost={summary.cost ?? (busy || summary.origin === 'branch' ? NOTHING_SPENT : undefined)}
-        context={state.context}
-        counting={summary.status === 'running'}
-      />
-      <RunMenu run={listed ?? summary} settled={settled} />
-    </>
-  )
 
   const stop = () => {
     for (const event of stopEvents(state)) apply(event)
@@ -953,11 +134,21 @@ export function RunView({ id }: { id: string }) {
             inputClassName="h-8 max-w-[640px] text-[15px] font-semibold"
           />
         }
-        subtitle={subtitle}
-        actions={actions}
+        subtitle={<RunSubtitle state={state} browsing={browsing} />}
+        actions={
+          <RunActions
+            runId={id}
+            state={state}
+            run={listed ?? summary}
+            settled={settled}
+            busy={busy}
+            browsing={browsing}
+            onShowBrowser={() => setHiddenSession(undefined)}
+          />
+        }
         compact={browsing}
         footer={
-          <Footer
+          <RunFooter
             runId={id}
             provider={summary.provider}
             idleSince={summary.updatedAt}
@@ -1007,148 +198,23 @@ export function RunView({ id }: { id: string }) {
             }}
           />
         )}
-        <div
-          ref={scrollRef}
-          className={cn(
-            'mx-auto max-w-[860px] space-y-5 pt-6 pb-8',
-            browsing ? 'px-4' : 'px-6 @max-[940px]:pr-11',
-          )}
-        >
-          {state.start === 0 ? (
-            <BranchedIntoNotes branches={branches.filter((b) => !b.originTurnId)} />
-          ) : null}
-          {inheritedCount && !showInherited ? (
-            <>
-              <InheritedToggle
-                turns={inheritedCount}
-                open={false}
-                onToggle={() => setShowInherited(true)}
-              />
-              <LineageNote label="Branched from" thread={state.parent} />
-            </>
-          ) : null}
-          {state.start > 0 && (showInherited || state.start >= (state.inheritedItems ?? 0)) ? (
-            <OlderTurns
-              scrollRef={scrollRef}
-              start={state.start}
-              loading={loadingOlder}
-              onVisible={older}
-            />
-          ) : null}
-          {turns.map((turn, i) => {
-            const inherited = inheritedTurn(turn, state)
-            if (inherited && !showInherited) return null
-
-            const isLast = i === turns.length - 1
-            const active = isLast && busy
-            const lastInherited = inherited && (isLast || !inheritedTurn(turns[i + 1], state))
-            const { work, result } = active
-              ? { work: [], result: turn.blocks }
-              : splitTurn(turn.blocks)
-            const text = blocksText(result, state)
-            const toolIds = new Set(
-              turn.blocks.flatMap((b) => (b.kind === 'tools' ? b.tools.map((x) => x.id) : [])),
-            )
-
-            const edits = state.edits.filter((e) => toolIds.has(e.toolId))
-            const turnId = turn.user?.id
-
-            return (
-              <Fragment key={turnId ?? `t${i}`}>
-                <div className={cn('space-y-4', inherited && 'opacity-70')}>
-                  {turn.user ? (
-                    <div
-                      className={cn(arrivedLive(turn, turn.user.id) && 'animate-fade-up')}
-                      data-mark="user"
-                      data-start={turn.start}
-                      data-label={turn.user.text.slice(0, MARK_LABEL_CHARS)}
-                    >
-                      <MemoUserMessage
-                        runId={id}
-                        message={turn.user}
-                        canRetry={!busy && !inherited}
-                        canBranch={!active && !turn.user.steer}
-                      />
-                    </div>
-                  ) : null}
-                  {turn.blocks.length ? (
-                    <div
-                      data-mark="agent"
-                      data-start={turn.start}
-                      data-label={(text || 'Working').slice(0, MARK_LABEL_CHARS)}
-                      className="space-y-4"
-                    >
-                      {work.length ? (
-                        <Worked ms={turnSpan(turn, state)} summary={workSummary(work, state)}>
-                          {work.map((b) => (
-                            <ThreadBlock
-                              key={b.key}
-                              block={b}
-                              state={state}
-                              inherited={inherited}
-                            />
-                          ))}
-                        </Worked>
-                      ) : null}
-                      {result.map((b) => (
-                        <div
-                          key={b.key}
-                          className={cn(arrivedLive(turn, b.key) && 'animate-fade-up')}
-                        >
-                          <ThreadBlock block={b} state={state} inherited={inherited} />
-                        </div>
-                      ))}
-                      {active ? null : <FilesChanged runId={id} edits={edits} />}
-                    </div>
-                  ) : null}
-                  {!active && turnId && text ? (
-                    <AssistantActions
-                      runId={id}
-                      turnId={turnId}
-                      text={text}
-                      ts={turnTime(turn, state)}
-                      canRetry={!busy && !inherited}
-                      nextTurnId={nextTurnId(turns, i)}
-                    />
-                  ) : null}
-                </div>
-                {lastInherited ? (
-                  <div className="space-y-4">
-                    <InheritedToggle
-                      turns={inheritedCount}
-                      open
-                      onToggle={() => setShowInherited(false)}
-                    />
-                    <LineageNote label="Branched from" thread={state.parent} />
-                  </div>
-                ) : null}
-                {turnId ? (
-                  <BranchedIntoNotes branches={branches.filter((b) => b.originTurnId === turnId)} />
-                ) : null}
-              </Fragment>
-            )
-          })}
-          {showThinking ? (
-            <div className="text-[12.5px]">
-              <Shimmer>Thinking</Shimmer>
-            </div>
-          ) : null}
-          <QueuedMessages
-            runId={id}
-            queued={state.queued}
-            held={state.queueHeld}
-            status={summary.status}
-            editingId={edit.editing?.id}
-            canEdit={!docked}
-            onEdit={edit.startEdit}
-            onCancelEdit={edit.endEdit}
-          />
-          {state.error && summary.status === 'error' ? (
-            <div className="border-danger/40 bg-danger-soft/50 text-danger rounded-2xl border px-4 py-3 text-[13px]">
-              {state.error}
-            </div>
-          ) : null}
-        </div>
+        <Thread
+          runId={id}
+          state={state}
+          turns={turns}
+          inheritedCount={inheritedCount}
+          busy={busy}
+          browsing={browsing}
+          docked={docked}
+          edit={edit}
+          branches={branches}
+          showInherited={showInherited}
+          loadingOlder={loadingOlder}
+          scrollRef={scrollRef}
+          arrivedLive={arrivedLive}
+          onShowInherited={setShowInherited}
+          onLoadOlder={older}
+        />
       </Page>
     </ApplyContext.Provider>
   )

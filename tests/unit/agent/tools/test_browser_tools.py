@@ -15,6 +15,7 @@ from ov.browser.pilot import Aim, BrowserError, Dialog, DialogOpen, Point, Tab, 
 
 SAVE = Aim(Point(130, 210), 'button "Save" in "Edit Work Order" at (130, 210)', "button")
 SEARCH = Aim(Point(110, 20), 'textbox "Search" at (110, 20)', "textbox")
+CELL = Aim(Point(300, 400), 'gridcell "WO-1" at (300, 400)', "gridcell")
 TREE = '- button "Save" [ref=e2]\n- textbox "Search" [ref=e1]'
 CONFIRM = Dialog("confirm", "Delete record 42?", "")
 
@@ -39,6 +40,8 @@ class FakePilot:
     def aim(self, target):
         if target.ref == "e2":
             return SAVE
+        if target.ref == "e3":
+            return CELL
         if target.point is not None:
             return Aim(target.point, f"clickable at ({target.point.x}, {target.point.y})", "clickable")
         return SEARCH
@@ -166,6 +169,15 @@ def test_clicking_a_field_or_a_tab_is_not_judged(tmp_path):
     ctx = BrowserContext(tmp_path, effect=Effect.WRITE)
     tool_named("browser_click").handler({"ref": "e1", "say": "Focusing the search"}, ctx)
     assert ctx.actions == [] and ctx.pilot.done == ["click 110,20 left x1"]
+
+
+def test_a_grid_cell_click_or_a_delete_key_is_judged_like_any_change(tmp_path):
+    ctx = BrowserContext(tmp_path, effect=Effect.WRITE)
+    with pytest.raises(ToolError, match="Read-only"):
+        tool_named("browser_click").handler({"ref": "e3", "say": "Opening the row"}, ctx)
+    with pytest.raises(ToolError, match="Read-only"):
+        tool_named("browser_press").handler({"key": "Delete", "say": "Clearing"}, ctx)
+    assert ctx.pilot.done == []
 
 
 def test_full_access_never_asks_the_guard(tmp_path):

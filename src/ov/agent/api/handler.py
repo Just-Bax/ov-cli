@@ -13,10 +13,10 @@ import httpx
 
 from ov.agent import providers
 from ov.agent import workspace as project
+from ov.agent.api import session
 from ov.agent.api.screen import ScreenError
 from ov.agent.engine.files import within
 from ov.agent.engine.run_common import RunError
-from ov.agent.instances.explorer import ExplorerError
 from ov.agent.integrations.datadog import DatadogError
 from ov.agent.integrations.pagerduty import PagerDutyError
 from ov.agent.skills import SkillError
@@ -34,6 +34,15 @@ GZIP_MIN_BYTES = 64 * 1024
 GZIP_LEVEL = 5
 ASSET_CACHE = "public, max-age=31536000, immutable"
 APP_ID = "ov-agent"
+PUBLIC_API = ("/api/health",)
+NOT_SIGNED_IN = "Open OV Agent from the link 'ov agent' prints."
+SIGN_IN_PAGE = (
+    b"<!doctype html><meta charset=utf-8><title>OV Agent</title>"
+    b'<body style="font:15px system-ui;margin:15vh auto;max-width:28rem;color:#263238">'
+    b'<h1 style="font-size:20px">Open OV Agent from your terminal</h1>'
+    b"<p>This browser has not been signed in to the agent yet. Run <code>ov agent</code> again: it opens "
+    b"the app here with a sign-in link, and this page then works as usual.</p>"
+)
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -61,7 +70,6 @@ CLIENT_ERRORS = (
     SkillError,
     project.ProjectError,
     *providers.errors(),
-    ExplorerError,
     DatadogError,
     PagerDutyError,
     ScreenError,
@@ -203,6 +211,9 @@ class Handler(BaseHTTPRequestHandler):
             return content_type in _BODY_TYPES
         return True
 
+    def _signed_in(self) -> bool:
+        return session.matches(session.from_cookies(self.headers.get("Cookie")), self.server.session_token)
+
     def _origins(self) -> set[str]:
         ports = (self.server.server_address[1], DEV_PORT)
         return {f"http://{host}:{port}" for host in LOCAL_HOSTS for port in ports}
@@ -229,6 +240,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not self._trusted(method):
             raise HttpError(403, "Forbidden.")
+        if path not in PUBLIC_API and not self._signed_in():
+            raise HttpError(401, NOT_SIGNED_IN)
 
         for verb, pattern, fn in ROUTES:
             match = pattern.match(path)
@@ -245,10 +258,18 @@ class Handler(BaseHTTPRequestHandler):
         if not index.exists():
             raise HttpError(500, "The web UI is not built. Run 'pnpm build' in web/.")
 
+        token = self.server.session_token
+        if session.matches(self.query.get(session.LINK_PARAM), token):
+            self.send(303, b"", "text/plain", extra={"Location": path, "Set-Cookie": session.set_cookie(token)})
+            return
+
         rel = path.lstrip("/")
         target = within(STATIC_DIR, rel) if rel else index
         if not target.is_file():
             target = index
+        if target == index and not self._signed_in():
+            self.send(401, SIGN_IN_PAGE, CONTENT_TYPES[".html"])
+            return
 
         cache = ASSET_CACHE if "/assets/" in path else "no-cache"
         content_type = CONTENT_TYPES.get(target.suffix.lower(), "application/octet-stream")

@@ -358,3 +358,16 @@ def test_a_follow_up_needs_a_new_well_formed_id(logged_in):
         run.follow_up("u_client_000001", "again", [], steer=False)
     assert [m["id"] for m in run.state["queued"]] == ["u_client_000001"]
     run._busy = False
+
+
+def test_a_tool_that_is_not_offered_cannot_be_called_by_name(logged_in, monkeypatch):
+    from ov.agent.engine.run_manager import runs
+
+    monkeypatch.setattr("ov.agent.integrations.copilot.stream_chat", lambda *a, **k: StreamResult(text="Done."))
+    monkeypatch.setattr("ov.agent.integrations.copilot.supports_vision", lambda _: True)
+
+    run = runs.create({"access": "read", "prompt": "hi", "instance": "acme"}, "copilot", "test-model")
+    wait_done(run)
+
+    call = {"id": "c1", "type": "function", "function": {"name": "ov_plsql", "arguments": '{"block": "x"}'}}
+    assert run.call_tool(call) == "Error: ov_plsql is not available in this thread right now."

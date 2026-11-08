@@ -18,7 +18,6 @@ AUTO_COMPACT_BUFFER = 13_000
 class CostUnit(StrEnum):
     USD = "usd"
     CREDITS = "credits"
-    TOKENS = "tokens"
 
 
 class Initiator(StrEnum):

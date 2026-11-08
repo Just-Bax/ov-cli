@@ -6,7 +6,6 @@ import { instanceLabel, useInstances } from '@/lib/instances'
 const INSTANCE_KEY = 'ov-agent.map-instance'
 const BUILD_POLL_MS = 2000
 export const FOCUS_KEY = 'ov-agent.map-focus'
-export const EXPLORE_KEY = 'ov-agent.explorer-open'
 
 export function useInstanceGraph() {
   const { instances } = useInstances()
@@ -33,7 +32,14 @@ export function useInstanceGraph() {
     setStatus(undefined)
     api
       .graphStatus(alias)
-      .then((s) => alive && setStatus(s))
+      .then(async (s) => {
+        if (!alive) return
+        setStatus(s)
+        if (s.state !== 'ready') return
+
+        const synced = await api.syncGraph(alias)
+        if (alive) setStatus(synced)
+      })
       .catch((e: Error) => alive && setError(e.message))
 
     return () => {

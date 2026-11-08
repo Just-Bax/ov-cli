@@ -16,7 +16,8 @@ from ov.agent.storage import db
 from ov.core.procs import kill_tree, spawn_options, wait_or_stop
 from ov.onevizion.client import READ_ONLY_ENV
 
-SKIPPED_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", ".idea", ".gradle"}
+GIT_DIR = ".git"
+SKIPPED_DIRS = {GIT_DIR, "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", ".idea", ".gradle"}
 MAX_LIST_ENTRIES = 400
 MAX_MATCHES = 200
 MAX_MATCHES_PER_FILE = 50
@@ -312,8 +313,15 @@ def text_of(rel: str) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def write(rel: str, content: str) -> str:
+def _writable(rel: str) -> Path:
     path = resolve(rel)
+    if GIT_DIR in path.relative_to(root()).parts:
+        raise ProjectError(f"{rel} is inside {GIT_DIR}; the agent does not change repository internals.")
+    return path
+
+
+def write(rel: str, content: str) -> str:
+    path = _writable(rel)
     if path.is_dir():
         raise ProjectError(f"{rel} is a folder.")
 
@@ -331,7 +339,7 @@ def edit(rel: str, old: str, new: str, replace_all: bool) -> str:
     if count > 1 and not replace_all:
         raise ProjectError(f"The text appears {count} times in {rel}. Add surrounding lines, or set replace_all.")
 
-    resolve(rel).write_text(text.replace(old, new), encoding="utf-8", newline="")
+    _writable(rel).write_text(text.replace(old, new), encoding="utf-8", newline="")
     return f"Edited {rel}: {count if replace_all else 1} replacement(s)."
 
 

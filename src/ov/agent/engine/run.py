@@ -15,14 +15,13 @@ from ov.agent.engine.conversation import answered
 from ov.agent.engine.export import stored_state, to_markdown
 from ov.agent.engine.files import run_dir
 from ov.agent.engine.prompt import system_prompt
+from ov.agent.engine.run_access import AccessMixin
 from ov.agent.engine.run_branch import INHERITED_RETRY, BranchMixin, BranchPoint
 from ov.agent.engine.run_browser import BrowserMixin
-from ov.agent.engine.run_cases import CasesMixin
 from ov.agent.engine.run_common import RunError, uid
 from ov.agent.engine.run_compaction import CompactionMixin
 from ov.agent.engine.run_events import EventsMixin
-from ov.agent.engine.run_grids import GridsMixin
-from ov.agent.engine.run_guard import GuardMixin
+from ov.agent.engine.run_onevizion import OneVizionMixin
 from ov.agent.engine.run_questions import QuestionsMixin
 from ov.agent.engine.run_queue import QueueMixin
 from ov.agent.engine.run_titles import TitlesMixin
@@ -30,7 +29,6 @@ from ov.agent.engine.run_tools import ToolsMixin
 from ov.agent.engine.tasks import Task
 from ov.agent.providers.base import AgentProvider, Initiator
 from ov.agent.storage import db
-from ov.agent.storage.models import Access
 
 RESTART_NOTE = (
     "OV Agent restarted while you were working, so your turn stopped part way. Tool calls that were running were "
@@ -46,38 +44,17 @@ NO_THREAD = "No thread {id}. Ask the user for the id from the thread's menu: Cop
 STOPPABLE = ("queued", "running", "waiting")
 TASK_FINISHED = "[Background task finished: {label}]\n{result}"
 
-CHANGES_POSSIBLE = (
-    "Changes through ov, ov_import, the PagerDuty change tools, the browser, workspace edits and commands that "
-    "change something are now possible"
-)
-ACCESS_NOTES = {
-    Access.READ: "The user switched this run to Read-only. Make no changes; propose them instead.",
-    Access.ASK: (
-        f"The user switched this run to Always ask. {CHANGES_POSSIBLE}; instance, PagerDuty and browser "
-        "changes, pushes and other outside effects wait for their approval. Apply only what the agreed plan needs."
-    ),
-    Access.AUTO: (
-        f"The user switched this run to Auto. {CHANGES_POSSIBLE} and run without asking the user; only risky ones "
-        "such as deletes, force pushes or bulk changes wait for their approval. Apply only what the agreed plan needs."
-    ),
-    Access.FULL: (
-        f"The user switched this run to Full access. {CHANGES_POSSIBLE} and run without any check or question, "
-        "deletes and pushes included. Be careful: apply only what the agreed plan needs."
-    ),
-}
-
 
 class Run(
     EventsMixin,
     QuestionsMixin,
     QueueMixin,
     ToolsMixin,
-    GuardMixin,
+    AccessMixin,
     BrowserMixin,
-    CasesMixin,
+    OneVizionMixin,
     TitlesMixin,
     CompactionMixin,
-    GridsMixin,
     BranchMixin,
 ):
     turns: dict[str, int]
@@ -158,10 +135,6 @@ class Run(
     def model(self) -> str:
         return str(self.state["summary"]["model"])
 
-    @property
-    def access(self) -> Access:
-        return Access(self.state["access"])
-
     def _helper_model(self) -> str:
         return self.agent.helper_model(db.provider_models(self.provider)[1])
 
@@ -215,12 +188,6 @@ class Run(
                     self._background -= 1
 
         threading.Thread(target=work, daemon=True, name=f"run-{self.id}").start()
-
-    def set_access(self, access: Access, note: str | None = None) -> None:
-        if self.access == access:
-            return
-        self.emit({"type": "access", "access": access})
-        self._notes.append(note or ACCESS_NOTES[access])
 
     def stop(self) -> None:
         self.cancel.set()

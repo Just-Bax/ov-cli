@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ov.agent.instances import graph
 from ov.agent.instances.http import open_client, web_session_alive
 from ov.agent.tools.base import (
     REJECTED_WITH_NOTE,
@@ -84,6 +85,8 @@ def _plsql(args: dict[str, Any], ctx: ToolContext) -> str:
         output = _execute(signed_in[0], block)
     except SessionExpired:
         raise ToolError(SESSION_ENDED.format(alias=signed_in[0])) from None
+    finally:
+        graph.note_write(signed_in[0])
 
     return clip(output or "The block ran and printed nothing.", ctx, "PL/SQL output")
 

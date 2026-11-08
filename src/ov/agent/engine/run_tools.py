@@ -7,7 +7,7 @@ from typing import Any
 from ov.agent.engine.run_common import RunError, uid
 from ov.agent.engine.tasks import Task, TaskContext
 from ov.agent.storage import db
-from ov.agent.tools import tool_named
+from ov.agent.tools import callable_names, tool_named
 from ov.agent.tools.base import Tool, ToolError
 
 MAX_BACKGROUND_TASKS = 8
@@ -136,6 +136,8 @@ class ToolsMixin:
         tool = tool_named(name)
         if tool is None:
             raise ToolError(f"unknown tool {name}")
+        if name not in callable_names(self.can_write()):
+            raise ToolError(f"{name} is not available in this thread right now.")
         return tool, _tool_args(tool, call["function"]["arguments"])
 
     def _call_silent(self, tool: Tool, args: dict[str, Any]) -> str:

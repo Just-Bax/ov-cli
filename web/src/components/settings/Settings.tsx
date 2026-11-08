@@ -15,7 +15,6 @@ import {
   Button,
   Card,
   Chip,
-  IconButton,
   Input,
   Label,
   Page,
@@ -35,8 +34,7 @@ import {
 import { AccountRow } from '@/components/integrations/parts'
 import { PROVIDER_UI } from '@/components/providers'
 import { CostSettings } from '@/components/settings/CostSettings'
-import { AccessLine, PlatformLabel } from '@/components/settings/AccessLine'
-import { SignInButton, SignInLine, SignInStatus } from '@/components/settings/InstanceSignIn'
+import { InstanceRow } from '@/components/settings/InstanceRow'
 import { ProviderSettings } from '@/components/settings/ProviderSettings'
 import { Row } from '@/components/settings/Row'
 import {
@@ -52,7 +50,7 @@ import { useLoad } from '@/lib/hooks'
 import { useInstances } from '@/lib/instances'
 import { PROVIDER_BRANDS } from '@/lib/providerBrand'
 import { useSettings } from '@/lib/settings'
-import { KINDS_HINT } from '@/lib/signin'
+import { KINDS_HINT, signInState } from '@/lib/signin'
 import { UnsavedGuard, useUnsavedWarning } from '@/lib/unsaved'
 
 const STEP_LIMITS = [40, 80, 150, 300]
@@ -169,6 +167,7 @@ function Instances() {
     )
     .sort(
       (a, b) =>
+        Number(signInState(b).stage === 'soon') - Number(signInState(a).stage === 'soon') ||
         Number(b.valid) - Number(a.valid) ||
         a.host.localeCompare(b.host) ||
         (a.tenant ?? '').localeCompare(b.tenant ?? ''),
@@ -227,49 +226,15 @@ function Instances() {
               const busy = pending.has(signInKey(row))
 
               return (
-                <div key={i.alias} className="flex items-center gap-2.5 px-5 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="text-fg min-w-0 truncate text-[13px] font-medium">
-                        {i.host}
-                      </span>
-                      {i.tenant ? <Chip tone="brand">{i.tenant}</Chip> : null}
-                      <PlatformLabel instance={i} />
-                      <SignInLine
-                        instance={i}
-                        onRemembered={setInstances}
-                        onFailed={() => void reload()}
-                      />
-                    </div>
-                    <AccessLine instance={i} onCheck={() => checkAccess(i.alias)} />
-                  </div>
-                  <SignInStatus instance={i} />
-                  <SignInButton instance={i} busy={busy} onSignIn={() => setTarget(row)} />
-                  <IconButton
-                    label="Remove instance"
-                    className="hover:text-danger hover:bg-danger-soft"
-                    onClick={async () => {
-                      const name = i.tenant ? `${i.host} (${i.tenant})` : i.host
-                      const ok = await dialog.confirm({
-                        title: `Remove ${name}?`,
-                        body: 'Signs out and forgets it on this computer. Threads, maps and Datadog matches are kept; sign in again to use it.',
-                        confirmLabel: 'Remove',
-                        tone: 'danger',
-                      })
-                      if (!ok) return
-
-                      setInstances((list) => list?.filter((x) => x.alias !== i.alias))
-                      try {
-                        setInstances(await api.removeInstance(i.alias))
-                      } catch (e) {
-                        void reload()
-                        await dialog.alert('Could not remove it', (e as Error).message)
-                      }
-                    }}
-                  >
-                    <TrashIcon className="size-3.5" />
-                  </IconButton>
-                </div>
+                <InstanceRow
+                  key={i.alias}
+                  instance={i}
+                  busy={busy}
+                  onSignIn={() => setTarget(row)}
+                  onCheck={() => checkAccess(i.alias)}
+                  onChanged={setInstances}
+                  onFailed={() => void reload()}
+                />
               )
             })}
         {instances && !shown.length ? (

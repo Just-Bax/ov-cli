@@ -75,3 +75,16 @@ def test_a_failed_check_is_explained_and_shown(logged_in, monkeypatch):
         access.check("acme")
     assert access.status("acme")["error"] == "No WEB_SERVICES privilege"
     assert access.describe("acme") == access.NOT_CHECKED
+
+
+def test_a_signed_out_instance_is_not_shown_as_an_access_error(logged_in, monkeypatch):
+    from ov.core.errors import SessionExpired
+
+    def signed_out(alias):
+        raise SessionExpired("the web session ended")
+
+    monkeypatch.setattr(access, "_read", signed_out)
+
+    with pytest.raises(access.AccessError, match="is signed out"):
+        access.check("acme")
+    assert "error" not in access.status("acme")

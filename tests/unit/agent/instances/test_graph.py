@@ -92,7 +92,14 @@ def test_find_and_describe():
 
 def test_the_agent_reads_a_cached_map(ov_home, tmp_path):
     seed_session(BASE_URL)
-    data = {**graph._assemble(RESULTS), "instance": "acme", "host": "acme", "builtAt": 0, "warnings": []}
+    data = {
+        **graph._assemble(RESULTS),
+        "instance": "acme",
+        "host": "acme",
+        "builtAt": 0,
+        "source": "export",
+        "warnings": [],
+    }
     write_atomic(graph.graph_file("acme"), json.dumps(data))
 
     class Ctx:
@@ -103,6 +110,7 @@ def test_the_agent_reads_a_cached_map(ov_home, tmp_path):
     out = TOOLS_BY_NAME["ov_map"].handler({"object": "P_STATUS"}, Ctx())
     assert "is used in code by (1): rule Set status (500)" in out
     assert "is a field of (1): trackor_type Project (1)" in out
+    assert "changes made by others since then are not detected" in out
 
 
 @pytest.mark.parametrize(
@@ -161,7 +169,97 @@ def test_workflow_queries_follow_the_instance_schema(monkeypatch, versioned, exp
             return []
 
     monkeypatch.setattr(graph, "EXPORTS", {})
-    graph._read_all(Reader(), lambda _: None)
+    graph._read(Reader(), list(graph.QUERIES), lambda _: None)
 
     workflow_sql = [q for q in seen if "from wf_template" in q]
     assert len(workflow_sql) == 2 and all(expected in q and "{current}" not in q for q in workflow_sql)
+
+
+class ChangeLogReader:
+    alias = "acme"
+
+    def __init__(self, tables):
+        self.tables = tables
+        self.stamps = {str(component): "1@2026-11-01 10:00:00.0" for component in graph.CHANGE_SOURCES}
+        self.read: list[str] = []
+
+    def page(self, sql, offset, size):
+        if sql == graph.FINGERPRINT_SQL:
+            return [
+                {"COMPONENT_ID": c, "N": stamp.split("@")[0], "CHANGED": stamp.split("@")[1]}
+                for c, stamp in self.stamps.items()
+            ]
+        return [{"N": 1}]
+
+    def rows(self, sql, size):
+        name = next(n for n in graph.QUERIES if sql == graph.QUERIES[n].replace("{current}", graph.CURRENT_VERSION))
+        self.read.append(name)
+        return self.tables.get(name, [])
+
+
+@pytest.fixture
+def change_log(ov_home, monkeypatch):
+    seed_session(BASE_URL)
+    reader = ChangeLogReader(dict(RESULTS))
+    monkeypatch.setattr(graph, "SqlReader", lambda alias, cancel: reader)
+    monkeypatch.setattr(graph, "EXPORTS", {"package_code": lambda sql: reader.tables["package_code"]})
+    monkeypatch.setattr(graph.access, "ensure", lambda alias: {"testSql": True, "export": True})
+    monkeypatch.setattr(graph, "_checked_at", {})
+    monkeypatch.setattr(graph, "_written", set())
+    return reader
+
+
+def test_a_map_is_rechecked_only_once_the_recheck_interval_passed(change_log):
+    built = graph.build("acme")
+    change_log.read.clear()
+
+    assert graph.sync("acme") == built
+    assert change_log.read == []
+
+
+def test_a_changed_component_rereads_only_its_own_sources(change_log, monkeypatch):
+    built = graph.build("acme")
+    change_log.read.clear()
+    monkeypatch.setattr(graph, "RECHECK_SECONDS", 0)
+    change_log.stamps["4"] = "2@2026-11-08 09:00:00.0"
+    change_log.tables["rules"] = [*RESULTS["rules"], {"RULE_ID": "501", "RULE": "Added by someone"}]
+
+    synced = graph.sync("acme")
+
+    assert sorted(change_log.read) == ["invalid", "rule_bindings", "rule_code", "rules"]
+    assert synced["refreshed"] == ["rules"]
+    assert "rule:501" in {n["id"] for n in synced["nodes"]}
+    assert synced["fingerprint"]["4"] == "2@2026-11-08 09:00:00.0"
+    assert len(synced["nodes"]) == len(built["nodes"]) + 1
+
+
+def test_an_unchanged_change_log_keeps_the_map(change_log, monkeypatch):
+    built = graph.build("acme")
+    change_log.read.clear()
+    monkeypatch.setattr(graph, "RECHECK_SECONDS", 0)
+
+    assert graph.sync("acme") == built
+    assert change_log.read == []
+
+
+def test_a_write_by_the_agent_rechecks_before_the_interval(change_log):
+    graph.build("acme")
+    change_log.read.clear()
+    change_log.stamps["5"] = "2@2026-11-08 09:00:00.0"
+
+    graph.note_write("acme")
+    synced = graph.sync("acme")
+
+    assert synced["refreshed"] == ["fields"]
+    assert sorted(change_log.read) == ["fields", "invalid"]
+
+
+def test_a_map_without_its_sources_is_built_again(change_log, monkeypatch):
+    graph.build("acme")
+    graph.sources_file("acme").unlink()
+    change_log.read.clear()
+    monkeypatch.setattr(graph, "RECHECK_SECONDS", 0)
+
+    graph.sync("acme")
+
+    assert sorted(change_log.read) == sorted(graph.QUERIES)

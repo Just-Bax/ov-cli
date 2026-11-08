@@ -10,6 +10,7 @@ from ov.onevizion import session as session_store
 
 def forget(alias: str, base_url: str) -> None:
     graph.graph_file(alias).unlink(missing_ok=True)
+    graph.sources_file(alias).unlink(missing_ok=True)
     datadog.forget(alias)
 
     if any(s.base_url == base_url for s in session_store.listed().values()):
@@ -22,11 +23,11 @@ def forget(alias: str, base_url: str) -> None:
 
 def prune() -> None:
     known = set(session_store.listed())
-    graphs = {path.stem for path in graph.graph_file("x").parent.glob("*.json")}
     known_slugs = {slugify(alias) for alias in known}
-
-    for stem in graphs - known_slugs:
-        graph.graph_file(stem).unlink()
+    for place in (graph.graph_file, graph.sources_file):
+        for path in place("x").parent.glob("*.json"):
+            if path.stem not in known_slugs:
+                path.unlink()
 
     for alias in set(datadog.load_state().get("matches", {})) - known:
         datadog.forget(alias)

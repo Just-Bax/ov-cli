@@ -10,12 +10,11 @@ from ov.agent.providers.base import AgentProvider, CostUnit, ModelUnavailable
 def test_every_provider_is_registered_by_its_id():
     listed = providers.every()
 
-    assert [p.id for p in listed] == ["claude", "copilot", "openai"]
+    assert [p.id for p in listed] == ["claude", "copilot"]
     assert all(isinstance(p, AgentProvider) for p in listed)
     assert providers.get("claude").cost_unit == CostUnit.USD
     assert providers.get("copilot").cost_unit == CostUnit.CREDITS
-    assert providers.get("openai").cost_unit == CostUnit.TOKENS
-    with pytest.raises(providers.UnknownProvider, match="Use one of: claude, copilot, openai"):
+    with pytest.raises(providers.UnknownProvider, match="Use one of: claude, copilot"):
         providers.get("nope")
 
 

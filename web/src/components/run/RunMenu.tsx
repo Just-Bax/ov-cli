@@ -19,6 +19,7 @@ import { createPortal } from 'react-dom'
 import type { RunSummary } from '@shared/types.ts'
 import { dialog } from '@/components/common/Dialog'
 import { notify, reportError } from '@/components/common/Toasts'
+import { MenuItem } from '@/components/common/MenuItem'
 import { Button, IconButton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { useClickOutside } from '@/lib/hooks'
@@ -125,53 +126,6 @@ export function runActions(run: RunSummary, settled: boolean): RunAction[] {
     })
 
   return actions
-}
-
-function Item({
-  icon,
-  label,
-  hint,
-  onClick,
-  onHover,
-  active,
-  danger,
-  disabled,
-  trailing,
-}: {
-  icon: ReactNode
-  label: string
-  hint?: string
-  onClick?: () => void
-  onHover?: () => void
-  active?: boolean
-  danger?: boolean
-  disabled?: boolean
-  trailing?: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      disabled={disabled}
-      onClick={onClick}
-      onMouseEnter={onHover}
-      className={cn(
-        'flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-        active
-          ? 'bg-brand-soft text-brand-strong'
-          : danger
-            ? 'text-danger hover:bg-danger-soft'
-            : 'text-fg enabled:hover:bg-raised',
-      )}
-    >
-      <span className={active ? 'text-brand-strong' : danger ? 'text-danger' : 'text-muted'}>
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {hint ? <span className="text-faint shrink-0 text-[11px]">{hint}</span> : null}
-      {trailing}
-    </button>
-  )
 }
 
 async function deleteThread(id: string, working: boolean): Promise<void> {
@@ -319,7 +273,7 @@ function SnoozePanel({ onPick }: { onPick: (until: number) => void }) {
   return (
     <div className="p-1.5">
       {snoozePresets().map((p) => (
-        <Item
+        <MenuItem
           key={p.label}
           icon={<BellZ className="size-4" />}
           label={p.label}
@@ -328,7 +282,11 @@ function SnoozePanel({ onPick }: { onPick: (until: number) => void }) {
         />
       ))}
       <div className="bg-line mx-2 my-1 h-px" />
-      <Item icon={<BellZ className="size-4" />} label="Custom..." onClick={() => setCustom(true)} />
+      <MenuItem
+        icon={<BellZ className="size-4" />}
+        label="Custom..."
+        onClick={() => setCustom(true)}
+      />
     </div>
   )
 }
@@ -426,7 +384,7 @@ export function RunMenu({
               style={{ left: pos.left, top: pos.top, width: MENU_WIDTH }}
               className="border-line-strong/70 animate-pop fixed z-[200] rounded-2xl border bg-white p-1.5 shadow-[var(--shadow-large)]"
             >
-              <Item
+              <MenuItem
                 icon={
                   run.pinned ? <PushPinSlash className="size-4" /> : <PushPin className="size-4" />
                 }
@@ -436,7 +394,7 @@ export function RunMenu({
               />
               {settled ? null : (
                 <div className="relative">
-                  <Item
+                  <MenuItem
                     icon={<BellZ className="size-4" />}
                     label="Snooze"
                     active={snoozing}
@@ -461,7 +419,7 @@ export function RunMenu({
                 </div>
               )}
               {run.snoozedUntil && !settled ? (
-                <Item
+                <MenuItem
                   icon={<SunHorizon className="size-4" />}
                   label="Wake up now"
                   hint={`in ${shortSpan(run.snoozedUntil - Date.now())}`}
@@ -470,7 +428,7 @@ export function RunMenu({
                 />
               ) : null}
               {inRow ? null : (
-                <Item
+                <MenuItem
                   icon={<ArrowsInLineVertical className="size-4" />}
                   label="Compact context"
                   disabled={WORKING.has(run.status)}
@@ -483,14 +441,14 @@ export function RunMenu({
                   }
                 />
               )}
-              <Item
+              <MenuItem
                 icon={<BranchIcon className="size-4" />}
                 label="Branch"
                 onHover={() => setSnoozing(false)}
                 onClick={() => act(() => openThread(api.branch(run.id)))}
               />
               <div className="bg-line mx-2 my-1 h-px" />
-              <Item
+              <MenuItem
                 icon={<CopySimple className="size-4" />}
                 label="Copy thread ID"
                 onHover={() => setSnoozing(false)}
@@ -502,7 +460,7 @@ export function RunMenu({
                 }
               />
               {inRow ? null : (
-                <Item
+                <MenuItem
                   icon={<DownloadSimple className="size-4" />}
                   label="Export as Markdown"
                   onHover={() => setSnoozing(false)}
@@ -510,7 +468,7 @@ export function RunMenu({
                 />
               )}
               <div className="bg-line mx-2 my-1 h-px" />
-              <Item
+              <MenuItem
                 icon={
                   settled ? (
                     <ArrowCounterClockwise className="size-4" />
@@ -525,7 +483,7 @@ export function RunMenu({
                 onClick={() => act(() => setSettled(run.id, !settled))}
               />
               <div className="bg-line mx-2 my-1 h-px" />
-              <Item
+              <MenuItem
                 icon={<Trash className="size-4" />}
                 label="Delete thread"
                 danger

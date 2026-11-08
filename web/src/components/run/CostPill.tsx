@@ -72,12 +72,7 @@ export function CostPill({
             <span>{ui.usageTitle}</span>
             <span className="tabular-nums">{formatCost(cost, unit)}</span>
           </div>
-          <div className="text-muted mt-0.5">
-            {plural(cost.requests, 'request')}
-            {unit === 'tokens' && cost.requests
-              ? `, about ${formatTokens(cost.amount / cost.requests)} tokens each`
-              : ''}
-          </div>
+          <div className="text-muted mt-0.5">{plural(cost.requests, 'request')}</div>
           <div className="text-muted mt-2 leading-relaxed">{ui.usageNote}</div>
           {context ? (
             <div className="mt-2 flex justify-between">

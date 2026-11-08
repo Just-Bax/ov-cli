@@ -90,6 +90,13 @@ def test_mcp_writes_wait_for_approval(calls, tmp_path, monkeypatch):
     assert '"id": 1' in ctx.asked[0]
 
 
+@pytest.mark.parametrize("name", ["trackor_assign", "chats_messages_create_by_trackor_id", "list_and_delete"])
+def test_an_mcp_tool_that_is_not_plainly_a_read_needs_approval(calls, tmp_path, monkeypatch, name):
+    _allow(monkeypatch, mcp=True)
+    with pytest.raises(ToolError, match="Read-only"):
+        mcp.TOOLS[0].handler({"tool": name}, FakeContext(tmp_path))
+
+
 def test_mcp_explains_a_missing_privilege(calls, tmp_path, monkeypatch):
     _allow(monkeypatch)
     with pytest.raises(ToolError, match="MCP_SERVER privilege"):

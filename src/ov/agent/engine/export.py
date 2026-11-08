@@ -55,7 +55,6 @@ def _when(ms: int) -> str:
 COST_FORMATS: dict[CostUnit, Callable[[float], str]] = {
     CostUnit.USD: lambda amount: f"${amount:,.2f}",
     CostUnit.CREDITS: lambda amount: f"{amount:,.2f} credits",
-    CostUnit.TOKENS: lambda amount: f"{amount:,.0f} tokens",
 }
 
 

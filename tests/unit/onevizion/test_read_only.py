@@ -67,3 +67,14 @@ def test_component_import_dry_runs_pass_read_only(monkeypatch):
     guard_read_only("POST", "/v3/components/imports/run?is_dry_run=true")
     with pytest.raises(ReadOnlyBlocked):
         guard_read_only("POST", "/v3/components/imports/run", [("is_dry_run", "false")])
+    with pytest.raises(ReadOnlyBlocked):
+        guard_read_only("POST", "/v3/components/imports/run", [("is_dry_run", "false"), ("is_dry_run", "true")])
+
+
+@pytest.mark.parametrize("path", ["/../admin/x/Delete.do?id=1", "/v3/%2e%2e/%2E%2E/admin/x.do", "v3/../../x"])
+def test_api_paths_cannot_climb_out_of_the_api(path):
+    from ov.core.errors import OvError
+    from ov.onevizion.client import api_path
+
+    with pytest.raises(OvError, match="step out"):
+        api_path(path)

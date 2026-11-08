@@ -35,7 +35,7 @@ function MapState({
     >
       {building
         ? `${step ?? 'Starting'}. Large instances take a minute, or several when read from component exports.`
-        : 'The Instance map and the Code explorer both read the map: how trackor types, fields, rules, automations, imports, reports and workflows link together, with their code. It is read with Test SQL when your account has it, otherwise from component exports and the API.'}
+        : 'The map shows how trackor types, fields, rules, automations, imports, reports and workflows link together, including references in their code. It is read with Test SQL when your account has it, otherwise from component exports and the API.'}
     </EmptyState>
   )
 }
@@ -90,7 +90,7 @@ export function GraphActions({ state }: { state: InstanceGraphState }) {
           onClick={() => void state.build()}
         >
           <ArrowPathIcon className="size-3.5" />
-          Refresh
+          Rebuild
         </Button>
       ) : null}
     </>

@@ -26,6 +26,7 @@ SQL_TIMEOUT_SECONDS = 180
 ERROR_CHARS = 400
 FIND_LIMIT = 20
 DESCRIBE_LIMIT = 60
+RECHECK_SECONDS = 300
 SOURCE_SQL = "sql"
 SOURCE_EXPORT = "export"
 NO_SOURCE = (
@@ -110,6 +111,25 @@ OPTIONAL = {
     "automations",
 }
 
+CHANGE_SOURCES: dict[int, tuple[str, tuple[str, ...]]] = {
+    1: ("imports", ("imports", "import_entities", "import_code")),
+    3: ("reports", ("reports", "report_code")),
+    4: ("rules", ("rules", "rule_bindings", "rule_code")),
+    5: ("fields", ("fields",)),
+    11: ("trackor types", ("trackor_types",)),
+    12: ("relations", ("relations",)),
+    17: ("workflows", ("workflows", "workflow_rules")),
+    22: ("notifications", ("notifications",)),
+    27: ("packages", ("packages", "package_code")),
+    42: ("modules", ("modules",)),
+    50: ("automations", ("automations",)),
+}
+FINGERPRINT_SQL = (
+    "select component_id, count(*) n, max(nvl(modified_at, created_at)) changed from comp_object_log "
+    f"where component_id in ({', '.join(map(str, CHANGE_SOURCES))}) group by component_id"
+)
+REREAD_ON_CHANGE = ("invalid",)
+
 _PLAIN_NODES = (
     ("trackor_types", "trackor_type", "XITOR_TYPE_ID", "XITOR_TYPE"),
     ("imports", "import", "IMP_SPEC_ID", "NAME"),
@@ -144,11 +164,18 @@ def graph_file(alias: str) -> Path:
     return agent_dir("graphs") / f"{slugify(alias)}.json"
 
 
-def load(alias: str) -> dict[str, Any] | None:
-    path = graph_file(alias)
+def sources_file(alias: str) -> Path:
+    return agent_dir("graph-sources") / f"{slugify(alias)}.json"
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load(alias: str) -> dict[str, Any] | None:
+    return _read_json(graph_file(alias))
 
 
 SQL_REQUEST = ("request", "POST", "/v3/sql/test", "-H", "Content-Type: text/plain")
@@ -230,7 +257,22 @@ def _queries(sql: SqlReader) -> dict[str, str]:
     }
 
 
-def _read_all(sql: SqlReader, report: Callable[[str], None]) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+def _fingerprint(sql: SqlReader) -> dict[str, str]:
+    rows = sql.page(FINGERPRINT_SQL, 0, len(CHANGE_SOURCES))
+    return {str(row["COMPONENT_ID"]): f"{row['N']}@{row['CHANGED']}" for row in rows}
+
+
+def _changed(before: dict[str, str], after: dict[str, str]) -> dict[str, tuple[str, ...]]:
+    return {
+        label: names
+        for component, (label, names) in CHANGE_SOURCES.items()
+        if before.get(str(component)) != after.get(str(component))
+    }
+
+
+def _read(
+    sql: SqlReader, names: list[str], report: Callable[[str], None]
+) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
     queries = _queries(sql)
     results: dict[str, list[dict[str, Any]]] = {}
     warnings: list[str] = []
@@ -248,51 +290,131 @@ def _read_all(sql: SqlReader, report: Callable[[str], None]) -> tuple[dict[str, 
 
         with lock:
             results[name] = rows
-            report(f"Read {len(results)} of {len(QUERIES) + len(EXPORTS)} sources")
+            report(f"Read {len(results)} of {len(names)} sources")
 
     with ThreadPoolExecutor(max_workers=QUERY_WORKERS) as pool:
-        for future in [pool.submit(fetch, name) for name in [*EXPORTS, *QUERIES]]:
+        for future in [pool.submit(fetch, name) for name in names]:
             future.result()
 
     return results, warnings
 
 
-def build(instance: str, cancel: Cancel | None = None, progress: Callable[[str], None] | None = None) -> dict[str, Any]:
-    found = find_instance(instance)
-    if found is None:
-        raise GraphError(f"Not signed in to {instance}.")
+_jobs: dict[str, dict[str, Any]] = {}
+_checked: dict[str, int] = {}
+_checked_at: dict[str, float] = {}
+_written: set[str] = set()
+_state_lock = threading.Lock()
+_build_locks: dict[str, threading.Lock] = {}
 
-    alias = found["alias"]
+
+def _build_lock(alias: str) -> threading.Lock:
+    with _state_lock:
+        return _build_locks.setdefault(alias, threading.Lock())
+
+
+def _mark_checked(alias: str) -> None:
+    with _state_lock:
+        _checked[alias] = int(time.time() * 1000)
+        _checked_at[alias] = time.monotonic()
+        _written.discard(alias)
+
+
+def note_write(alias: str) -> None:
+    with _state_lock:
+        _checked_at.pop(alias, None)
+        _written.add(alias)
+
+
+def _due(alias: str, graph: dict[str, Any]) -> bool:
+    with _state_lock:
+        if graph["source"] == SOURCE_EXPORT:
+            return alias in _written
+        last = _checked_at.get(alias)
+        return last is None or time.monotonic() - last >= RECHECK_SECONDS
+
+
+def _save(alias: str, fields: dict[str, Any], sources: dict[str, list[dict[str, Any]]] | None) -> dict[str, Any]:
+    graph = {**fields, "instance": alias, "builtAt": int(time.time() * 1000)}
+    if sources is not None:
+        write_atomic(sources_file(alias), json.dumps(sources))
+    write_atomic(graph_file(alias), json.dumps(graph))
+    _mark_checked(alias)
+    return graph
+
+
+def _build(alias: str, host: str, cancel: Cancel, report: Callable[[str], None]) -> dict[str, Any]:
     try:
         allowed = access.ensure(alias)
     except access.AccessError as exc:
         raise GraphError(str(exc)) from None
 
-    report = progress or (lambda _: None)
     if allowed["testSql"]:
+        sql = SqlReader(alias, cancel)
         report("Reading the configuration")
-        results, warnings = _read_all(SqlReader(alias, cancel or Cancel()), report)
+        fingerprint = _fingerprint(sql)
+        results, warnings = _read(sql, [*EXPORTS, *QUERIES], report)
         report("Linking objects")
-        linked, source = _assemble(results), SOURCE_SQL
-    elif allowed["export"]:
+        fields = {**_assemble(results), "host": host, "source": SOURCE_SQL, "warnings": warnings}
+        return _save(alias, {**fields, "fingerprint": fingerprint}, results)
+
+    if allowed["export"]:
         try:
-            linked, warnings = graph_export.build(alias, cancel or Cancel(), report)
+            linked, warnings = graph_export.build(alias, cancel, report)
         except (graph_export.ExportGraphError, components.ExportError) as exc:
             raise GraphError(str(exc)) from None
-        source = SOURCE_EXPORT
-    else:
-        raise NoAccess(NO_SOURCE.format(instance=alias))
+        return _save(alias, {**linked, "host": host, "source": SOURCE_EXPORT, "warnings": warnings}, None)
 
-    graph = {
-        **linked,
-        "instance": alias,
-        "host": host_of(found["url"]),
-        "builtAt": int(time.time() * 1000),
-        "source": source,
-        "warnings": warnings,
-    }
-    write_atomic(graph_file(alias), json.dumps(graph))
-    return graph
+    raise NoAccess(NO_SOURCE.format(instance=alias))
+
+
+def _refresh(
+    graph: dict[str, Any], sources: dict[str, list[dict[str, Any]]], cancel: Cancel, report: Callable[[str], None]
+) -> dict[str, Any]:
+    alias = graph["instance"]
+    sql = SqlReader(alias, cancel)
+    report("Checking for changes")
+    fingerprint = _fingerprint(sql)
+    changed = _changed(graph["fingerprint"], fingerprint)
+    if not changed:
+        _mark_checked(alias)
+        return graph
+
+    report(f"Re-reading {', '.join(changed)}")
+    names = [name for group in changed.values() for name in group] + list(REREAD_ON_CHANGE)
+    fresh, warnings = _read(sql, names, report)
+    kept = [w for w in graph["warnings"] if w.partition(":")[0] not in fresh]
+    merged = {**sources, **fresh}
+    report("Linking objects")
+    fields = {**_assemble(merged), "host": graph["host"], "source": SOURCE_SQL, "warnings": kept + warnings}
+    return _save(alias, {**fields, "fingerprint": fingerprint, "refreshed": list(changed)}, merged)
+
+
+def _signed_in(instance: str) -> tuple[str, str]:
+    found = find_instance(instance)
+    if found is None:
+        raise GraphError(f"Not signed in to {instance}.")
+    return found["alias"], host_of(found["url"])
+
+
+def build(instance: str, cancel: Cancel | None = None, progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+    alias, host = _signed_in(instance)
+    with _build_lock(alias):
+        return _build(alias, host, cancel or Cancel(), progress or (lambda _: None))
+
+
+def sync(instance: str, cancel: Cancel | None = None, progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+    alias, host = _signed_in(instance)
+    report = progress or (lambda _: None)
+    with _build_lock(alias):
+        graph = load(alias)
+        sources = _read_json(sources_file(alias))
+        if graph is None or (graph["source"] == SOURCE_SQL and sources is None):
+            return _build(alias, host, cancel or Cancel(), report)
+        if not _due(alias, graph):
+            return graph
+        if graph["source"] == SOURCE_EXPORT:
+            return _build(alias, host, cancel or Cancel(), report)
+        return _refresh(graph, sources, cancel or Cancel(), report)
 
 
 def _add_nodes(b: Builder, r: dict[str, list[dict[str, Any]]]) -> None:
@@ -406,49 +528,58 @@ def describe(graph: dict[str, Any], node: dict[str, Any], limit: int = DESCRIBE_
     return "\n".join(lines)
 
 
-_jobs: dict[str, dict[str, Any]] = {}
-_jobs_lock = threading.Lock()
-
-
 def status(alias: str) -> dict[str, Any]:
-    with _jobs_lock:
+    with _state_lock:
         job = dict(_jobs.get(alias, {}))
+        checked = _checked.get(alias)
     if job.get("state") == "building":
         return job
 
     graph = load(alias)
-    built = (
-        {
-            "builtAt": graph["builtAt"],
-            "nodes": len(graph["nodes"]),
-            "edges": len(graph["edges"]),
-            "source": graph.get("source"),
-        }
-        if graph
-        else {}
-    )
-    return {"state": "ready" if graph else "none", **built, **job}
+    if graph is None:
+        return {"state": "none", **job}
+
+    built = {
+        "builtAt": graph["builtAt"],
+        "checkedAt": checked or graph["builtAt"],
+        "nodes": len(graph["nodes"]),
+        "edges": len(graph["edges"]),
+        "source": graph["source"],
+        "refreshed": graph.get("refreshed", []),
+    }
+    return {"state": "ready", **built, **job}
 
 
-def start_build(alias: str) -> dict[str, Any]:
-    with _jobs_lock:
+def _start(alias: str, work: Callable[..., dict[str, Any]]) -> dict[str, Any]:
+    with _state_lock:
         if _jobs.get(alias, {}).get("state") == "building":
             return dict(_jobs[alias])
         _jobs[alias] = {"state": "building", "step": "Starting"}
 
     def progress(step: str) -> None:
-        with _jobs_lock:
+        with _state_lock:
             _jobs[alias] = {"state": "building", "step": step}
 
-    def work() -> None:
+    def run() -> None:
         try:
-            build(alias, progress=progress)
-            outcome: dict[str, Any] = {"state": "ready"}
+            work(alias, progress=progress)
+            outcome: dict[str, Any] = {}
         except Exception as exc:
             outcome = {"state": "error", "error": str(exc) or type(exc).__name__}
 
-        with _jobs_lock:
+        with _state_lock:
             _jobs[alias] = outcome
 
-    threading.Thread(target=work, daemon=True, name=f"graph-{alias}").start()
+    threading.Thread(target=run, daemon=True, name=f"graph-{alias}").start()
     return status(alias)
+
+
+def start_build(alias: str) -> dict[str, Any]:
+    return _start(alias, build)
+
+
+def start_sync(alias: str) -> dict[str, Any]:
+    graph = load(alias)
+    if graph is None or not _due(alias, graph):
+        return status(alias)
+    return _start(alias, sync)
