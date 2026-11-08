@@ -15,8 +15,6 @@ from ov.core.config import TRUE_WORDS
 from ov.core.errors import ApiError, Forbidden, NotFound, ReadOnlyBlocked, SessionExpired, Unreachable
 from ov.onevizion import session as session_store
 from ov.onevizion.auth import (
-    AJAX_HEADERS,
-    CSRF_PATH,
     LOGIN_PATH,
     csrf_headers,
     list_tenants,
@@ -24,6 +22,7 @@ from ov.onevizion.auth import (
     server_message,
 )
 from ov.onevizion.session import Session
+from ov.onevizion.tenants import DEFAULT_PATH
 
 USER_AGENT = "ov-cli"
 READ_ONLY_ENV = "OV_READONLY"
@@ -190,15 +189,8 @@ class Client:
             return False
 
         with _reachable(self.base_url):
-            response = self._http.get(CSRF_PATH, headers=AJAX_HEADERS, follow_redirects=False)
-        if response.status_code != httpx.codes.OK:
-            return False
-
-        try:
-            payload = response.json()
-        except ValueError:
-            return False
-        return isinstance(payload, dict) and bool(payload.get("token"))
+            response = self._http.get(DEFAULT_PATH, headers={"Accept": "text/html"}, follow_redirects=False)
+        return response.status_code == httpx.codes.OK and LOGIN_PATH.lower() not in response.text.lower()
 
     def post_json(self, path: str, payload: Any) -> httpx.Response:
         if self.session.needs_refresh():

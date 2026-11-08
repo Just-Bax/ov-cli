@@ -53,6 +53,7 @@ class FakeContext:
         self.effects = effects or {}
         self.judged: list[str] = []
         self.scripts: dict[str, str] = {}
+        self.logins: list[tuple[str, bool]] = []
         self.auto = auto
         self.full = full
         self.risky = risky
@@ -73,7 +74,8 @@ class FakeContext:
         self.reasons.append(reason)
         return Approval(self.approve == APPROVE, self.note)
 
-    def require_login(self, host, tenant=""):
+    def require_login(self, host, tenant="", web=False):
+        self.logins.append((host, web))
         return False
 
     def attach_image(self, name, url):

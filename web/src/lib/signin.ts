@@ -106,3 +106,12 @@ export function signInReason(previous?: PreviousSignIn): string {
     ? `Its ${REMEMBER_DAYS}-day token expired ${dayOf(previous.expiresAt!)}. Sign in once more for another ${REMEMBER_DAYS} days.`
     : `Its ${REMEMBER_DAYS}-day token was rejected. Sign in again for a new one.`
 }
+
+export function webSignInReason(previous: PreviousSignIn | undefined, keepToken: boolean): string {
+  if (keepToken)
+    return 'This step runs in the web app and its session ended. Your API token still works and stays.'
+
+  return previous?.mode === 'remembered'
+    ? `This step runs in the web app. Signing in also renews the ${REMEMBER_DAYS}-day API token.`
+    : 'This step runs in the web app and its session ended.'
+}

@@ -196,7 +196,7 @@ def _instance(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
 
 
 def _sign_in(ctx: ToolContext, found: dict[str, Any]) -> None:
-    if not ctx.require_login(found["host"], found["tenant"] or ""):
+    if not ctx.require_login(found["host"], found["tenant"] or "", web=True):
         raise ToolError(f"{found['host']} is not signed in.")
 
 

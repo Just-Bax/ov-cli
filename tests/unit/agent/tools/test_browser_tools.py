@@ -504,14 +504,16 @@ def test_opening_the_browser_on_an_ended_web_session_asks_to_sign_in_first(logge
     from ov.agent.engine.run_manager import runs
     from ov.agent.storage.models import Access
 
-    asked: list[str] = []
+    asked: list[tuple[str, bool]] = []
     shown: list[str] = []
     monkeypatch.setattr("ov.agent.engine.run_browser.web_session_alive", lambda alias: False)
-    monkeypatch.setattr(Run, "require_login", lambda self, host, tenant="": asked.append(host) or True)
+    monkeypatch.setattr(
+        Run, "require_login", lambda self, host, tenant="", web=False: asked.append((host, web)) or True
+    )
     monkeypatch.setattr(Run, "_show_browser", lambda self, found: shown.append(found["alias"]))
     db.create_thread("rbrowse", "Browse", "copilot", "m", instance="acme", access=Access.READ)
 
     runs.get("rbrowse").open_browser("acme")
     wait_for(lambda: shown)
 
-    assert asked == [find_instance("acme")["host"]] and shown == ["acme"]
+    assert asked == [(find_instance("acme")["host"], True)] and shown == ["acme"]

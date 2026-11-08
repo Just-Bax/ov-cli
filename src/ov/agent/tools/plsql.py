@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ov.agent.instances.http import open_client
+from ov.agent.instances.http import open_client, web_session_alive
 from ov.agent.tools.base import (
     REJECTED_WITH_NOTE,
     UI_ONLY,
@@ -13,7 +13,8 @@ from ov.agent.tools.base import (
     clip,
     string_param,
 )
-from ov.agent.tools.onevizion import INSTANCE, alias_for, target_instance, with_sign_in
+from ov.agent.tools.onevizion import INSTANCE, alias_for, target_instance
+from ov.core.errors import SessionExpired
 
 EXECUTION_PATH = "/admin/plsqlblock/Execution.do"
 PLSQL_TIMEOUT_SECONDS = 900.0
@@ -22,6 +23,32 @@ BLOCKED = (
     "and tell them they can switch the thread to Always ask or Auto below the chat if they want it run."
 )
 REJECTED = "The user rejected this PL/SQL block. Do not retry it; ask what they want instead."
+NOT_ENABLED = "ov_plsql is off. OV Agent must be started with: ov agent --allow-plsql"
+SIGN_IN_SKIPPED = "{alias} needs a web session sign-in to run PL/SQL, and the user skipped it."
+STILL_SIGNED_OUT = "Still no web session for {alias} after the sign-in."
+SESSION_ENDED = "The web session for {alias} ended before the block ran. Call ov_plsql again to sign in."
+
+_switch = {"enabled": False}
+
+
+def enable() -> None:
+    _switch["enabled"] = True
+
+
+def offered() -> list[Tool]:
+    return TOOLS if _switch["enabled"] else []
+
+
+def _require_web_session(signed_in: tuple[str, str, str], ctx: ToolContext) -> None:
+    alias, host, tenant = signed_in
+    if web_session_alive(alias):
+        return
+
+    if not ctx.require_login(host, tenant, web=True):
+        raise ToolError(SIGN_IN_SKIPPED.format(alias=alias))
+
+    if not web_session_alive(alias):
+        raise ToolError(STILL_SIGNED_OUT.format(alias=alias))
 
 
 def _execute(alias: str, block: str) -> str:
@@ -33,6 +60,9 @@ def _execute(alias: str, block: str) -> str:
 
 
 def _plsql(args: dict[str, Any], ctx: ToolContext) -> str:
+    if not _switch["enabled"]:
+        raise ToolError(NOT_ENABLED)
+
     block = str(args.get("block") or "").strip()
     purpose = " ".join(str(args.get("purpose") or "").split())
     if not block or not purpose:
@@ -45,11 +75,16 @@ def _plsql(args: dict[str, Any], ctx: ToolContext) -> str:
         raise ToolError(UI_ONLY)
 
     signed_in = alias_for(target_instance(args.get("instance"), ctx), ctx)
+    _require_web_session(signed_in, ctx)
     approval = ctx.ask_approval(f"Run this PL/SQL block on {signed_in[1]}? {purpose}", block)
     if not approval.approved:
         raise ToolError(REJECTED_WITH_NOTE.format(note=approval.note) if approval.note else REJECTED)
 
-    output = with_sign_in(signed_in, ctx, lambda alias: _execute(alias, block))
+    try:
+        output = _execute(signed_in[0], block)
+    except SessionExpired:
+        raise ToolError(SESSION_ENDED.format(alias=signed_in[0])) from None
+
     return clip(output or "The block ran and printed nothing.", ctx, "PL/SQL output")
 
 

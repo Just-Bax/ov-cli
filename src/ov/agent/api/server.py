@@ -16,6 +16,7 @@ from ov.agent.api.routes import browser, instances, integrations, settings, thre
 from ov.agent.api.terminal import AgentTerminal
 from ov.agent.engine.run_manager import runs
 from ov.agent.storage import db
+from ov.agent.tools import plsql as plsql_tool
 from ov.core.errors import EXIT_INTERRUPTED, OvError
 
 DEFAULT_PORT = 5180
@@ -42,7 +43,13 @@ def _local_url(port: int) -> str:
     return f"http://{LOOPBACK_HOST}:{port}"
 
 
-def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool = False, color: bool = True) -> int:
+def serve(
+    port: int = DEFAULT_PORT,
+    open_browser: bool = True,
+    full_access: bool = False,
+    plsql: bool = False,
+    color: bool = True,
+) -> int:
     url = _local_url(port)
     terminal = AgentTerminal(color)
     try:
@@ -50,8 +57,9 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool
     except OSError:
         if not already_running(port):
             raise OvError(f"Port {port} is in use by another program. Pass --port.") from None
-        if full_access:
-            raise OvError(f"OV Agent is already running at {url}. Stop it, then start it with --full-access.") from None
+        flags = " ".join(flag for flag, on in (("--full-access", full_access), ("--allow-plsql", plsql)) if on)
+        if flags:
+            raise OvError(f"OV Agent is already running at {url}. Stop it, then start it with {flags}.") from None
         terminal.already_running(url)
         if open_browser:
             webbrowser.open(url)
@@ -64,8 +72,10 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool
         raise
 
     runs.full_access = full_access
+    if plsql:
+        plsql_tool.enable()
     runs.resume_interrupted()
-    terminal.started(url, full_access)
+    terminal.started(url, full_access, plsql)
 
     if open_browser:
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()

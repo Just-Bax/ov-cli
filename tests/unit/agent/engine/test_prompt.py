@@ -9,7 +9,7 @@ def test_the_prompt_lists_tools_by_group(logged_in):
 
     text = system_prompt(Access.READ, "")
 
-    tools = "ov, ov_sql, ov_export, ov_import, ov_search, ov_map, ov_update, ov_plsql, ov_case, ov_propose"
+    tools = "ov, ov_sql, ov_export, ov_import, ov_search, ov_map, ov_update, ov_case, ov_propose"
     assert f"- OV CLI (signed-in OneVizion instances): {tools}\n" in text
     assert "run_read, thread_read, thread_search, run_grid, run_wait" in text
     assert "access not checked yet" in text

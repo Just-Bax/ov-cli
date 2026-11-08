@@ -25,6 +25,11 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
         action="store_true",
         help="offer Full access: threads set to it make every change without asking",
     )
+    agent.add_argument(
+        "--allow-plsql",
+        action="store_true",
+        help="give the agent ov_plsql to run PL/SQL blocks; every block still waits for your approval",
+    )
     agent.set_defaults(func=cmd_agent)
 
 
@@ -44,5 +49,6 @@ def cmd_agent(ctx: Context) -> int:
         ctx.args.port,
         open_browser=not ctx.args.no_open,
         full_access=ctx.args.full_access,
+        plsql=ctx.args.allow_plsql,
         color=ctx.use_color,
     )

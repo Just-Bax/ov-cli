@@ -55,9 +55,9 @@ class TaskContext:
         self._require_foreground()
         return self._run.ask_approval(question, detail, reason)
 
-    def require_login(self, host: str, tenant: str = "") -> bool:
+    def require_login(self, host: str, tenant: str = "", web: bool = False) -> bool:
         self._require_foreground()
-        return self._run.require_login(host, tenant)
+        return self._run.require_login(host, tenant, web)
 
     def load_case(self, ref: str) -> str:
         return self._run.read_case(ref, self._task.cancel)

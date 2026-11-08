@@ -121,6 +121,11 @@ def _register_login(subparsers: argparse._SubParsersAction, common: argparse.Arg
         help="print every sign-in poll, for diagnosing a login that never completes",
     )
     login.add_argument(
+        "--web-only",
+        action="store_true",
+        help="sign in through the browser only to renew the web session; the stored API token stays as it is",
+    )
+    login.add_argument(
         "--keep-current",
         action="store_true",
         help="store the credentials without making this the current instance",
@@ -130,6 +135,9 @@ def _register_login(subparsers: argparse._SubParsersAction, common: argparse.Arg
 
 def cmd_login(ctx: Context) -> int:
     args = ctx.args
+    if args.web_only:
+        return _renew_web_session(ctx)
+
     current = not args.keep_current
     session = _signed_in_session(ctx)
     if args.remember is not None:
@@ -161,6 +169,28 @@ def cmd_login(ctx: Context) -> int:
     }
 
     emit(ctx, data, text=_login_text(session, fetched, current=current))
+    return 0
+
+
+def _renew_web_session(ctx: Context) -> int:
+    if ctx.args.token or ctx.args.remember is not None:
+        raise OvError(
+            "--web-only signs in through the browser and keeps the stored token: drop --token and --remember."
+        )
+
+    signed_in = _signed_in_session(ctx)
+    if signed_in.alias not in session_store.aliases():
+        raise OvError(f"--web-only renews a stored sign-in, and {signed_in.host} has none. Sign in without it.")
+
+    stored = session_store.load(signed_in.alias)
+    stored.cookies = signed_in.cookies
+    session_store.save(stored, make_current=not ctx.args.keep_current)
+
+    emit(
+        ctx,
+        {"status": "web_session_renewed", "alias": stored.alias, "mode": stored.mode},
+        text=f"[green]Renewed the web session[/green] for {stored.alias}; its {MODE_LABELS[stored.mode]} is kept.",
+    )
     return 0
 
 

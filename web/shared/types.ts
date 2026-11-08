@@ -197,6 +197,8 @@ export interface LoginPrompt {
   state: 'needed' | 'running' | 'done' | 'failed' | 'skipped'
   message?: string
   previous?: PreviousSignIn
+  need?: 'web'
+  keepToken?: boolean
 }
 
 export interface MessageFile {

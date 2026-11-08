@@ -193,7 +193,13 @@ _logins_lock = threading.Lock()
 
 
 def login(
-    url: str, tenant: str = "", token: str = "", screen: tuple[int, int] | None = None, remember: bool = False
+    url: str,
+    tenant: str = "",
+    token: str = "",
+    screen: tuple[int, int] | None = None,
+    remember: bool = False,
+    *,
+    web_only: bool = False,
 ) -> OvResult:
     url = url.strip().rstrip("/")
     tenant = tenant.strip()
@@ -212,7 +218,7 @@ def login(
 
     shown = open_screen(key, *screen) if screen and not token else None
     try:
-        holder.append(_run_login(url, tenant, token, shown, remember and not token))
+        holder.append(_run_login(url, tenant, token, shown, remember and not token, web_only=web_only))
         _check_access(url, tenant, holder[0])
     finally:
         if shown:
@@ -234,7 +240,7 @@ def _check_access(url: str, tenant: str, result: OvResult) -> None:
         access.check_later(found["alias"])
 
 
-def _run_login(url: str, tenant: str, token: str, shown: Screen | None, remember: bool) -> OvResult:
+def _run_login(url: str, tenant: str, token: str, shown: Screen | None, remember: bool, *, web_only: bool) -> OvResult:
     result = run_ov(
         [
             "login",
@@ -245,6 +251,7 @@ def _run_login(url: str, tenant: str, token: str, shown: Screen | None, remember
             *(["--tenant", tenant] if tenant else []),
             *(["--token", "-"] if token else []),
             *(["--remember", str(REMEMBER_DAYS)] if remember else []),
+            *(["--web-only"] if web_only else []),
         ],
         timeout=LOGIN_TIMEOUT_SECONDS,
         read_only=False,

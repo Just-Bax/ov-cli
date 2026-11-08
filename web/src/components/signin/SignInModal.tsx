@@ -21,7 +21,13 @@ import { hostOf } from '@/lib/url'
 
 type SignInMethod = 'browser' | 'token'
 
-export type SignInTarget = { url: string; host: string; tenant?: string; mode?: SignInMethod }
+export type SignInTarget = {
+  url: string
+  host: string
+  tenant?: string
+  mode?: SignInMethod
+  web?: { reason: string }
+}
 
 type SignInSubmit = (
   target: SignInTarget,
@@ -344,7 +350,7 @@ export function SignInModal({
           </button>
         </div>
 
-        {phase === 'intro' && !tenant ? (
+        {phase === 'intro' && !tenant && !target.web ? (
           <div className="bg-raised mx-5 mt-5 flex rounded-full p-1">
             {(['browser', 'token'] as const).map((m) => (
               <button
@@ -418,7 +424,12 @@ export function SignInModal({
                   : ' For another tenant on this host, add it with a tenant name.'}
               </span>
             </div>
-            {phase === 'intro' ? (
+            {target.web && phase === 'intro' ? (
+              <div className="text-muted mx-5 mt-4 text-[12.5px] leading-relaxed">
+                {target.web.reason}
+              </div>
+            ) : null}
+            {phase === 'intro' && !target.web ? (
               <div role="radiogroup" aria-label="Stay signed in" className="mx-5 mt-4 space-y-2">
                 <div className="text-text text-[12.5px] font-medium">
                   After you sign in, how long should ov keep you signed in?

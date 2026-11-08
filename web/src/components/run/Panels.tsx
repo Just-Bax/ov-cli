@@ -4,7 +4,7 @@ import type { ExistingMatch, LoginPrompt, Outcome, Verdict } from '@shared/types
 import { Button, Chip, CopyButton, Markdown, Shimmer, type Tone } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { signInReason } from '@/lib/signin'
+import { signInReason, webSignInReason } from '@/lib/signin'
 import { reportError } from '@/components/common/Toasts'
 import { SignInModal, type SignInTarget } from '@/components/signin/SignInModal'
 import { plural } from '@/lib/text'
@@ -125,11 +125,15 @@ export function Answer({ outcome, caseUrl }: { outcome: Outcome; caseUrl?: strin
 
 export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt }) {
   const [open, setOpen] = useState(false)
+  const reason = login.need
+    ? webSignInReason(login.previous, Boolean(login.keepToken))
+    : signInReason(login.previous)
   const target: SignInTarget = {
     url: login.url,
     host: login.instance,
     tenant: login.tenant,
-    mode: login.previous?.mode === 'token' ? 'token' : 'browser',
+    mode: login.need || login.previous?.mode !== 'token' ? 'browser' : 'token',
+    web: login.need ? { reason } : undefined,
   }
 
   if (login.state === 'done' || login.state === 'skipped') {
@@ -166,9 +170,9 @@ export function LoginCard({ runId, login }: { runId: string; login: LoginPrompt 
           ) : failed ? (
             (login.message ?? 'Sign-in failed.')
           ) : login.tenant ? (
-            `${signInReason(login.previous)} ov switches to ${login.tenant} after you sign in.`
+            `${reason} ov switches to ${login.tenant} after you sign in.`
           ) : (
-            signInReason(login.previous)
+            reason
           )}
         </div>
       </div>

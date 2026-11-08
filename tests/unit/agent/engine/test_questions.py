@@ -120,3 +120,64 @@ def test_an_approval_keeps_the_rejection_note(logged_in):
     thread.join(2)
     assert holder[0].approved is False and holder[0].note == "keep build"
     assert run.state["questions"][0]["note"] == "keep build"
+
+
+def _remembered(base_url: str, expires_at: float) -> None:
+    from ov.onevizion import session as session_store
+    from ov.onevizion.session import Session
+
+    session_store.save(
+        Session(base_url=base_url, mode="remembered", bearer_token="A:B", expires_at=expires_at, cookies={"J": "x"})
+    )
+
+
+def _web_sign_in(run, monkeypatch):
+    from ov.agent.instances.ovproc import OvResult
+
+    calls: list = []
+    monkeypatch.setattr(
+        "ov.agent.engine.run_questions.ov_login",
+        lambda url, tenant, token, screen, remember, web_only: (
+            calls.append((remember, web_only)) or OvResult(0, "", "")
+        ),
+    )
+    holder: list = []
+    thread = threading.Thread(target=lambda: holder.append(run.require_login("acme.onevizion.test", "", web=True)))
+    thread.start()
+    wait_for(lambda: run.state["logins"])
+
+    prompt = run.state["logins"][0]
+    run.login(prompt["id"], skip=False)
+    thread.join(2)
+    return prompt, calls, holder
+
+
+@pytest.mark.parametrize(
+    ("expires_at", "keep", "remember"),
+    [(4102444800.0, True, False), (1.0, False, True)],
+)
+def test_a_web_sign_in_keeps_a_working_token_or_renews_it_as_before(logged_in, monkeypatch, expires_at, keep, remember):
+    from helpers.sessions import BASE_URL
+
+    monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
+    from ov.agent.engine.run_manager import runs
+
+    _remembered(BASE_URL, expires_at)
+    run = runs.create({"access": "auto", "prompt": "x"}, "copilot", "m")
+
+    prompt, calls, holder = _web_sign_in(run, monkeypatch)
+    assert prompt["need"] == "web" and prompt["keepToken"] is keep
+    assert calls == [(remember, keep)] and holder == [True]
+
+
+def test_a_web_sign_in_takes_no_api_token(logged_in, monkeypatch):
+    from ov.agent.engine.run_common import RunError
+
+    monkeypatch.setattr("ov.agent.engine.run.Run.begin", lambda self, data: None)
+    from ov.agent.engine.run_manager import runs
+
+    run = runs.create({"access": "read", "prompt": "x"}, "copilot", "m")
+    prompt = {"id": "login_1", "instance": "acme.example", "url": "https://acme.example", "state": "needed"}
+    run.emit({"type": "login", "login": {**prompt, "need": "web", "keepToken": True}})
+    with pytest.raises(RunError, match="needs the browser"):
+        run.login("login_1", skip=False, token="A:B")

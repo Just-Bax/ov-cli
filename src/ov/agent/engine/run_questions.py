@@ -7,10 +7,13 @@ from ov.agent.engine.run_common import RunError, uid
 from ov.agent.instances.ovproc import login as ov_login
 from ov.agent.instances.ovproc import signed_in_row, url_for
 from ov.agent.tools.base import APPROVE, REJECT, Approval
+from ov.onevizion.session import STATIC_MODES
 
 LOGIN_MESSAGE_CHARS = 300
 CLOSED_LOGINS = ("done", "failed", "skipped")
 APPROVAL_ANSWERS = ([APPROVE], [REJECT])
+WEB_NEED = "web"
+REMEMBERED_MODE = "remembered"
 
 
 class QuestionsMixin:
@@ -83,7 +86,7 @@ class QuestionsMixin:
         if last:
             self._set_status("running")
 
-    def require_login(self, host: str, tenant: str = "") -> bool:
+    def require_login(self, host: str, tenant: str = "", web: bool = False) -> bool:
         with self._lock:
             existing = next(
                 (
@@ -91,6 +94,7 @@ class QuestionsMixin:
                     for item in self.state["logins"]
                     if item["instance"] == host
                     and (item.get("tenant") or "") == tenant
+                    and bool(item.get("need")) == web
                     and item["state"] not in CLOSED_LOGINS
                 ),
                 None,
@@ -106,6 +110,7 @@ class QuestionsMixin:
                     "state": "needed",
                     **({"tenant": tenant} if tenant else {}),
                     **_previous_sign_in(host, tenant),
+                    **(_web_need(host, tenant) if web else {}),
                 }
                 self.emit({"type": "login", "login": prompt})
 
@@ -131,9 +136,17 @@ class QuestionsMixin:
             self._resolve_login(login_id, False)
             return {"ok": False, "message": "Skipped"}
 
+        web = prompt.get("need") == WEB_NEED
+        if web and token:
+            raise RunError("This sign-in renews the web session, so it needs the browser, not an API token.")
+
         self.emit({"type": "login", "login": {**prompt, "state": "running"}})
 
-        result = ov_login(prompt["url"], prompt.get("tenant") or "", token, screen, remember)
+        web_only = bool(prompt.get("keepToken"))
+        if web:
+            remember = not web_only and prompt.get("previous", {}).get("mode") == REMEMBERED_MODE
+
+        result = ov_login(prompt["url"], prompt.get("tenant") or "", token, screen, remember, web_only=web_only)
         ok = result.code == 0
         message = "" if ok else result.message[-LOGIN_MESSAGE_CHARS:] or "Sign-in failed."
         update = {**prompt, "state": "done" if ok else "failed"}
@@ -151,6 +164,12 @@ class QuestionsMixin:
         if waiter is not None:
             waiter[1].append(ok)
             waiter[0].set()
+
+
+def _web_need(host: str, tenant: str) -> dict[str, Any]:
+    row = signed_in_row(host, tenant)
+    keeps = row is not None and row["valid"] and row["mode"] in STATIC_MODES
+    return {"need": WEB_NEED, "keepToken": keeps}
 
 
 def _previous_sign_in(host: str, tenant: str) -> dict[str, Any]:

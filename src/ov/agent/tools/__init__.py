@@ -17,9 +17,10 @@ from ov.agent.tools import (
 )
 from ov.agent.tools.base import Tool
 
-CORE_TOOLS = [*onevizion.TOOLS, *data_change.TOOLS, *plsql.TOOLS, *grid.TOOLS, *thread.TOOLS]
+CORE_TOOLS = [*onevizion.TOOLS, *data_change.TOOLS, *grid.TOOLS, *thread.TOOLS]
 TOOLS = [
     *CORE_TOOLS,
+    *plsql.TOOLS,
     *mcp.TOOLS,
     *ddl.TOOLS,
     *browser.MAIN,
@@ -78,6 +79,7 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
 def tool_specs(write: bool = False) -> list[dict[str, Any]]:
     offered = [
         *CORE_TOOLS,
+        *plsql.offered(),
         *mcp.offered(),
         *ddl.offered(),
         *browser.MAIN,

@@ -34,7 +34,7 @@ class BrowserMixin:
         self._spawn(self._sign_in_then_show, found)
 
     def _sign_in_then_show(self, found: dict[str, Any]) -> None:
-        if not self.require_login(found["host"], found["tenant"] or ""):
+        if not self.require_login(found["host"], found["tenant"] or "", web=True):
             raise RunError(SIGN_IN_SKIPPED.format(alias=found["alias"]))
         self._show_browser(found)
 

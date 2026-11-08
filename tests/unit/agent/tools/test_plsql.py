@@ -13,8 +13,27 @@ ARGS = {"purpose": "Disable rule 42", "block": BLOCK}
 @pytest.fixture
 def executed(logged_in, monkeypatch):
     blocks: list[str] = []
+    monkeypatch.setitem(plsql._switch, "enabled", True)
+    monkeypatch.setattr(plsql, "web_session_alive", lambda alias: True)
     monkeypatch.setattr(plsql, "_execute", lambda alias, block: blocks.append(block) or "1")
     return blocks
+
+
+def test_the_tool_is_off_unless_the_agent_was_started_with_it(logged_in, tmp_path):
+    from ov.agent.tools import tool_specs
+
+    assert "ov_plsql" not in {s["function"]["name"] for s in tool_specs(write=True)}
+    with pytest.raises(ToolError, match="ov agent --allow-plsql"):
+        plsql.TOOLS[0].handler(ARGS, FakeContext(tmp_path, write=True))
+
+
+def test_an_ended_web_session_asks_for_a_web_sign_in_before_the_approval(executed, tmp_path, monkeypatch):
+    monkeypatch.setattr(plsql, "web_session_alive", lambda alias: False)
+    ctx = FakeContext(tmp_path, write=True)
+
+    with pytest.raises(ToolError, match="skipped"):
+        plsql.TOOLS[0].handler(ARGS, ctx)
+    assert ctx.logins == [("acme.onevizion.test", True)] and ctx.asked == [] and executed == []
 
 
 def test_a_block_runs_only_after_the_user_approves_it(executed, tmp_path):

@@ -21,7 +21,7 @@ class AgentTerminal:
     def __init__(self, color: bool) -> None:
         self._out = Console(no_color=not color, highlight=False, soft_wrap=True)
 
-    def started(self, url: str, full_access: bool) -> None:
+    def started(self, url: str, full_access: bool, plsql: bool) -> None:
         settings = db.get_preferences()
         provider = providers.get(settings["provider"])
         model = settings["defaultModel"] or "no model picked yet"
@@ -37,6 +37,8 @@ class AgentTerminal:
             rows.add_row(
                 "Access", f"[{DANGER}]Full access offered[/]: threads set to it change anything without asking"
             )
+        if plsql:
+            rows.add_row("PL/SQL", f"[{DANGER}]ov_plsql on[/]: the agent can run PL/SQL blocks you approve")
 
         self._out.print()
         self._out.print(f"  [{BRAND}]OV Agent[/] [{DIM}]{__version__}[/]")

@@ -155,12 +155,12 @@ def test_a_timeout_says_which_setting_to_raise():
 @pytest.mark.parametrize(
     ("response", "alive"),
     [
-        (httpx.Response(200, json={"headerName": "X-CSRF", "token": "t"}), True),
+        (httpx.Response(200, text="<html>Trackor Browser</html>"), True),
         (httpx.Response(302, headers={"Location": "/Login.do"}), False),
-        (httpx.Response(200, text="<html>Sign in with Microsoft</html>"), False),
+        (httpx.Response(200, text='<form action="/Login.do">'), False),
     ],
 )
-def test_the_web_session_is_alive_only_when_the_csrf_endpoint_answers(response, alive):
+def test_the_web_session_is_alive_only_when_a_signed_in_page_opens(response, alive):
     with Client(session(), transport=httpx.MockTransport(lambda _: response)) as api:
         assert api.web_session_alive() is alive
 
