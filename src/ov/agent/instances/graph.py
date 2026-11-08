@@ -175,7 +175,10 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 
 def load(alias: str) -> dict[str, Any] | None:
-    return _read_json(graph_file(alias))
+    graph = _read_json(graph_file(alias))
+    if graph is None or "source" not in graph:
+        return None
+    return graph
 
 
 SQL_REQUEST = ("request", "POST", "/v3/sql/test", "-H", "Content-Type: text/plain")

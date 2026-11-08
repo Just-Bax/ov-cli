@@ -263,3 +263,11 @@ def test_a_map_without_its_sources_is_built_again(change_log, monkeypatch):
     graph.sync("acme")
 
     assert sorted(change_log.read) == sorted(graph.QUERIES)
+
+
+def test_a_map_saved_in_an_older_shape_counts_as_missing(ov_home):
+    seed_session(BASE_URL)
+    write_atomic(graph.graph_file("acme"), json.dumps({**graph._assemble(RESULTS), "builtAt": 0, "warnings": []}))
+
+    assert graph.load("acme") is None
+    assert graph.status("acme") == {"state": "none"}
