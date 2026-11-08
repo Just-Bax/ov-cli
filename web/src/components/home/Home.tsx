@@ -56,7 +56,7 @@ function greeting(): string {
   return h < NOON_HOUR ? 'Good morning' : h < EVENING_HOUR ? 'Good afternoon' : 'Good evening'
 }
 
-type Choices = { instance?: string; access?: Access }
+type Choices = { access?: Access }
 
 function loadChoices(): Choices {
   const raw = localStorage.getItem(CHOICES_KEY)
@@ -86,15 +86,15 @@ function ProviderNotice() {
 export function Home() {
   const saved = loadChoices()
   const { instances } = useInstances()
-  const [instance, setInstance] = useState(saved.instance ?? '')
+  const [instance, setInstance] = useState('')
   const [access, setAccess] = useState<Access>(saved.access ?? 'read')
   const [error, setError] = useState<string>()
   const [starting, setStarting] = useState(false)
   const [draft, setDraft] = useState<{ text: string; at: number }>()
 
   useEffect(() => {
-    localStorage.setItem(CHOICES_KEY, JSON.stringify({ instance, access }))
-  }, [instance, access])
+    localStorage.setItem(CHOICES_KEY, JSON.stringify({ access }))
+  }, [access])
 
   const loadDraft = () => {
     const found = takeDraft()
