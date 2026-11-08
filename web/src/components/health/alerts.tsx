@@ -35,6 +35,7 @@ import {
 
 const INCIDENT_ROWS = 5
 const MONITOR_ROWS = 6
+const MONITOR_ROW_PX = 28
 const DETAIL_TIMELINE_ROWS = 6
 
 const VERDICTS: Record<CheckState, string> = {
@@ -399,7 +400,8 @@ function MonitorRow({ m, appUrl }: { m: HealthMonitor; appUrl: string }) {
       target="_blank"
       rel="noreferrer"
       title={m.name}
-      className="hover:bg-raised flex items-center gap-2.5 rounded-full px-3 py-1.5"
+      className="hover:bg-raised flex shrink-0 items-center gap-2.5 rounded-full px-3"
+      style={{ height: MONITOR_ROW_PX }}
     >
       <span className={cn('size-2 shrink-0 rounded-full', fill)} />
       <span
@@ -417,8 +419,24 @@ function MonitorRow({ m, appUrl }: { m: HealthMonitor; appUrl: string }) {
   )
 }
 
+function useRowsThatFit(area: HTMLElement | null): number {
+  const [fit, setFit] = useState(0)
+
+  useEffect(() => {
+    if (!area) return
+    const measure = () => setFit(Math.floor(area.clientHeight / MONITOR_ROW_PX))
+    const observer = new ResizeObserver(measure)
+    observer.observe(area)
+    return () => observer.disconnect()
+  }, [area])
+
+  return fit
+}
+
 export function MonitorsTile({ ctx, className }: { ctx: Context; className?: string }) {
   const [all, setAll] = useState(false)
+  const [area, setArea] = useState<HTMLDivElement | null>(null)
+  const fit = useRowsThatFit(area)
 
   return (
     <Tile
@@ -443,15 +461,25 @@ export function MonitorsTile({ ctx, className }: { ctx: Context; className?: str
 
           const firing = v.monitors.filter((m) => m.state !== 'OK')
           const quiet = v.monitors.filter((m) => m.state === 'OK')
-          const shown = all ? quiet : quiet.slice(0, Math.max(0, MONITOR_ROWS - firing.length))
+          const least = Math.max(0, MONITOR_ROWS - firing.length)
+          const shown = all ? quiet : quiet.slice(0, Math.max(least, fit))
 
           return (
-            <div className="space-y-3">
+            <div className="flex flex-1 flex-col gap-3">
               <StateBar monitors={v.monitors} />
-              <div className="-mx-2">
-                {[...firing, ...shown].map((m) => (
+              <div className="-mx-2 flex flex-1 flex-col">
+                {firing.map((m) => (
                   <MonitorRow key={m.id} m={m} appUrl={ctx.meta.appUrl} />
                 ))}
+                <div
+                  ref={setArea}
+                  className={cn('flex flex-col', all ? null : 'flex-1 basis-0 overflow-hidden')}
+                  style={{ minHeight: Math.min(least, quiet.length) * MONITOR_ROW_PX }}
+                >
+                  {shown.map((m) => (
+                    <MonitorRow key={m.id} m={m} appUrl={ctx.meta.appUrl} />
+                  ))}
+                </div>
                 <ShowAll
                   shown={firing.length + shown.length}
                   total={v.monitors.length}
