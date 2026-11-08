@@ -65,3 +65,10 @@ def test_a_rejection_note_goes_back_to_the_agent(executed, tmp_path):
 
     with pytest.raises(ToolError, match="only on dev"):
         plsql.TOOLS[0].handler(ARGS, ctx)
+
+
+def test_the_tool_shows_a_card_and_runs_in_the_foreground():
+    spec = plsql.TOOLS[0]
+
+    assert not spec.silent
+    assert "background" not in spec.spec["function"]["parameters"]["properties"]

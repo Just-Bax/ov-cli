@@ -104,10 +104,12 @@ class Tool:
     label: Callable[[dict[str, Any]], str]
     handler: Handler
     silent: bool = False
+    background: bool = True
 
     @property
     def spec(self) -> dict[str, Any]:
-        properties = self.properties if self.silent else {**self.properties, "background": BACKGROUND_PARAM}
+        offers_background = self.background and not self.silent
+        properties = {**self.properties, "background": BACKGROUND_PARAM} if offers_background else self.properties
         return {
             "type": "function",
             "function": {

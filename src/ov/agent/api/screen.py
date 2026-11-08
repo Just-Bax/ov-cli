@@ -25,6 +25,8 @@ MAX_WIDTH = 1600
 MAX_HEIGHT = 1200
 MAX_EVENTS = 200
 MAX_TEXT_CHARS = 2000
+ATTACH_ATTEMPTS = 20
+ATTACH_RETRY_SECONDS = 0.25
 
 MOUSE_EVENTS = {"mousePressed", "mouseReleased", "mouseMoved"}
 KEY_EVENTS = {"keyDown", "keyUp", "rawKeyDown", "char"}
@@ -124,20 +126,31 @@ class Screen:
         feed = _Feed(self._publish)
         targets: dict[Any, str] = {}
         cdp: Any = None
+        failed = 0
         while not self._stop.is_set():
             pages = [pg for pg in context.pages if not pg.is_closed()]
             if not pages:
                 return
 
-            shown = self._shown(context, pages, targets, feed.page)
-            if shown is not feed.page:
-                cdp = feed.watch(context, shown, cdp)
+            try:
+                cdp = self._follow(context, pages, targets, feed, cdp)
+            except PlaywrightError as exc:
+                failed = _attach_failed(exc, failed, feed, targets)
+                cdp = None
+                continue
 
+            failed = 0
             with contextlib.suppress(PlaywrightError):
                 feed.flush(cdp)
                 while not self._input.empty():
                     _apply(cdp, self._input.get())
                 feed.page.wait_for_timeout(LOOP_MS)
+
+    def _follow(self, context: Any, pages: list[Any], targets: dict[Any, str], feed: _Feed, cdp: Any) -> Any:
+        shown = self._shown(context, pages, targets, feed.page)
+        if shown is feed.page:
+            return cdp
+        return feed.watch(context, shown, cdp)
 
     def _shown(self, context: Any, pages: list[Any], targets: dict[Any, str], current: Any) -> Any:
         if self.follow is None:
@@ -151,6 +164,16 @@ class Screen:
                 return page
 
         return current if current in pages else pages[-1]
+
+
+def _attach_failed(exc: PlaywrightError, failed: int, feed: _Feed, targets: dict[Any, str]) -> int:
+    if failed + 1 == ATTACH_ATTEMPTS:
+        raise exc
+
+    feed.page = None
+    targets.clear()
+    time.sleep(ATTACH_RETRY_SECONDS)
+    return failed + 1
 
 
 def _target_id(context: Any, page: Any) -> str:

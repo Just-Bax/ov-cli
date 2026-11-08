@@ -95,15 +95,17 @@ TOOLS = [
         "it printed with dbms_output. Use it for changes the API cannot make in one step: enabling or disabling "
         "rules and automations, backfills, data fixes. Every call waits for the user to approve the exact block, "
         "in every access mode, and it is blocked in a Read-only thread. Read first with ov_sql, keep each block "
-        "to one purpose, print what it changed (counts, ids), and follow the plsql-best-practices skill.",
+        "to one purpose, print what it changed (counts, ids), and follow the plsql-best-practices skill. It always "
+        "runs in the foreground so the user can approve it; for a long block the user can move it to the background "
+        "once it runs.",
         {
             "instance": INSTANCE,
             "purpose": string_param("What the block does, one short sentence the user reads before approving"),
             "block": string_param("The full anonymous block, from declare or begin to end;"),
         },
         ["purpose", "block"],
-        lambda a: brief(f"PL/SQL: {a.get('purpose', '')}"),
+        lambda a: brief(f"PL/SQL{' @ ' + a['instance'] if a.get('instance') else ''}: {a.get('purpose', '')}"),
         _plsql,
-        silent=True,
+        background=False,
     ),
 ]

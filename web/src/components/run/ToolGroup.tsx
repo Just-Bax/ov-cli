@@ -51,6 +51,7 @@ import { seconds } from '@/lib/time'
 const ICONS: Record<string, Icon> = {
   ov: CommandLineIcon,
   ov_sql: CircleStackIcon,
+  ov_plsql: CodeBracketSquareIcon,
   ov_export: ArchiveBoxArrowDownIcon,
   ov_search: MagnifyingGlassIcon,
   ov_map: MapIcon,
@@ -98,6 +99,7 @@ const ICONS: Record<string, Icon> = {
 const NOUNS: Record<string, [string, string]> = {
   ov: ['API call', 'API calls'],
   ov_sql: ['SQL query', 'SQL queries'],
+  ov_plsql: ['PL/SQL block', 'PL/SQL blocks'],
   ov_export: ['export', 'exports'],
   ov_search: ['trackor search', 'trackor searches'],
   ov_map: ['map lookup', 'map lookups'],
@@ -162,6 +164,7 @@ function readableInput(tool: ToolActivity): string {
     const at = a.instance ? `-- ${a.instance}\n` : ''
     const name = tool.name
     if (name === 'ov_sql') return `${at}${a.query}`
+    if (name === 'ov_plsql') return `${at}-- ${a.purpose}\n${a.block}`
     if (name === 'pd_incident' || name === 'pd_ack' || name === 'pd_resolve')
       return String(a.incident)
     if (name === 'pd_note') return `${a.incident}\n${a.note}`

@@ -163,8 +163,9 @@ def test_a_background_task_cannot_ask_for_approval(tmp_path):
         context.ask_user([{"question": "which?"}])
 
 
-def test_every_tool_but_the_silent_ones_offers_background():
+def test_every_tool_offers_background_unless_it_is_silent_or_foreground_only():
     from ov.agent.tools import TOOLS
 
     for tool in TOOLS:
-        assert ("background" in tool.spec["function"]["parameters"]["properties"]) is not tool.silent
+        offered = "background" in tool.spec["function"]["parameters"]["properties"]
+        assert offered is (tool.background and not tool.silent)
