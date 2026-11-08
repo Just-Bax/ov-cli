@@ -185,3 +185,30 @@ def test_a_web_form_post_carries_the_csrf_token():
     assert response.text == "42"
     assert seen[0].headers["x-csrf-token"] == "csrf-1"
     assert seen[0].content == b"plsql=begin+null%3B+end%3B"
+
+
+@pytest.mark.parametrize("mode", ["remembered", "token"])
+def test_a_web_form_post_works_for_a_stored_token_with_live_cookies(mode):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/CsrfToken.do":
+            return httpx.Response(200, json={"headerName": "X-CSRF-TOKEN", "token": "csrf-1"}, request=request)
+        return httpx.Response(200, text="ok", request=request)
+
+    stored = Session(base_url=BASE_URL, mode=mode, cookies={"JSESSIONID": "abc"}, bearer_token="KEEP:ME")
+    with Client(stored, transport=httpx.MockTransport(handler)) as api:
+        assert api.web_post_form("/admin/plsqlblock/Execution.do", {"plsql": "begin null; end;"}, 5.0).text == "ok"
+
+
+def test_a_rejected_web_post_never_ends_the_stored_token(monkeypatch):
+    ended: list = []
+    monkeypatch.setattr("ov.onevizion.client.session_store.mark_ended", ended.append)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/CsrfToken.do":
+            return httpx.Response(200, json={"headerName": "X-CSRF-TOKEN", "token": "csrf-1"}, request=request)
+        return httpx.Response(401, text="", request=request)
+
+    stored = Session(base_url=BASE_URL, mode="remembered", cookies={"JSESSIONID": "abc"}, bearer_token="KEEP:ME")
+    with Client(stored, transport=httpx.MockTransport(handler)) as api, pytest.raises(SessionExpired):
+        api.web_post_form("/admin/plsqlblock/Execution.do", {"plsql": "begin null; end;"}, 5.0)
+    assert ended == []

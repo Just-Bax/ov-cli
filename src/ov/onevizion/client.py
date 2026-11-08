@@ -175,13 +175,14 @@ class Client:
 
     def web_post_form(self, path: str, data: dict[str, str], timeout: float) -> httpx.Response:
         guard_web_read_only(path)
-        self._require_web_session()
+        if not self.session.cookies:
+            raise SessionExpired("no web session cookies stored")
 
         with _reachable(self.base_url):
             headers = {**csrf_headers(self._http), "Accept": "*/*"}
             response = self._http.post(path, data=data, headers=headers, timeout=timeout)
-        if LOGIN_PATH.lower() in str(response.url).lower():
-            raise SessionExpired("redirected to the login page")
+        if LOGIN_PATH.lower() in str(response.url).lower() or response.status_code == httpx.codes.UNAUTHORIZED:
+            raise SessionExpired("the web session was not accepted")
         return self._checked(response)
 
     def web_session_alive(self) -> bool:
