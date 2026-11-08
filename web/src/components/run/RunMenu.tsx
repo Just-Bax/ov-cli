@@ -2,8 +2,10 @@ import {
   ArrowCounterClockwise,
   ArrowsInLineVertical,
   BellZ,
+  CaretLeft,
   CaretRight,
   Checks,
+  Clock,
   CopySimple,
   DotsThree,
   DownloadSimple,
@@ -17,12 +19,12 @@ import { createPortal } from 'react-dom'
 import type { RunSummary } from '@shared/types.ts'
 import { dialog } from '@/components/common/Dialog'
 import { notify, reportError } from '@/components/common/Toasts'
-import { Button } from '@/components/common/ui'
+import { Button, IconButton } from '@/components/common/ui'
 import { api } from '@/lib/api'
 import { useClickOutside } from '@/lib/hooks'
 import { useLayer } from '@/lib/layers'
 import { go, href } from '@/lib/route'
-import { HOUR_MS, MINUTE_MS, shortSpan, timeWithDay } from '@/lib/time'
+import { HOUR_MS, shortSpan, timeWithDay } from '@/lib/time'
 import { cn } from '@/lib/cn'
 import { refreshRuns, removeLocally, setPinned, setSettled, setSnoozed, WORKING } from '@/lib/runs'
 import { BranchIcon, openThread } from './Branches'
@@ -34,7 +36,9 @@ const MENU_WIDTH = 224
 const SUBMENU_WIDTH = 248
 const MENU_GAP = 6
 const EDGE_PX = 8
-const DATETIME_LOCAL_CHARS = 16
+const MORNING_TIME = `${String(MORNING_HOUR).padStart(2, '0')}:00`
+const CALENDAR_CELLS = 6 * DAYS_IN_WEEK
+const WEEKDAY_CHARS = 2
 const WAITING_HINT = 'Answer first'
 
 function at(days: number, hour: number): number {
@@ -49,9 +53,27 @@ function nextMonday(): number {
   return at(ahead, MORNING_HOUR)
 }
 
-function localInput(ms: number): string {
-  const d = new Date(ms - new Date(ms).getTimezoneOffset() * MINUTE_MS)
-  return d.toISOString().slice(0, DATETIME_LOCAL_CHARS)
+function startOfDay(when: Date): Date {
+  return new Date(when.getFullYear(), when.getMonth(), when.getDate())
+}
+
+function monthStart(when: Date): Date {
+  return new Date(when.getFullYear(), when.getMonth(), 1)
+}
+
+function monthGrid(month: Date): Date[] {
+  const lead = (month.getDay() - MONDAY + DAYS_IN_WEEK) % DAYS_IN_WEEK
+  return Array.from(
+    { length: CALENDAR_CELLS },
+    (_, i) => new Date(month.getFullYear(), month.getMonth(), 1 - lead + i),
+  )
+}
+
+function withTime(day: Date, time: string): number {
+  const [hours, minutes] = time.split(':').map(Number)
+  const when = new Date(day)
+  when.setHours(hours, minutes, 0, 0)
+  return when.getTime()
 }
 
 function snoozeLabel(until: number): string {
@@ -173,37 +195,126 @@ async function deleteThread(id: string, working: boolean): Promise<void> {
   }
 }
 
+function Calendar({ selected, onSelect }: { selected: Date; onSelect: (day: Date) => void }) {
+  const [month, setMonth] = useState(() => monthStart(selected))
+  const today = startOfDay(new Date())
+  const days = monthGrid(month)
+  const atFirstMonth = month.getTime() <= monthStart(today).getTime()
+
+  const shift = (months: number) =>
+    setMonth(new Date(month.getFullYear(), month.getMonth() + months, 1))
+
+  return (
+    <div>
+      <div className="flex items-center justify-between pb-1">
+        <IconButton
+          label="Previous month"
+          className="size-7"
+          disabled={atFirstMonth}
+          onClick={() => shift(-1)}
+        >
+          <CaretLeft className="size-3.5" />
+        </IconButton>
+        <span className="text-fg text-[12.5px] font-medium">
+          {month.toLocaleDateString([], { month: 'long', year: 'numeric' })}
+        </span>
+        <IconButton label="Next month" className="size-7" onClick={() => shift(1)}>
+          <CaretRight className="size-3.5" />
+        </IconButton>
+      </div>
+      <div className="grid grid-cols-7">
+        {days.slice(0, DAYS_IN_WEEK).map((day) => (
+          <span
+            key={day.getDay()}
+            className="text-faint flex h-7 items-center justify-center text-[11px] font-medium"
+          >
+            {day.toLocaleDateString([], { weekday: 'short' }).slice(0, WEEKDAY_CHARS)}
+          </span>
+        ))}
+        {days.map((day) => {
+          const past = day < today
+          const outside = day.getMonth() !== month.getMonth()
+          const chosen = day.getTime() === selected.getTime()
+          return (
+            <button
+              key={day.getTime()}
+              type="button"
+              disabled={past}
+              aria-pressed={chosen}
+              aria-label={day.toLocaleDateString([], { dateStyle: 'full' })}
+              onClick={() => {
+                onSelect(day)
+                if (outside) setMonth(monthStart(day))
+              }}
+              className={cn(
+                'relative mx-auto flex size-8 items-center justify-center rounded-full text-[12px] tabular-nums transition-colors',
+                chosen
+                  ? 'bg-brand text-on-brand font-medium'
+                  : past
+                    ? 'text-faint/70 cursor-not-allowed line-through'
+                    : outside
+                      ? 'text-faint hover:bg-raised'
+                      : 'text-fg hover:bg-raised',
+              )}
+            >
+              {day.getDate()}
+              {day.getTime() === today.getTime() ? (
+                <span
+                  className={cn(
+                    'absolute bottom-1 left-1/2 size-[3px] -translate-x-1/2 rounded-full',
+                    chosen ? 'bg-on-brand' : 'bg-brand',
+                  )}
+                />
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function CustomSnooze({ onBack, onPick }: { onBack: () => void; onPick: (until: number) => void }) {
+  const [day, setDay] = useState(() => startOfDay(new Date(at(1, MORNING_HOUR))))
+  const [time, setTime] = useState(MORNING_TIME)
+  const picked = withTime(day, time)
+  const future = picked > Date.now()
+
+  return (
+    <div className="p-2">
+      <Calendar selected={day} onSelect={setDay} />
+      <div className="bg-line my-2 h-px" />
+      <label className="flex items-center gap-2.5 px-1">
+        <Clock className="text-muted size-4" />
+        <span className="text-fg flex-1 text-[12.5px]">Time</span>
+        <input
+          type="time"
+          required
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          className="border-line-strong focus:border-brand text-fg h-8 rounded-full border bg-white px-3 text-[12.5px] tabular-nums outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+        />
+      </label>
+      <div className={cn('px-1 pt-2 text-[11.5px]', future ? 'text-muted' : 'text-danger')}>
+        {future
+          ? `Wakes ${timeWithDay(picked, { weekday: 'short', month: 'short', day: 'numeric' })}`
+          : 'Pick a time in the future'}
+      </div>
+      <div className="mt-2 flex justify-end gap-1.5">
+        <Button size="sm" variant="ghost" onClick={onBack}>
+          Back
+        </Button>
+        <Button size="sm" variant="primary" disabled={!future} onClick={() => onPick(picked)}>
+          Snooze
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function SnoozePanel({ onPick }: { onPick: (until: number) => void }) {
   const [custom, setCustom] = useState(false)
-  const [value, setValue] = useState(() => localInput(at(1, MORNING_HOUR)))
-  const picked = new Date(value).getTime()
-
-  if (custom)
-    return (
-      <div className="p-1.5">
-        <div className="text-muted px-1 pb-1.5 text-[11.5px] font-medium">Snooze until</div>
-        <input
-          type="datetime-local"
-          value={value}
-          min={localInput(Date.now())}
-          onChange={(e) => setValue(e.target.value)}
-          className="border-line-strong focus:border-brand text-fg h-9 w-full rounded-xl border px-2.5 text-[12.5px] outline-none"
-        />
-        <div className="mt-2 flex justify-end gap-1.5">
-          <Button size="sm" variant="ghost" onClick={() => setCustom(false)}>
-            Back
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={!(picked > Date.now())}
-            onClick={() => onPick(picked)}
-          >
-            Snooze
-          </Button>
-        </div>
-      </div>
-    )
+  if (custom) return <CustomSnooze onBack={() => setCustom(false)} onPick={onPick} />
 
   return (
     <div className="p-1.5">
@@ -237,6 +348,21 @@ export function RunMenu({
   const [side, setSide] = useState<'right' | 'left'>('right')
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
+  const submenu = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const node = submenu.current
+    if (!node) return
+
+    const fit = () => {
+      node.style.translate = ''
+      const overflow = node.getBoundingClientRect().bottom - window.innerHeight + EDGE_PX
+      node.style.translate = overflow > 0 ? `0 ${-overflow}px` : ''
+    }
+    const observer = new ResizeObserver(fit)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [snoozing, waiting])
 
   const close = () => {
     setPos(undefined)
@@ -322,6 +448,7 @@ export function RunMenu({
                   />
                   {snoozing && !waiting ? (
                     <div
+                      ref={submenu}
                       style={{ width: SUBMENU_WIDTH }}
                       className={cn(
                         'border-line-strong/70 animate-pop absolute -top-1.5 rounded-2xl border bg-white shadow-[var(--shadow-large)]',

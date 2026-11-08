@@ -40,4 +40,9 @@ def cmd_agent(ctx: Context) -> int:
         return 0
 
     prune()
-    return serve(ctx.args.port, open_browser=not ctx.args.no_open, full_access=ctx.args.full_access)
+    return serve(
+        ctx.args.port,
+        open_browser=not ctx.args.no_open,
+        full_access=ctx.args.full_access,
+        color=ctx.use_color,
+    )

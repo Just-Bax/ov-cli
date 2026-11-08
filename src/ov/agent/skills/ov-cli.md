@@ -13,6 +13,7 @@ core: true
 - `ov_import`: import a component export into an instance. Always dry run first; a real import needs changes allowed and the user's approval unless the thread is on Auto.
 - `ov_search`: trackor search with conditions. `ov_case`: a whole support case from trackor.onevizion.com.
 - `ov_update`: change field values on many trackors at once. It shows every old and new value in a grid, asks for approval, writes through the API and reports failed rows. It can revert a finished change.
+- `ov_plsql`: run an anonymous PL/SQL block (Admin > PL/SQL Block) for what the API cannot do in one step: enabling or disabling rules and automations, backfills, data fixes. The user approves every block, in every access mode. Read the current state with ov_sql first, and print counts or ids of what changed with dbms_output.
 - `run_grid`: show records to the user as a sortable, filterable grid with links. Use it whenever the answer is a list.
 - `ov_mcp` and `ov_ddl` (AI Enabled instances only, when listed under Tools): the instance's MCP server, and the platform's own DDL and package source.
 - Workspace (ws_ tools): the user's code folder, when one is set. Datadog (dd_ tools) and PagerDuty (pd_ tools): server and incident views, when connected. Read their skills before using them.

@@ -21,10 +21,10 @@ class GuardMixin:
     def full_access(self) -> bool:
         return self.access == Access.FULL
 
-    def judge_command(self, command: str, folder: str) -> guard.Verdict:
+    def judge_command(self, command: str, folder: str, scripts: dict[str, str]) -> guard.Verdict:
         return self._judged(
-            (command, folder),
-            lambda model: guard.judge(self.agent, model, command, folder, project.shell_name()),
+            (command, folder, *scripts.values()),
+            lambda model: guard.judge(self.agent, model, command, folder, project.shell_name(), scripts=scripts),
         )
 
     def judge_page_action(self, action: str) -> guard.Verdict:

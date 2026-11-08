@@ -16,6 +16,7 @@ from ov.agent.tools.base import (
     brief,
     clip,
     int_param,
+    mask_secrets,
     raising_tool_errors,
     string_param,
 )
@@ -104,8 +105,10 @@ def _ws_run(args: dict[str, Any], ctx: ToolContext) -> str:
     if ctx.full_access() and not ctx.browser.live:
         return clip(project.run(command, folder, timeout, ctx.cancel), ctx, "command output")
 
-    escapes = project.escapes(command, project.resolve(folder))
-    verdict = ctx.judge_command(command, folder)
+    cwd = project.resolve(folder)
+    escapes = project.escapes(command, cwd, (ctx.work_dir,))
+    scripts = {path: mask_secrets(text) for path, text in project.scripts_run(command, cwd).items()}
+    verdict = ctx.judge_command(command, folder, scripts)
     if verdict.effect != Effect.READ and not ctx.can_write():
         raise ToolError(COMMAND_OFF.format(reason=verdict.reason))
 

@@ -788,3 +788,8 @@ interface PagerDutyHealth {
   incidents?: PagerDutyIncident[]
   oncall?: { user: string; level: number; policy: string; schedule: string; until: string }[]
 }
+
+export interface WorkspacePath {
+  path: string
+  dir: boolean
+}

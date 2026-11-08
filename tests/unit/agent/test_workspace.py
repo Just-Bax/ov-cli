@@ -55,3 +55,45 @@ def test_commands_leaving_the_workspace_need_approval(workspace):
     assert project.escapes("Get-Content $env:USERPROFILE\\.ssh\\id_rsa", project.root()) == [
         "uses a path from an environment variable"
     ]
+
+
+def test_path_search_ranks_names_first_and_skips_ignored_files(workspace):
+    import subprocess
+
+    from ov.agent import workspace_paths
+
+    root = workspace
+    repo = root / "app"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "composer.ts").write_text("x", encoding="utf-8")
+    (repo / "src" / "my_composer_helpers.ts").write_text("x", encoding="utf-8")
+    (repo / "ignored.log").write_text("x", encoding="utf-8")
+    (repo / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+
+    found = [row["path"] for row in workspace_paths.find("composer")]
+    assert found[:2] == ["app/src/composer.ts", "app/src/my_composer_helpers.ts"]
+    assert workspace_paths.find("ignored") == []
+    assert {"path": "app/src", "dir": True} in workspace_paths.find("app/src")
+    assert any(row["path"] == "module" and row["dir"] for row in workspace_paths.find(""))
+
+
+def test_the_run_folder_is_not_outside_the_workspace(workspace, tmp_path):
+    from ov.agent import workspace as project
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    command = f"Get-Content {run_dir / 'rules.xml'}"
+    assert project.escapes(command, project.root())[0].startswith("touches")
+    assert project.escapes(command, project.root(), (run_dir,)) == []
+
+
+def test_scripts_a_command_runs_are_read_for_the_judge(workspace):
+    from ov.agent import workspace as project
+
+    (workspace / "build.ps1").write_text("Write-Output build", encoding="utf-8")
+    command = "powershell -File build.ps1; python module/main.py; node missing.js"
+    assert project.scripts_run(command, project.root()) == {
+        "build.ps1": "Write-Output build",
+        "module/main.py": "alpha\nRULE_ID = 1\n",
+    }

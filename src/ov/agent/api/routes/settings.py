@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from ov import __version__
-from ov.agent import providers, skills
+from ov.agent import providers, skills, workspace_paths
 from ov.agent.api.handler import APP_ID, Handler, HttpError, required, route
 from ov.agent.engine.files import uploads_dir
 from ov.agent.engine.run_manager import runs
@@ -179,3 +179,8 @@ def upload(h: Handler) -> dict[str, str]:
     upload_id = _short_id()
     (uploads_dir() / upload_id).write_bytes(h.body())
     return {"id": upload_id, "name": name}
+
+
+@route("GET", "/api/workspace/paths")
+def workspace_paths_found(h: Handler) -> dict[str, Any]:
+    return {"paths": workspace_paths.find(h.query.get("q", ""))}

@@ -2,10 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from ov.agent.tools import browser, data_change, datadog, ddl, grid, mcp, onevizion, pagerduty, thread, workspace
+from ov.agent.tools import (
+    browser,
+    data_change,
+    datadog,
+    ddl,
+    grid,
+    mcp,
+    onevizion,
+    pagerduty,
+    plsql,
+    thread,
+    workspace,
+)
 from ov.agent.tools.base import Tool
 
-CORE_TOOLS = [*onevizion.TOOLS, *data_change.TOOLS, *grid.TOOLS, *thread.TOOLS]
+CORE_TOOLS = [*onevizion.TOOLS, *data_change.TOOLS, *plsql.TOOLS, *grid.TOOLS, *thread.TOOLS]
 TOOLS = [
     *CORE_TOOLS,
     *mcp.TOOLS,
@@ -35,6 +47,7 @@ TOOL_GROUPS: list[tuple[str, str, list[str]]] = [
             "ov_search",
             "ov_map",
             "ov_update",
+            "ov_plsql",
             "ov_mcp",
             "ov_ddl",
             "ov_case",

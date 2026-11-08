@@ -14,6 +14,7 @@ from ov.agent.engine.files import (
     uploads_dir,
     within,
 )
+from ov.agent.engine.mentions import relink, renames, with_skills
 from ov.agent.engine.prompt import stamped
 from ov.agent.engine.run_common import RunError
 from ov.agent.storage import db
@@ -42,7 +43,7 @@ class QueueMixin:
             raise RunError("This run has no conversation to continue.")
 
         try:
-            uploaded = self._copy_uploads(files)
+            text, uploaded = self._take_uploads(text, files)
             message = self._message(message_id, text, uploaded)
             content = self._user_content(text, uploaded) if claimed else None
         except Exception:
@@ -127,7 +128,8 @@ class QueueMixin:
             if not text.strip() and not keep and not files:
                 raise RunError("A queued message needs text or files.")
 
-            attached = [a for a in uploaded if a["name"] in keep] + self._copy_uploads(files)
+            text, added = self._take_uploads(text, files)
+            attached = [a for a in uploaded if a["name"] in keep] + added
             edited = {**message, "text": text, "files": _listed(attached)}
             self._queue = [(edited, attached) if q[0]["id"] == message_id else q for q in self._queue]
         self.emit({"type": "queue_add", "message": edited})
@@ -236,6 +238,10 @@ class QueueMixin:
         self.messages.append({"role": "user", "content": stamped(content)})
         self.persist()
 
+    def _take_uploads(self, text: str, files: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+        uploaded = self._copy_uploads(files)
+        return relink(text, renames(files, uploaded)), uploaded
+
     def _copy_uploads(self, files: list[dict[str, str]]) -> list[dict[str, Any]]:
         target_dir = attachments_dir(self.id)
         copied = []
@@ -253,6 +259,7 @@ class QueueMixin:
         return copied
 
     def _user_content(self, text: str, uploaded: list[dict[str, Any]]) -> Any:
+        text = with_skills(text)
         if not uploaded:
             return text
 

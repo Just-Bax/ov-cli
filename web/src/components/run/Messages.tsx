@@ -9,6 +9,7 @@ import { type ReactNode, useState } from 'react'
 import type { ChatMessage, MessageFile } from '@shared/types.ts'
 import { reportError } from '@/components/common/Toasts'
 import { Markdown, useCopy } from '@/components/common/ui'
+import { type ChipFile, MentionFiles } from '@/components/composer/MentionChip'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { timeWithDay } from '@/lib/time'
@@ -165,6 +166,14 @@ function FileChips({ runId, files }: { runId: string; files: MessageFile[] }) {
   )
 }
 
+function sentChip(runId: string, files: MessageFile[], name: string): ChipFile | undefined {
+  const file = files.find((f) => f.name === name)
+  if (!file) return undefined
+
+  const preview = sentFile(runId, file)
+  return { size: file.size, url: file.kind === 'image' ? preview.url : undefined }
+}
+
 function UserText({ text }: { text: string }) {
   const long = text.length > LONG_MESSAGE_CHARS || text.split('\n').length > LONG_MESSAGE_LINES
   const [open, setOpen] = useState(false)
@@ -213,7 +222,11 @@ export function UserMessage({
         </span>
       ) : null}
       <FileChips runId={runId} files={message.files ?? []} />
-      {message.text ? <UserText text={message.text} /> : null}
+      {message.text ? (
+        <MentionFiles.Provider value={(name) => sentChip(runId, message.files ?? [], name)}>
+          <UserText text={message.text} />
+        </MentionFiles.Provider>
+      ) : null}
       <div className="flex h-7 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <span className="text-faint mr-1 text-[11.5px]">{formatTime(message.ts)}</span>
         {canRetry ? (

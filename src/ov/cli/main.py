@@ -4,12 +4,13 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, NoReturn
+from typing import Any, NoReturn, TextIO
 
 from ov import __version__
 from ov.cli.commands import BUILTIN_NAMES, GROUPS
 from ov.cli.context import INSTANCE_ENV, Context
 from ov.cli.dynamic import cached_spec, register_tag
+from ov.cli.help import CommandParser, print_root
 from ov.cli.output import console
 from ov.core import config as config_module
 from ov.core.errors import EXIT_INTERRUPTED, EXIT_USAGE, ApiError, OvError
@@ -42,12 +43,18 @@ def build_common() -> argparse.ArgumentParser:
     return common
 
 
-class RootParser(argparse.ArgumentParser):
+class RootParser(CommandParser):
     hint: str = ""
+    commands: argparse._SubParsersAction | None = None
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs.setdefault("allow_abbrev", False)
         super().__init__(*args, **kwargs)
+
+    def print_help(self, file: TextIO | None = None) -> None:
+        if self.commands is None:
+            raise RuntimeError("The root parser has no commands registered yet.")
+        print_root(self, self.commands, self.epilog or "", file)
 
     def error(self, message: str) -> NoReturn:
         if self.hint and "invalid choice" in message:
@@ -64,7 +71,6 @@ def build_parser(argv: list[str]) -> argparse.ArgumentParser:
         prog="ov",
         description=DESCRIPTION,
         epilog=_epilog(config, argv),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.hint = _unknown_group_hint(config, argv)
@@ -72,7 +78,8 @@ def build_parser(argv: list[str]) -> argparse.ArgumentParser:
     parser.add_argument("--home", action="store_true", help="print the config directory and exit")
     add_instance_flag(parser)
 
-    subparsers = parser.add_subparsers(dest="command")
+    subparsers = parser.add_subparsers(dest="command", parser_class=CommandParser)
+    parser.commands = subparsers
     for module in GROUPS:
         module.register(subparsers, common)
 

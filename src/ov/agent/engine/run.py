@@ -265,8 +265,7 @@ class Run(
     def _start(self, data: dict[str, Any]) -> None:
         try:
             self._set_status("running")
-            uploaded = self._copy_uploads(data.get("attachments") or [])
-            text = (data.get("prompt") or "").strip()
+            text, uploaded = self._take_uploads((data.get("prompt") or "").strip(), data.get("attachments") or [])
             self.emit({"type": "user_message", "message": self._message(START_TURN, text, uploaded)})
             self.vision = self.agent.supports_vision(self.model)
 

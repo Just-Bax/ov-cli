@@ -18,6 +18,7 @@ from ov.onevizion.auth import (
     AJAX_HEADERS,
     CSRF_PATH,
     LOGIN_PATH,
+    csrf_headers,
     list_tenants,
     mint_web_session_token,
     server_message,
@@ -169,6 +170,17 @@ class Client:
 
         with _reachable(self.base_url):
             response = self._http.get(path, headers={"Accept": accept, "X-Requested-With": "XMLHttpRequest"})
+        if LOGIN_PATH.lower() in str(response.url).lower():
+            raise SessionExpired("redirected to the login page")
+        return self._checked(response)
+
+    def web_post_form(self, path: str, data: dict[str, str], timeout: float) -> httpx.Response:
+        guard_web_read_only(path)
+        self._require_web_session()
+
+        with _reachable(self.base_url):
+            headers = {**csrf_headers(self._http), "Accept": "*/*"}
+            response = self._http.post(path, data=data, headers=headers, timeout=timeout)
         if LOGIN_PATH.lower() in str(response.url).lower():
             raise SessionExpired("redirected to the login page")
         return self._checked(response)

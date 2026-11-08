@@ -29,7 +29,7 @@ def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
     if session.tenant_id:
         switch_tenant(http, session.tenant_id)
 
-    response = http.post(MINT_PATH, headers=_csrf_headers(http))
+    response = http.post(MINT_PATH, headers=csrf_headers(http))
     _guard(response)
     if response.status_code == 403:
         raise Forbidden(NO_WIDGET_PRIV)
@@ -53,7 +53,7 @@ def mint_web_session_token(http: httpx.Client, session: Session) -> Session:
 
 
 def switch_tenant(http: httpx.Client, tenant_id: str) -> None:
-    response = http.post(SWITCH_PATH, params={"pid": tenant_id}, headers=_csrf_headers(http))
+    response = http.post(SWITCH_PATH, params={"pid": tenant_id}, headers=csrf_headers(http))
     _guard(response)
     if response.status_code == 403:
         raise Forbidden(f"Not allowed into tenant {tenant_id}. It needs a user with your email address.")
@@ -82,7 +82,7 @@ def server_message(text: str) -> str:
     return next((str(payload[key]) for key in MESSAGE_KEYS if payload.get(key)), "")
 
 
-def _csrf_headers(http: httpx.Client) -> dict[str, str]:
+def csrf_headers(http: httpx.Client) -> dict[str, str]:
     response = http.get(CSRF_PATH, headers=AJAX_HEADERS)
     _guard(response)
     if response.status_code >= 400:

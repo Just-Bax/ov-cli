@@ -547,6 +547,21 @@ A message sent while the agent works is **queued** above the composer and sent a
 Each queued message can be edited, removed, or sent with **Steer** so the agent picks it up at
 its next step.
 
+The composer understands a few triggers. Arrow keys move through the menu, Enter or Tab
+picks, Escape closes it:
+
+- **/** at the start of a message runs a command: `/compact`, `/branch`, `/find`, `/export`,
+  `/settle`, `/stop`, `/new`, `/access <mode>`, and on Home `/instance <alias>`. Skills are
+  listed there too.
+- **$** picks a skill. Its text is sent along with the message.
+- **@** mentions an attached file, an object on the thread's instance (trackor types, fields,
+  rules, imports and so on, once its map is built), another thread, or a workspace file or folder.
+- Pasted, dropped and attached files go in as chips where the cursor is, so the agent knows
+  which file you mean. Deleting the chip removes the file, and the other way around.
+- With the instance map built, object references you type (`id.site.tt`, a quoted field name,
+  `PKG.proc`) are underlined.
+- Arrow up in an empty composer brings back your earlier messages in the thread.
+
 In a thread:
 
 - The header shows its credits (hover for tokens and models), its findings, and a **...**

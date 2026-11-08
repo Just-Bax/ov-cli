@@ -183,6 +183,8 @@ class RunManager:
         with self._lock:
             live, self._runs = list(self._runs.values()), {}
         for run in live:
+            run.stop()
+        for run in live:
             run.shut_down()
 
     def _evict(self) -> None:

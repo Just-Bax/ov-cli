@@ -168,3 +168,20 @@ def test_the_web_session_is_alive_only_when_the_csrf_endpoint_answers(response, 
 def test_a_session_without_cookies_has_no_web_session():
     with Client(session("token"), transport=httpx.MockTransport(lambda _: httpx.Response(500))) as api:
         assert api.web_session_alive() is False
+
+
+def test_a_web_form_post_carries_the_csrf_token():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/CsrfToken.do":
+            return httpx.Response(200, json={"headerName": "X-CSRF-TOKEN", "token": "csrf-1"}, request=request)
+        seen.append(request)
+        return httpx.Response(200, text="42", request=request)
+
+    with Client(session(), transport=httpx.MockTransport(handler)) as api:
+        response = api.web_post_form("/admin/plsqlblock/Execution.do", {"plsql": "begin null; end;"}, 5.0)
+
+    assert response.text == "42"
+    assert seen[0].headers["x-csrf-token"] == "csrf-1"
+    assert seen[0].content == b"plsql=begin+null%3B+end%3B"

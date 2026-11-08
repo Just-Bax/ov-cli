@@ -29,6 +29,9 @@ MAX_TIMEOUT_SECONDS = 1800
 BINARY_SNIFF_BYTES = 4096
 SEARCH_WORKERS = 6
 SEARCH_TIMEOUT_SECONDS = 120
+MAX_SCRIPTS = 3
+MAX_SCRIPT_CHARS = 8000
+SCRIPT_EXTENSIONS = ("ps1", "psm1", "py", "sh", "bash", "js", "mjs", "cjs", "ts", "bat", "cmd", "sql", "rb", "pl")
 
 _PARENT_PATH = re.compile(r"(?<![\w.])((?:\.\.[\\/])+[^\s\"';|&>]*|\.\.(?=[\s\"';|&>]|$))")
 _ENV_PATH = re.compile(
@@ -38,6 +41,7 @@ _ENV_PATH = re.compile(
 _WINDOWS_PATH = r"[A-Za-z]:[\\/][^\s\"'|;&]*|~[\\/][^\s\"'|;&]*"
 _POSIX_PATH = r"/[^\s\"'|;&]+|~/[^\s\"'|;&]*"
 _ABSOLUTE = re.compile(rf"(?<![\w:./-])({_WINDOWS_PATH if sys.platform == 'win32' else _POSIX_PATH})")
+_SCRIPT = re.compile(rf"([^\s\"'|;&<>()=]+\.(?:{'|'.join(SCRIPT_EXTENSIONS)}))(?![\w.])", re.IGNORECASE)
 
 
 class ProjectError(Exception):
@@ -168,7 +172,7 @@ def _regex(pattern: str, ignore_case: bool) -> re.Pattern[str]:
 def _grep_folder(folder: Path, pattern: str, globs: list[str], ignore_case: bool) -> str:
     regex = _regex(pattern, ignore_case)
 
-    repos, loose = _repos_and_loose_files(folder, globs)
+    repos, loose = repos_and_loose_files(folder, globs)
     with ThreadPoolExecutor(max_workers=SEARCH_WORKERS) as pool:
         found = list(pool.map(lambda repo: _git_grep(repo, pattern, globs, ignore_case), repos))
 
@@ -192,7 +196,7 @@ def _repo_of(folder: Path) -> Path | None:
     return None
 
 
-def _repos_and_loose_files(folder: Path, globs: list[str]) -> tuple[list[Path], list[Path]]:
+def repos_and_loose_files(folder: Path, globs: list[str]) -> tuple[list[Path], list[Path]]:
     owner = _repo_of(folder)
     if owner is not None:
         return [folder], []
@@ -331,23 +335,41 @@ def edit(rel: str, old: str, new: str, replace_all: bool) -> str:
     return f"Edited {rel}: {count if replace_all else 1} replacement(s)."
 
 
-def escapes(command: str, cwd: Path) -> list[str]:
+def _inside(target: Path, bases: tuple[Path, ...]) -> bool:
+    return any(target == base or base in target.parents for base in bases)
+
+
+def escapes(command: str, cwd: Path, also: tuple[Path, ...] = ()) -> list[str]:
     found: list[str] = []
-    base = root()
+    bases = (root(), *(path.resolve() for path in also))
     for match in _ABSOLUTE.finditer(command):
-        target = Path(match.group(1)).expanduser().resolve()
-        if target != base and base not in target.parents:
+        if not _inside(Path(match.group(1)).expanduser().resolve(), bases):
             found.append(f"touches {match.group(1)} outside the workspace")
 
     for match in _PARENT_PATH.finditer(command):
-        target = (cwd / match.group(1).replace("\\", "/")).resolve()
-        if target != base and base not in target.parents:
+        if not _inside((cwd / match.group(1).replace("\\", "/")).resolve(), bases):
             found.append("climbs out of the workspace")
 
     if _ENV_PATH.search(command):
         found.append("uses a path from an environment variable")
 
     return list(dict.fromkeys(found))
+
+
+def scripts_run(command: str, cwd: Path) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for match in _SCRIPT.finditer(command):
+        written = match.group(1)
+        candidate = Path(written).expanduser()
+        path = candidate if candidate.is_absolute() else cwd / candidate
+        if written in found or not path.is_file():
+            continue
+
+        found[written] = path.read_text(encoding="utf-8", errors="replace")[:MAX_SCRIPT_CHARS]
+        if len(found) == MAX_SCRIPTS:
+            break
+
+    return found
 
 
 def shell_name() -> str:

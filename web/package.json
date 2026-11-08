@@ -13,6 +13,13 @@
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",
     "@phosphor-icons/react": "^2.1.10",
+    "@tiptap/core": "^3.33.0",
+    "@tiptap/extension-document": "^3.33.0",
+    "@tiptap/extension-paragraph": "^3.33.0",
+    "@tiptap/extension-text": "^3.33.0",
+    "@tiptap/extensions": "^3.33.0",
+    "@tiptap/pm": "^3.33.0",
+    "@tiptap/react": "^3.33.0",
     "@xyflow/react": "^12.12.0",
     "diff": "^9.0.0",
     "monaco-editor": "^0.57.0",

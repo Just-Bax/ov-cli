@@ -25,12 +25,15 @@ from ov.agent.tools.base import (
     brief,
     clip,
     int_param,
+    mask_secrets,
     string_param,
     strings_param,
 )
 from ov.core.errors import EXIT_READ_ONLY, SessionExpired
 
 OV_TIMEOUT_SECONDS = 180
+PAYLOAD_CHARS = 4000
+PAYLOAD_SUFFIXES = (".json", ".xml", ".txt", ".csv", ".sql")
 SQL_TIMEOUT_SECONDS = 300
 SQL_TIMED_OUT = (
     "The query gave no answer on {instance} in {limit}s (ran {took:.1f}s). Oracle may still be running it and "
@@ -100,6 +103,7 @@ _SECRET_NAME = re.compile(r"pass(word|wd)?|secret|token|api_?key|private_?key|cr
 _SECRET_KEY = re.compile(rf"^[\w.\-]{{0,{MAX_SECRET_KEY_CHARS}}}$")
 _SECRET_VALUE = re.compile(r"^\S+$")
 _IDENTIFIER = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_FILE_ARG = re.compile(r"^(?:[\w-]+=)?@(.+)$")
 
 
 def entity_link(entity_type: str, entity_id: str | None, instance: str | None) -> str | None:
@@ -269,7 +273,7 @@ def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
         raise ToolError(UI_ONLY)
 
     command = f"ov -i {host} {_quoted(args)}"
-    if not approved(ctx, f"Apply this change on {host}?", command):
+    if not approved(ctx, f"Apply this change on {host}?", command + _payloads(args)):
         raise ToolError("The user rejected this change. Do not retry it.")
 
     if not ctx.can_write():
@@ -285,6 +289,20 @@ def _write(alias: str, host: str, args: list[str], ctx: ToolContext) -> str:
     if result.timed_out:
         raise ToolError(f"ov timed out after {OV_TIMEOUT_SECONDS}s")
     return _output(result)
+
+
+def _payloads(args: list[str]) -> str:
+    shown = []
+    for arg in args:
+        match = _FILE_ARG.match(arg)
+        path = Path(match.group(1)) if match else None
+        if path is None or path.suffix.lower() not in PAYLOAD_SUFFIXES or not path.is_file():
+            continue
+
+        text = path.read_text(encoding="utf-8", errors="replace")[:PAYLOAD_CHARS]
+        shown.append(f"\n\n{path.name}:\n{mask_secrets(text)}")
+
+    return "".join(shown)
 
 
 def _sql_cell(value: Any) -> str:

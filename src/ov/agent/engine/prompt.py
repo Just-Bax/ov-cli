@@ -136,6 +136,11 @@ browser_run as a concrete goal with the expected result; a fast assistant drives
 reports back with a screenshot. Read every report and its Result line before the next goal. While the browser \
 is open, every change happens in the UI; ov, SQL and commands only read, to check results. If the UI cannot \
 do a step, such as a read-only field or a missing button, stop and tell the user instead of doing it another way.
+- User messages can carry mentions the user picked: [name](attachment:<file>) is a file attached to that \
+message (open it with run_read), [path](workspace:<path>) a workspace file, or a folder when the path ends \
+in /, [name](ov:<type>/<id>) an object of that type and id on the run's instance, [title](thread:<id>) another \
+thread (read it with thread_read), and [title](skill:<name>) a skill whose text follows the message. Each \
+mention means exactly that object.
 - Never read or print stored credentials, passwords or tokens.
 - When a task needs an instance or {TRACKOR_HOST} and it is not signed in or its session expired, call the \
 tool anyway: the user is asked to sign in. Never skip a step or give up because something is not signed in.

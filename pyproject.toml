@@ -30,6 +30,7 @@ dependencies = [
     "claude-agent-sdk>=0.2.167",
     "typing-extensions>=4.5",
     "tzdata>=2024.1",
+    "rich-argparse>=1.7",
 ]
 
 [project.optional-dependencies]

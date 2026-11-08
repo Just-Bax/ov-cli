@@ -5,7 +5,16 @@ import {
   Play as PlayIcon,
   ShieldWarning as ShieldWarningIcon,
 } from '@phosphor-icons/react'
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 import type {
   Access,
@@ -36,7 +45,8 @@ import {
   SkeletonText,
   type Tone,
 } from '@/components/common/ui'
-import { Composer } from '@/components/composer/Composer'
+import { Composer, type ComposerKeyHandler } from '@/components/composer/Composer'
+import { threadCommands, useAccessCommand } from '@/components/composer/commands'
 import { AccessPicker } from '@/components/composer/AccessPicker'
 import { OPEN_FIND } from '@/components/layout/CommandPalette'
 import { api } from '@/lib/api'
@@ -449,6 +459,7 @@ function Footer({
   queueHeld,
   freshBranchTurns,
   edit,
+  history,
   onStop,
   onSend,
 }: {
@@ -468,6 +479,7 @@ function Footer({
   queueHeld: boolean
   freshBranchTurns: number
   edit: QueuedEdit
+  history: string[]
   onStop: () => void
   onSend: () => void
 }) {
@@ -549,7 +561,7 @@ function Footer({
     }
   }
 
-  const shortcut = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const shortcut: ComposerKeyHandler = (e, at) => {
     if (editing && e.key === 'Escape') {
       endEdit()
       return true
@@ -561,9 +573,8 @@ function Footer({
       return true
     }
 
-    const atStart = e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0
     const latest = queued.at(-1)
-    if (e.key !== 'ArrowUp' || !e.altKey || !atStart || editing || !latest) return false
+    if (e.key !== 'ArrowUp' || !e.altKey || !at.start || editing || !latest) return false
 
     startEdit(latest)
     return true
@@ -576,6 +587,8 @@ function Footer({
       reportError(e)
     })
   }
+
+  const commands = [...threadCommands(run, settled, busy, onStop), useAccessCommand(pickAccess)]
 
   const extras = (
     <>
@@ -646,6 +659,10 @@ function Footer({
               }
               submitLabel={editing ? () => 'Save' : undefined}
               onKeyDown={shortcut}
+              commands={commands}
+              instance={run.instance}
+              runId={runId}
+              history={history}
               onSend={send}
               draft={draft}
               draftKey={editKey}
@@ -728,6 +745,11 @@ export function RunView({ id }: { id: string }) {
   const branches = useBranches(id)
   const arrivedLive = useArrivedLive(state)
   const edit = useQueuedEdit(id, state?.queued ?? NO_MESSAGES)
+  const chat = state?.chat ?? NO_MESSAGES
+  const userTexts = useMemo(
+    () => chat.filter((m) => m.role === 'user' && m.text).map((m) => m.text),
+    [chat],
+  )
 
   useEffect(() => {
     const open = Boolean(state?.browser?.open)
@@ -952,6 +974,7 @@ export function RunView({ id }: { id: string }) {
             queueHeld={state.queueHeld}
             freshBranchTurns={freshBranchTurns(state, inheritedCount)}
             edit={edit}
+            history={userTexts}
             onStop={stop}
             onSend={() => {
               followBottom.current = true

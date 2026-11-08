@@ -52,6 +52,7 @@ class FakeContext:
         self.reasons: list[str] = []
         self.effects = effects or {}
         self.judged: list[str] = []
+        self.scripts: dict[str, str] = {}
         self.auto = auto
         self.full = full
         self.risky = risky
@@ -97,8 +98,9 @@ class FakeContext:
         self.judged.append(change)
         return Verdict(Effect.RISKY if self.risky else Effect.ROUTINE, "it deletes data")
 
-    def judge_command(self, command, folder):
+    def judge_command(self, command, folder, scripts):
         self.judged.append(command)
+        self.scripts = scripts
         effect = self.effects.get(command, Effect.READ)
         return Verdict(effect, f"it is {effect.value}")
 

@@ -24,7 +24,7 @@ interface Mode {
 
 const METER_STEPS = 4
 
-const ACCESS_MODES: Mode[] = [
+export const ACCESS_MODES: Mode[] = [
   {
     value: 'read',
     label: 'Read-only',
@@ -109,6 +109,10 @@ const CONFIRM: Partial<Record<Access, () => Promise<boolean>>> = {
     }),
 }
 
+export function confirmAccess(next: Access): Promise<boolean> {
+  return CONFIRM[next]?.() ?? Promise.resolve(true)
+}
+
 export function AccessPicker({
   value,
   onChange,
@@ -134,8 +138,7 @@ export function AccessPicker({
 
     if (next === local) return
 
-    const confirm = CONFIRM[next]
-    if (confirm && !(await confirm())) return
+    if (!(await confirmAccess(next))) return
 
     const previous = local
     setLocal(next)

@@ -4,6 +4,7 @@ import {
   Copy as Square2StackIcon,
 } from '@phosphor-icons/react'
 import {
+  type AnchorHTMLAttributes,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -16,8 +17,11 @@ import {
   useMemo,
 } from 'react'
 import type { MessageLinks } from '@shared/types.ts'
+import { MentionChip } from '@/components/composer/MentionChip'
+import { mentionHrefAllowed, mentionOfHref } from '@/lib/mentions'
+import { href as routeHref } from '@/lib/route'
 import type { Sparkle as SparklesIcon } from '@phosphor-icons/react'
-import ReactMarkdown, { type Components } from 'react-markdown'
+import ReactMarkdown, { type Components, defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Dropdown, type DropdownOption } from '@/components/common/Dropdown'
 import { reportError } from '@/components/common/Toasts'
@@ -356,8 +360,38 @@ export function Select({
 }
 
 const REMARK_PLUGINS = [remarkGfm]
+
+function urlTransform(url: string): string {
+  return mentionHrefAllowed(url) ? url : defaultUrlTransform(url)
+}
+
+function MentionLink({ href, label }: { href: string; label: string }) {
+  const mention = mentionOfHref(href, label)
+  if (!mention) return null
+
+  return mention.kind === 'thread' ? (
+    <a href={routeHref({ page: 'thread', id: mention.target })} className="no-underline">
+      <MentionChip mention={mention} />
+    </a>
+  ) : (
+    <MentionChip mention={mention} />
+  )
+}
+
+function linkText(children: ReactNode): string {
+  return Array.isArray(children) ? children.join('') : String(children ?? '')
+}
+
+function MarkdownLink(p: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  return p.href && mentionHrefAllowed(p.href) ? (
+    <MentionLink href={p.href} label={linkText(p.children)} />
+  ) : (
+    <a {...p} target="_blank" rel="noreferrer" />
+  )
+}
+
 const MARKDOWN_COMPONENTS: Components = {
-  a: ({ node: _node, ...p }) => <a {...p} target="_blank" rel="noreferrer" />,
+  a: ({ node: _node, ...p }) => <MarkdownLink {...p} />,
   table: ({ node: _node, ...p }) => (
     <div className="md-table">
       <table {...p} />
@@ -431,14 +465,18 @@ export const Markdown = memo(function Markdown({
             <ExclamationTriangleIcon className="text-warn ml-0.5 inline size-3 align-[-1px]" />
           </a>
         ) : (
-          <a {...p} target="_blank" rel="noreferrer" />
+          <MarkdownLink {...p} />
         ),
     }
   }, [links])
 
   return (
     <div className={cn('md', className)}>
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        components={components}
+        urlTransform={urlTransform}
+      >
         {withMentions(text, links)}
       </ReactMarkdown>
     </div>

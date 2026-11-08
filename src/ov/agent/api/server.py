@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import math
+import os
 import sys
 import threading
+import time
 import webbrowser
 from http.server import ThreadingHTTPServer
 
@@ -10,12 +13,15 @@ import httpx
 from ov.agent import providers
 from ov.agent.api.handler import APP_ID, LOOPBACK_HOST, Handler
 from ov.agent.api.routes import browser, instances, integrations, settings, threads
+from ov.agent.api.terminal import AgentTerminal
 from ov.agent.engine.run_manager import runs
 from ov.agent.storage import db
-from ov.core.errors import OvError
+from ov.core.errors import EXIT_INTERRUPTED, OvError
 
 DEFAULT_PORT = 5180
 HEALTH_CHECK_TIMEOUT_SECONDS = 2
+SHUTDOWN_DEADLINE_SECONDS = 15
+WAIT_SLICE_SECONDS = 0.25
 ROUTE_MODULES = (settings, instances, integrations, threads, browser)
 
 
@@ -36,8 +42,9 @@ def _local_url(port: int) -> str:
     return f"http://{LOOPBACK_HOST}:{port}"
 
 
-def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool = False) -> int:
+def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool = False, color: bool = True) -> int:
     url = _local_url(port)
+    terminal = AgentTerminal(color)
     try:
         server = AgentServer((LOOPBACK_HOST, port), Handler)
     except OSError:
@@ -45,7 +52,7 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool
             raise OvError(f"Port {port} is in use by another program. Pass --port.") from None
         if full_access:
             raise OvError(f"OV Agent is already running at {url}. Stop it, then start it with --full-access.") from None
-        print(f"OV Agent is already running at {url}")
+        terminal.already_running(url)
         if open_browser:
             webbrowser.open(url)
         return 0
@@ -58,24 +65,61 @@ def serve(port: int = DEFAULT_PORT, open_browser: bool = True, full_access: bool
 
     runs.full_access = full_access
     runs.resume_interrupted()
-    print(f"OV Agent running at {url}  (Ctrl+C to stop)", flush=True)
-    if full_access:
-        print("Full access is available: threads set to it change anything without asking.", flush=True)
+    terminal.started(url, full_access)
 
     if open_browser:
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
 
-    _serve_until_stopped(server)
-    return 0
+    return _serve_until_stopped(server, terminal)
 
 
-def _serve_until_stopped(server: AgentServer) -> None:
+def _wait(thread: threading.Thread, seconds: float) -> None:
+    deadline = time.monotonic() + seconds
+    while thread.is_alive() and time.monotonic() < deadline:
+        thread.join(WAIT_SLICE_SECONDS)
+
+
+def _run(server: AgentServer, failures: list[BaseException]) -> None:
     try:
         server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
+    except BaseException as exc:
+        failures.append(exc)
+
+
+def _close(server: AgentServer, failures: list[BaseException]) -> None:
+    try:
+        server.shutdown()
         server.server_close()
         runs.close()
         providers.close_all()
         db.close()
+    except BaseException as exc:
+        failures.append(exc)
+
+
+def _serve_until_stopped(server: AgentServer, terminal: AgentTerminal) -> int:
+    failures: list[BaseException] = []
+    serving = threading.Thread(target=_run, args=(server, failures), name="agent-http", daemon=True)
+    serving.start()
+    try:
+        _wait(serving, math.inf)
+    except KeyboardInterrupt:
+        terminal.stopping()
+
+    closing = threading.Thread(target=_close, args=(server, failures), name="agent-close", daemon=True)
+    closing.start()
+    try:
+        _wait(closing, SHUTDOWN_DEADLINE_SECONDS)
+    except KeyboardInterrupt:
+        terminal.forced()
+        os._exit(EXIT_INTERRUPTED)
+
+    if closing.is_alive():
+        terminal.gave_up(SHUTDOWN_DEADLINE_SECONDS)
+        os._exit(EXIT_INTERRUPTED)
+
+    if failures:
+        raise failures[0]
+
+    terminal.stopped()
+    return 0

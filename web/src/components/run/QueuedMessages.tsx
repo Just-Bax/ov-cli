@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn'
 import { WORKING } from '@/lib/runs'
 import { formatTime } from './Messages'
 import { plural } from '@/lib/text'
+import { MentionText } from '@/components/composer/MentionChip'
 
 const VISIBLE_QUEUED = 3
 const ACTION =
@@ -154,7 +155,9 @@ export function QueuedMessages({
                   </span>
                 ) : null}
                 {message.text ? (
-                  <p className="break-words whitespace-pre-wrap">{message.text}</p>
+                  <p className="break-words whitespace-pre-wrap">
+                    <MentionText text={message.text} />
+                  </p>
                 ) : null}
               </div>
               <div className="flex h-7 items-center gap-0.5">

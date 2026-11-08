@@ -306,6 +306,9 @@
   .bottom-0 {
     bottom: 0px;
   }
+  .bottom-1 {
+    bottom: var(--spacing);
+  }
   .bottom-1\.5 {
     bottom: calc(var(--spacing) * 1.5);
   }
@@ -417,8 +420,14 @@
   .mx-auto {
     margin-inline: auto;
   }
+  .mx-px {
+    margin-inline: 1px;
+  }
   .my-1 {
     margin-block: var(--spacing);
+  }
+  .my-2 {
+    margin-block: calc(var(--spacing) * 2);
   }
   .-mt-1 {
     margin-top: calc(var(--spacing) * -1);
@@ -578,9 +587,6 @@
   }
   .table {
     display: table;
-  }
-  .field-sizing-content {
-    field-sizing: content;
   }
   .aspect-square {
     aspect-ratio: 1 / 1;
@@ -815,6 +821,9 @@
   }
   .max-h-\[280px\] {
     max-height: 280px;
+  }
+  .max-h-\[340px\] {
+    max-height: 340px;
   }
   .max-h-\[420px\] {
     max-height: 420px;
@@ -1273,6 +1282,9 @@
   .cursor-help {
     cursor: help;
   }
+  .cursor-not-allowed {
+    cursor: not-allowed;
+  }
   .cursor-pointer {
     cursor: pointer;
   }
@@ -1315,6 +1327,9 @@
   }
   .grid-cols-4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .grid-cols-7 {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
   .grid-cols-12 {
     grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1518,6 +1533,9 @@
   }
   .rounded-\[2px\] {
     border-radius: 2px;
+  }
+  .rounded-\[3px\] {
+    border-radius: 3px;
   }
   .rounded-\[26px\] {
     border-radius: 26px;
@@ -1756,6 +1774,9 @@
   }
   .bg-ok\/40 {
     background-color: color-mix(in oklab, #2e7d32 40%, transparent);
+  }
+  .bg-on-brand {
+    background-color: #ffffff;
   }
   .bg-panel {
     background-color: #ffffff;
@@ -2099,6 +2120,9 @@
   .align-\[-1px\] {
     vertical-align: -1px;
   }
+  .align-\[-4px\] {
+    vertical-align: -4px;
+  }
   .align-middle {
     vertical-align: middle;
   }
@@ -2251,6 +2275,9 @@
   .text-faint {
     color: #90a4ae;
   }
+  .text-faint\/70 {
+    color: color-mix(in oklab, #90a4ae 70%, transparent);
+  }
   .text-fg {
     color: #263238;
   }
@@ -2317,6 +2344,9 @@
   }
   .line-through {
     text-decoration-line: line-through;
+  }
+  .no-underline {
+    text-decoration-line: none;
   }
   .underline {
     text-decoration-line: underline;
@@ -2854,6 +2884,9 @@
   .\[\&_svg\]\:shrink-0 svg {
     flex-shrink: 0;
   }
+  .\[\&\:\:-webkit-calendar-picker-indicator\]\:hidden::-webkit-calendar-picker-indicator {
+    display: none;
+  }
   .\[\&\:\:-webkit-details-marker\]\:hidden::-webkit-details-marker {
     display: none;
   }
@@ -3143,6 +3176,21 @@
   outline-width: 2px;
   outline-style: solid;
   transition: background-color 120ms;
+}
+.composer-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--color-faint);
+  pointer-events: none;
+}
+.composer-editor .composer-ref {
+  color: var(--color-brand-strong);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.composer-editor .ProseMirror-selectednode {
+  outline: none;
 }
 .monaco-editor .ov-ref-text {
   cursor: pointer;

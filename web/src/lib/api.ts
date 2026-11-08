@@ -35,6 +35,7 @@ import type {
   Upload,
   RunSummary,
   SearchHit,
+  WorkspacePath,
 } from '@shared/types.ts'
 
 const API_ROOT = '/api'
@@ -93,6 +94,8 @@ export const api = {
   branches: (id: string) => request<{ branches: RunSummary[] }>(`/threads/${id}/branches`),
   searchThreads: (q: string, signal?: AbortSignal) =>
     request<{ threads: SearchHit[] }>(`/search?q=${seg(q)}`, { signal }),
+  workspacePaths: (q: string, signal?: AbortSignal) =>
+    request<{ paths: WorkspacePath[] }>(`/workspace/paths?q=${seg(q)}`, { signal }),
   pinRun: (id: string, pinned: boolean) => post(`/threads/${id}/pin`, { pinned }),
   snoozeRun: (id: string, until: number | null) => post(`/threads/${id}/snooze`, { until }),
   markRunSeen: (id: string) => post(`/threads/${id}/seen`),

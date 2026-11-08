@@ -41,3 +41,15 @@ def test_workspace_edits_need_allow_changes(workspace, tmp_path):
     with pytest.raises(ToolError, match="this thread is Read-only"):
         tool_named("ws_write").handler({"path": "module/new.py", "content": "a"}, ctx)
     assert ctx.edits == [] and "RULE_ID = 1" in (workspace / "module" / "main.py").read_text(encoding="utf-8")
+
+
+def test_a_command_is_judged_with_the_script_it_runs(workspace, tmp_path, monkeypatch):
+    from ov.agent import workspace as project
+    from ov.agent.tools import tool_named
+
+    (workspace / "push.py").write_text("password = 'hunter22'\nprint('hi')", encoding="utf-8")
+    monkeypatch.setattr(project, "run", lambda command, folder, timeout, cancel: "hi")
+    ctx = FakeContext(tmp_path, write=True)
+
+    assert tool_named("ws_run").handler({"command": "python push.py"}, ctx) == "hi"
+    assert ctx.scripts == {"push.py": "password = '***'\nprint('hi')"}

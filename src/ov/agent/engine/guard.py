@@ -24,8 +24,10 @@ GUARD_PROMPT = (
     "checkout, installed packages, build output, caches or running processes. Builds and tests are change.\n"
     "outside: it reaches beyond this computer or cannot be undone: git push, merging or commenting on pull "
     "requests, any write to a remote service or API, deploys, publishing, sending messages, deleting files, "
-    "rewriting history. Also outside when you cannot tell what it does from the command alone, such as "
-    "running a script, a program or an alias whose content you do not see."
+    "rewriting history.\n"
+    "When the command runs a local script, its content follows in a script tag: judge what the script does, "
+    "not the fact that a script runs. A well-known program or build tool is judged by what it normally does. "
+    "Never pick outside only because some content is not shown."
 )
 PAGE_GUARD_PROMPT = (
     "You judge what one action in a web browser would do before it runs. The browser shows a web application "
@@ -51,7 +53,7 @@ RISK_GUARD_PROMPT = (
     "or configuration; dropping or truncating data; changes to many records at once; force push, history "
     "rewrites or pushes to main, master or a release branch; merging pull requests; deploys or publishing; "
     "changes to security, permissions, users, credentials or system-wide settings; sending messages to other "
-    "people. Also risky when you cannot tell what it does."
+    "people. Judge by what the change does; never call it risky only because some detail is not shown."
 )
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -83,10 +85,13 @@ class Verdict:
         return {"effect": self.effect.value, "reason": self.reason}
 
 
-def judge(agent: AgentProvider, model: str, command: str, folder: str, shell: str) -> tuple[Verdict, Usage | None]:
+def judge(
+    agent: AgentProvider, model: str, command: str, folder: str, shell: str, *, scripts: dict[str, str]
+) -> tuple[Verdict, Usage | None]:
+    shown = "".join(f'\n<script path="{path}">\n{text}\n</script>' for path, text in scripts.items())
     body = (
         f"<command>\n{command[:GUARD_INPUT_CHARS]}\n</command>\n"
-        f"<folder>{folder or '.'}</folder>\n<shell>{shell}</shell>"
+        f"<folder>{folder or '.'}</folder>\n<shell>{shell}</shell>{shown}"
     )
     reply, usage = agent.complete(model, GUARD_PROMPT, body, GUARD_MAX_TOKENS)
     return parse(reply, model, COMMAND_EFFECTS), usage

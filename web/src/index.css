@@ -333,6 +333,24 @@
   transition: background-color 120ms;
 }
 
+.composer-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--color-faint);
+  pointer-events: none;
+}
+
+.composer-editor .composer-ref {
+  color: var(--color-brand-strong);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.composer-editor .ProseMirror-selectednode {
+  outline: none;
+}
+
 .monaco-editor .ov-ref-text {
   cursor: pointer;
 }

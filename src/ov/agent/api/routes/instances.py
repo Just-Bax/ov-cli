@@ -7,7 +7,7 @@ from ov.agent.api.handler import Handler, HttpError, required, route
 from ov.agent.api.screen import Screen, find_screen, screen_key
 from ov.agent.api.streams import push_input, stream_screen
 from ov.agent.instances import access, explorer, graph
-from ov.agent.instances.ovproc import instances, login, remember, run_ov
+from ov.agent.instances.ovproc import find_instance, instances, login, remember, run_ov
 
 LOGOUT_TIMEOUT_SECONDS = 60
 LOGOUT_MESSAGE_CHARS = 300
@@ -18,7 +18,7 @@ SCREEN_APPEAR_POLL_SECONDS = 0.2
 
 def instance_alias(h: Handler, ref: str | None = None) -> str:
     ref = (h.query.get("instance", "") if ref is None else ref).strip()
-    found = next((i for i in instances() if i["alias"] == ref), None)
+    found = find_instance(ref) if ref else None
     if found is None:
         raise HttpError(404, f"Unknown instance: {ref}")
     return found["alias"]

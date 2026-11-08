@@ -59,8 +59,8 @@ def test_the_run_judges_each_command_once_and_records_it(logged_in, monkeypatch)
     run.emit({"type": "tool", "tool": {"id": "t1", "name": "ws_run", "label": "$ mvn", "status": "running"}})
     run._local.tool = "t1"
 
-    first = run.judge_command("mvn package", "module")
-    again = run.judge_command("mvn package", "module")
+    first = run.judge_command("mvn package", "module", {})
+    again = run.judge_command("mvn package", "module", {})
     assert first == again == Verdict(Effect.CHANGE, "writes build output")
     assert len([c for c in calls if "<command>" in c]) == 1
     assert "<folder>module</folder>" in calls[-1]

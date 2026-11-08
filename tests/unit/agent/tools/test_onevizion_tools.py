@@ -43,6 +43,18 @@ def test_a_blocked_write_needs_access_then_approval(logged_in, tmp_path, monkeyp
         run_ov_tool(["request", "DELETE", "/v3/users/1"], "acme", FakeContext(tmp_path, True, "Reject"))
 
 
+def test_an_approval_shows_the_payload_file(logged_in, tmp_path, monkeypatch):
+    def fake_run(args, timeout=0, read_only=True, cancel=None, cwd=None):
+        return OvResult(7, "", "blocked") if read_only else OvResult(0, "created", "")
+
+    monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", fake_run)
+    (tmp_path / "body.json").write_text('{"fields": {"XITOR_KEY": "S-1"}}', encoding="utf-8")
+    ctx = FakeContext(tmp_path, write=True)
+
+    run_ov_tool(["request", "POST", "/v3/trackor_types/Site/trackors", "-d", "@body.json"], "acme", ctx)
+    assert ctx.asked[0].endswith('body.json:\n{"fields": {"XITOR_KEY": "S-1"}}')
+
+
 def test_ov_tool_keeps_files_in_the_workspace(logged_in, tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr("ov.agent.tools.onevizion.run_ov", lambda args, **k: seen.append(args) or OvResult(0, "ok", ""))

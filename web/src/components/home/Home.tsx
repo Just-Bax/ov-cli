@@ -2,6 +2,7 @@ import type { Access } from '@shared/types.ts'
 import { useEffect, useState } from 'react'
 import { AccessPicker, accessMode } from '@/components/composer/AccessPicker'
 import { Composer } from '@/components/composer/Composer'
+import { instanceCommand, useAccessCommand } from '@/components/composer/commands'
 import { InstancePicker } from '@/components/composer/InstancePicker'
 import { Button, Page } from '@/components/common/ui'
 import { api } from '@/lib/api'
@@ -106,6 +107,8 @@ export function Home() {
   useEffect(loadDraft, [])
   useWindowEvent(DRAFT_EVENT, loadDraft)
 
+  const commands = [instanceCommand(instances ?? [], setInstance), useAccessCommand(setAccess)]
+
   const submit = async (text: string, files: File[]) => {
     setStarting(true)
     setError(undefined)
@@ -146,6 +149,8 @@ export function Home() {
             onSend={submit}
             draft={draft}
             draftKey="new-run"
+            commands={commands}
+            instance={instance || undefined}
             extras={
               <>
                 {instances?.length ? (
