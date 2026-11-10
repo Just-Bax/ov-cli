@@ -6,6 +6,7 @@ import {
 import {
   type AnchorHTMLAttributes,
   type ButtonHTMLAttributes,
+  type HTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   type TextareaHTMLAttributes,
@@ -390,8 +391,33 @@ function MarkdownLink(p: AnchorHTMLAttributes<HTMLAnchorElement>) {
   )
 }
 
+function MarkdownCode(p: HTMLAttributes<HTMLPreElement>) {
+  const pre = useRef<HTMLPreElement>(null)
+  const [copied, copy] = useCopy()
+
+  return (
+    <div className="md-code group relative">
+      <pre ref={pre} {...p} />
+      <button
+        type="button"
+        aria-label={copied ? 'Copied' : 'Copy code'}
+        title={copied ? 'Copied' : 'Copy code'}
+        onClick={() => copy(pre.current?.textContent?.replace(/\n$/, '') ?? '')}
+        className="bg-panel/90 border-line text-muted hover:text-fg absolute top-1.5 right-1.5 grid size-7 place-items-center rounded-md border opacity-0 transition-opacity duration-(--duration-small) ease-(--ease-out) group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+      >
+        {copied ? (
+          <CheckIcon className="animate-check size-3.5" />
+        ) : (
+          <Square2StackIcon className="size-3.5" />
+        )}
+      </button>
+    </div>
+  )
+}
+
 const MARKDOWN_COMPONENTS: Components = {
   a: ({ node: _node, ...p }) => <MarkdownLink {...p} />,
+  pre: ({ node: _node, ...p }) => <MarkdownCode {...p} />,
   table: ({ node: _node, ...p }) => (
     <div className="md-table">
       <table {...p} />

@@ -191,8 +191,11 @@
   .md code {
     @apply bg-raised text-fg rounded px-1 py-0.5 font-mono text-[12px];
   }
+  .md-code {
+    @apply my-2;
+  }
   .md pre {
-    @apply bg-raised my-2 scrollbar-thin overflow-x-auto rounded-lg p-3;
+    @apply bg-raised scrollbar-thin overflow-x-auto rounded-lg p-3;
   }
   .user-md .md pre {
     @apply max-h-[360px] overflow-auto bg-white/70 text-[12px];
@@ -222,7 +225,7 @@
   .md-compact {
     @apply text-[12px] leading-snug;
   }
-  .md-compact :is(p, ul, ol, pre, .md-table, blockquote, h1, h2, h3, h4, h5, h6) {
+  .md-compact :is(p, ul, ol, .md-code, .md-table, blockquote, h1, h2, h3, h4, h5, h6) {
     @apply my-0;
   }
   .md-compact :is(h1, h2, h3, h4, h5, h6) {
