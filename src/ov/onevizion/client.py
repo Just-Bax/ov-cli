@@ -40,6 +40,8 @@ READ_ONLY_POSTS = (
 DRY_RUN_POSTS = (re.compile(r"^/api/v3/components/imports/run$"),)
 DRY_RUN_PARAM = "is_dry_run"
 
+OUTSIDE_API_PATHS = frozenset({"/efiles/EFileGetBlobFromDb.do"})
+
 READ_ONLY_WEB_PATHS = (
     re.compile(r"^/api/docs/"),
     re.compile(r"^/logoff\.do$", re.IGNORECASE),
@@ -260,11 +262,21 @@ def _reachable(base_url: str) -> Iterator[None]:
 
 def api_path(path: str) -> str:
     cleaned = "/" + path.strip().lstrip("/")
-    if ".." in unquote(cleaned.split("?", 1)[0]).split("/"):
-        raise OvError(f"API paths cannot step out of {API_PREFIX} with '..': {path}")
+    route, mark, query = cleaned.partition("?")
+    if ".." in unquote(route).split("/"):
+        return _outside_api_path(path, route, mark + query)
+
     if cleaned.startswith(f"{API_PREFIX}/"):
         return cleaned
     return f"{API_PREFIX}{cleaned}"
+
+
+def _outside_api_path(path: str, route: str, query: str) -> str:
+    anchored = route if route.startswith(f"{API_PREFIX}/") else f"{API_PREFIX}{route}"
+    resolved = posixpath.normpath(unquote(anchored))
+    if resolved not in OUTSIDE_API_PATHS:
+        raise OvError(f"API paths cannot step out of {API_PREFIX} with '..' except to the file download: {path}")
+    return resolved + query
 
 
 def _body(response: httpx.Response) -> Any:

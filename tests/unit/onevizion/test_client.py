@@ -30,6 +30,11 @@ def test_api_path_accepts_three_spellings():
     assert api_path("/api/v3/users") == "/api/v3/users"
 
 
+def test_api_path_may_step_out_only_to_the_file_download():
+    assert api_path("/../efiles/EFileGetBlobFromDb.do?id=7") == "/efiles/EFileGetBlobFromDb.do?id=7"
+    assert api_path("/api/../efiles/EFileGetBlobFromDb.do?id=7") == "/efiles/EFileGetBlobFromDb.do?id=7"
+
+
 def test_api_calls_carry_the_bearer_token():
     recorder = Recorder()
     with client(recorder) as api:
