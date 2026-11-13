@@ -59,9 +59,9 @@ class AgentTerminal:
         if not rows:
             return [f"[{DIM}]none yet, sign in from the app[/]"]
 
-        width = max(len(r["alias"]) for r in rows)
+        width = max(len(_address(r)) for r in rows)
         signed_in = [_cell(r, width) for r in rows if r["valid"]]
-        expired = [f"[{DIM}]{r['alias'].ljust(width)}[/]" for r in rows if not r["valid"]]
+        expired = [_cell(r, width) for r in rows if not r["valid"]]
         summary = f"{len(signed_in)} signed in"
         if expired:
             summary += f"  [{DIM}]{len(expired)} expired[/]"
@@ -90,9 +90,19 @@ class AgentTerminal:
         self._out.print(f"  Quit after {seconds}s: some threads or helpers did not close in time.\n")
 
 
+def _address(row: dict) -> str:
+    return f"{row['host']} {row['tenant']}" if row["tenant"] else row["host"]
+
+
 def _cell(row: dict, width: int) -> str:
-    padded = row["alias"].ljust(width)
-    return f"[{CURRENT}]{padded}[/]" if row["current"] else padded
+    name, dot, domain = row["host"].partition(".")
+    tenant = f" [{LABEL}]{row['tenant']}[/]" if row["tenant"] else ""
+    padding = " " * (width - len(_address(row)))
+    if not row["valid"]:
+        return f"[{DIM}]{_address(row)}[/]{padding}"
+
+    style = CURRENT if row["current"] else "default"
+    return f"[{style}]{name}[/][{DIM}]{dot}{domain}[/]{tenant}{padding}"
 
 
 def _chunks(items: list[str], size: int) -> list[list[str]]:
