@@ -295,6 +295,7 @@ export function Composer({
     if (repeated.length) notify(`Already attached: ${repeated.join(', ')}`)
     if (!fresh.length) return
 
+    for (const file of fresh) trash.current.delete(file.name)
     currentFiles.current = [...currentFiles.current, ...fresh]
     setFiles((current) => [...current, ...fresh])
     editor
@@ -437,7 +438,10 @@ export function Composer({
 
     const now = mentionsIn(doc, 'attachment')
     const gone = [...mentioned.current].filter((name) => !now.has(name))
-    const back = [...now].filter((name) => !mentioned.current.has(name) && trash.current.has(name))
+    const attachedNames = new Set(currentFiles.current.map((f) => f.name))
+    const back = [...now].filter(
+      (name) => !mentioned.current.has(name) && !attachedNames.has(name) && trash.current.has(name),
+    )
     mentioned.current = now
 
     if (gone.length) detach(gone)
