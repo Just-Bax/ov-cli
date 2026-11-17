@@ -148,7 +148,7 @@ def detect() -> Install:
         return Install(checkout, _git(["rev-parse", "HEAD"], checkout), _uv_tool())
 
     commit = info.get("vcs_info", {}).get("commit_id") or _source_commit(info)
-    if not commit:
+    if not commit and "archive_info" not in info:
         raise OvError(
             f"{PACKAGE} was not installed from git, so its version is unknown. Reinstall it with the install script."
         )

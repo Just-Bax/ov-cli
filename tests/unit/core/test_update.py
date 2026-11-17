@@ -46,6 +46,16 @@ def test_an_install_from_the_source_cache_knows_its_commit(tmp_path, monkeypatch
     assert update.detect().commit == "3c974e6abc"
 
 
+def test_an_install_from_the_github_zip_updates_to_the_latest_commit(monkeypatch):
+    info = {"url": "https://github.com/owner/ov-cli/archive/refs/heads/master.zip", "archive_info": {}}
+    monkeypatch.setattr(update, "_direct_url", lambda: info)
+    monkeypatch.setattr(update, "_uv_tool", lambda: True)
+    monkeypatch.setattr(update, "_git", lambda args, cwd=None: "def456\trefs/heads/master")
+    monkeypatch.setattr(update, "missing_dependencies", lambda: [])
+    found = update.plan()
+    assert (found.current, found.latest, found.reinstall) == ("", "def456", True)
+
+
 def test_a_pip_checkout_reinstalls_editable(tmp_path):
     assert update.editable_command(update.Install(tmp_path, "abc", uv_tool=False))[-2:] == ["--editable", str(tmp_path)]
 

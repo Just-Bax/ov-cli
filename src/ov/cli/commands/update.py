@@ -7,6 +7,7 @@ from ov.cli.output import emit, note
 from ov.core import update
 
 SHORT = 7
+UNKNOWN_VERSION = "unknown"
 DATABASE_WAITS = (
     "The agent database still needs an upgrade, and a running 'ov agent' has it open. "
     "Stop it and start 'ov agent' again; it upgrades the database on start."
@@ -25,7 +26,7 @@ def register(subparsers: argparse._SubParsersAction, common: argparse.ArgumentPa
 
 
 def _short(commit: str) -> str:
-    return commit[:SHORT]
+    return commit[:SHORT] or UNKNOWN_VERSION
 
 
 def cmd_update(ctx: Context) -> int:
