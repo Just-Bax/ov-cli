@@ -19,7 +19,7 @@ import type {
 import { reportError } from '@/components/common/Toasts'
 import { Button } from '@/components/common/ui'
 import { Composer, type ComposerKeyHandler } from '@/components/composer/Composer'
-import { threadCommands, useAccessCommand } from '@/components/composer/commands'
+import { MENU_HINT, threadCommands, useAccessCommand } from '@/components/composer/commands'
 import { AccessPicker } from '@/components/composer/AccessPicker'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -262,7 +262,7 @@ export function RunFooter({
                   ? 'Edit the queued message. Enter saves, Escape cancels'
                   : busy
                     ? `${FOLLOW_UP_HINT.queue}. Ctrl+Enter to steer`
-                    : 'Ask a follow-up or give direction'
+                    : `Ask a follow-up or give direction. ${MENU_HINT}`
               }
               busyAction={(alternate) => {
                 const mode = modeFor(alternate)

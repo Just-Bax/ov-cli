@@ -22,6 +22,8 @@ import type { ComposerCommand } from './menu'
 
 const ICON = 'text-muted size-4'
 
+export const MENU_HINT = '@ files and threads, $ skills, / commands'
+
 export function useAccessCommand(onChange: (next: Access) => void | Promise<unknown>) {
   const { value: status } = useLoad(api.status, [])
 

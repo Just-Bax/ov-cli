@@ -96,7 +96,7 @@ export const CLAUDE_UI: ProviderUi = {
   accountDetail: (account, runsAgent) => {
     const { signedIn, email } = claudeOf(account)
     if (!signedIn) return 'Not signed in to Claude Code'
-    return `Signed in to Claude Code as ${email}.${runsAgent ? ' Runs the agent.' : ''} Sign out with /logout in Claude Code.`
+    return `Signed in as ${email}.${runsAgent ? ' Runs the agent.' : ''} Sign out with /logout.`
   },
   SignIn: ClaudeSignIn,
   Plan: ClaudePlan,

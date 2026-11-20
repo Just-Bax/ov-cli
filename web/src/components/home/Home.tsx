@@ -2,7 +2,7 @@ import type { Access } from '@shared/types.ts'
 import { useEffect, useState } from 'react'
 import { AccessPicker, accessMode } from '@/components/composer/AccessPicker'
 import { Composer } from '@/components/composer/Composer'
-import { instanceCommand, useAccessCommand } from '@/components/composer/commands'
+import { instanceCommand, MENU_HINT, useAccessCommand } from '@/components/composer/commands'
 import { InstancePicker } from '@/components/composer/InstancePicker'
 import { Button, Page } from '@/components/common/ui'
 import { api } from '@/lib/api'
@@ -145,7 +145,7 @@ export function Home() {
             size="lg"
             allowFiles
             busy={starting}
-            placeholder="Ask about an instance, describe a problem, or paste a case number or errors"
+            placeholder={`Ask anything, or paste a case or errors. ${MENU_HINT}`}
             onSend={submit}
             draft={draft}
             draftKey="new-run"
@@ -161,7 +161,8 @@ export function Home() {
             }
           />
           <div className="text-faint mt-2 px-2 text-center text-[11.5px]">
-            {accessMode(access).label}: {accessMode(access).about}
+            <span className="text-muted font-medium">{accessMode(access).label}</span> mode:{' '}
+            {accessMode(access).about} The agent can make mistakes, so check its work.
           </div>
           {error ? <div className="text-danger mt-2 text-center text-[12.5px]">{error}</div> : null}
         </div>
