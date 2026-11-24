@@ -5,15 +5,25 @@ import time
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator, Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from ov.browser.model import Aim, BrowserError, Element, Point, Target, View
-from ov.browser.pages import CLICK_TIMEOUT_MS, NAV_TIMEOUT_MS, NAVIGATED, Pages, evaluate, viewport
+from ov.browser.pages import (
+    ANSWER_TIMEOUT_MS,
+    CLICK_TIMEOUT_MS,
+    MS_PER_SECOND,
+    NAV_TIMEOUT_MS,
+    NAVIGATED,
+    Pages,
+    busy_page,
+    evaluate,
+    rest,
+    viewport,
+)
 from ov.browser.scripts import ELEMENT_SCRIPT, POINT_SCRIPT, READY_SCRIPT, TEXT_SCRIPT
 
-SNAPSHOT_TIMEOUT_MS = 10_000
 WAIT_POLL_MS = 250
 MAX_WAIT_SECONDS = 30
-MS_PER_SECOND = 1000
 NAME_CHARS = 80
 VALUE_CHARS = 80
 TREE_CHARS = 12_000
@@ -50,13 +60,19 @@ class Reader(Pages):
 
     def _tree(self, page: Page) -> str:
         try:
-            return page.aria_snapshot(mode=SNAPSHOT_MODE, timeout=SNAPSHOT_TIMEOUT_MS)
+            return self._aria(page)
         except PlaywrightError as exc:
             if not any(hint in str(exc) for hint in NAVIGATED):
                 raise
 
         page.wait_for_load_state("load", timeout=NAV_TIMEOUT_MS)
-        return page.aria_snapshot(mode=SNAPSHOT_MODE, timeout=SNAPSHOT_TIMEOUT_MS)
+        return self._aria(page)
+
+    def _aria(self, page: Page) -> str:
+        try:
+            return page.aria_snapshot(mode=SNAPSHOT_MODE, timeout=ANSWER_TIMEOUT_MS)
+        except PlaywrightTimeout:
+            raise busy_page() from None
 
     def _ref_locator(self, ref: str) -> Locator:
         if ref not in self._refs:
@@ -126,7 +142,7 @@ class Reader(Pages):
         return Point(size["width"] // 2, size["height"] // 2)
 
     def pause(self, seconds: float) -> None:
-        self.page.wait_for_timeout(min(seconds, MAX_WAIT_SECONDS) * MS_PER_SECOND)
+        rest(self.page, min(seconds, MAX_WAIT_SECONDS) * MS_PER_SECOND)
 
     def wait_for(self, text: str, selector: str, url_part: str, seconds: float) -> None:
         deadline = time.monotonic() + min(seconds, MAX_WAIT_SECONDS)
@@ -138,7 +154,7 @@ class Reader(Pages):
             if time.monotonic() > deadline:
                 raise BrowserError(f"Waited {seconds:g}s and the page still does not show it.")
 
-            page.wait_for_timeout(WAIT_POLL_MS)
+            rest(page, WAIT_POLL_MS)
 
     def _matches(self, page: Page, text: str, selector: str, url_part: str) -> bool:
         if url_part and url_part not in page.url:

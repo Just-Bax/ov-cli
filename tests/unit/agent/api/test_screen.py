@@ -85,3 +85,54 @@ def test_a_page_that_never_attaches_still_fails(monkeypatch):
 
     with pytest.raises(Error, match="Not attached"):
         shown._mirror(_Context(module.ATTACH_ATTEMPTS, shown))
+
+
+class _DescribingCdp:
+    def __init__(self, found) -> None:
+        self.found = found
+        self.sent: list[str] = []
+
+    def send(self, method, params=None):
+        self.sent.append(method)
+        if method == "DOM.getNodeForLocation":
+            return {"backendNodeId": 7}
+        if method == "DOM.resolveNode":
+            return {"object": {"objectId": "o1"}}
+        if method == "Runtime.callFunctionOn":
+            return {"result": {"value": self.found}}
+        return {}
+
+
+SAVE = {"role": "button", "name": "Save", "value": "", "area": "Edit", "disabled": False, "x": 3, "y": 4}
+
+
+@pytest.mark.parametrize(
+    ("event", "found", "action"),
+    [
+        ({"type": "mouse", "event": "mousePressed", "x": 3.2, "y": 4.4}, SAVE, 'clicked button "Save" in "Edit"'),
+        ({"type": "mouse", "event": "mousePressed", "x": 3, "y": 4}, None, "clicked empty space at (3, 4)"),
+        ({"type": "mouse", "event": "mouseMoved", "x": 3, "y": 4}, SAVE, None),
+        ({"type": "key", "event": "keyDown", "key": "a"}, None, "typed on the keyboard"),
+        ({"type": "key", "event": "rawKeyDown", "key": "Enter"}, None, "pressed Enter"),
+        ({"type": "key", "event": "keyUp", "key": "a"}, None, None),
+        ({"type": "wheel"}, None, "scrolled"),
+        ({"type": "text", "text": "x"}, None, "pasted text"),
+        ({"type": "back"}, None, "went back a page"),
+        ({"type": "reload"}, None, "reloaded the page"),
+    ],
+)
+def test_what_the_user_does_on_the_screen_is_put_in_words(event, found, action):
+    from ov.agent.api.screen import _user_action
+
+    cdp = _DescribingCdp(found)
+    assert _user_action(cdp, event) == action
+    if event.get("event") == "mousePressed":
+        assert cdp.sent[-1] == "Runtime.releaseObjectGroup"
+
+
+def test_reload_is_an_input_the_screen_takes():
+    from ov.agent.api.screen import _apply, _checked
+
+    cdp = _DescribingCdp(None)
+    _apply(cdp, _checked({"type": "reload"}))
+    assert cdp.sent == ["Page.reload"]

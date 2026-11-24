@@ -522,6 +522,9 @@
   .mb-6 {
     margin-bottom: calc(var(--spacing) * 6);
   }
+  .-ml-1\.5 {
+    margin-left: calc(var(--spacing) * -1.5);
+  }
   .-ml-2 {
     margin-left: calc(var(--spacing) * -2);
   }
@@ -1296,6 +1299,11 @@
   }
   .scrollbar-thin {
     scrollbar-width: thin;
+  }
+  .scrollbar-shown {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+  .scrollbar-thin {
     scrollbar-gutter: stable;
   }
   .list-disc {
@@ -1509,6 +1517,9 @@
   }
   .overflow-y-auto {
     overflow-y: auto;
+  }
+  .overscroll-contain {
+    overscroll-behavior: contain;
   }
   .rounded {
     border-radius: 0.25rem;
@@ -2899,6 +2910,7 @@
   --duration-travel: 360ms;
   --stagger-step: 24ms;
   --count-step: 120ms;
+  --scrollbar-thumb: #bfcbd1;
 }
 @layer base {
   html, body, #root {
@@ -2920,7 +2932,7 @@
     scrollbar-color: transparent transparent;
   }
   *:hover {
-    scrollbar-color: #bfcbd1 transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
   button, [role='button'] {
     cursor: pointer;
@@ -2989,6 +3001,7 @@
     font-size: 13.5px;
     --tw-leading: var(--leading-relaxed);
     line-height: var(--leading-relaxed);
+    overflow-wrap: anywhere;
   }
   .md p {
     margin-block: calc(var(--spacing) * 1.5);
@@ -3038,9 +3051,6 @@
     }
     font-size: 12px;
   }
-  .user-md .md {
-    overflow-wrap: anywhere;
-  }
   .md pre code {
     background-color: transparent;
     padding: 0px;
@@ -3068,6 +3078,7 @@
     width: 100%;
     border-collapse: collapse;
     font-size: 12.5px;
+    overflow-wrap: normal;
   }
   .md th, .md td {
     border-style: var(--tw-border-style);

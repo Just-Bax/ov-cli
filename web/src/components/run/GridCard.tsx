@@ -341,7 +341,7 @@ export function GridCard({
           <RevertButton grid={grid} runId={runId} />
         ) : null}
       </div>
-      <div className="border-line max-h-[420px] scrollbar-thin overflow-auto border-t">
+      <div className="border-line scrollbar-shown max-h-[420px] overflow-auto overscroll-contain border-t">
         <table className="w-full border-collapse text-[12.5px]">
           <thead>
             <tr>
@@ -363,16 +363,21 @@ export function GridCard({
                   <td
                     key={c.key}
                     className={cn(
-                      'text-text max-w-[360px] truncate px-3 py-1.5 align-middle',
+                      'text-text px-3 py-1.5 align-middle whitespace-nowrap',
                       c.type === 'number' && 'text-right',
                     )}
                   >
-                    <Cell column={c} row={row} baseUrl={grid.baseUrl} />
-                    {c.key === RESULT_KEY && row[ERROR_KEY] ? (
-                      <span className="text-danger ml-2" title={textOf(row[ERROR_KEY])}>
-                        {textOf(row[ERROR_KEY])}
-                      </span>
-                    ) : null}
+                    <div
+                      title={c.type === 'change' ? undefined : cellText(c, row)}
+                      className={cn(c.type !== 'change' && 'max-w-[360px] truncate')}
+                    >
+                      <Cell column={c} row={row} baseUrl={grid.baseUrl} />
+                      {c.key === RESULT_KEY && row[ERROR_KEY] ? (
+                        <span className="text-danger ml-2" title={textOf(row[ERROR_KEY])}>
+                          {textOf(row[ERROR_KEY])}
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                 ))}
               </tr>

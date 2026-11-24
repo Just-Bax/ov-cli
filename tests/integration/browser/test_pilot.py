@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -19,6 +20,7 @@ pytestmark = [
 
 SCREEN = (800, 600)
 WAIT_SECONDS = 5
+SETTLE_SECONDS = 1
 LOCALHOST = "127.0.0.1"
 
 
@@ -176,3 +178,57 @@ def test_a_preview_needs_an_instance_page_first(sites, pilot):
     pilot.goto(f"{instance.url}/")
     with pytest.raises(BrowserError, match="Open a OneVizion page"):
         pilot.preview("w", "<html></html>")
+
+
+def _open_popup(instance: Site, pilot: Pilot, popup: bytes) -> None:
+    instance.pages["/opener"] = (
+        b"<html><body><button id='open' onclick=\"window.open('/popup')\">Open</button></body></html>"
+    )
+    instance.pages["/popup"] = popup
+    pilot.goto(f"{instance.url}/opener")
+    opener = Target(locator="#open")
+    pilot.click(opener, pilot.aim(opener).point, "left", 1, [])
+    pilot.wait_for("", "", "/popup", WAIT_SECONDS)
+
+
+def test_a_popup_that_closes_itself_leaves_the_browser_running(sites, pilot):
+    instance, _ = sites
+    _open_popup(instance, pilot, b"<html><body><script>setTimeout(() => window.close(), 200)</script></body></html>")
+    time.sleep(SETTLE_SECONDS)
+
+    assert pilot.alive
+    assert pilot.where()[1] == f"{instance.url}/opener"
+    assert len(pilot.tabs()) == 1
+
+
+def test_clicking_a_popup_button_that_closes_it_is_not_an_error(sites, pilot):
+    instance, _ = sites
+    _open_popup(instance, pilot, b"<html><body><button id='done' onclick='window.close()'>Done</button></body></html>")
+    done = Target(locator="#done")
+    pilot.click(done, pilot.aim(done).point, "left", 1, [])
+
+    assert pilot.alive
+    assert pilot.where()[1] == f"{instance.url}/opener"
+
+
+def test_a_user_click_is_described_even_inside_a_frame():
+    from playwright.sync_api import sync_playwright
+
+    from ov.agent.api.screen import _clicked
+    from ov.onevizion.login import SCREEN_CHANNEL
+
+    page_html = (
+        "<div style='height:60px'>top</div><iframe srcdoc=\"<button aria-label='Save order'>Save</button>\"></iframe>"
+    )
+    with sync_playwright() as p:
+        chromium = p.chromium.launch(headless=True, channel=SCREEN_CHANNEL)
+        try:
+            page = chromium.new_page()
+            page.set_content(page_html)
+            page.frames[1].wait_for_selector("button")
+            cdp = page.context.new_cdp_session(page)
+
+            assert _clicked(cdp, 30, 80) == 'clicked button "Save order"'
+            assert _clicked(cdp, 5, 5) == "clicked empty space at (5, 5)"
+        finally:
+            chromium.close()

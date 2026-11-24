@@ -81,23 +81,26 @@ HELPERS = """
     x: point[0],
     y: point[1],
   });
+  const pick = (hit, point) => {
+    if (!hit || hit === document.body || hit === document.documentElement) return null;
+    const control = hit.closest(selector);
+    if (control) return describe(control, point);
+
+    let el = hit;
+    while (el.parentElement && pointer(el.parentElement)) el = el.parentElement;
+    return pointer(el) ? describe(el, point) : { ...describe(el, point), role: 'text' };
+  };
 """
 
 POINT_SCRIPT = (
     "({ x, y, nameChars, valueChars }) => {"
     + HELPERS
-    + """
-  const hit = document.elementFromPoint(x, y);
-  if (!hit || hit === document.body || hit === document.documentElement) return null;
-  const point = [Math.round(x), Math.round(y)];
-  const control = hit.closest(selector);
-  if (control) return describe(control, point);
-
-  let el = hit;
-  while (el.parentElement && pointer(el.parentElement)) el = el.parentElement;
-  return pointer(el) ? describe(el, point) : { ...describe(el, point), role: 'text' };
-}
-"""
+    + " return pick(document.elementFromPoint(x, y), [Math.round(x), Math.round(y)]); }"
+)
+NODE_SCRIPT = (
+    "function ({ x, y, nameChars, valueChars }) {"
+    + HELPERS
+    + " return pick(this.nodeType === Node.ELEMENT_NODE ? this : this.parentElement, [x, y]); }"
 )
 
 TEXT_SCRIPT = "() => document.body ? document.body.innerText : ''"

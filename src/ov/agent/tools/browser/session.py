@@ -13,6 +13,7 @@ from ov.agent.tools.base import Tool, ToolContext, ToolError, approved, string_p
 from ov.agent.tools.browser.guard import check
 from ov.agent.tools.browser.page import attach, look
 from ov.agent.tools.browser.specs import SAY, said
+from ov.browser.model import BrowserError
 from ov.onevizion.login import PENDING_PATHS
 
 NOT_SIGNED_IN = "{host} still shows its sign-in page after signing in. Ask the user to check the account."
@@ -28,6 +29,7 @@ PREVIEW_BLOCKED = (
 PREVIEW_REJECTED = "The user did not allow the preview. Do not retry it."
 PREVIEW_NAME = re.compile(r"[^a-z0-9-]+")
 FINAL_SCREENSHOT = "Now: {title} | {url}\nThe final screenshot is attached."
+NO_FINAL_SCREENSHOT = "No final screenshot: {reason}"
 
 
 def signed_out(url: str, host: str) -> bool:
@@ -76,8 +78,16 @@ def _open(args: dict[str, Any], ctx: ToolContext) -> str:
 def _run(args: dict[str, Any], ctx: ToolContext) -> str:
     pilot = ctx.browser.pilot()
     report = ctx.drive_browser(str(args["goal"]), ctx.cancel)
-    if not ctx.browser.live or not attach(ctx, pilot):
+    if not ctx.browser.live:
         return report
+
+    try:
+        shown = attach(ctx, pilot)
+    except BrowserError as exc:
+        return f"{report}\n\n{NO_FINAL_SCREENSHOT.format(reason=exc)}"
+    if not shown:
+        return report
+
     title, url = pilot.where()
     return f"{report}\n\n{FINAL_SCREENSHOT.format(title=title, url=url)}"
 

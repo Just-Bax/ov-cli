@@ -7,8 +7,7 @@ from ov.browser.dialogs import Dialogs
 from ov.browser.fence import Allows, Fence
 from ov.browser.hands import Hands
 from ov.browser.model import BrowserError
-from ov.browser.pages import NAV_TIMEOUT_MS
-from ov.browser.reader import MS_PER_SECOND
+from ov.browser.pages import MS_PER_SECOND, NAV_TIMEOUT_MS
 
 CSRF_SCRIPT = "() => document.querySelector('meta[name=_csrf]')?.getAttribute('content') || ''"
 NO_CSRF = "Open a OneVizion page of the instance first; the preview takes its session from that page."

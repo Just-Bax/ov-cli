@@ -241,7 +241,7 @@ export function Thread({
         onCancelEdit={edit.endEdit}
       />
       {state.error && summary.status === 'error' ? (
-        <div className="border-danger/40 bg-danger-soft/50 text-danger rounded-2xl border px-4 py-3 text-[13px]">
+        <div className="border-danger/40 bg-danger-soft/50 text-danger rounded-2xl border px-4 py-3 text-[13px] [overflow-wrap:anywhere]">
           {state.error}
         </div>
       ) : null}

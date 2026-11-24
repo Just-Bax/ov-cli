@@ -38,7 +38,7 @@ def browser_size(h: Handler, run_id: str) -> dict[str, bool]:
 @route("POST", "/api/threads/([a-z0-9]+)/browser/dialog")
 def browser_dialog(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
-    require_run(run_id).browser.answer_dialog(data.get("accept") is True, str(data.get("text") or ""))
+    require_run(run_id).browser.user_answered(data.get("accept") is True, str(data.get("text") or ""))
     return {"ok": True}
 
 
@@ -47,9 +47,9 @@ def browser_tab(h: Handler, run_id: str) -> dict[str, bool]:
     data = h.json()
     browser = require_run(run_id).browser
     if data.get("close") is True:
-        browser.close_tab(int(data["index"]))
+        browser.user_closed_tab(int(data["index"]))
     else:
-        browser.switch_tab(int(data["index"]))
+        browser.user_switched_tab(int(data["index"]))
 
     return {"ok": True}
 

@@ -44,6 +44,7 @@
   --duration-travel: 360ms;
   --stagger-step: 24ms;
   --count-step: 120ms;
+  --scrollbar-thumb: #bfcbd1;
 }
 
 @layer base {
@@ -67,7 +68,7 @@
   }
 
   *:hover {
-    scrollbar-color: #bfcbd1 transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   button,
@@ -87,6 +88,10 @@
 
 @utility scrollbar-thin {
   scrollbar-gutter: stable;
+}
+
+@utility scrollbar-shown {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 @layer components {
@@ -172,6 +177,7 @@
 
   .md {
     @apply text-[13.5px] leading-relaxed;
+    overflow-wrap: anywhere;
   }
   .md p {
     @apply my-1.5;
@@ -200,9 +206,6 @@
   .user-md .md pre {
     @apply max-h-[360px] overflow-auto bg-white/70 text-[12px];
   }
-  .user-md .md {
-    overflow-wrap: anywhere;
-  }
   .md pre code {
     @apply bg-transparent p-0;
   }
@@ -217,6 +220,7 @@
   }
   .md table {
     @apply w-full border-collapse text-[12.5px];
+    overflow-wrap: normal;
   }
   .md th,
   .md td {

@@ -4,7 +4,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from ov.browser.model import BUTTONS, BrowserError, Point, Target, timeout_reason
-from ov.browser.pages import ACTION_PAUSE_MS, CLICK_TIMEOUT_MS
+from ov.browser.pages import ACTION_PAUSE_MS, CLICK_TIMEOUT_MS, rest
 from ov.browser.reader import Reader
 
 MOVE_STEPS = 8
@@ -70,7 +70,7 @@ class Hands(Reader):
         page = self.page
         page.mouse.move(point.x, point.y)
         page.mouse.wheel(dx, dy)
-        page.wait_for_timeout(ACTION_PAUSE_MS)
+        rest(page, ACTION_PAUSE_MS)
 
     def type(self, target: Target | None, point: Point | None, text: str, clear: bool) -> None:
         page = self.page

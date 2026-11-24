@@ -323,6 +323,11 @@ class Run(
     def take_input(self) -> None:
         with self._lock:
             notes, self._notes = self._notes, []
+
+        browsed = self.browser.take_user_actions()
+        if browsed:
+            notes.append(browsed)
+
         if notes:
             self.messages.append({"role": "user", "content": f"[{' '.join(notes)}]"})
 

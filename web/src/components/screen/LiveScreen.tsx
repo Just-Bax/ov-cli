@@ -1,4 +1,5 @@
 import {
+  ArrowClockwise as ReloadIcon,
   ArrowLeft as ArrowLeftIcon,
   ArrowSquareOut as OpenIcon,
   Check as CheckIcon,
@@ -29,6 +30,8 @@ const BLANK_PAGE = 'about:blank'
 const MODIFIER = { alt: 1, ctrl: 2, meta: 4, shift: 8 }
 const BUTTON_NAMES = ['left', 'middle', 'right'] as const
 const RESIZE_SETTLE_MS = 200
+const RELOAD_KEY = 'F5'
+const RELOAD_COMMAND_KEY = 'r'
 
 type Frame = { url: string; width: number; height: number }
 type Streamed = Frame & { data: string }
@@ -38,6 +41,9 @@ type SendScreen = (events: ScreenEvent[]) => Promise<{ open: boolean }>
 type Phase = 'starting' | 'live' | 'gone'
 
 type Address = { host: string; rest: string; secure: boolean; href?: string }
+
+const NAV_BUTTON =
+  'text-muted hover:bg-raised hover:text-fg disabled:text-faint flex size-8 shrink-0 items-center justify-center rounded-full transition-colors'
 
 const BAR_ACTION =
   'text-muted hover:text-brand-strong flex size-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white hover:shadow-[0_1px_2px_rgba(0,0,0,0.08)]'
@@ -266,6 +272,12 @@ export function LiveScreen({
     e.preventDefault()
     if (e.nativeEvent.isComposing) return
 
+    const reload = e.key === RELOAD_KEY || (command && e.key.toLowerCase() === RELOAD_COMMAND_KEY)
+    if (reload) {
+      if (event === 'down') send({ type: 'reload' })
+      return
+    }
+
     const typed = e.key.length === 1 && !command && !e.altKey
     const text = typed ? e.key : e.key === 'Enter' ? '\r' : undefined
 
@@ -305,9 +317,19 @@ export function LiveScreen({
           title="Back"
           disabled={phase !== 'live'}
           onClick={() => send({ type: 'back' })}
-          className="text-muted hover:bg-raised hover:text-fg disabled:text-faint flex size-8 shrink-0 items-center justify-center rounded-full transition-colors"
+          className={NAV_BUTTON}
         >
           <ArrowLeftIcon className="size-4" />
+        </button>
+        <button
+          type="button"
+          aria-label="Reload"
+          title="Reload the page (F5)"
+          disabled={phase !== 'live'}
+          onClick={() => send({ type: 'reload' })}
+          className={cn(NAV_BUTTON, '-ml-1.5')}
+        >
+          <ReloadIcon className="size-4" />
         </button>
         <div className="bg-raised text-text flex h-8 min-w-0 flex-1 items-center gap-2 rounded-full pr-1 pl-3 text-[12.5px]">
           {shown.secure ? (

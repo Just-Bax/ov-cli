@@ -12,6 +12,9 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from ov.agent.engine.cancel import Cancel
+from ov.browser.model import Element, first_line
+from ov.browser.reader import NAME_CHARS, VALUE_CHARS
+from ov.browser.scripts import NODE_SCRIPT
 from ov.onevizion.login import SCREEN_PORT_ENV, SCREEN_SIZE_ENV
 
 CONNECT_WAIT_SECONDS = 600
@@ -32,9 +35,25 @@ MOUSE_EVENTS = {"mousePressed", "mouseReleased", "mouseMoved"}
 KEY_EVENTS = {"keyDown", "keyUp", "rawKeyDown", "char"}
 BUTTONS = {"none", "left", "middle", "right"}
 COMMANDS = {"selectAll", "undo", "redo"}
+NAVIGATION: dict[str, tuple[str, dict[str, Any]]] = {
+    "back": ("Runtime.evaluate", {"expression": "history.back()"}),
+    "reload": ("Page.reload", {}),
+}
+NAMED_KEYS = {"Enter", "Escape", "Tab"}
+USER_GROUP = "ov-user-action"
+
+CLICKED = "clicked {element}"
+CLICKED_EMPTY = "clicked empty space at ({x}, {y})"
+CLICKED_UNREAD = "clicked at ({x}, {y}), what is there could not be read: {reason}"
+PRESSED_KEY = "pressed {key}"
+TYPED = "typed on the keyboard"
+PASTED = "pasted text"
+SCROLLED = "scrolled"
+NAVIGATION_ACTIONS = {"back": "went back a page", "reload": "reloaded the page"}
 
 Key = tuple[str, str]
 Follow = Callable[[], str | None]
+Watch = Callable[[str], None]
 
 
 class ScreenError(Exception):
@@ -65,6 +84,7 @@ class Screen:
         self.failure: str | None = None
         self.cancel = Cancel()
         self.follow: Follow | None = None
+        self.watch: Watch | None = None
         self._changed = threading.Condition()
         self._input: queue.SimpleQueue[dict[str, Any]] = queue.SimpleQueue()
         self._stop = threading.Event()
@@ -143,8 +163,18 @@ class Screen:
             with contextlib.suppress(PlaywrightError):
                 feed.flush(cdp)
                 while not self._input.empty():
-                    _apply(cdp, self._input.get())
+                    event = self._input.get()
+                    self._report(cdp, event)
+                    _apply(cdp, event)
                 feed.page.wait_for_timeout(LOOP_MS)
+
+    def _report(self, cdp: Any, event: dict[str, Any]) -> None:
+        if self.watch is None:
+            return
+
+        action = _user_action(cdp, event)
+        if action is not None:
+            self.watch(action)
 
     def _follow(self, context: Any, pages: list[Any], targets: dict[Any, str], feed: _Feed, cdp: Any) -> Any:
         shown = self._shown(context, pages, targets, feed.page)
@@ -164,6 +194,51 @@ class Screen:
                 return page
 
         return current if current in pages else pages[-1]
+
+
+def _user_action(cdp: Any, event: dict[str, Any]) -> str | None:
+    kind = event["type"]
+    if kind == "mouse":
+        return _clicked(cdp, event["x"], event["y"]) if event["event"] == "mousePressed" else None
+    if kind == "key":
+        if event["event"] == "keyUp":
+            return None
+        return PRESSED_KEY.format(key=event["key"]) if event["key"] in NAMED_KEYS else TYPED
+
+    if kind == "wheel":
+        return SCROLLED
+    if kind == "text":
+        return PASTED
+    return NAVIGATION_ACTIONS[kind]
+
+
+def _clicked(cdp: Any, x: float, y: float) -> str:
+    at = {"x": round(x), "y": round(y)}
+    try:
+        found = _element_at(cdp, at)
+    except PlaywrightError as exc:
+        return CLICKED_UNREAD.format(**at, reason=first_line(exc))
+    finally:
+        cdp.send("Runtime.releaseObjectGroup", {"objectGroup": USER_GROUP})
+
+    if found is None:
+        return CLICKED_EMPTY.format(**at)
+    return CLICKED.format(element=Element(**found).describe())
+
+
+def _element_at(cdp: Any, at: dict[str, int]) -> dict[str, Any] | None:
+    hit = cdp.send("DOM.getNodeForLocation", {**at, "ignorePointerEventsNone": True})
+    node = cdp.send("DOM.resolveNode", {"backendNodeId": hit["backendNodeId"], "objectGroup": USER_GROUP})
+    found = cdp.send(
+        "Runtime.callFunctionOn",
+        {
+            "objectId": node["object"]["objectId"],
+            "functionDeclaration": NODE_SCRIPT,
+            "arguments": [{"value": {**at, "nameChars": NAME_CHARS, "valueChars": VALUE_CHARS}}],
+            "returnByValue": True,
+        },
+    )
+    return found["result"].get("value")
 
 
 def _attach_failed(exc: PlaywrightError, failed: int, feed: _Feed, targets: dict[Any, str]) -> int:
@@ -261,7 +336,7 @@ def _checked(event: dict[str, Any]) -> dict[str, Any]:
             "dy": _number(event, "dy"),
         }
 
-    if kind == "back":
+    if kind in NAVIGATION:
         return {"type": kind}
     if kind == "key" and event.get("event") in KEY_EVENTS:
         commands = event.get("commands") or []
@@ -311,8 +386,8 @@ def _apply(cdp: Any, event: dict[str, Any]) -> None:
         cdp.send("Input.dispatchKeyEvent", params)
     elif kind == "text":
         cdp.send("Input.insertText", {"text": event["text"]})
-    elif kind == "back":
-        cdp.send("Runtime.evaluate", {"expression": "history.back()"})
+    elif kind in NAVIGATION:
+        cdp.send(*NAVIGATION[kind])
 
 
 _screens: dict[Key, Screen] = {}

@@ -18,6 +18,7 @@ SEARCH = Aim(Point(110, 20), 'textbox "Search" at (110, 20)', "textbox")
 CELL = Aim(Point(300, 400), 'gridcell "WO-1" at (300, 400)', "gridcell")
 TREE = '- button "Save" [ref=e2]\n- textbox "Search" [ref=e1]'
 CONFIRM = Dialog("confirm", "Delete record 42?", "")
+REPORT = "Result: done\nSteps: opened the grid"
 
 
 class FakePilot:
@@ -529,3 +530,44 @@ def test_opening_the_browser_on_an_ended_web_session_asks_to_sign_in_first(logge
     wait_for(lambda: shown)
 
     assert asked == [(find_instance("acme")["host"], True)] and shown == ["acme"]
+
+
+def test_a_finished_browser_task_keeps_its_report_when_the_last_screenshot_fails(tmp_path):
+    ctx = BrowserContext(tmp_path)
+    ctx.drive_browser = lambda goal, cancel: REPORT
+
+    def busy():
+        raise BrowserError("The page did not answer within 20s")
+
+    ctx.pilot.screenshot = busy
+    out = tool_named("browser_run").handler({"goal": "Open the grid", "say": "Opening the grid"}, ctx)
+
+    assert out.startswith(REPORT)
+    assert "No final screenshot: The page did not answer within 20s" in out
+
+
+def test_what_the_user_does_in_the_browser_reaches_the_agent_once():
+    slot = BrowserSlot("r1", lambda _: None)
+    slot.user_did('clicked tab "WO:Pyramid"')
+    slot.user_did("typed on the keyboard")
+    slot.user_did("typed on the keyboard")
+    slot.changed({"tabs": [{"index": 1, "title": "Work Order", "url": "https://acme.test/form", "active": True}]})
+
+    note = slot.take_user_actions()
+
+    assert note == (
+        'The user worked in the browser themselves: clicked tab "WO:Pyramid"; typed on the keyboard. '
+        "It now shows Work Order | https://acme.test/form. Take a snapshot before you act there."
+    )
+    assert slot.take_user_actions() is None
+
+
+def test_only_the_latest_user_actions_are_kept():
+    from ov.agent.engine.browsing import MAX_USER_ACTIONS
+
+    slot = BrowserSlot("r1", lambda _: None)
+    for step in range(MAX_USER_ACTIONS + 5):
+        slot.user_did(f"clicked {step}")
+
+    note = slot.take_user_actions() or ""
+    assert "clicked 4;" not in note and f"clicked {MAX_USER_ACTIONS + 4}." in note

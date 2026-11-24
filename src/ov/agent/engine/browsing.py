@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ov.agent.api.screen import Key, Screen, close_screen, open_screen
+from ov.browser.dialogs import NO_DIALOG
 from ov.browser.pilot import BrowserError, Pilot, Point
 
 BROWSER_WIDTH = 1280
@@ -21,6 +22,13 @@ LOOP_ROUNDS = 3
 LOOP_LONGEST = 4
 NOT_OPEN = "No browser is open. Open one with browser_open first."
 CLOSED_ITSELF = "The browser closed by itself."
+MAX_USER_ACTIONS = 20
+DIALOG_CHARS = 80
+USER_ACTED = "The user worked in the browser themselves: {actions}."
+USER_SHOWN = " It now shows {title} | {url}. Take a snapshot before you act there."
+USER_SWITCHED_TAB = "switched to tab {index}"
+USER_CLOSED_TAB = "closed tab {index}"
+USER_ANSWERED = '{verb} the {kind} "{message}"'
 
 _sessions = itertools.count(1)
 _steps = itertools.count(1)
@@ -62,6 +70,8 @@ class BrowserSlot:
         self._open: _Open | None = None
         self._recent: deque[str] = deque(maxlen=loop_span(LOOP_LONGEST))
         self._seen = ""
+        self._user_actions: deque[str] = deque(maxlen=MAX_USER_ACTIONS)
+        self._shown: dict[str, Any] | None = None
 
     def saw(self, page: str) -> None:
         with self._lock:
@@ -94,8 +104,11 @@ class BrowserSlot:
             raise
 
         screen.follow = lambda: pilot.active_target
+        screen.watch = self.user_did
         with self._lock:
             self._open = _Open(alias, pilot, screen)
+            self._user_actions.clear()
+            self._shown = None
 
         opened = {
             "open": True,
@@ -137,6 +150,42 @@ class BrowserSlot:
     def close_tab(self, index: int) -> None:
         self.pilot().close_tab(index)
 
+    def user_did(self, action: str) -> None:
+        with self._lock:
+            if not self._user_actions or self._user_actions[-1] != action:
+                self._user_actions.append(action)
+
+    def user_answered(self, accept: bool, text: str) -> None:
+        pilot = self.pilot()
+        shown = pilot.dialog
+        if shown is None:
+            raise BrowserError(NO_DIALOG)
+
+        pilot.answer(accept, text)
+        verb = "accepted" if accept else "dismissed"
+        self.user_did(USER_ANSWERED.format(verb=verb, kind=shown.kind, message=shown.message[:DIALOG_CHARS]))
+
+    def user_switched_tab(self, index: int) -> None:
+        self.switch_tab(index)
+        self.user_did(USER_SWITCHED_TAB.format(index=index))
+
+    def user_closed_tab(self, index: int) -> None:
+        self.close_tab(index)
+        self.user_did(USER_CLOSED_TAB.format(index=index))
+
+    def take_user_actions(self) -> str | None:
+        with self._lock:
+            actions = list(self._user_actions)
+            self._user_actions.clear()
+            shown = self._shown
+        if not actions:
+            return None
+
+        note = USER_ACTED.format(actions="; ".join(actions))
+        if shown is None:
+            return note
+        return note + USER_SHOWN.format(title=shown["title"] or shown["url"], url=shown["url"])
+
     def resize(self, width: int, height: int) -> None:
         _stage.update(width=_clamp(width, MAX_WIDTH), height=_clamp(height, MAX_HEIGHT))
         self.pilot().resize(_stage["width"], _stage["height"])
@@ -150,6 +199,10 @@ class BrowserSlot:
         self._emit({"type": "browser", "browser": {"open": False, "dialog": None, "tabs": []}})
 
     def changed(self, change: dict[str, Any]) -> None:
+        active = next((tab for tab in change.get("tabs", []) if tab["active"]), None)
+        if active is not None:
+            with self._lock:
+                self._shown = active
         self._emit({"type": "browser", "browser": change})
 
     def exited(self, pilot: Pilot) -> None:

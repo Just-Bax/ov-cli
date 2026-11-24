@@ -19,7 +19,7 @@ export function Reasoning({ text }: { text: string }) {
         />
       </button>
       {open ? (
-        <div className="border-line text-muted animate-fade-in mt-1 ml-1.5 border-l-2 pl-4 text-[12.5px] leading-relaxed whitespace-pre-wrap">
+        <div className="border-line text-muted animate-fade-in mt-1 ml-1.5 border-l-2 pl-4 text-[12.5px] leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap">
           {text.trim()}
         </div>
       ) : null}
