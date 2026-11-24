@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ov.agent.api.screen import Key, Screen, close_screen, open_screen
+from ov.agent.storage import db
 from ov.browser.dialogs import NO_DIALOG
 from ov.browser.pilot import BrowserError, Pilot, Point
 
@@ -96,9 +97,10 @@ class BrowserSlot:
             return current.pilot
 
         self.close()
-        screen = open_screen(self._key, _stage["width"], _stage["height"])
+        boost = db.get_preferences()["boost"]
+        screen = open_screen(self._key, _stage["width"], _stage["height"], boost)
         try:
-            pilot = Pilot(base_url, cookies, screen.port, (screen.width, screen.height), self)
+            pilot = Pilot(base_url, cookies, screen.port, (screen.width, screen.height), self, boost=boost)
         except BrowserError:
             close_screen(self._key, screen)
             raise

@@ -424,6 +424,33 @@ def test_login_fetches_the_browser_and_retries_rather_than_giving_up(monkeypatch
     assert chromium.attempts == 2
 
 
+class RecordingChromium:
+    def __init__(self):
+        self.options: dict[str, Any] = {}
+
+    def launch_persistent_context(self, **options):
+        self.options = options
+        return "context"
+
+
+@pytest.mark.parametrize(
+    ("boost", "expected", "refused"),
+    [("0", login_module.CPU_ONLY_ARGS, login_module.BOOST_ARGS), ("1", login_module.BOOST_ARGS, ("--disable-gpu",))],
+)
+def test_the_sign_in_screen_draws_on_the_graphics_card_only_with_boost(monkeypatch, boost, expected, refused):
+    monkeypatch.setattr(login_module, "_watch_parent", lambda: None)
+    monkeypatch.setenv(login_module.SCREEN_PORT_ENV, "9222")
+    monkeypatch.setenv(login_module.SCREEN_SIZE_ENV, "800x600")
+    monkeypatch.setenv(login_module.SCREEN_BOOST_ENV, boost)
+    chromium = RecordingChromium()
+
+    login_module._launch(FakePlaywright(chromium), False, ignore)
+
+    args = chromium.options["args"]
+    assert set(expected) <= set(args)
+    assert not set(refused) & set(args)
+
+
 def test_a_failed_download_says_so_rather_than_looping(monkeypatch):
     monkeypatch.setattr(login_module, "install_chromium", lambda: False)
     with pytest.raises(LoginFailed, match="could not be downloaded"):

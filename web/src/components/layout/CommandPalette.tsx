@@ -307,7 +307,7 @@ export function CommandPalette({ route }: { route: Route }) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[150] flex items-center justify-center bg-[#263238]/25 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[150] flex items-center justify-center bg-[#263238]/25 p-4"
       onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}
     >
       <div
@@ -398,7 +398,7 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[150] flex items-center justify-center bg-[#263238]/25 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[150] flex items-center justify-center bg-[#263238]/25 p-4"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div

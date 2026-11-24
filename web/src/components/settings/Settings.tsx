@@ -114,6 +114,16 @@ function Preferences() {
           label="Compact new branches"
         />
       </Row>
+      <Row
+        title="Boost"
+        hint="Draw the browser the agent drives, and the sign-in browser, on the graphics card for faster pages. Off: they draw on the processor and leave the graphics card alone. Applies to the next browser that opens."
+      >
+        <Switch
+          on={settings.boost}
+          onChange={() => void update({ boost: !settings.boost })}
+          label="Boost"
+        />
+      </Row>
       <div>
         <button
           type="button"

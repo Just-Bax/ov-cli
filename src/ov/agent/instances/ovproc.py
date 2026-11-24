@@ -15,6 +15,7 @@ from ov import __version__
 from ov.agent.api.screen import Screen, close_screen, open_screen, screen_key
 from ov.agent.engine.cancel import Cancel
 from ov.agent.instances import access
+from ov.agent.storage import db
 from ov.cli.context import TIMEOUT_ENV
 from ov.core.errors import EXIT_AUTH
 from ov.core.paths import agent_dir
@@ -216,7 +217,7 @@ def login(
         done.wait()
         return holder[0]
 
-    shown = open_screen(key, *screen) if screen and not token else None
+    shown = open_screen(key, *screen, db.get_preferences()["boost"]) if screen and not token else None
     try:
         holder.append(_run_login(url, tenant, token, shown, remember and not token, web_only=web_only))
         _check_access(url, tenant, holder[0])

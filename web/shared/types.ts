@@ -471,6 +471,7 @@ export interface Settings {
   notify: boolean
   tabBadge: boolean
   compactBranches: boolean
+  boost: boolean
 }
 
 export interface SkillInfo {

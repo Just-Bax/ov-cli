@@ -16,6 +16,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import { reportError } from '@/components/common/Toasts'
 import { Shimmer, useCopy } from '@/components/common/ui'
@@ -38,6 +39,14 @@ type Streamed = Frame & { data: string }
 export type FrameSize = { width: number; height: number }
 type ScreenEvent = Record<string, unknown> & { type: string }
 type SendScreen = (events: ScreenEvent[]) => Promise<{ open: boolean }>
+
+function onVisibility(change: () => void) {
+  document.addEventListener('visibilitychange', change)
+  return () => document.removeEventListener('visibilitychange', change)
+}
+
+const pageVisible = () => document.visibilityState === 'visible'
+
 type Phase = 'starting' | 'live' | 'gone'
 
 type Address = { host: string; rest: string; secure: boolean; href?: string }
@@ -149,6 +158,7 @@ export function LiveScreen({
   const sendTo = useSender(deliver)
   const send = (event: ScreenEvent) => sendTo(event, phase === 'live')
   const size = frame ?? screenSize()
+  const visible = useSyncExternalStore(onVisibility, pageVisible)
 
   const paint = () => {
     paintRequest.current = 0
@@ -160,6 +170,7 @@ export function LiveScreen({
   useLayoutEffect(paint, [Boolean(frame)])
 
   useEffect(() => {
+    if (!visible) return
     const source = new EventSource(streamUrl)
 
     source.onmessage = (e) => {
@@ -189,7 +200,7 @@ export function LiveScreen({
       cancelAnimationFrame(paintRequest.current)
       paintRequest.current = 0
     }
-  }, [streamUrl])
+  }, [streamUrl, visible])
 
   useEffect(() => {
     if (phase === 'live' && focusOnStart) keys.current?.focus()

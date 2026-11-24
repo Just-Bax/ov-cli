@@ -70,6 +70,7 @@ def _ensure_preferences(conn: Connection) -> None:
         "notify": False,
         "tab_badge": True,
         "compact_branches": False,
+        "boost": False,
     }
 
     statement = insert(Preference).values(id=PREFERENCE_ROW, updated_at=now_ms(), **values)

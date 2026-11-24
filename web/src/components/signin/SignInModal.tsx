@@ -258,7 +258,7 @@ export function SignInModal({
     return createPortal(
       <div
         className={cn(
-          'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 backdrop-blur-[2px] transition-opacity duration-(--duration-medium)',
+          'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 transition-opacity duration-(--duration-medium)',
           shown ? 'opacity-100' : 'opacity-0',
         )}
       >
@@ -293,7 +293,7 @@ export function SignInModal({
   return createPortal(
     <div
       className={cn(
-        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 backdrop-blur-[2px] transition-opacity duration-(--duration-medium)',
+        'fixed inset-0 z-[100] flex items-center justify-center bg-[#263238]/30 p-4 transition-opacity duration-(--duration-medium)',
         shown ? 'opacity-100' : 'opacity-0',
       )}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}

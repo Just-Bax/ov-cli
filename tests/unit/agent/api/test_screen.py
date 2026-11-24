@@ -29,19 +29,27 @@ class _Page:
         pass
 
 
+SNAPSHOT_REPLIES = {
+    "Page.captureScreenshot": {"data": "c25hcA=="},
+    "Page.getLayoutMetrics": {"cssVisualViewport": {"clientWidth": 800, "clientHeight": 600}},
+}
+
+
 class _Cdp:
     def __init__(self, fails: bool) -> None:
         self.fails = fails
+        self.sent: list[str] = []
 
     def on(self, event, handler) -> None:
         pass
 
     def send(self, method, params=None):
+        self.sent.append(method)
         if self.fails and method == "Page.startScreencast":
             from playwright.sync_api import Error
 
             raise Error("Protocol error (Page.startScreencast): Not attached to an active page")
-        return {}
+        return SNAPSHOT_REPLIES.get(method, {})
 
     def detach(self) -> None:
         pass
@@ -61,18 +69,57 @@ class _Context:
         self.sessions += 1
         if self.sessions > self.failures:
             self.screen.stop()
-        return _Cdp(self.sessions <= self.failures)
+        self.cdp = _Cdp(self.sessions <= self.failures)
+        return self.cdp
 
 
 def test_a_page_that_detaches_while_attaching_is_attached_again(monkeypatch):
     from ov.agent.api import screen as module
 
     monkeypatch.setattr(module, "ATTACH_RETRY_SECONDS", 0)
-    shown = module.Screen(800, 600)
+    shown = module.Screen(800, 600, False)
     context = _Context(2, shown)
 
-    shown._mirror(context)
+    with shown.viewing():
+        shown._mirror(context)
     assert context.sessions == 3
+
+
+def test_nothing_is_cast_while_nobody_watches():
+    from ov.agent.api import screen as module
+
+    shown = module.Screen(800, 600, False)
+    context = _Context(0, shown)
+
+    shown._mirror(context)
+    assert "Page.startScreencast" not in context.cdp.sent
+    assert shown.frame is None
+
+
+def test_a_viewer_gets_the_current_picture_at_once():
+    from ov.agent.api import screen as module
+
+    shown = module.Screen(800, 600, False)
+    context = _Context(0, shown)
+
+    with shown.viewing():
+        shown._mirror(context)
+    assert context.cdp.sent[:2] == ["Page.startScreencast", "Page.captureScreenshot"]
+    assert shown.frame == {"data": "c25hcA==", "url": _Page().url, "width": 800, "height": 600}
+
+
+def test_casting_stops_when_the_last_viewer_leaves():
+    from ov.agent.api.screen import _Feed
+
+    feed = _Feed(lambda frame=None: None)
+    feed.page = _Page()
+    cdp = _Cdp(False)
+
+    feed.cast(cdp, True)
+    feed.cast(cdp, True)
+    feed.cast(cdp, False)
+    assert cdp.sent.count("Page.startScreencast") == 1
+    assert cdp.sent[-1] == "Page.stopScreencast"
 
 
 def test_a_page_that_never_attaches_still_fails(monkeypatch):
@@ -81,9 +128,9 @@ def test_a_page_that_never_attaches_still_fails(monkeypatch):
     from ov.agent.api import screen as module
 
     monkeypatch.setattr(module, "ATTACH_RETRY_SECONDS", 0)
-    shown = module.Screen(800, 600)
+    shown = module.Screen(800, 600, False)
 
-    with pytest.raises(Error, match="Not attached"):
+    with pytest.raises(Error, match="Not attached"), shown.viewing():
         shown._mirror(_Context(module.ATTACH_ATTEMPTS, shown))
 
 

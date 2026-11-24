@@ -5,7 +5,7 @@ import queue
 import socket
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from playwright.sync_api import Error as PlaywrightError
@@ -15,17 +15,21 @@ from ov.agent.engine.cancel import Cancel
 from ov.browser.model import Element, first_line
 from ov.browser.reader import NAME_CHARS, VALUE_CHARS
 from ov.browser.scripts import NODE_SCRIPT
-from ov.onevizion.login import SCREEN_PORT_ENV, SCREEN_SIZE_ENV
+from ov.onevizion.login import SCREEN_BOOST_ENV, SCREEN_PORT_ENV, SCREEN_SIZE_ENV
 
 CONNECT_WAIT_SECONDS = 600
 CONNECT_RETRY_SECONDS = 0.5
 LOOPBACK_HOST = "127.0.0.1"
 LOOP_MS = 15
+ACTIVE_SECONDS = 1.0
+UNWATCHED_PAUSE_SECONDS = 0.25
 JPEG_QUALITY = 75
 FRAME_INTERVAL_SECONDS = 1 / 15
 MIN_SIDE = 320
 MAX_WIDTH = 1600
 MAX_HEIGHT = 1200
+SCREENCAST = {"format": "jpeg", "quality": JPEG_QUALITY, "maxWidth": MAX_WIDTH, "maxHeight": MAX_HEIGHT}
+SNAPSHOT = {"format": "jpeg", "quality": JPEG_QUALITY}
 MAX_EVENTS = 200
 MAX_TEXT_CHARS = 2000
 ATTACH_ATTEMPTS = 20
@@ -75,9 +79,10 @@ def _free_port() -> int:
 
 
 class Screen:
-    def __init__(self, width: int, height: int) -> None:
+    def __init__(self, width: int, height: int, boost: bool) -> None:
         self.port = _free_port()
         self.width, self.height = clamp_size(width, height)
+        self.boost = boost
         self.frame: dict[str, Any] | None = None
         self.seq = 0
         self.closed = False
@@ -88,23 +93,43 @@ class Screen:
         self._changed = threading.Condition()
         self._input: queue.SimpleQueue[dict[str, Any]] = queue.SimpleQueue()
         self._stop = threading.Event()
+        self._woken = threading.Event()
+        self._viewers = 0
+        self._acted_at = 0.0
         self._thread = threading.Thread(target=self._run, name="signin-screen", daemon=True)
 
     @property
     def env(self) -> dict[str, str]:
-        return {SCREEN_PORT_ENV: str(self.port), SCREEN_SIZE_ENV: f"{self.width}x{self.height}"}
+        return {
+            SCREEN_PORT_ENV: str(self.port),
+            SCREEN_SIZE_ENV: f"{self.width}x{self.height}",
+            SCREEN_BOOST_ENV: "1" if self.boost else "0",
+        }
 
     def start(self) -> None:
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
+        self._woken.set()
 
     def push(self, events: list[dict[str, Any]]) -> None:
         if self.closed:
             raise ScreenError("The sign-in browser has closed.")
         for event in events[:MAX_EVENTS]:
             self._input.put(_checked(event))
+        self._woken.set()
+
+    @contextlib.contextmanager
+    def viewing(self) -> Iterator[None]:
+        with self._changed:
+            self._viewers += 1
+        self._woken.set()
+        try:
+            yield
+        finally:
+            with self._changed:
+                self._viewers -= 1
 
     def wait(self, seen: int, timeout: float) -> bool:
         with self._changed:
@@ -154,6 +179,7 @@ class Screen:
 
             try:
                 cdp = self._follow(context, pages, targets, feed, cdp)
+                feed.cast(cdp, self._viewers > 0)
             except PlaywrightError as exc:
                 failed = _attach_failed(exc, failed, feed, targets)
                 cdp = None
@@ -162,11 +188,24 @@ class Screen:
             failed = 0
             with contextlib.suppress(PlaywrightError):
                 feed.flush(cdp)
-                while not self._input.empty():
-                    event = self._input.get()
-                    self._report(cdp, event)
-                    _apply(cdp, event)
-                feed.page.wait_for_timeout(LOOP_MS)
+                self._apply_input(cdp)
+                self._rest(feed)
+
+    def _apply_input(self, cdp: Any) -> None:
+        while not self._input.empty():
+            event = self._input.get()
+            self._report(cdp, event)
+            _apply(cdp, event)
+            self._acted_at = time.monotonic()
+
+    def _rest(self, feed: _Feed) -> None:
+        if time.monotonic() - max(self._acted_at, feed.framed_at) < ACTIVE_SECONDS:
+            feed.page.wait_for_timeout(LOOP_MS)
+            return
+
+        self._woken.wait(FRAME_INTERVAL_SECONDS if self._viewers else UNWATCHED_PAUSE_SECONDS)
+        self._woken.clear()
+        feed.page.wait_for_timeout(0)
 
     def _report(self, cdp: Any, event: dict[str, Any]) -> None:
         if self.watch is None:
@@ -265,6 +304,8 @@ def _leave_to_owner(_: Any) -> None:
 class _Feed:
     def __init__(self, publish: Any) -> None:
         self.page: Any = None
+        self.casting = False
+        self.framed_at = 0.0
         self._publish = publish
         self._acks: list[int] = []
         self._latest: dict[str, Any] | None = None
@@ -276,16 +317,40 @@ class _Feed:
                 old.detach()
 
         self.page = page
+        self.casting = False
         self._acks.clear()
         cdp = context.new_cdp_session(page)
         cdp.on("Page.screencastFrame", self._on_frame)
-        cdp.send(
-            "Page.startScreencast",
-            {"format": "jpeg", "quality": JPEG_QUALITY, "maxWidth": MAX_WIDTH, "maxHeight": MAX_HEIGHT},
-        )
         return cdp
 
+    def cast(self, cdp: Any, wanted: bool) -> None:
+        if wanted == self.casting:
+            return
+
+        if not wanted:
+            cdp.send("Page.stopScreencast")
+            self.casting = False
+            self._acks.clear()
+            self._latest = None
+            return
+
+        cdp.send("Page.startScreencast", SCREENCAST)
+        self.casting = True
+        self._snapshot(cdp)
+
+    def _snapshot(self, cdp: Any) -> None:
+        shot = cdp.send("Page.captureScreenshot", SNAPSHOT)
+        view = cdp.send("Page.getLayoutMetrics")["cssVisualViewport"]
+        self._latest = {
+            "data": shot["data"],
+            "url": self.page.url,
+            "width": view["clientWidth"],
+            "height": view["clientHeight"],
+        }
+        self._shown_at = 0.0
+
     def _on_frame(self, event: dict[str, Any]) -> None:
+        self.framed_at = time.monotonic()
         self._acks.append(event["sessionId"])
         meta = event["metadata"]
         self._latest = {
@@ -394,8 +459,8 @@ _screens: dict[Key, Screen] = {}
 _lock = threading.Lock()
 
 
-def open_screen(key: Key, width: int, height: int) -> Screen:
-    screen = Screen(width, height)
+def open_screen(key: Key, width: int, height: int, boost: bool) -> Screen:
+    screen = Screen(width, height, boost)
     with _lock:
         _screens[key] = screen
     screen.start()

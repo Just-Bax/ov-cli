@@ -259,12 +259,10 @@
   0%,
   60%,
   100% {
-    filter: none;
     opacity: 1;
   }
   30% {
-    filter: blur(2px);
-    opacity: 0.5;
+    opacity: 0.4;
   }
 }
 
@@ -298,35 +296,31 @@
 }
 
 .word-in {
-  animation: word-blur-in 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: word-rise-in 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 .word-out {
-  animation: word-blur-out 0.5s cubic-bezier(0.55, 0, 0.75, 0.3) both;
+  animation: word-rise-out 0.5s cubic-bezier(0.55, 0, 0.75, 0.3) both;
 }
 
-@keyframes word-blur-in {
+@keyframes word-rise-in {
   from {
     opacity: 0;
-    filter: blur(12px);
     transform: translateY(4px);
   }
   to {
     opacity: 1;
-    filter: blur(0);
     transform: none;
   }
 }
 
-@keyframes word-blur-out {
+@keyframes word-rise-out {
   from {
     opacity: 1;
-    filter: blur(0);
     transform: none;
   }
   to {
     opacity: 0;
-    filter: blur(12px);
     transform: translateY(-4px);
   }
 }

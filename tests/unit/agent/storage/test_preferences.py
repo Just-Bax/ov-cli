@@ -17,6 +17,11 @@ def test_notifications_start_off_and_the_tab_badge_on():
     assert db.save_preferences({"notify": True, "tabBadge": False})["notify"] is True
 
 
+def test_boost_starts_off_and_is_stored_as_a_boolean():
+    assert db.get_preferences()["boost"] is False
+    assert db.save_preferences({"boost": 1})["boost"] is True
+
+
 def test_removed_settings_are_refused():
     for removed in ("compactWindow", "followUp", "expandTools"):
         with pytest.raises(ValueError, match="Unknown settings"):

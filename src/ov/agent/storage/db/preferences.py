@@ -22,8 +22,9 @@ PREFERENCE_COLUMNS = {
     "notify": "notify",
     "tabBadge": "tab_badge",
     "compactBranches": "compact_branches",
+    "boost": "boost",
 }
-BOOLEAN_PREFERENCES = ("notify", "tabBadge", "compactBranches")
+BOOLEAN_PREFERENCES = ("notify", "tabBadge", "compactBranches", "boost")
 TEXT_PREFERENCES = ("workspace", "workspaceNotes", "fullName", "instructions")
 MODEL_PREFERENCES = {"defaultModel": "default_model", "fastModel": "fast_model"}
 REASONING_LEVELS = tuple(level.value for level in Reasoning)

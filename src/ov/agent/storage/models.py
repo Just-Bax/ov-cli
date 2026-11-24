@@ -204,6 +204,7 @@ class Preference(Base):
         CheckConstraint("notify IN (0, 1)", name="notify_valid"),
         CheckConstraint("tab_badge IN (0, 1)", name="tab_badge_valid"),
         CheckConstraint("compact_branches IN (0, 1)", name="compact_branches_valid"),
+        CheckConstraint("boost IN (0, 1)", name="boost_valid"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
@@ -217,6 +218,7 @@ class Preference(Base):
     notify: Mapped[bool] = mapped_column(Integer)
     tab_badge: Mapped[bool] = mapped_column(Integer)
     compact_branches: Mapped[bool] = mapped_column(Integer)
+    boost: Mapped[bool] = mapped_column(Integer)
     updated_at: Mapped[int] = mapped_column(Integer)
 
 

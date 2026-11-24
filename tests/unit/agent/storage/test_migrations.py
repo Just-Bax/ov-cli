@@ -37,7 +37,7 @@ def test_a_new_database_is_created_from_the_models_at_head(ov_home, monkeypatch)
     assert db.migrate() is True
     assert db.migrate() is False
     with sqlite3.connect(ov_home / "fresh" / "agent" / "agent.db") as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0022",)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchall() == [("0023",)]
     conn.close()
 
 
@@ -71,6 +71,7 @@ def test_migrating_renames_events_and_usage_and_links_continued_threads(ov_home,
     assert db.thread_cost("r1")["tokens"] == {"input": 4, "cache_read": 4, "output": 2}
     assert db.get_preferences()["maxSteps"] == 40
     assert db.get_preferences()["compactBranches"] is False
+    assert db.get_preferences()["boost"] is False
 
     with db._begin() as conn:
         kinds = sorted(conn.exec_driver_sql("SELECT kind FROM usage").scalars().all())

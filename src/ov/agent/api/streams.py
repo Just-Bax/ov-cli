@@ -41,14 +41,15 @@ def stream_screen(h: Handler, screen: Screen) -> None:
     open_stream(h)
     seen = -1
     try:
-        while not screen.closed:
-            if not screen.wait(seen, PING_SECONDS):
-                write_stream(h, SSE_PING)
-                continue
-            seen = screen.seq
+        with screen.viewing():
+            while not screen.closed:
+                if not screen.wait(seen, PING_SECONDS):
+                    write_stream(h, SSE_PING)
+                    continue
+                seen = screen.seq
 
-            if screen.frame is not None:
-                write_stream(h, f"data: {json.dumps(screen.frame)}\n\n")
+                if screen.frame is not None:
+                    write_stream(h, f"data: {json.dumps(screen.frame)}\n\n")
 
         write_stream(h, f"event: end\ndata: {json.dumps({'error': screen.failure})}\n\n")
     except ConnectionError:

@@ -29,7 +29,7 @@ from ov.browser.model import (
 )
 from ov.browser.pages import CLOSED
 from ov.browser.scripts import PICKER_SCRIPT
-from ov.onevizion.login import SCREEN_CHANNEL, browser_is_installed, desktop_user_agent
+from ov.onevizion.login import SCREEN_CHANNEL, browser_is_installed, desktop_user_agent, graphics_args
 
 LAUNCH_ARGS = ["--no-first-run", "--no-default-browser-check"]
 ACTION_TIMEOUT_MS = 15_000
@@ -62,6 +62,8 @@ class Pilot:
         debug_port: int,
         size: tuple[int, int],
         owner: Owner,
+        *,
+        boost: bool,
     ) -> None:
         if not browser_is_installed():
             raise BrowserError(NOT_INSTALLED)
@@ -78,6 +80,7 @@ class Pilot:
         self._port = debug_port
         self._size = {"width": size[0], "height": size[1]}
         self._owner = owner
+        self._boost = boost
         self._dialogs = Dialogs(owner.changed)
         self._jobs: queue.SimpleQueue[_Job | None] = queue.SimpleQueue()
         self._running: _Job | None = None
@@ -230,7 +233,7 @@ class Pilot:
                     profile,
                     headless=True,
                     channel=SCREEN_CHANNEL,
-                    args=[*LAUNCH_ARGS, f"--remote-debugging-port={self._port}"],
+                    args=[*LAUNCH_ARGS, f"--remote-debugging-port={self._port}", *graphics_args(self._boost)],
                     viewport=self._size,
                     user_agent=desktop_user_agent(),
                 )

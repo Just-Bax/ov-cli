@@ -74,7 +74,7 @@ function Pointer({ pointer, size }: { pointer: BrowserPointer; size: FrameSize }
       >
         <CursorIcon
           weight="fill"
-          className="text-brand-strong size-6 -translate-x-[3px] -translate-y-[2px] drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
+          className="text-brand-strong size-6 -translate-x-[3px] -translate-y-[2px] stroke-white [stroke-width:16] [paint-order:stroke]"
         />
       </span>
     </div>
@@ -244,7 +244,7 @@ function Approval({ runId, question }: { runId: string; question: ApprovalQuesti
   const { sending, send } = useAnswer(runId, question.id)
 
   return (
-    <div className="animate-fade-in absolute inset-0 z-20 flex items-center justify-center bg-[#263238]/35 p-6 backdrop-blur-[1px]">
+    <div className="animate-fade-in absolute inset-0 z-20 flex items-center justify-center bg-[#263238]/35 p-6">
       <div
         role="dialog"
         aria-modal="true"
@@ -285,7 +285,7 @@ export function BrowserBackdrop({ leaving }: { leaving: boolean }) {
   return (
     <div
       className={cn(
-        'fixed inset-0 bg-[#263238]/30 backdrop-blur-[2px]',
+        'fixed inset-0 bg-[#263238]/30',
         leaving ? 'animate-fade-out' : 'animate-fade-in',
       )}
     />

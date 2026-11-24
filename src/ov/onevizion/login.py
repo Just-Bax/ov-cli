@@ -34,7 +34,10 @@ MS_PER_SECOND = 1000
 BROWSERS_PATH_ENV = "PLAYWRIGHT_BROWSERS_PATH"
 SCREEN_PORT_ENV = "OV_LOGIN_SCREEN_PORT"
 SCREEN_SIZE_ENV = "OV_LOGIN_SCREEN_SIZE"
+SCREEN_BOOST_ENV = "OV_LOGIN_SCREEN_BOOST"
 SCREEN_CHANNEL = "chromium"
+CPU_ONLY_ARGS = ("--disable-gpu",)
+BOOST_ARGS = ("--ignore-gpu-blocklist", "--enable-gpu-rasterization", "--enable-zero-copy")
 UA_PLATFORMS = {
     "win32": "Windows NT 10.0; Win64; x64",
     "darwin": "Macintosh; Intel Mac OS X 10_15_7",
@@ -381,6 +384,7 @@ def _launch(p: Any, headless: bool, report: Progress) -> Any:
     if port:
         options.update(_screen_options(os.environ[SCREEN_SIZE_ENV]))
         options["args"].append(f"--remote-debugging-port={port}")
+        options["args"].extend(graphics_args(os.environ[SCREEN_BOOST_ENV] == "1"))
         threading.Thread(target=_watch_parent, daemon=True).start()
 
     try:
@@ -412,6 +416,10 @@ def _screen_options(size: str) -> dict[str, Any]:
         "viewport": {"width": width, "height": height},
         "user_agent": desktop_user_agent(),
     }
+
+
+def graphics_args(boost: bool) -> list[str]:
+    return list(BOOST_ARGS if boost else CPU_ONLY_ARGS)
 
 
 def desktop_user_agent() -> str:

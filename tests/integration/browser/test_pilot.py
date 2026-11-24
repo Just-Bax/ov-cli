@@ -98,7 +98,7 @@ def sites() -> Iterator[tuple[Site, Site]]:
 @pytest.fixture
 def pilot(sites) -> Iterator[Pilot]:
     instance, _ = sites
-    opened = Pilot(instance.url, {}, _free_port(), SCREEN, Owner())
+    opened = Pilot(instance.url, {}, _free_port(), SCREEN, Owner(), boost=False)
     try:
         yield opened
     finally:
